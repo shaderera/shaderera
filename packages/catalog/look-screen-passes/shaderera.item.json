@@ -1,0 +1,23 @@
+{
+  "name": "look-screen-passes",
+  "type": "component",
+  "title": "Screen looks",
+  "description": "The frame in another medium, one WebGPU pass over a texture or a canvas: ascii, halftone, ordered dither, heat map, contours, pixelate, inverse, and a row glitch with pixel sorting",
+  "category": "Looks",
+  "tags": [
+    "ascii",
+    "halftone",
+    "dither",
+    "heat map",
+    "contours",
+    "pixelate",
+    "glitch",
+    "pixel sort",
+    "post",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/looks/looks.ts", "src/looks/looks.wgsl.ts"]
+}

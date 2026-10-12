@@ -1,0 +1,17 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 10,
+  "duration": 1,
+  "width": 64,
+  "height": 36,
+  "params": {
+    "type": "object",
+    "properties": {
+      "locale": { "type": "string", "enum": ["en", "th"], "default": "en" }
+    }
+  },
+  "variants": {
+    "square": { "label": "Square", "width": 36, "height": 36, "duration": 0.5 },
+    "vertical": { "label": "Vertical", "width": 36, "height": 64, "duration": 0.5 }
+  }
+}

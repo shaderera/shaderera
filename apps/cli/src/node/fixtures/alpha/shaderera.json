@@ -1,0 +1,11 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 10,
+  "duration": 0.5,
+  "width": 32,
+  "height": 16,
+  "params": {
+    "type": "object",
+    "properties": { "unfinished": { "type": "boolean", "default": false } }
+  }
+}

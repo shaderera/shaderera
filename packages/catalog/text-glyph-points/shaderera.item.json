@@ -1,0 +1,11 @@
+{
+  "name": "text-glyph-points",
+  "type": "component",
+  "title": "Glyph points",
+  "description": "Text or a wordmark as a fixed point set for particles to form, with the position of every character so parts of a word can move apart",
+  "category": "Procedural & Particles",
+  "tags": ["particles", "text to points", "logo", "wordmark", "morph", "typography", "point cloud"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/procedural/glyph-points.ts"]
+}

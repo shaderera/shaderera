@@ -1,0 +1,4 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/cli", "src/project", "src/node", "src/runner", "src/stamp", "src/camera", "bin"]
+}

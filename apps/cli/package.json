@@ -1,0 +1,48 @@
+{
+  "name": "shaderera",
+  "version": "0.1.0",
+  "description": "Shaderera CLI and MCP: DevTools for programmable media that is deterministic in time.",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/shaderera/shaderera",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shaderera/shaderera.git",
+    "directory": "apps/cli"
+  },
+  "bugs": "https://github.com/shaderera/shaderera/issues",
+  "type": "module",
+  "bin": {
+    "shaderera": "./bin/shaderera.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "!dist/**/fixtures",
+    "docs",
+    "guides"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/docs.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@napi-rs/canvas": "1.0.10",
+    "@shaderera/core": "workspace:*",
+    "@shaderera/registry": "workspace:*",
+    "comlink": "4.4.2",
+    "diff": "8.0.4",
+    "fast-png": "8.0.0",
+    "jpeg-js": "0.4.4",
+    "magic-string": "1.4.3",
+    "oxc-parser": "0.153.0",
+    "wgpu-matrix": "3.4.2"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "audio-hall-ending",
+  "type": "component",
+  "title": "Hall ending",
+  "description": "Give a song that stops dead an ending: its last chord rings out in a synthetic hall, dies to digital silence, and the film holds",
+  "category": "Audio & Music",
+  "tags": ["ending", "reverb", "tail", "outro", "silence", "ffmpeg", "audio conform"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["tools/hall-ending.ts"]
+}

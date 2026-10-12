@@ -1,0 +1,633 @@
+// The runner's worker, on the runner origin under its CSP: the only caller of the project's Source.
+import type {
+  Caption,
+  Io,
+  Json,
+  Layer,
+  Manifest,
+  Matrices,
+  Pick,
+  SampledClip,
+  Source,
+} from '@shaderera/core'
+import { checkDeterminism, flattenFrame, frameAt } from '@shaderera/core'
+import {
+  checkManifest,
+  finalOnly,
+  fullDevice,
+  type GpuCompositor,
+  type GpuLayer,
+  type GpuOutput,
+  gpuCompositor,
+  openSource,
+  over,
+  paramDefaults,
+  type Seekable,
+  type ShaderWatch,
+  sampleClips,
+  seekable,
+  straight,
+  watchShaders,
+  withVariant,
+  yuvFits,
+} from '@shaderera/core/host'
+import * as Comlink from 'comlink'
+import { type Ask, extraIo } from './io.ts'
+
+export type Capabilities = {
+  inspect: boolean
+  pick: boolean
+  camera: boolean
+  /** `camera.override`: the source can render through another camera (Explore 3D). */
+  override: boolean
+  audio: boolean
+  /** Stepped in order; a seek back restores a checkpoint or replays from frame 0. */
+  sequential: false | { checkpoint: boolean }
+  /** The worker composites on the GPU and can return yuv420p at this frame size. */
+  yuv: boolean
+  /** The worker composites on the GPU and can return rgba64 (16 bits a channel). */
+  deep: boolean
+}
+export type RenderedLayer = { bitmap: ImageBitmap; name?: string; final?: boolean }
+
+/**
+ * Wall-clock reads made while the source renders (G2, decision 0011), as the Node host counts
+ * them: a frame that depends on the clock cannot be rendered again. Counted, never blocked.
+ */
+const clock = { date: 0, performance: 0, rendering: false }
+{
+  const now = Date.now
+  Date.now = () => {
+    if (clock.rendering) clock.date++
+    return now()
+  }
+  globalThis.Date = new Proxy(Date, {
+    construct(target, args, newTarget) {
+      if (args.length === 0 && clock.rendering) clock.date++
+      return Reflect.construct(target, args, newTarget)
+    },
+  })
+  const perf = performance.now.bind(performance)
+  performance.now = () => {
+    if (clock.rendering) clock.performance++
+    return perf()
+  }
+}
+const counted = async <T>(run: () => Promise<T>): Promise<T> => {
+  clock.rendering = true
+  try {
+    return await run()
+  } finally {
+    clock.rendering = false
+  }
+}
+
+let source: Source | undefined
+let manifest: Manifest
+/** The latest render's signal: a newer render aborts it, because a scrub made it stale. */
+let latest: AbortController | undefined
+/** The Studio's exploration camera: applied to preview renders only, kept across a reopen. */
+let explore: Matrices | null = null
+/** While an export runs, the source must not reopen with other params. */
+let exporting = false
+
+/** Where the open source's files are served: the project, or a revision's frozen copy. */
+let base = '/'
+const url = (path: string): string => `${base}${path.replace(/^\.?\//, '')}`
+
+const read = async (path: string) => {
+  try {
+    const response = await fetch(url(path))
+    if (!response.ok) throw new Error(String(response.status))
+    return new Uint8Array(await response.arrayBuffer())
+  } catch (error) {
+    throw new Error(`io.read(${path}): ${error instanceof Error ? error.message : error}`)
+  }
+}
+
+/** The CLI's process, through the runner server (runner-plugin.ts, SERVICE_PATH). */
+const service = async (op: string, query: Record<string, string>, body?: Uint8Array) => {
+  // @ts-expect-error: served by the runner plugin.
+  const token: string = (await import('/__shaderera/token.js')).default
+  const response = await fetch(
+    `/__shaderera/service/${op}?${new URLSearchParams({ ...query, token })}`,
+    {
+      method: body ? 'POST' : 'GET',
+      ...(body ? { body: body as Uint8Array<ArrayBuffer> } : {}),
+    },
+  )
+  if (response.status === 404) return null
+  if (!response.ok) throw new Error(await response.text())
+  return response
+}
+const ask: Ask = {
+  cacheGet: async (hash) => {
+    const r = await service('cache-get', { hash })
+    return r ? new Uint8Array(await r.arrayBuffer()) : null
+  },
+  cachePut: async (hash, bytes) => void (await service('cache-put', { hash }, bytes)),
+  videoOpen: async (path) => (await (await service('video-open', { path }))?.json()) as never,
+  videoFrame: async (path, index) =>
+    new Uint8Array(
+      await (
+        (await service('video-frame', { path, index: String(index) })) as Response
+      ).arrayBuffer(),
+    ),
+}
+
+const io: Io = {
+  read,
+  ...extraIo(read, ask),
+  canvas: (width, height) => new OffscreenCanvas(width, height),
+  font: async (path, family) => {
+    const face = new FontFace(family, (await io.read(path)) as Uint8Array<ArrayBuffer>)
+    await face.load()
+    ;(self as unknown as { fonts: FontFaceSet }).fonts.add(face)
+  },
+}
+
+/** The worker's WebGPU device, made once, when the browser has WebGPU; again after a loss. */
+let device: Promise<GPUDevice | undefined> | undefined
+/** Why the device was lost, until the source is reopened on a new one. */
+let lost: string | undefined
+/** WebGPU errors nothing caught (an invalid shader or pipeline): each fails the call it came in. */
+const gpuErrors: string[] = []
+/** The compiler's own errors for the shaders the source creates (decision 0011). */
+let shaders: ShaderWatch | undefined
+/**
+ * The worker's device, with every feature and limit the adapter allows (fullDevice, as the Node
+ * host asks: a path tracer's buffers pass the defaults), and its errors on the console instead of
+ * a render that never returns.
+ */
+const gpuDevice = () =>
+  (device ??= (async () => {
+    const adapter = await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' })
+    if (!adapter) return undefined
+    const gpu = await adapter.requestDevice(fullDevice(adapter))
+    shaders = watchShaders(gpu)
+    gpu.addEventListener('uncapturederror', (e) => {
+      const message = (e as GPUUncapturedErrorEvent).error.message
+      console.error(`WebGPU: ${message}`)
+      gpuErrors.push(message)
+    })
+    void gpu.lost.then((info) => {
+      device = undefined
+      lost = info.message || info.reason
+    })
+    return gpu
+  })())
+
+/** The frame's compositor on the worker's device (decision 0007); none without WebGPU. */
+let compositor: { gpu: GPUDevice; c: GpuCompositor } | undefined
+const compositorFor = async (): Promise<GpuCompositor | undefined> => {
+  const gpu = await gpuDevice()
+  if (!gpu) return undefined
+  const { width, height } = manifest
+  const c = compositor?.c
+  if (compositor?.gpu !== gpu || c?.width !== width || c?.height !== height) {
+    try {
+      c?.destroy()
+    } catch {
+      // Its device was lost: nothing to free.
+    }
+    compositor = { gpu, c: gpuCompositor(gpu, width, height) }
+  }
+  return compositor?.c
+}
+
+const isTexture = (color: unknown): color is GPUTexture =>
+  typeof GPUTexture !== 'undefined' && color instanceof GPUTexture
+
+/** A layer as the compositor takes it: an image not at the frame's size is drawn to it first. */
+const toGpuLayer = (layer: Layer, width: number, height: number): GpuLayer => {
+  const color = layer.color
+  const depth = layer.depth ? { depth: { data: layer.depth.data, soft: layer.depth.soft } } : {}
+  if (color instanceof Uint8Array || color instanceof Uint8ClampedArray || isTexture(color))
+    return { color, alpha: (layer as { alpha: GpuLayer['alpha'] }).alpha, ...depth }
+  const w = 'displayWidth' in color ? color.displayWidth : color.width
+  const h = 'displayHeight' in color ? color.displayHeight : color.height
+  if (w === width && h === height) return { color, alpha: 'premultiplied', ...depth }
+  const canvas = new OffscreenCanvas(width, height)
+  ;(canvas.getContext('2d') as OffscreenCanvasRenderingContext2D).drawImage(
+    color,
+    0,
+    0,
+    width,
+    height,
+  )
+  return { color: canvas, alpha: 'premultiplied', ...depth }
+}
+
+const toBitmap = async (layer: Layer, width: number, height: number): Promise<ImageBitmap> => {
+  const color = layer.color
+  if (isTexture(color)) {
+    // The Studio shows each layer as a bitmap: a texture comes back through the compositor.
+    const c = await compositorFor()
+    if (!c) throw new Error('A GPUTexture layer needs WebGPU.')
+    const bytes = await c.composite([toGpuLayer(layer, width, height)], 'rgba')
+    return createImageBitmap(
+      new ImageData(new Uint8ClampedArray(bytes.buffer as ArrayBuffer), width, height),
+    )
+  }
+  if (!(color instanceof Uint8Array || color instanceof Uint8ClampedArray)) {
+    return createImageBitmap(color as OffscreenCanvas | ImageBitmap | VideoFrame)
+  }
+  const alpha = 'alpha' in layer ? layer.alpha : 'straight'
+  return createImageBitmap(new ImageData(straight({ data: color, alpha }), width, height))
+}
+
+/** A layer's straight RGBA bytes, however it came. */
+const toBytes = async (layer: Layer, width: number, height: number): Promise<Uint8ClampedArray> => {
+  const bitmap = await toBitmap(layer, width, height)
+  const ctx = new OffscreenCanvas(width, height).getContext(
+    '2d',
+  ) as OffscreenCanvasRenderingContext2D
+  ctx.drawImage(bitmap, 0, 0, width, height)
+  bitmap.close()
+  return ctx.getImageData(0, 0, width, height).data
+}
+
+/**
+ * A frame whose layers carry depth, composited `over` with the depth test into one layer (the
+ * canvas draws none of it); a frame without depth comes back as it is.
+ */
+const depthTested = async (
+  layers: readonly Layer[],
+  width: number,
+  height: number,
+): Promise<readonly Layer[]> => {
+  if (!layers.some((l) => l.depth)) return layers
+  const rgba = await Promise.all(
+    layers.map(async (l) => ({
+      data: await toBytes(l, width, height),
+      alpha: 'straight' as const,
+      ...(l.depth ? { depth: { data: l.depth.data, soft: l.depth.soft } } : {}),
+    })),
+  )
+  const name = layers.map((l) => l.name ?? 'layer').join(' + ')
+  return [{ color: over(rgba, width, height), alpha: 'premultiplied', name }]
+}
+
+/*
+ * The project's DOM (manifest.dom) lives on the runner page, where the bridge lays it out and draws
+ * it (HTML-in-Canvas); the worker asks for it at t over this port, before each render.
+ */
+let domPort: MessagePort | undefined
+let asked = 0
+const waiting = new Map<number, { ok: (v: unknown) => void; fail: (e: Error) => void }>()
+const domCall = <T>(message: object, timeoutMs = 60_000): Promise<T> =>
+  new Promise<T>((ok, fail) => {
+    if (domPort === undefined) return fail(new Error('No runner page to draw the DOM on.'))
+    const id = ++asked
+    const timer = setTimeout(() => {
+      waiting.delete(id)
+      fail(new Error(`The DOM did not answer in ${timeoutMs / 1000} s.`))
+    }, timeoutMs)
+    waiting.set(id, {
+      ok: (v) => {
+        clearTimeout(timer)
+        ok(v as T)
+      },
+      fail: (e) => {
+        clearTimeout(timer)
+        fail(e)
+      },
+    })
+    domPort.postMessage({ ...message, id })
+  })
+/** The DOM drawn at t, when the manifest has one. */
+const domAt = async (t: number): Promise<ImageBitmap | undefined> =>
+  manifest.dom === undefined ? undefined : (await domCall<{ bitmap: ImageBitmap }>({ t })).bitmap
+
+// One call at a time; a render that arrives while one is queued replaces it (latest wins).
+type Job = {
+  render: boolean
+  run: () => Promise<unknown>
+  done: (v: unknown) => void
+  fail: (e: unknown) => void
+}
+const queue: Job[] = []
+let running = false
+/** The last open, to run again on a new device after the old one was lost. */
+let reopen: (() => Promise<unknown>) | undefined
+const pump = async () => {
+  if (running) return
+  running = true
+  for (let job = queue.shift(); job !== undefined; job = queue.shift()) {
+    try {
+      // A lost device fails the call it happened in; the next call reopens on a new device.
+      if (lost !== undefined && reopen) {
+        lost = undefined
+        await reopen()
+      }
+      gpuErrors.length = 0
+      const result = await job.run()
+      // Errors are reported as events after the call that made them: let them arrive.
+      await new Promise((done) => setTimeout(done, 0))
+      if (lost !== undefined)
+        throw new Error(
+          `The WebGPU device was lost (${lost}): this call failed; the next one reopens the source on a new device.`,
+        )
+      // A shader that did not compile is named by the compiler, not by the pipelines it broke.
+      const compile = (await shaders?.settle()) ?? []
+      if (compile.length > 0)
+        throw new Error(
+          `${compile.length} shader error(s) during this call, so its result is not trusted:\n${compile.join('\n')}`,
+        )
+      if (gpuErrors.length > 0)
+        throw new Error(
+          `WebGPU reported ${gpuErrors.length} error(s) during this call, so its result is not trusted: ${gpuErrors[0]}`,
+        )
+      job.done(result)
+    } catch (error) {
+      job.fail(error)
+    }
+  }
+  running = false
+}
+const enqueue = <T>(render: boolean, run: () => Promise<T>): Promise<T> =>
+  new Promise<T>((done, fail) => {
+    if (render) {
+      const i = queue.findIndex((job) => job.render)
+      if (i >= 0) queue.splice(i, 1)[0]?.fail(new Error('superseded'))
+    }
+    queue.push({ render, run, done: done as (v: unknown) => void, fail })
+    void pump()
+  })
+
+const opened = (): Source => {
+  if (source === undefined) throw new Error('The runner has no open source.')
+  return source
+}
+
+export type OpenOptions = {
+  /** Replaces the manifest's defaults (and the variant's): the preview's params, or a job's. */
+  params?: { [key: string]: Json }
+  /** A saved revision, opened from its frozen copy under .shaderera/revisions/: a render job. */
+  revision?: string
+  /** A variant from shaderera.json, applied to the manifest the source opens with. */
+  variant?: string
+  /** Overrides the manifest's frame size: review's resized reopen. */
+  size?: { width: number; height: number }
+}
+
+const api = {
+  /** Opens the project's Source, or a job's frozen revision, with a variant and params. */
+  open: (o: OpenOptions = {}) => {
+    reopen = async () => {
+      if (exporting) throw new Error('An export is running; parameters apply after it ends.')
+      if (o.revision !== undefined && !/^[0-9a-f]{16}$/.test(o.revision))
+        throw new Error(`Not a revision id: ${o.revision}`)
+      source?.dispose?.()
+      base = o.revision ? `/.shaderera/revisions/${o.revision}/` : '/'
+      const declared = checkManifest(await (await fetch(url('shaderera.json'))).json())
+      const variant = withVariant(declared, o.variant)
+      manifest = { ...variant.manifest, ...o.size }
+      const module: unknown = o.revision
+        ? await import(/* @vite-ignore */ url(declared.entry))
+        : // @ts-expect-error: served by the runner plugin, which re-exports manifest.entry.
+          await import('/__shaderera/entry.js')
+      const host = {
+        manifest,
+        params: o.params ?? { ...paramDefaults(manifest), ...variant.params },
+        seed: manifest.seed ?? 0,
+        io,
+        gpu: await gpuDevice(),
+      }
+      // A revision's DOM is its own frozen file, beside its entry; never the live one.
+      if (manifest.dom !== undefined)
+        await domCall({
+          mount: {
+            manifest,
+            params: host.params,
+            ...(o.revision ? { module: url(manifest.dom) } : {}),
+          },
+        })
+      const open = () => openSource(module, host)
+      // A sequential source steps skipped frames itself; each gets the DOM drawn at its own t.
+      const prepare = async (at: number) => ({ dom: await domAt(at) })
+      source = manifest.sequential ? await seekable(open, manifest, { prepare }) : await open()
+      const s = source
+      const capabilities: Capabilities = {
+        inspect: typeof s.inspect === 'function',
+        pick: typeof s.pick === 'function',
+        camera: s.camera !== undefined,
+        override: typeof s.camera?.override === 'function',
+        audio: typeof s.audio === 'function',
+        sequential: manifest.sequential
+          ? { checkpoint: (s as Seekable).stats().checkpoint }
+          : false,
+        yuv: !!host.gpu && yuvFits(manifest.width, manifest.height),
+        deep: !!host.gpu,
+      }
+      if (explore) s.camera?.override?.(explore)
+      return { manifest, capabilities }
+    }
+    return enqueue(false, reopen)
+  },
+  render: (t: number, intent: 'preview' | 'final' = 'preview') => {
+    latest?.abort(new Error('superseded'))
+    latest = new AbortController()
+    const { signal } = latest
+    return enqueue(true, async () => {
+      const { width, height } = manifest
+      const dom = await domAt(t)
+      const layers: RenderedLayer[] = []
+      // The DOM bitmap is the host's: closed once the frame's layers are copied out of it.
+      try {
+        signal.throwIfAborted()
+        const frame = await counted(() =>
+          opened().render(t, {
+            width,
+            height,
+            intent,
+            signal,
+            frame: frameAt(t, manifest.fps),
+            ...(dom ? { dom } : {}),
+          }),
+        )
+        for (const layer of await depthTested(
+          finalOnly(flattenFrame(frame), intent, t),
+          width,
+          height,
+        )) {
+          layers.push({
+            bitmap: await toBitmap(layer, width, height),
+            name: layer.name,
+            final: layer.final,
+          })
+        }
+      } finally {
+        dom?.close()
+      }
+      return Comlink.transfer(
+        { layers },
+        layers.map((l) => l.bitmap),
+      )
+    })
+  },
+  inspect: (t: number) =>
+    enqueue(false, async (): Promise<Json | null> => (await opened().inspect?.(t)) ?? null),
+  pick: (t: number, x: number, y: number) =>
+    enqueue(false, async (): Promise<Pick | null> => (await opened().pick?.(t, x, y)) ?? null),
+  camera: (t: number) =>
+    enqueue(false, async (): Promise<Matrices | null> => (await opened().camera?.get(t)) ?? null),
+  /** The Studio's exploration camera for previews; `null` gives control back to the source. */
+  override: (matrices: Matrices | null) =>
+    enqueue(false, async () => {
+      explore = matrices
+      opened().camera?.override?.(matrices)
+    }),
+  /** Marks an export running (no reopen) or ended. */
+  exporting: (on: boolean) =>
+    enqueue(false, async () => {
+      exporting = on
+    }),
+  audio: () =>
+    // A function gain cannot cross to the page: it goes as samples (sampleClips).
+    enqueue(
+      false,
+      async (): Promise<readonly SampledClip[]> =>
+        sampleClips((await opened().audio?.()) ?? [], manifest.duration).map(toBase64Pcm),
+    ),
+  /** How often render read the wall clock since the worker started (counted, never blocked). */
+  clock: async () => ({ date: clock.date, performance: clock.performance }),
+  /** The source's captions, as it returns them; null without captions(). */
+  captions: () =>
+    enqueue(
+      false,
+      async (): Promise<readonly Caption[] | null> =>
+        opened().captions ? await (opened().captions as () => Promise<readonly Caption[]>)() : null,
+    ),
+  /** How a sequential source reached its frames; null for any other. */
+  seeks: () =>
+    enqueue(false, async () => (manifest.sequential ? (opened() as Seekable).stats() : null)),
+  /** The DOM's text at t as the page laid it out (dom.ts `text`); [] without a DOM. */
+  text: (t: number) =>
+    enqueue(false, async () =>
+      manifest.dom === undefined ? [] : (await domCall<{ runs: unknown[] }>({ text: t })).runs,
+    ),
+  /**
+   * The frame at t through the authored camera, composited `over`, as straight RGBA bytes (for
+   * diffs, checks and export).
+   */
+  pixels: (t: number, intent: 'preview' | 'final' = 'final') =>
+    enqueue(false, () =>
+      authored(async () => {
+        const bytes = await composite(t, intent)
+        return Comlink.transfer(bytes, [bytes.buffer])
+      }),
+    ),
+  /**
+   * The frame at t, POSTed to the runner server at `to` (the browser host's way home: one HTTP body
+   * instead of base64 over the DevTools protocol).
+   */
+  send: (t: number, intent: 'preview' | 'final', format: GpuOutput, to: string) =>
+    enqueue(false, () =>
+      authored(async () => {
+        const bytes = await composite(t, intent, format)
+        const r = await fetch(to, { method: 'POST', body: bytes as Uint8Array<ArrayBuffer> })
+        if (!r.ok) throw new Error(`The runner server refused the frame (${r.status}).`)
+      }),
+    ),
+  /** checkDeterminism in the browser host, through the authored camera: two orders, same output. */
+  check: (times: readonly number[]) =>
+    enqueue(false, () =>
+      authored(() =>
+        checkDeterminism({
+          times,
+          render: (t) => composite(t, 'final'),
+          inspect: opened().inspect
+            ? async (t) => (await opened().inspect?.(t)) ?? null
+            : undefined,
+        }),
+      ),
+    ),
+}
+
+/**
+ * Runs `run` through the source's authored camera: the exploration override is lifted for it and
+ * put back after. Safe because the queue runs one call at a time.
+ */
+const authored = async <T>(run: () => Promise<T>): Promise<T> => {
+  const camera = opened().camera
+  if (!explore || !camera?.override) return run()
+  camera.override(null)
+  try {
+    return await run()
+  } finally {
+    camera.override(explore)
+  }
+}
+
+/**
+ * The frame at t as bytes: composited on the GPU (straight RGBA, or yuv420p for an mp4); without
+ * WebGPU, drawn bottom to top on one canvas, as the preview does, and read back (RGBA only).
+ */
+const composite = async (
+  t: number,
+  intent: 'preview' | 'final',
+  format: GpuOutput = 'rgba',
+): Promise<Uint8Array | Uint8ClampedArray> => {
+  const { width, height } = manifest
+  const dom = await domAt(t)
+  try {
+    const frame = await counted(() =>
+      opened().render(t, {
+        width,
+        height,
+        intent,
+        frame: frameAt(t, manifest.fps),
+        ...(dom ? { dom } : {}),
+      }),
+    )
+    const layers = finalOnly(flattenFrame(frame), intent, t)
+    const c = await compositorFor()
+    if (c)
+      return await c.composite(
+        layers.map((l) => toGpuLayer(l, width, height)),
+        format,
+      )
+    if (format !== 'rgba')
+      throw new Error(`${format} is made on the GPU: this browser has no WebGPU.`)
+    const canvas = new OffscreenCanvas(width, height)
+    const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+    for (const layer of await depthTested(layers, width, height)) {
+      const bitmap = await toBitmap(layer, width, height)
+      ctx.drawImage(bitmap, 0, 0, width, height)
+      bitmap.close()
+    }
+    return ctx.getImageData(0, 0, width, height).data
+  } finally {
+    dom?.close()
+  }
+}
+export type RunnerApi = typeof api
+
+self.addEventListener('message', (event: MessageEvent) => {
+  const data = event.data as { connect?: MessagePort; dom?: MessagePort } | null
+  if (data?.connect !== undefined) Comlink.expose(api, data.connect)
+  if (data?.dom !== undefined) {
+    domPort = data.dom
+    domPort.onmessage = (e: MessageEvent) => {
+      const m = e.data as { id: number; error?: string }
+      const w = waiting.get(m.id)
+      waiting.delete(m.id)
+      if (m.error !== undefined) w?.fail(new Error(m.error))
+      else w?.ok(m)
+    }
+  }
+})
+
+/** A clip's samples as base64 float32, so they reach the browser host in one string each. */
+function toBase64Pcm(c: SampledClip): SampledClip {
+  if (!c.pcm) return c
+  const channels = c.pcm.channels.map((ch) => {
+    const bytes = new Uint8Array(ch.buffer, ch.byteOffset, ch.byteLength)
+    let s = ''
+    for (let i = 0; i < bytes.length; i += 0x8000)
+      s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    return btoa(s)
+  })
+  return { ...c, pcm: { sampleRate: c.pcm.sampleRate, channels: channels as never } }
+}

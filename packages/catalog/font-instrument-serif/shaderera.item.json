@@ -1,0 +1,16 @@
+{
+  "name": "font-instrument-serif",
+  "type": "media",
+  "title": "Instrument Serif",
+  "description": "A condensed editorial display serif, regular and italic, for titles and main phrases in an art-publication or magazine voice",
+  "category": "Fonts",
+  "tags": ["serif", "display", "editorial", "italic", "title", "magazine", "latin", "ofl"],
+  "version": "0.1.0",
+  "licence": "OFL-1.1",
+  "source": { "origin": "https://github.com/google/fonts/tree/main/ofl/instrumentserif" },
+  "files": [
+    "assets/fonts/InstrumentSerif-Regular.ttf",
+    "assets/fonts/InstrumentSerif-Italic.ttf",
+    "assets/fonts/InstrumentSerif-OFL.txt"
+  ]
+}

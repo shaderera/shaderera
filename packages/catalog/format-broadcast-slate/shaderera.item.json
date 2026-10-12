@@ -1,0 +1,11 @@
+{
+  "name": "format-broadcast-slate",
+  "type": "component",
+  "title": "Broadcast slate",
+  "description": "A clock slate for a broadcast preroll (fill: 'source'): the spot's details and a countdown in seconds, going to black before the programme, drawn on a 2D canvas at negative t",
+  "category": "Layout & Formats",
+  "tags": ["slate", "clock", "preroll", "broadcast", "countdown", "clearcast"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/delivery/slate.ts"]
+}

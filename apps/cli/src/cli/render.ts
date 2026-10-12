@@ -1,0 +1,442 @@
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { availableParallelism } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
+import { exportFrames, frameTimes, type Sink } from '@shaderera/core'
+import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
+import { readPlan, renderChunk } from '../deliver/chunks.ts'
+import { exportFinishing } from '../deliver/finishing.ts'
+import type { Child, ClockReads } from '../node/child.ts'
+import type { Project } from '../node/project.ts'
+import { findProject } from '../node/project.ts'
+import { DELIVERY_FLAGS, deliveryOf, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
+import { outputRequirements, readRequirements } from '../project/requirements.ts'
+import { childOptions, open, parse } from './args.ts'
+import { clockOf, clockWarning } from './clock.ts'
+import {
+  bitsPerSecond,
+  CODECS,
+  type Codec,
+  clipFiles,
+  type Encoder,
+  ffmpegArgs,
+  ffmpegSink,
+  hasNvenc,
+  type Input,
+  type Loudness,
+  loudnessGain,
+  loudnessLine,
+  measureLoudness,
+  type Probe,
+  probe,
+  probeLine,
+  type Quality,
+  requireFfmpeg,
+  withGainFiles,
+  writeStems,
+} from './ffmpeg.ts'
+import { found } from './findings.ts'
+import { blackFrame, fileTimecode, prerollOf, writePreroll } from './preroll.ts'
+
+/**
+ * How many hosts an export uses by default (decision 0007): up to 4, two cores left free, at
+ * least 30 frames each; one for a sequential source, which cannot be split.
+ */
+export const defaultWorkers = (manifest: Project['manifest'], frames: number): number =>
+  manifest.sequential
+    ? 1
+    : Math.max(1, Math.min(4, availableParallelism() - 2, Math.floor(frames / 30)))
+
+/** Options a video export shares with jobs and batches: what file, at what rate, with what sound. */
+export type VideoOptions = {
+  /** `h264` (an mp4; the default) or ProRes (a mov with PCM audio). */
+  codec?: Codec
+  /** H.264: a constant bitrate such as `15M` (a floor and a ceiling: CTV). */
+  bitrate?: string
+  /** H.264: a ceiling on the crf's bitrate such as `10M` (DOOH). */
+  maxrate?: string
+  /** `false`: an mp4 with no edit list, its audio trimmed by the AAC priming (ffmpegArgs). */
+  editList?: boolean
+  /** One WAV per clip `group` beside the file (`<name>.stems/<group>.wav`), summing to the mix. */
+  stems?: boolean
+}
+
+/** The file name extension of a codec's container. */
+export const extensionOf = (codec: Codec = 'h264') => (codec === 'h264' ? '.mp4' : '.mov')
+
+/** Checks options given on the command line or in a job, before anything renders. */
+export const checkVideoOptions = (o: VideoOptions) => {
+  if (o.codec !== undefined && !CODECS.includes(o.codec))
+    throw new Error(`A codec is ${CODECS.join(', ')}, not ${String(o.codec)}.`)
+  if (o.bitrate !== undefined) bitsPerSecond(o.bitrate)
+  if (o.maxrate !== undefined) bitsPerSecond(o.maxrate)
+  if (o.bitrate !== undefined && o.maxrate !== undefined)
+    throw new Error('--bitrate is a constant rate already: give it or --maxrate, not both.')
+  if ((o.codec ?? 'h264') !== 'h264' && (o.bitrate || o.maxrate || o.editList === false))
+    throw new Error('--bitrate, --maxrate and --no-edit-list are for H.264 in an mp4.')
+}
+
+/**
+ * Exports [from, to] to an mp4 (H.264) or a mov (ProRes) with ffmpeg; returns the file, frame count
+ * and seconds, the file as probed and its sidecars. A source that fails exportFrames's determinism
+ * check leaves no file. With `workers` > 1 and `more`, frames are spread over that many hosts
+ * (`child` and ones `more` opens) and written in order; the hosts `more` opened are closed here. A
+ * host that composites on the GPU hands ffmpeg yuv420p for H.264 and 16-bit RGBA for ProRes.
+ * A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file.
+ */
+export const exportVideo = async (
+  { root, manifest }: Project,
+  child: Child,
+  o: VideoOptions & {
+    from?: number
+    to?: number
+    out?: string
+    quality?: Quality
+    crf?: number
+    onFrame?: (i: number, n: number) => void
+    workers?: number
+    more?: () => Promise<Child>
+    /** By default NVENC for a review where this machine has it, x264 for a master or without. */
+    encoder?: Encoder
+    /** `false`: no audio stream, whatever the source's clips (a silent DOOH placement, say). */
+    audio?: boolean
+    /** A loudness to bring the mix to, in LUFS integrated, by one constant gain (loudnessGain). */
+    loudness?: number
+    /**
+     * Frames rendered already (a plan's chunks), in order and in this input format: encoded as
+     * they are instead of rendered here. `child` still gives the sound and the captions.
+     */
+    frames?: { input: Input; count: number; read: () => AsyncIterable<Uint8Array> }
+  },
+): Promise<{
+  out: string
+  frames: number
+  seconds: number
+  workers: number
+  /** `x264`, `nvenc`, or `prores` for a mov. */
+  encoder: Encoder | 'prores'
+  /** Bits a channel the frames reached the encoder with: 16 from the GPU compositor for ProRes. */
+  bits: 8 | 16
+  /** The file's audio, measured (EBU R128); null without audio. */
+  loudness: Loudness | null
+  /** The constant gain a requested loudness applied, in dB. */
+  gainDb?: number
+  /** The file as ffprobe and its boxes report it: codec, bitrate, colour tags, edit list. */
+  probe: Probe
+  /** The stems written, one per group (with `stems`). */
+  stems?: string[]
+  /** The caption sidecars written (a source with captions). */
+  captions?: string[]
+  /** Wall-clock reads inside render, over every host (counted, never blocked). */
+  clock: ClockReads
+}> => {
+  checkVideoOptions(o)
+  const codec = o.codec ?? 'h264'
+  const prores = codec !== 'h264'
+  const encoder = prores
+    ? 'prores'
+    : (o.encoder ??
+      ((o.quality ?? 'review') === 'review' && hasNvenc(manifest.width, manifest.height)
+        ? 'nvenc'
+        : 'x264'))
+  if (encoder === 'nvenc' && !hasNvenc(manifest.width, manifest.height))
+    throw new Error(
+      'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
+    )
+  requireFfmpeg()
+  const from = o.from ?? 0
+  const to = o.to ?? manifest.duration
+  // A declared preroll comes before `from`: the file, its sound and its captions start at `head`.
+  const preroll = prerollOf(manifest)
+  const head = from - preroll.seconds
+  const out = o.out
+    ? resolve(root, o.out)
+    : join(root, 'out', `${basename(root)}${extensionOf(codec)}`)
+  mkdirSync(dirname(out), { recursive: true })
+  // Project files as they are; sound made in code as temporary WAVs.
+  const files = clipFiles(root, o.audio === false ? [] : ((await child.audio()) ?? []))
+  const workers = manifest.sequential || !o.more ? 1 : Math.max(1, Math.floor(o.workers ?? 1))
+  const start = performance.now()
+  const base = out.replace(/\.[^./\\]+$/, '')
+  const sidecars: string[] = []
+  // Everything that can throw is inside the try, so the hosts opened here are always closed.
+  let opened: Child[] = []
+  let cleanup = () => {}
+  try {
+    const gains = withGainFiles(files.clips, head, to)
+    cleanup = gains.cleanup
+    const { clips } = gains
+    const level = o.loudness === undefined ? null : loudnessGain(clips, head, to, o.loudness)
+    const extra = await Promise.allSettled(
+      Array.from({ length: workers - 1 }, () => (o.more as () => Promise<Child>)()),
+    )
+    opened = extra.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    const failed = extra.find((r) => r.status === 'rejected')
+    if (failed) throw (failed as PromiseRejectedResult).reason
+    const hosts = [child, ...opened]
+    // Every host must give the same bytes in the same format.
+    const input: Input = o.frames
+      ? o.frames.input
+      : prores
+        ? hosts.every((h) => h.has.deep)
+          ? 'rgba64'
+          : 'rgba'
+        : hosts.every((h) => h.has.yuv)
+          ? 'yuv420p'
+          : 'rgba'
+    const args = ffmpegArgs({
+      ...manifest,
+      from: head,
+      to,
+      ...(manifest.timecode || preroll.frames
+        ? { timecode: fileTimecode(manifest, from, preroll.frames) }
+        : {}),
+      out,
+      quality: o.quality,
+      crf: o.crf,
+      clips,
+      input,
+      codec,
+      ...(prores ? {} : { encoder: encoder as Encoder }),
+      ...(o.bitrate ? { bitrate: o.bitrate } : {}),
+      ...(o.maxrate ? { maxrate: o.maxrate } : {}),
+      ...(o.editList === false ? { editList: false } : {}),
+      ...(level ? { gainDb: level.gainDb } : {}),
+    })
+    let next = 0
+    const sink = ffmpegSink(args, input, codec !== 'prores-4444')
+    await writePreroll(sink, {
+      ...preroll,
+      from,
+      fps: manifest.fps,
+      black: () => blackFrame(input, manifest.width, manifest.height),
+      render: async (t) => (await child.render(t, 'final', input)).pixels,
+    })
+    const { frames } = o.frames
+      ? await encodeFrames(sink, o.frames, o.onFrame)
+      : await exportFrames({
+          fps: manifest.fps,
+          from,
+          to,
+          // Frames go round the hosts in the order exportFrames asks for them.
+          render: async (t) =>
+            (await (hosts[next++ % hosts.length] as Child).render(t, 'final', input)).pixels,
+          inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
+          sink,
+          onFrame: o.onFrame,
+          ahead: hosts.length * 2,
+        })
+    const stems =
+      o.stems && clips.length > 0
+        ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
+        : undefined
+    const clock = await clockOf(hosts)
+    const captions = await child.captions()
+    if (captions) {
+      const cues = windowCaptions(captions, head, to)
+      writeFileSync(`${base}.srt`, toSrt(cues))
+      writeFileSync(`${base}.vtt`, toVtt(cues))
+      sidecars.push(`${base}.srt`, `${base}.vtt`)
+    }
+    return {
+      out,
+      frames,
+      seconds: (performance.now() - start) / 1000,
+      workers: hosts.length,
+      encoder,
+      bits: input === 'rgba64' ? 16 : 8,
+      loudness: clips.length > 0 ? measureLoudness(out) : null,
+      ...(level ? { gainDb: level.gainDb } : {}),
+      probe: probe(out),
+      clock,
+      ...(stems ? { stems } : {}),
+      ...(sidecars.length ? { captions: sidecars } : {}),
+    }
+  } catch (error) {
+    rmSync(out, { force: true })
+    for (const f of sidecars) rmSync(f, { force: true })
+    if (o.stems) rmSync(`${base}.stems`, { recursive: true, force: true })
+    throw error
+  } finally {
+    await Promise.all(opened.map((h) => h.close()))
+    cleanup()
+    files.cleanup()
+  }
+}
+
+/**
+ * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
+ * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
+ * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc] [--no-audio] [--loudness LUFS]`.
+ * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
+ * mix to that integrated loudness by one constant gain; the true peak is reported, never limited. --workers: how many hosts
+ * render frames at once (defaultWorkers; 1 for a sequential source). --encoder: by default NVENC
+ * for a review where this machine has it, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
+ * window; the working tree does not matter. A png job writes the finishing handoff into
+ * out/<job>/ (frames, audio.wav, delivery.json) instead of an mp4.
+ */
+const encoderOf = (value: unknown): Encoder => {
+  if (value === 'x264' || value === 'nvenc') return value
+  throw new Error(`--encoder is x264 or nvenc, not ${String(value)}.`)
+}
+
+export const run = async (argv: readonly string[]): Promise<number> => {
+  const v = parse(argv, {
+    job: { type: 'string' },
+    from: { type: 'string' },
+    to: { type: 'string' },
+    out: { type: 'string' },
+    crf: { type: 'string' },
+    progress: { type: 'boolean' },
+    workers: { type: 'string' },
+    encoder: { type: 'string' },
+    'no-audio': { type: 'boolean' },
+    chunk: { type: 'string' },
+    plan: { type: 'string' },
+    loudness: { type: 'string' },
+    ...DELIVERY_FLAGS,
+  })
+  const audio = v['no-audio'] !== true
+  const loudness = v.loudness === undefined ? undefined : Number(v.loudness)
+  if (loudness !== undefined && !Number.isFinite(loudness))
+    throw new Error('--loudness needs LUFS, such as -23 or -14.')
+  requireFfmpeg()
+  const root = (await findProject(typeof v.root === 'string' ? v.root : process.cwd())).root
+  const job = typeof v.job === 'string' ? readJob(root, v.job) : undefined
+  const given = Object.keys(DELIVERY_FLAGS).filter((k) => v[k as keyof typeof v] !== undefined)
+  if (job && given.length > 0)
+    throw new Error(
+      `Job ${job.name} froze its delivery (${job.delivery.format}); --${given.join(', --')} belong to shaderera job.`,
+    )
+  const delivery = job?.delivery ?? deliveryOf(v)
+  if (!job && delivery.format === 'png')
+    throw new Error(
+      "A png delivery is a job's finishing handoff: shaderera job --png, then render --job.",
+    )
+  const video = videoOptionsOf(delivery)
+  checkVideoOptions(video)
+  if (job && v.host !== undefined && v.host !== job.host)
+    throw new Error(
+      `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
+    )
+  const { project, child, more } = job ? await openJob(root, job, childOptions(v)) : await open(v)
+  // The progress line goes to a terminal, or to a reader that asks (--progress);
+  // piped into a log, it would be one line per frame.
+  const progress = process.stderr.isTTY || v.progress === true
+  const num = (x: unknown) => (x === undefined ? undefined : Number(x))
+  const start = performance.now()
+  const onFrame = progress
+    ? (i: number, n: number) => {
+        const fps = ((i + 1) * 1000) / (performance.now() - start)
+        process.stderr.write(`\rframe ${i + 1}/${n}  ${fps.toFixed(1)} fps`)
+      }
+    : undefined
+  try {
+    if (v.chunk !== undefined) {
+      // One chunk of a plan: this machine's share, into the plan's folder.
+      if (!job)
+        throw new Error(
+          '--chunk renders a chunk of a job: shaderera render --job <name> --chunk <i>.',
+        )
+      const dir =
+        typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${job.name}.plan`)
+      const plan = readPlan(dir)
+      if (plan.jobId !== job.id)
+        throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
+      const r = await renderChunk(child, plan, Number(v.chunk), dir, onFrame).finally(
+        () => progress && process.stderr.write('\n'),
+      )
+      console.log(
+        `chunk ${r.index}: ${r.frames} frames in ${r.seconds.toFixed(1)} s → ${join(dir, plan.chunks[r.index]?.file ?? '')}`,
+      )
+      return 0
+    }
+    if (job?.delivery.format === 'png') {
+      const done = await exportFinishing(project, child, job, {
+        dir: typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', job.name),
+        requirements: outputRequirements(readRequirements(root), {
+          variant: job.variant,
+          ...job.output,
+          duration: job.output.to - job.output.from,
+          textless: project.manifest.textless === true,
+        }),
+        quick: true,
+        audio,
+        loudness,
+        onFrame,
+        ...(job.delivery.bits ? { bits: job.delivery.bits } : {}),
+        ...(job.delivery.stems ? { stems: true } : {}),
+      }).finally(() => progress && process.stderr.write('\n'))
+      console.log(`${done.dir}\n${done.record.frameCount} frames in ${done.seconds.toFixed(1)} s`)
+      if (done.record.audio?.loudness)
+        console.log(`audio: ${loudnessLine(done.record.audio.loudness)}`)
+      return 0
+    }
+    const from = job?.output.from ?? num(v.from) ?? 0
+    const to = job?.output.to ?? num(v.to) ?? project.manifest.duration
+    const ext = extensionOf(video.codec)
+    const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
+      ...video,
+      from,
+      to,
+      workers:
+        num(v.workers) ??
+        defaultWorkers(project.manifest, frameTimes(project.manifest.fps, from, to).length),
+      more,
+      out:
+        typeof v.out === 'string'
+          ? resolve(v.out)
+          : job
+            ? join(root, 'out', `${job.name}${ext}`)
+            : typeof v.variant === 'string'
+              ? join(root, 'out', `${basename(root)}-${v.variant}${ext}`)
+              : undefined,
+      quality: delivery.quality,
+      crf: num(v.crf),
+      audio,
+      loudness,
+      onFrame,
+      ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
+    }).finally(() => progress && process.stderr.write('\n'))
+    console.log(
+      `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}`,
+    )
+    console.log(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
+    for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) console.log(f)
+    if (sound.loudness)
+      console.log(
+        `audio: ${loudnessLine(sound.loudness)}${sound.gainDb === undefined ? '' : ` (gain ${sound.gainDb.toFixed(2)} dB for ${loudness} LUFS)`}`,
+      )
+    else if (loudness !== undefined) console.log('audio: none to bring to a loudness')
+    console.log(`host: ${JSON.stringify(await child.identity())}`)
+    const warning = clockWarning(sound.clock)
+    if (warning) {
+      console.warn(`! ${warning}`)
+      found({ code: 'clock', severity: 'warning', message: warning })
+    }
+    return 0
+  } finally {
+    await child.close()
+  }
+}
+
+/** Writes frames rendered elsewhere into the encoder, counting them against what was planned. */
+const encodeFrames = async (
+  sink: Sink,
+  f: { count: number; read: () => AsyncIterable<Uint8Array> },
+  onFrame?: (i: number, n: number) => void,
+): Promise<{ frames: number }> => {
+  let frames = 0
+  try {
+    for await (const pixels of f.read()) {
+      await sink.write(pixels)
+      onFrame?.(frames, f.count)
+      frames++
+    }
+    if (frames !== f.count) throw new Error(`${frames} frames came, not the ${f.count} planned.`)
+    await sink.end()
+  } catch (error) {
+    await sink.abort?.()
+    throw error
+  }
+  return { frames }
+}

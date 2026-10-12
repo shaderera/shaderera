@@ -1,0 +1,28 @@
+{
+  "name": "create-shaderera",
+  "version": "0.1.0",
+  "description": "Start a Shaderera project: npm create shaderera@latest my-film",
+  "license": "MIT",
+  "homepage": "https://github.com/shaderera/shaderera",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shaderera/shaderera.git",
+    "directory": "packages/create-shaderera"
+  },
+  "bugs": "https://github.com/shaderera/shaderera/issues",
+  "type": "module",
+  "bin": {
+    "create-shaderera": "./bin/create-shaderera.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "guide",
+    "files"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/files.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  }
+}

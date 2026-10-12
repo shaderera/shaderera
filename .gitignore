@@ -1,0 +1,10 @@
+node_modules
+dist
+out
+.shaderera
+*.tgz
+*.log
+dist-*
+.claude/worktrees/
+.venv-adapters/
+.claude/settings.local.json

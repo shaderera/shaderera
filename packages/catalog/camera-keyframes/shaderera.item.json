@@ -1,0 +1,36 @@
+{
+  "name": "camera-keyframes",
+  "type": "component",
+  "title": "Camera keys",
+  "description": "A 3D camera as keyframed shots (eye, target, lens, roll) eased over time: dolly, yaw, crane, roll, snap; WebGPU view and projection matrices or a three.js camera; the lens opens for vertical variants",
+  "category": "Animation & Camera",
+  "tags": [
+    "camera",
+    "3d",
+    "keyframes",
+    "dolly",
+    "orbit",
+    "look at",
+    "fov",
+    "three.js",
+    "webgpu",
+    "choreography",
+    "framing",
+    "fit",
+    "rule of thirds",
+    "lens",
+    "35mm",
+    "depth of field",
+    "rack focus",
+    "shot"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": {
+    "items": {
+      "motion-keyframes": "^0.1.0",
+      "format-safe-areas": "^0.1.0"
+    }
+  },
+  "files": ["src/motion/camera.ts"]
+}

@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.ttf binary
+*.wav binary
+*.png binary
+*.glb binary
+**/src/assets/** -text

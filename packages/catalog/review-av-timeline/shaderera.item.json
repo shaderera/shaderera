@@ -1,0 +1,31 @@
+{
+  "name": "review-av-timeline",
+  "type": "component",
+  "title": "Sound and motion review",
+  "description": "For a reviewer who cannot hear or watch: the film's sound as a spectrogram and waveform with its onsets, how much the picture changes every frame on the same timeline, frame strips around chosen moments, and the measured offset between picture and sound",
+  "category": "Analysis & Tracking",
+  "tags": [
+    "review",
+    "audio sync",
+    "lip sync",
+    "beat sync",
+    "spectrogram",
+    "waveform",
+    "motion",
+    "pacing",
+    "frames",
+    "ffmpeg",
+    "listen",
+    "hear",
+    "watch",
+    "playback",
+    "speed",
+    "density",
+    "timing",
+    "on beat",
+    "check sync"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["tools/av-review.ts"]
+}

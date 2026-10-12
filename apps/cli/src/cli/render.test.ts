@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { open } from './args.ts'
+import { exportVideo } from './render.ts'
+
+/** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
+const copy = (dir: string) => {
+  const root = mkdtempSync(join(tmpdir(), 'shaderera-fixture-'))
+  cpSync(fileURLToPath(new URL(dir, import.meta.url)), root, {
+    recursive: true,
+    filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
+  })
+  return root
+}
+const stateful = copy('./fixtures/stateful/')
+const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
+
+test('render refuses a source that is not deterministic and leaves no file', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const { project, child } = await open({ root: stateful })
+  const out = join(stateful, 'out', 'refused.mp4')
+  try {
+    await assert.rejects(
+      exportVideo(project, child, { out }),
+      /Not exported: the source is not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
+    )
+    assert.equal(existsSync(out), false)
+  } finally {
+    await child.close()
+  }
+})
+
+test('a piped render reports progress only when asked (a parent process asks)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const root = copy('./fixtures/mcp/')
+  const out = join(mkdtempSync(join(tmpdir(), 'shaderera-render-')), 'film.mp4')
+  const render = (...flags: string[]) =>
+    spawnSync(process.execPath, [main, 'render', '--root', root, '--out', out, ...flags], {
+      encoding: 'utf8',
+    })
+  const asked = render('--progress')
+  assert.equal(asked.status, 0, asked.stderr)
+  assert.match(asked.stderr, /frame 1\/10 .*frame 10\/10/s)
+  const quiet = render()
+  assert.equal(quiet.status, 0, quiet.stderr)
+  assert.doesNotMatch(quiet.stderr, /frame \d+\//)
+  assert.match(quiet.stdout, /10 frames in/)
+})
+
+test('a variant renders at its own length', { skip: !ffmpeg && 'no ffmpeg' }, () => {
+  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const root = copy('./fixtures/mcp/')
+  const out = join(mkdtempSync(join(tmpdir(), 'shaderera-variant-')), 'short.mp4')
+  const r = spawnSync(
+    process.execPath,
+    [main, 'render', '--root', root, '--variant', 'short', '--out', out],
+    { encoding: 'utf8' },
+  )
+  assert.equal(r.status, 0, r.stderr)
+  assert.match(r.stdout, /^5 frames in/m)
+})

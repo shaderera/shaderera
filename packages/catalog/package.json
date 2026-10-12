@@ -1,0 +1,23 @@
+{
+  "name": "@shaderera/catalog",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "node --test \"test/*.test.ts\" && tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "1.0.10",
+    "@shaderera/core": "workspace:*",
+    "@types/node": "24.13.6",
+    "@types/three": "0.186.0",
+    "@webgpu/types": "0.1.74",
+    "earcut": "3.2.3",
+    "fast-png": "8.0.0",
+    "jpeg-js": "0.4.4",
+    "opentype.js": "2.0.0",
+    "three": "0.186.1",
+    "typescript": "6.0.3",
+    "webgpu": "0.6.2"
+  }
+}

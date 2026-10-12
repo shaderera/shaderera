@@ -1,0 +1,267 @@
+import { spawnSync } from 'node:child_process'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
+import { shadereraVersion } from '../deliver/environment.ts'
+import { chromePath } from '../node/browser.ts'
+import { hostOf } from '../node/host-of.ts'
+import { findProject } from '../node/project.ts'
+import { hasNvenc } from './ffmpeg.ts'
+import { EXIT, found } from './findings.ts'
+
+/** One thing the machine or the project has, or lacks. `missing` on a needed item fails doctor. */
+export type DoctorItem = {
+  id: string
+  status: 'ok' | 'missing' | 'warn'
+  detail: string
+  /** What a render, a still or a delivery cannot do without it. */
+  needed: boolean
+  fix?: string
+}
+
+const firstLine = (cmd: string, args: string[]) => {
+  const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 20_000 })
+  return r.status === 0 ? (r.stdout.trim().split(/\r?\n/)[0] ?? '') : undefined
+}
+
+/** The ffmpeg encoders and filters a delivery uses, as this ffmpeg lists them. */
+const FFMPEG_PARTS = [
+  ['libx264', 'encoders', 'H.264 (every mp4)', true],
+  ['aac', 'encoders', 'AAC (mp4 audio)', true],
+  ['prores_ks', 'encoders', 'ProRes (--format prores-*)', false],
+  ['pcm_s24le', 'encoders', '24-bit PCM (WAV, mov)', false],
+  ['ebur128', 'filters', 'loudness (EBU R128)', false],
+  ['amultiply', 'filters', 'gain functions', false],
+] as const
+
+/** Dawn in the project, asked in a child process: its version, adapter, features and limits. */
+const probeGpu = (root: string) => {
+  const script = `
+    import { createRequire } from 'node:module'
+    const require = createRequire(${JSON.stringify(join(root, 'package.json'))})
+    const dawn = require('webgpu')
+    const version = require(require.resolve('webgpu/package.json')).version
+    Object.assign(globalThis, dawn.globals)
+    const gpu = dawn.create([])
+    const adapter = await gpu.requestAdapter()
+    const info = adapter?.info
+    process.stdout.write(JSON.stringify({
+      version,
+      adapter: info ? [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') : null,
+      features: adapter ? [...adapter.features].sort() : [],
+      maxStorageBufferBindingSize: adapter?.limits.maxStorageBufferBindingSize,
+      maxTextureDimension2D: adapter?.limits.maxTextureDimension2D,
+    }))
+    process.exit(0)`
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 60_000,
+  })
+  try {
+    return JSON.parse(r.stdout) as {
+      version: string
+      adapter: string | null
+      features: string[]
+      maxStorageBufferBindingSize?: number
+      maxTextureDimension2D?: number
+    }
+  } catch {
+    return { error: (r.stderr || r.stdout || 'no output').trim().split(/\r?\n/)[0] as string }
+  }
+}
+
+/** Everything doctor checks, for the machine and (inside one) the project. */
+export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
+  const items: DoctorItem[] = []
+  const major = Number(process.versions.node.split('.')[0])
+  items.push({
+    id: 'node',
+    status: major >= 24 ? 'ok' : 'missing',
+    detail: process.version,
+    needed: true,
+    ...(major >= 24 ? {} : { fix: 'Install Node 24 or later.' }),
+  })
+  items.push({ id: 'shaderera', status: 'ok', detail: shadereraVersion(), needed: true })
+  const ffmpeg = firstLine('ffmpeg', ['-version'])
+  items.push({
+    id: 'ffmpeg',
+    status: ffmpeg ? 'ok' : 'missing',
+    detail: ffmpeg ?? 'not on the PATH',
+    needed: true,
+    ...(ffmpeg ? {} : { fix: 'Install ffmpeg from https://ffmpeg.org/download.html' }),
+  })
+  const ffprobe = firstLine('ffprobe', ['-version'])
+  items.push({
+    id: 'ffprobe',
+    status: ffprobe ? 'ok' : 'missing',
+    detail: ffprobe ?? 'not on the PATH',
+    needed: true,
+    ...(ffprobe ? {} : { fix: 'ffprobe comes with ffmpeg: put its folder on the PATH.' }),
+  })
+  if (ffmpeg) {
+    const lists = {
+      encoders: spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout,
+      filters: spawnSync('ffmpeg', ['-hide_banner', '-filters'], { encoding: 'utf8' }).stdout,
+    }
+    for (const [name, list, what, needed] of FFMPEG_PARTS) {
+      const has = new RegExp(`\\s${name}\\s`).test(lists[list])
+      items.push({
+        id: `ffmpeg:${name}`,
+        status: has ? 'ok' : needed ? 'missing' : 'warn',
+        detail: `${what}${has ? '' : ': not in this ffmpeg'}`,
+        needed,
+        ...(has
+          ? {}
+          : { fix: 'Use a full ffmpeg build (gyan.dev "full", or your package manager’s).' }),
+      })
+    }
+    const nvenc = hasNvenc(1920, 1080)
+    items.push({
+      id: 'ffmpeg:h264_nvenc',
+      status: nvenc ? 'ok' : 'warn',
+      detail: nvenc
+        ? 'NVIDIA H.264 on the GPU, at 1920×1080 (review renders use it)'
+        : 'not usable here: review renders use x264',
+      needed: false,
+    })
+  }
+  const chrome = chromePath()
+  let project: Awaited<ReturnType<typeof findProject>> | undefined
+  try {
+    project = await findProject(cwd)
+  } catch {
+    // Not inside a project: the machine only.
+  }
+  const browser = project ? hostOf(project.manifest, undefined) === 'browser' : false
+  items.push({
+    id: 'chrome',
+    status: chrome ? 'ok' : browser ? 'missing' : 'warn',
+    detail: chrome
+      ? `${chrome}${process.env.CHROME ? ' (CHROME)' : ''}`
+      : 'not found: the browser host cannot run',
+    needed: browser,
+    ...(chrome ? {} : { fix: 'Install Google Chrome, or set CHROME to its executable.' }),
+  })
+  if (!project) return items
+  items.push({
+    id: 'project',
+    status: 'ok',
+    detail: `${project.root} (${project.manifest.width}×${project.manifest.height}, ${project.manifest.fps} fps, ${project.manifest.duration} s, ${browser ? 'browser' : 'node'} host)`,
+    needed: true,
+  })
+  let webgpu = false
+  try {
+    createRequire(join(project.root, 'package.json')).resolve('webgpu')
+    webgpu = true
+  } catch {
+    // No Dawn in this project.
+  }
+  if (!browser && !webgpu)
+    items.push({
+      id: 'webgpu',
+      status: 'warn',
+      detail: 'not installed: the Node host gives the source no GPU and composites on the CPU',
+      needed: false,
+      fix: 'npm install webgpu (in the project)',
+    })
+  if (!browser && webgpu) {
+    const gpu = probeGpu(project.root)
+    if ('error' in gpu)
+      items.push({ id: 'webgpu', status: 'missing', detail: gpu.error, needed: true })
+    else {
+      items.push({
+        id: 'webgpu',
+        status: 'ok',
+        detail: `webgpu ${gpu.version} (Dawn)`,
+        needed: true,
+      })
+      items.push({
+        id: 'gpu',
+        status: gpu.adapter ? 'ok' : 'missing',
+        detail: gpu.adapter
+          ? `${gpu.adapter}; ${gpu.features.length} features (${gpu.features.join(', ')}); storage binding ${((gpu.maxStorageBufferBindingSize ?? 0) / 2 ** 20).toFixed(0)} MB, textures to ${gpu.maxTextureDimension2D} px`
+          : 'Dawn found no GPU adapter',
+        needed: true,
+      })
+    }
+    // Two Dawns in one process crash it (decision 0011, G2): more than one webgpu installed.
+    const copies = webgpuCopies(project.root)
+    if (copies.length > 1)
+      items.push({
+        id: 'webgpu:copies',
+        status: 'warn',
+        detail: `${copies.length} copies installed (${copies.join(', ')}): a library that loads its own Dawn crashes the host`,
+        needed: false,
+        fix: 'Give the library host.gpu (vgpu: initFromDevice) and dedupe webgpu to one version.',
+      })
+  }
+  const fonts = join(project.root, 'fonts')
+  if (existsSync(fonts))
+    items.push({
+      id: 'fonts',
+      status: 'ok',
+      detail: 'fonts/ (registered by the source with io.font)',
+      needed: false,
+    })
+  return items
+}
+
+/**
+ * Every `webgpu` package installed in the project, as `version (path)`: nested node_modules
+ * (npm, yarn) and pnpm's store folders (`.pnpm/webgpu@x`).
+ */
+export const webgpuCopies = (root: string): string[] => {
+  const found = new Map<string, string>()
+  const add = (dir: string) => {
+    const pkg = join(dir, 'package.json')
+    if (existsSync(pkg)) found.set(dir, JSON.parse(readFileSync(pkg, 'utf8')).version)
+  }
+  const list = (dir: string) => {
+    try {
+      return readdirSync(dir)
+    } catch {
+      return []
+    }
+  }
+  const visit = (modules: string, depth: number) => {
+    if (depth > 4 || !existsSync(modules)) return
+    add(join(modules, 'webgpu'))
+    for (const name of list(modules)) {
+      if (name === '.pnpm') {
+        for (const entry of list(join(modules, name)))
+          if (entry.startsWith('webgpu@')) add(join(modules, name, entry, 'node_modules', 'webgpu'))
+      } else if (name.startsWith('@')) {
+        for (const sub of list(join(modules, name)))
+          visit(join(modules, name, sub, 'node_modules'), depth + 1)
+      } else if (name !== 'webgpu' && name !== '.bin')
+        visit(join(modules, name, 'node_modules'), depth + 1)
+    }
+  }
+  visit(join(root, 'node_modules'), 0)
+  // pnpm links node_modules/webgpu into its store: count each version once.
+  const byVersion = new Map<string, string>()
+  for (const [dir, version] of found) if (!byVersion.has(version)) byVersion.set(version, dir)
+  return [...byVersion].map(([version, dir]) => `${version} (${dir})`)
+}
+
+/** `shaderera doctor [--json]`: what this machine and project have, and what they lack. */
+export const run = async (argv: readonly string[]): Promise<number> => {
+  const json = argv.includes('--json')
+  const items = await doctor(process.cwd())
+  const failed = items.some((i) => i.needed && i.status === 'missing')
+  for (const i of items)
+    if (i.status !== 'ok')
+      found({
+        code: `doctor:${i.id}`,
+        severity: i.needed && i.status === 'missing' ? 'error' : 'warning',
+        message: `${i.detail}${i.fix ? `. ${i.fix}` : ''}`,
+      })
+  if (json) console.log(JSON.stringify({ ok: !failed, items }, null, 2))
+  else
+    for (const i of items)
+      console.log(
+        `${{ ok: '✓', missing: '✗', warn: '!' }[i.status]} ${i.id.padEnd(18)} ${i.detail}${i.fix ? `\n  ${''.padEnd(18)} ${i.fix}` : ''}`,
+      )
+  return failed ? EXIT.failed : EXIT.ok
+}

@@ -1,0 +1,7 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 30,
+  "duration": 6,
+  "width": 1920,
+  "height": 1080
+}

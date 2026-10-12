@@ -1,0 +1,17 @@
+{
+  "name": "font-ibm-plex-mono",
+  "type": "media",
+  "title": "IBM Plex Mono",
+  "description": "A monospace with an engineered, technical voice: Light, Regular and SemiBold, for data, code, captions and ASCII looks",
+  "category": "Fonts",
+  "tags": ["monospace", "mono", "code", "technical", "latin", "ofl"],
+  "version": "0.1.0",
+  "licence": "OFL-1.1",
+  "source": { "origin": "https://github.com/IBM/plex" },
+  "files": [
+    "assets/fonts/IBMPlexMono-Light.ttf",
+    "assets/fonts/IBMPlexMono-Regular.ttf",
+    "assets/fonts/IBMPlexMono-SemiBold.ttf",
+    "assets/fonts/OFL-ibmplexmono.txt"
+  ]
+}

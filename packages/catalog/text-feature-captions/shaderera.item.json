@@ -1,0 +1,20 @@
+{
+  "name": "text-feature-captions",
+  "type": "component",
+  "title": "Feature captions",
+  "description": "Huge titles with a small note, several to a scene, swapping on the beat through ASCII noise, each placed anew in one of four layouts inside the safe area",
+  "category": "Typography",
+  "tags": [
+    "captions",
+    "titles",
+    "lower thirds",
+    "glitch",
+    "launch",
+    "feature list",
+    "kinetic typography"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "text-kinetic": "^0.1.0", "format-safe-areas": "^0.1.0" } },
+  "files": ["src/type/captions.ts"]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "render-three-host",
+  "type": "component",
+  "title": "three.js on the host GPU",
+  "description": "three.js WebGPURenderer on host.gpu, deterministic: node clock set to t (never the wall clock), HDR scene tone-mapped and sRGB-encoded into the frame, handed to the host as a GPU texture layer with no copy; works in Node and the browser",
+  "category": "Rendering",
+  "tags": [
+    "three.js",
+    "webgpu",
+    "3d",
+    "renderer",
+    "scene",
+    "render target",
+    "tone mapping",
+    "deterministic",
+    "node"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": {
+    "packages": {
+      "three": "0.186.1",
+      "@types/three": "0.186.0"
+    }
+  },
+  "files": ["src/three/host.ts"]
+}

@@ -1,0 +1,108 @@
+# Authoring a Shaderera film
+
+For the person and the agent making or revising a film in this project (Shaderera 0.1.0). The
+project is ordinary code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
+ids, params and requirements in its `README.md`. There is no scene format to fill in: the film is
+the source. The reference is in `node_modules/shaderera/docs/` (below, `docs/`: the protocol,
+determinism, the CLI, MCP, delivery, and `participants/` per renderer); the task checklists are in
+`guides/`.
+
+## The loop
+
+1. **Read the brief and keep what it fixes.** Copy, duration, aspect ratio, brand colours, fonts,
+   the real product, the renderer and any expert value ("70 mm", "title at 2.4 s") override every
+   default here. Ask only for an input whose absence blocks the result, such as the product's
+   model or photographs.
+2. **Write the source the brief needs.** The project starts empty: `render(t)` in TypeScript,
+   WGSL or any library the film calls for. How it looks comes from the brief and the person,
+   never from a default of the engine.
+3. **Resolve the assets.** Use the real model, images and fonts, with their licences recorded in
+   `ASSETS.md` (source, licence, sha256). If the product is missing, say so and stop or design an
+   original object openly. Never present a primitive placeholder as the product.
+4. **Write the direction down** in `DIRECTION.md`, in whatever form the film needs: it guides the
+   work, and nothing parses it.
+5. **Look early and often:** `npx shaderera still <t>... --sheet`, or MCP's `render_frame` with
+   `image: true`.
+6. **Revise narrowly** (`guides/revisions.md`), then **verify**: `npx shaderera check`, review
+   (`guides/review.md`), then export. Export refuses a source whose frames change with history.
+
+## Renderers and hosts
+
+A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture` of `host.gpu`
+(composited with no copy). Anything that can produce one of those can draw the film, in any mix.
+
+| Renderer | Hosts | Notes |
+|---|---|---|
+| WebGPU (WGSL) on `host.gpu` | Node (the project's `webgpu` package, Dawn) and the browser | the device is the source's own; return the frame as a texture (`docs/participants/webgpu.md`) |
+| three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` item does this plumbing (`docs/participants/three.md`) |
+| Canvas2D | both | `io.canvas`; text through `io.font`, loaded in `open` (`docs/participants/canvas.md`) |
+| HTML, CSS, React, GSAP | browser host only | name a `MountDom` module in `shaderera.json` `"dom"`, set `"host": "browser"`, and use `options.dom` as a layer or a texture (`docs/participants/dom.md`) |
+| Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); analysis by a model is decoded once to project files (`docs/analysis.md`) |
+
+## The registry
+
+A registry holds code that earlier films proved. What you add is copied into the project and is
+its own code from then on. The `shaderera-registry` skill in `.claude/skills/shaderera-registry/` says how to search and add, and
+how to recover when a `shaderera` command refuses a project whose `shaderera.item.json` requires
+something that is not installed.
+
+What is on the shelf:
+
+- **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
+  plumbing again, and says so:
+  - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands, timed text), and a clock;
+  - `render-three-host`: three.js on the host's GPU;
+  - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
+  - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;
+  - `text-glyph-points` and `text-glyph-outlines`: text as a point set, or as contours and solids;
+  - `review-av-timeline`: the sound and the picture's change on one timeline;
+  - `format-placement-specs`: what placements accept, with sources, as requirements.json data.
+- **Looks, motion and sound design** are added only when the person asks: `look-screen-passes`,
+  `text-kinetic`, `text-feature-captions`, `text-code-wall`, `motion-keyframes`,
+  `camera-keyframes`, `camera-shake`, `format-safe-areas`, `format-broadcast-slate`,
+  `audio-hall-ending`.
+- **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
+  `font-stix-two-text`.
+
+An agent never searches the registry or suggests items on its own.
+
+## Make it editable
+
+The CLI and MCP can only show and change what the source exposes.
+
+- **Literals with an `id`.** With `"stamp": true` in `shaderera.json`, an object literal with an
+  `id` gets a `source` stamp (`file:line:col`). Return it from `inspect(t)` spread
+  (`{ ...headline, box }`), so the stamp survives. Do not spread such a literal into a constructor
+  that rejects unknown keys (three.js materials warn `'source' is not a property`).
+- **Keep editable values literal.** `at: 2.4` can be found and changed; `at: base + 0.4` cannot.
+  Put timing and appearance in data objects and compute from them.
+- **Camera keys** are literals in one array: `{ id, at, eye: [x, y, z], target: [x, y, z], fov }`,
+  and `inspect(t).camera` reports the keys in effect at t.
+- **Say which space** an object lives in when it matters: `space: 'screen'` or `space: 'world'`.
+- **Expose timing**, not only content: return the groups that hold `enterAt`, `exitAt` or
+  `stagger` so they can be selected and changed.
+- **Report text** as `{ text, box }` runs, and a `bbox` for what should be looked at closely, so
+  review and `still --object` can find them.
+- **Params** are a JSON Schema in `shaderera.json` with titles and good defaults, for the few
+  controls a non-programmer wants. If a param overrides a literal, say so in the README.
+- **`pick(t, x, y)`** returns `{ id, point? }` through the camera in effect, so a click selects.
+
+## Keep it deterministic
+
+`render(t)` is a function of `t`, the params and `host.seed`: no clocks, no `Math.random()` in
+`render`, every asset awaited in `open`. `npx shaderera check` renders sampled frames in two
+orders and compares them; export repeats the check on 8 of its own frames. The causes and fixes
+are in `docs/determinism.md`; each renderer's traps (three.js's frame clock, readback rows padded
+to 256 bytes, multisampling with blending on Dawn) are in its `docs/participants/` page. Canvas2D
+pixels differ slightly between the browser and Node: export a film from one host.
+
+## Before you finish
+
+Three different questions, never one score:
+
+- **Technical:** `npx shaderera check`, `npx shaderera review` (add `--json` for one envelope an
+  agent reads), export, and any measure scripts written for the project.
+- **Brief:** does it keep the brief's content, brand and constraints, and follow `DIRECTION.md`?
+  Declare what is fixed in `requirements.json`: review judges only what it declares.
+- **Visual:** people look at the principal frames, a contact sheet and the playback. A passing
+  check never certifies beauty. `guides/review.md` has the loop.

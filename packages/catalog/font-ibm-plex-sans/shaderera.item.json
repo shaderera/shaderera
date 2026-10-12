@@ -1,0 +1,17 @@
+{
+  "name": "font-ibm-plex-sans",
+  "type": "media",
+  "title": "IBM Plex Sans",
+  "description": "A restrained grotesque sans, Light, Regular and Medium, for names, dates, labels and captions beside a display serif",
+  "category": "Fonts",
+  "tags": ["sans serif", "grotesque", "labels", "captions", "editorial", "latin", "ofl"],
+  "version": "0.1.0",
+  "licence": "OFL-1.1",
+  "source": { "origin": "https://github.com/IBM/plex" },
+  "files": [
+    "assets/fonts/IBMPlexSans-Light.ttf",
+    "assets/fonts/IBMPlexSans-Regular.ttf",
+    "assets/fonts/IBMPlexSans-Medium.ttf",
+    "assets/fonts/IBMPlexSans-OFL.txt"
+  ]
+}

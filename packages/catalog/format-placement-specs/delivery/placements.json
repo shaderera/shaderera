@@ -1,0 +1,61 @@
+{
+  "meta-reels-ads": {
+    "name": "Meta Reels ads",
+    "source": "https://www.facebook.com/business/ads-guide/update/video/instagram-reels (read 2026-10-12)",
+    "containers": ["mp4", "mov"],
+    "videoCodecs": ["h264"],
+    "aspect": "9:16",
+    "maxDuration": 900,
+    "maxBytes": 4000000000,
+    "editList": false,
+    "safeArea": { "top": 0.14, "right": 0.06, "bottom": 0.35, "left": 0.06 }
+  },
+  "youtube-1080p30-sdr": {
+    "name": "YouTube upload, 1080p at 24-30 fps, SDR",
+    "source": "https://support.google.com/youtube/answer/1722171 (read 2026-10-12): 8 Mb/s recommended at 1080p 24-30 fps, AAC at 48 or 96 kHz, BT.709",
+    "containers": ["mp4", "mov"],
+    "minBitrate": 8000000,
+    "sampleRates": [48000, 96000]
+  },
+  "amazon-streaming-tv": {
+    "name": "Amazon Streaming TV and Prime Video ads",
+    "source": "https://advertising.amazon.com/resources/ad-specs/dsp/video/streaming-tv-prime-video-ads (read 2026-10-12): 15 Mb/s minimum, 50 recommended; no loudness requirement found",
+    "containers": ["mp4"],
+    "videoCodecs": ["h264"],
+    "aspect": "16:9",
+    "minWidth": 1920,
+    "minHeight": 1080,
+    "fps": [23.976, 24, 25, 29.97],
+    "durations": [10, 15, 30, 40, 45, 60],
+    "maxBytes": 500000000,
+    "minBitrate": 15000000,
+    "audio": "required",
+    "audioCodecs": ["aac"],
+    "sampleRates": [44100, 48000],
+    "minChannels": 2
+  },
+  "eu-broadcast-r128": {
+    "name": "EU broadcast loudness (EBU R128)",
+    "source": "EBU R128: -23 LUFS ±0.5 LU integrated, -1 dBTP; via https://thepostflow.com/filmmaker-resources/delivery-specs-cheat-sheet/ (read 2026-10-12)",
+    "audio": "required",
+    "sampleRates": [48000],
+    "loudness": { "integrated": -23, "tolerance": 0.5, "maxTruePeak": -1 }
+  },
+  "us-broadcast-a85": {
+    "name": "US broadcast loudness (ATSC A/85, CALM Act)",
+    "source": "ATSC A/85: -24 LKFS ±2, -2 dBTP common practice; via https://thepostflow.com/filmmaker-resources/delivery-specs-cheat-sheet/ (read 2026-10-12)",
+    "audio": "required",
+    "sampleRates": [48000],
+    "loudness": { "integrated": -24, "tolerance": 2, "maxTruePeak": -2 }
+  },
+  "dooh-obb-2026": {
+    "name": "ÖBB DOOH screens, 2026",
+    "source": "https://werbung.oebb.at/de/dam/jcr:a7bed46b-3d90-45a6-aa1e-2300e5debbfc/Oebb%20Werbung_Data%20preparation_DOOH_2026_EN.pdf.pdf (read 2026-10-12): silent, H.264 at 25 or 30 fps, 10 Mb/s or less, 500 MB",
+    "containers": ["mp4"],
+    "videoCodecs": ["h264"],
+    "fps": [25, 30],
+    "maxBytes": 500000000,
+    "maxBitrate": 10000000,
+    "audio": "none"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 30,
+  "duration": 4,
+  "width": 1080,
+  "height": 1350,
+  "params": {
+    "type": "object",
+    "properties": {
+      "accent": { "type": "string", "format": "color", "default": "#ff7a45" },
+      "pace": { "type": "number", "minimum": 0.5, "maximum": 2, "default": 1 }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "entry": "./src/composition.ts",
+  "dom": "./src/dom.ts",
+  "host": "browser",
+  "fps": 10,
+  "duration": 1,
+  "width": 64,
+  "height": 32,
+  "params": {
+    "type": "object",
+    "properties": { "mode": { "type": "string", "default": "still" } }
+  }
+}

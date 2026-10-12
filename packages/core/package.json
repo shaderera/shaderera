@@ -1,0 +1,46 @@
+{
+  "name": "@shaderera/core",
+  "version": "0.1.0",
+  "description": "The Shaderera protocol: anything that returns the same frame for the same t can be previewed, inspected, debugged and rendered.",
+  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://github.com/shaderera/shaderera",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shaderera/shaderera.git",
+    "directory": "packages/core"
+  },
+  "bugs": "https://github.com/shaderera/shaderera/issues",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./host": "./src/host.ts",
+    "./gpu": "./src/gpu.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./host": {
+        "types": "./dist/host.d.ts",
+        "default": "./dist/host.js"
+      },
+      "./gpu": {
+        "types": "./dist/gpu.d.ts",
+        "default": "./dist/gpu.js"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@webgpu/types": "0.1.74"
+  }
+}

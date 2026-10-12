@@ -1,0 +1,20 @@
+{
+  "name": "@shaderera/fixture-hybrid",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "shaderera render",
+    "check": "shaderera check",
+    "inspect": "shaderera inspect --time 2"
+  },
+  "dependencies": {
+    "@shaderera/core": "workspace:*",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "shaderera": "workspace:*",
+    "vite": "8.3.0",
+    "webgpu": "0.6.2"
+  }
+}

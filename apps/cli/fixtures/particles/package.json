@@ -1,0 +1,17 @@
+{
+  "name": "@shaderera/fixture-particles",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "shaderera render",
+    "check": "shaderera check"
+  },
+  "dependencies": {
+    "@shaderera/core": "workspace:*"
+  },
+  "devDependencies": {
+    "shaderera": "workspace:*",
+    "vite": "8.3.0",
+    "webgpu": "0.6.2"
+  }
+}

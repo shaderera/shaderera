@@ -1,0 +1,11 @@
+{
+  "name": "motion-keyframes",
+  "type": "component",
+  "title": "Keyframes",
+  "description": "Values over time: numbers and 3D points held between keys and eased into each, smooth paths through many points at even speed, and eases from strike and glide to a stateless spring settle and CSS-style bezier",
+  "category": "Animation & Camera",
+  "tags": ["keyframes", "animation", "easing", "tween", "track", "timeline", "motion"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/motion/keyframes.ts"]
+}

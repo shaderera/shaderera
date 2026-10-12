@@ -1,0 +1,341 @@
+# Delivery
+
+What Shaderera hands over, what each output is for, and what was measured. Every output is
+rendered from a job ([cli.md](cli.md#versions-and-jobs)), whose `delivery` holds the format,
+quality and colour and what was asked of the file (`bitrate`, `maxrate`, `editList`, `stems`,
+`bits`). The flags are in [cli.md](cli.md#render).
+
+| Output | Command | For |
+|---|---|---|
+| Review mp4 | `shaderera render`, a job with `quality: review` | sharing a cut for comments |
+| SDR delivery mp4 | a job with `quality: master` | web, social and broadcast-SDR placements |
+| ProRes mov | `--format prores-hq` or `prores-4444` (`render`, `job`, `deliver`) | an agency, editor or overlay (4444 keeps alpha) |
+| PNG + WAV finishing handoff | a job with `format: png` (`shaderera job --png [--bits 16]`, then `render --job`) | an editor, colourist or online suite |
+| Batch | `shaderera deliver` | every variant × locale, each checked for its placement |
+| Handoff | `shaderera handoff <job>` | someone else re-rendering the job later |
+
+## The mp4: tested SDR BT.709
+
+Every mp4 (CLI `render`, MCP `export`, `deliver`) is encoded with:
+
+```
+-f rawvideo -pix_fmt rgba -s WxH -r FPS -i -
+-vf scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv
+-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv
+-c:v libx264 -preset medium -crf 18        (master: -preset slow -crf 12)
+-movflags +faststart   [-c:a aac -b:a 192k -ar 48000 -ac 2]
+```
+
+The audio is AAC at 48 kHz stereo, whatever the clips' own rate, as YouTube asks and the WAV
+handoff is. `--no-audio` leaves the stream out.
+
+### Colour
+
+The composited frame is 8-bit sRGB. sRGB and BT.709 share primaries. The matrix and range
+conversion is explicit and the file says what it is, so a player decodes it with the matrix it was
+encoded with. (`setparams` is needed: ffmpeg 8's `scale` otherwise leaves primaries and transfer
+unset on the frames, and the encoder writes only the matrix.) A host with a GPU hands ffmpeg
+yuv420p that it matted and converted itself, with the same matrix and range, and ffmpeg only tags
+it.
+
+**Transfer: a policy, not a conversion.** The sRGB code values are carried unchanged as Y'CbCr,
+and the file is tagged with the BT.709 transfer because that is the SDR video convention web,
+social and editing players expect. sRGB's curve and BT.709's (or BT.1886's 2.4 display gamma) are
+not the same function, so what a viewer sees depends on how its player treats that tag. A grey
+ramp (0, 17 … 255) encoded and decoded back:
+
+| Player path | Grey ramp back |
+|---|---|
+| ffmpeg decode (matrix and range only, no colour management) | within 1 level of the source |
+| Chrome 154, headless, Windows: `<video>` drawn into an sRGB 2D canvas | within 1 level, whether tagged BT.709, sRGB or untagged |
+| Safari or QuickTime on macOS; a broadcast monitor (BT.1886) | not measured: these interpret the BT.709 transfer by their own rules, so midtones can display differently from Chrome |
+
+So in Chrome the delivered mp4 looks as the host composited it. For a colourist or an online
+suite, the PNG handoff (sRGB-tagged frames) is the reference, not the mp4.
+
+`apps/cli/src/deliver/color.test.ts` encodes a 128×128 chart of 16 sRGB patches (greys
+0/32/64/128/192/224/255, R, G, B, C, M, Y, light and dark skin, a saturated orange) through the
+real ffmpeg path, checks the tags with ffprobe, decodes back with the matrix and range the tags
+state (BT.709 limited when untagged, as players assume for HD) and compares patch centres:
+
+| Path | Worst patch (levels, max channel) | Tolerance asserted |
+|---|---|---|
+| Before: swscale's default matrix (BT.601), no tags | **40** (green 255→215); magenta 37, cyan 26, red 23, yellow 17, blue 14, orange 6, light skin 3 | — (asserted > 10) |
+| Now, review (crf 18) | 2 (cyan, magenta, yellow, orange, dark skin); greys exact | ≤ 4 |
+| Now, master (crf 12) | 2 (same patches); greys exact | ≤ 3 |
+
+ffmpeg 8.1.1 (gyan.dev full build), Windows 11. The remaining 1–2 levels are 8-bit Y'CbCr
+quantisation at limited range, not the encoder: review and master measure the same on flat patches.
+
+### Quality and encoders
+
+| Quality | x264 | a 3D product film, 1920×1080, 14 s, 30 fps | a type film on a still ground, 1080×1920, 8 s, 30 fps |
+|---|---|---|---|
+| review | crf 18, preset medium | 7.55 MB, 4.3 Mb/s | 390 kB, 0.39 Mb/s |
+| master | crf 12, preset slow | 14.70 MB, 8.4 Mb/s | 583 kB, 0.58 Mb/s |
+
+crf is constant quality: bitrate follows the content. A review encode uses NVENC (NVIDIA's H.264
+on the GPU, p5 hq, cq 19) where ffmpeg and the machine take the frame size; a master always uses
+x264. On the product film with 4 hosts, NVENC took 9.8 → 7.7 s, and its file was about 50%
+larger at a like quality (PSNR 46.9 dB against the x264 file, same mean luma).
+
+### Rate control
+
+A placement with a bitrate rule asks for one. `--bitrate 15M` encodes at a constant rate with HRD
+filler (`nal-hrd=cbr`), so the floor holds on a still frame, as CTV networks ask: a static 256×64
+ramp came out at 1.91 Mb/s for `--bitrate 2M` (x264; NVENC 1.81), where crf gives 0.2.
+`--maxrate 10M` keeps the crf and caps it (`-maxrate`, `-bufsize` twice the rate), as DOOH screens
+ask. `deliver` records each file as ffprobe reads it (`probe`).
+
+### Loudness
+
+Every output with audio is measured with ffmpeg's `ebur128` (ITU-R BS.1770): integrated loudness,
+true peak and range, printed by `render`, recorded in `delivery.json` (`audio.loudness`) and in a
+batch's index, and reported by review as a diagnostic. Nothing is judged against a target, because
+targets belong to placements (-23 LUFS EBU R128, -24 LKFS ATSC A/85; social platforms publish
+none). `--loudness=<LUFS>` on `render`, `deliver` or `assemble` moves the mix by one constant gain
+to that integrated loudness, measured on the mix first; measured on 2026-10-12 to land on -16.0
+and -23.0 LUFS exactly. It never compresses or limits, so the mix keeps its shape, and the true
+peak it reaches is reported for the person to judge.
+
+### Edit lists
+
+By default the mp4 carries an edit list per track: the video's for B-frame reordering, the
+audio's for AAC priming. Meta's Reels ads page asks for files without them. `--no-edit-list` (on
+`render`, `job` and `deliver`) writes none and keeps the sound on the picture in every player: the
+video gets negative composition offsets (`-movflags negative_cts_offsets`), so its first frame is
+at 0, and the mix loses its first 1024 samples (21.3 ms), the AAC priming. That cut is the cost,
+and why it is not the default: a hit on frame 0 loses its first 21 ms. Measured on 2026-10-12 with
+a beep placed at 0.500 s (onset found at 0.50056 s in the source mix):
+
+| File | A player that honours edit lists | One that ignores them |
+|---|---|---|
+| default mp4 | picture at 0, beep at 500.56 ms | picture 2 frames late (66.7 ms at 30 fps), beep at 521.90 ms |
+| `--no-edit-list`, x264 or NVENC | picture at 0, beep at 500.56 ms | picture at 0, beep at 500.56 ms |
+| plain `-use_editlist 0` (not used) | picture 66.7 ms late, beep 21.3 ms late | the same |
+
+## ProRes
+
+`--format prores-hq` writes ProRes 422 HQ (`prores_ks` profile 3, `yuv422p10le`), matted over
+black; `--format prores-4444` writes ProRes 4444 (profile 4, 4:4:4 with a 16-bit alpha plane,
+straight alpha as ProRes keeps it; only 4444 and 4444 XQ carry alpha). Both go in a mov with 48
+kHz 24-bit PCM, the same BT.709 matrix, range and tags as the mp4. The vendor field is ffmpeg's
+own, not Apple's `apl0`: a QC tool that insists on `apl0` flags it. ProRes 422 HQ is the usual
+agency master (DNxHR HQX in Avid shops); H.264 is a terminal file nobody re-edits or re-grades
+(The Post Flow delivery cheat sheet, 2026-08-24). Where every host composites on the GPU, ffmpeg
+gets the frames at 16 bits a channel (`rgba64`, from the compositor's half-float accumulator),
+otherwise at 8.
+
+What the 16 bits buy was measured on 2026-10-12: an `rgba32float` layer ramping red from 0.4 to 0.6
+across 256 px, the widest band of one value in the decoded row:
+
+| File | Widest band |
+|---|---|
+| H.264 mp4 (8-bit 4:2:0) | 12 px |
+| ProRes HQ from 8-bit frames | 6 px |
+| ProRes HQ from 16-bit frames | 4 px |
+| ProRes 4444 from 16-bit frames | 3 px |
+
+An 8-bit layer (a canvas, bytes) alone gains nothing from 16 bits; float textures and layers
+blended over each other do.
+
+## Stems and captions
+
+A clip may name a `group` (`dialogue`, `music`, `fx`). `--stems` writes one WAV per group beside
+the file (`<name>.stems/<group>.wav`; in a png handoff, `stems/`), each mixed with the same gains
+and the same `--loudness` gain as the full mix, so the stems sum to it (tested to 1e-5). Clips
+without a group go to `ungrouped`.
+
+Captions (`captions()`, [protocol.md](protocol.md#captions)) are written as `<name>.srt` and
+`<name>.vtt` beside every export (in a png handoff, `captions.srt` and `captions.vtt`), cut to the
+export window.
+
+## The finishing handoff (PNG + WAV)
+
+A job with `delivery.format: 'png'` renders to `out/<job>/` (`deliver`:
+`out/deliveries/<batch>/<job>/`):
+
+- `frames/000000.png …`: 8-bit RGBA (16-bit with `--bits 16`, from the GPU compositor),
+  **straight alpha**, sRGB chunk, one per frame `from + i/fps`. A source with a transparent ground
+  delivers transparent pixels. Written by a small deterministic PNG encoder (not a canvas, which
+  would premultiply and lose low-alpha colour), so the same pixels always give the same file.
+- `audio.wav`: 48 kHz, 24-bit PCM, stereo, the source's clips mixed over the job window with the
+  same trims, delays and gains as the mp4, padded or cut to the window. Omitted when the source has
+  no `audio()`.
+- `delivery.json` (`shaderera: delivery/1`): job, revision, variant, effective params, seed, width,
+  height, fps, from, to, frame count, the rate (`30000/1001` for an NTSC rate), start timecode
+  (`HH:MM:SS:FF` of `from`; drop-frame `HH:MM:SS;FF` at 29.97 and 59.94), preroll and textless, the
+  colour statement *"8-bit sRGB, straight alpha; display-referred; not scene-linear"*, the audio
+  format and loudness, a sha256 per frame file, the review summary (contact sheet, every check's
+  status), the host that rendered (`versions.host`: Node or the browser, the adapter, and in Node
+  `webgpu`'s version and the device's feature count), how often `render` read the wall clock
+  (`clock`), and the Shaderera and ffmpeg versions.
+- `review/`: the review's frames and contact sheet.
+
+The delivery is built in `<dir>.partial` and moved into place only after the determinism re-check
+passes; any failure (re-check, audio, review) removes it.
+
+## Batch
+
+`shaderera deliver --variants story,square --locales en,th [--png] [--master] --name spring`
+saves the project once, creates one job per variant × locale (`spring-story-th`), renders each and
+reviews it on its own child with **output-specific requirements**: requirements.json, with
+`format` replaced by the output's own width, height, fps and length. Nothing else is assumed:
+there is no default safe area, end hold or reading time. A placement's safe area is declared in
+requirements.json (`safeArea`, or a placement's), from that platform's current spec.
+
+A locale sets the `locale` param; `shaderera.json` must declare one (and, if it has an `enum`,
+list the locale), or the batch is refused before anything renders. The batch writes
+`out/deliveries/<batch>/index.json` (`deliveries/1`: per output its file, bytes, size, length,
+frames, render time, checks, contact sheet, status, error) and `index.md` (a table, then every
+failing check).
+
+A measured run: a Thai type film laid out for 4:5, given two variants it was not designed for
+(1080×1920 and 1080×1080, 8 s), and a 3D product film (1920×1080, 14 s):
+
+| Output | File | Render + review | Checks failing |
+|---|---|---|---|
+| type film, story, review mp4 | 390 kB | 6.7 s render | end-hold (the 8 s cut ends mid-move), text-fit (min margin 5.7 % vs 14 %/20 %) |
+| type film, square, review mp4 | 374 kB | 3.9 s render | end-hold, text-fit (min margin −14.8 %: text leaves the frame) |
+| type film, square, PNG handoff | 8.9 MB (240 frames) | 14 s total | end-hold, text-fit |
+| product film, review mp4 | 7.55 MB | 35 s total (`--trusted`) | end-hold |
+| product film, master mp4 | 14.70 MB | 44 s total | end-hold |
+
+The text-fit failures are real: a layout made for 4:5 does not fit those variants, and review says
+so per output.
+
+## Placements
+
+A variant can declare the placement it is delivered to, in requirements.json `placements` (keyed
+by variant; `main` is the manifest's own format). `deliver` then checks the file it made, as
+ffprobe and the file's boxes read it, against every rule the placement declares and nothing else:
+container, video codec, width and height (exact or a minimum), aspect, frame rates, length (a range
+or spot lengths), bytes, bitrate floor and ceiling, audio required or none, audio codec, sample
+rate, channels, integrated loudness and true peak, no edit list (`editList: false`). Its
+`safeArea` is what text-fit judges for that output. Each broken rule names the flag that fixes the
+file:
+
+```
+✗ b-story  …  failing: placement
+  placement Meta Reels ads: an edit list (--no-edit-list)
+```
+
+The numbers are data the person brings, never defaults: the catalog's `format-placement-specs`
+holds Meta Reels ads, YouTube 1080p, Amazon Streaming TV, EBU R128, ATSC A/85 and a 2026 DOOH
+screen, each with its source and the date it was read, to copy and keep current. A png handoff is a
+folder, not a file a placement takes: its placement check is unknown, so a placement on a png
+output fails.
+
+## Broadcast: preroll, timecode, textless
+
+The manifest, or a variant, can declare what a broadcast delivery needs around the film:
+
+```json
+"variants": {
+  "tv": { "preroll": { "seconds": 10, "fill": "source" }, "timecode": "10:00:00:00" },
+  "tv-textless": {
+    "preroll": { "seconds": 10 },
+    "timecode": "10:00:00:00",
+    "textless": true,
+    "params": { "copy": false }
+  }
+}
+```
+
+UK broadcast, for one, asks for a 10 s clock slate before the spot and a 0 or 5 s freeze after
+it (Clearcast Library Technical Specification v1.6, 2024).
+
+- `preroll`: whole frames before the export's first frame, in the mp4 or mov and in a png handoff
+  (`frames/000000.png` onward). `fill: 'black'` (the default) is opaque black and silence;
+  `fill: 'source'` renders the source at the frame times before 0, so a slate is the film's own
+  code (the catalog's `format-broadcast-slate` draws a plain clock). The film's t = 0 stays where it
+  is: its sound and captions move with the picture. Measured on 2026-10-12: 1 s of preroll at 30
+  fps gave 90 frames, frame 29 black and frame 30 the film, and a beep at 0.5 s decoded at 1.5 s.
+- `timecode`: where the programme starts. The file's own timecode (mp4 and mov) is that, less the
+  preroll: `10:00:00:00` with 1 s of preroll at 30 fps is `09:59:59:00` at the first frame. Without
+  it the programme starts at `00:00:00:00`, and a preroll counts back past midnight
+  (`23:59:50:00`). Drop-frame (`;`) at 29.97 and 59.94.
+- `textless`: a version without text, for localising over. No `copy` is asked of it, and review's
+  `textless` check fails it when inspect or the DOM shows text. How the film leaves its text out is
+  its own params.
+
+## Rendering a job on several machines
+
+```sh
+npx shaderera plan --job spot --chunks 4          # out/spot.plan/plan.json
+npx shaderera render --job spot --chunk 0         # on any machine with the project at the job's revision
+npx shaderera render --job spot --chunk 1         # …
+npx shaderera assemble --plan out/spot.plan       # one encode, with the whole window's sound
+```
+
+- `plan` splits the job's frames into chunks of whole frames and fixes the format every host hands
+  them over in (yuv420p or 16-bit RGBA from the GPU compositor, else RGBA).
+- Each chunk renders, with its own determinism re-check, into a lossless FFV1 file (the bytes the
+  host made), recorded with its sha256 and host. Where it runs is the person's: machines in the
+  team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
+- `assemble` refuses a missing or changed chunk, and chunks from different kinds of host (another
+  GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`. It
+  encodes the chunks once in order, with the sound, captions, stems, preroll and timecode of the
+  whole window.
+- Measured on 2026-10-12: a job rendered in 3 chunks (out of order) and assembled is the same file,
+  byte for byte, as the job rendered in one go, for an mp4 and for ProRes 422 HQ and 4444 (the mov
+  muxer runs with `+bitexact`, and PCM packets are 1024 samples each). A sequential source renders
+  each chunk from its own start, replaying or restoring a checkpoint.
+- A png job is already one file per frame: split it into jobs by window instead.
+- On Linux, Dawn renders through Vulkan: a container needs `libvulkan1`, and on NVIDIA
+  `NVIDIA_DRIVER_CAPABILITIES` must include `graphics` (NVIDIA Container Toolkit docs). `webgpu`
+  0.6.2 loads on Ubuntu 22.04 and later.
+
+## Handoff
+
+`shaderera handoff <job>` writes `out/handoff/<job>/`: the revision's files as a working tree
+(never node_modules, out or other revisions), `versions/` with only that revision's objects, its
+record and the job, so `npx shaderera render --job <job>` works there unchanged, and
+`REPRODUCE.md`: the commands (`npm ci` with a package-lock, else `npm install`), the lock file's
+hash, the installed packages the job executes with the sha256 of each, the OS, GPU, Node, ffmpeg
+and Shaderera versions measured at handoff, and the asset hashes with a pointer to ASSETS.md when
+the revision has one.
+
+**What a job pins.** A job records each installed package its source executes (what the build
+imports, everything those depend on, and `webgpu` when installed) as `name@version` → sha256 of
+the package's files. Every host checks them before it renders the job, and refuses when one
+changed (the same version with different code included) or Shaderera's version differs. The check
+pins what the job renders against; it does not install anything. The lock file is what lets
+someone else install the same packages. Assets are project files, hashed into the job.
+
+**Reproducible from a clean install** is stated at the top of REPRODUCE.md and printed: yes only
+when the revision carries a lock file and no `workspace:`, `file:` or `link:` dependency. A handoff
+without that is not a production handoff, and says so.
+
+`--verify` copies the handoff to a fresh temp folder, links **this project's** node_modules, opens
+the job there from its own `versions/` and compares sha256 of five sampled frames with the
+project's. That shows the handoff is complete and relocatable against this installation; it does
+not show that a clean install reproduces it. On the 3D product film (`--trusted`, a 4.7 MB
+handoff), all five matched. `--clean-install` runs the lock file's install in the fresh folder
+instead, so the job's package check compares a clean install with what the job froze before any
+frame is compared: the test for handing a job to someone else. The tests run both, and the
+documented command in a copy of a png job's handoff, comparing every frame hash in
+`delivery.json`.
+
+## Higher precision: HDR, scene-linear EXR, AOVs
+
+Shaderera composites display-referred sRGB code values. The GPU compositor accumulates them in half
+floats, clamped to 1.0, and can hand them on at 16 bits a channel (ProRes, `--bits 16` PNGs); a
+canvas or byte layer is 8-bit to begin with, and **changing the encoder cannot restore precision a
+layer never had**. None of it is HDR: an "HDR" tag on an SDR composite would be a lie, and there is
+no scene-linear light in it to put in an EXR.
+
+What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
+channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance
+houses and post facilities transcode a ProRes master to them (The Post Flow, 2026-08-24); nor HEVC,
+whose encoders carry patent-pool royalties (Access Advance). Scene-linear compositing would be a
+protocol change (`over` in linear light), not an encoder setting.
+
+The honest routes today:
+
+1. **The renderer writes its own float output.** A source renders anything internally (WebGPU
+   float targets, three.js linear workflow) and, as a trusted source or its own pipeline driven by
+   the same t, writes its passes to EXR itself, keyed by the job's frame times. Shaderera's job and
+   frame list give the times and the provenance.
+2. **An external pipeline** (a DCC or compositor) renders the high-precision master, using the PNG
+   + WAV handoff and `delivery.json` as reference and timing.

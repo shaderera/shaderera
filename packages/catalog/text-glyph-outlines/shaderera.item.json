@@ -1,0 +1,23 @@
+{
+  "name": "text-glyph-outlines",
+  "type": "component",
+  "title": "Glyph outlines",
+  "description": "Text from a font file as geometry: contours flattened to polylines with the original curves kept, fill triangles with holes cut correctly, and a closed extruded mesh with normals, each with per-glyph ranges so letters can move apart",
+  "category": "Typography",
+  "tags": [
+    "text",
+    "font",
+    "outlines",
+    "vector",
+    "triangulate",
+    "extrude",
+    "3d text",
+    "mesh",
+    "typography",
+    "geometry"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "packages": { "opentype.js": "2.0.0", "earcut": "3.2.3" } },
+  "files": ["src/type/outlines.ts", "src/type/opentype.d.ts"]
+}

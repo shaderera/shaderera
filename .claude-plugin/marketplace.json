@@ -1,0 +1,15 @@
+{
+  "name": "shaderera",
+  "owner": { "name": "Shaderera", "url": "https://github.com/shaderera" },
+  "description": "Skills for making video in code with Shaderera.",
+  "plugins": [
+    {
+      "name": "shaderera",
+      "source": "./plugins/shaderera",
+      "description": "Make, check, render and deliver films in code with Shaderera, and use its registry.",
+      "version": "0.1.0",
+      "category": "media",
+      "tags": ["video", "motion graphics", "webgpu", "three.js", "ffmpeg"]
+    }
+  ]
+}

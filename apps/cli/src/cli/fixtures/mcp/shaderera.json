@@ -1,0 +1,12 @@
+{
+  "entry": "./src/composition.ts",
+  "stamp": true,
+  "fps": 10,
+  "duration": 1,
+  "width": 64,
+  "height": 36,
+  "variants": {
+    "short": { "label": "0.5 s cutdown", "duration": 0.5 },
+    "teaser": { "label": "0.3 s teaser", "duration": 0.3 }
+  }
+}

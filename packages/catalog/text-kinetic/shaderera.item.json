@@ -1,0 +1,11 @@
+{
+  "name": "text-kinetic",
+  "type": "component",
+  "title": "Kinetic type",
+  "description": "Canvas2D text primitives: ASCII scramble, decode in and scramble out, horizontal band glitch, fit to width, hollow outlines, timecode",
+  "category": "Typography",
+  "tags": ["glitch", "scramble", "decode", "ascii", "text", "kinetic typography", "captions"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/type/kinetic.ts"]
+}

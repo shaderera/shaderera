@@ -1,0 +1,8 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 10,
+  "duration": 1,
+  "width": 4,
+  "height": 2,
+  "sequential": true
+}

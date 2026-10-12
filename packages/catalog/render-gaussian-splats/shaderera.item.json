@@ -1,0 +1,23 @@
+{
+  "name": "render-gaussian-splats",
+  "type": "component",
+  "title": "Gaussian splats",
+  "description": "3D Gaussian splats (.splat and 3DGS .ply) rendered on host.gpu with EWA splatting, sorted back to front deterministically every frame, the frame as a premultiplied GPU texture layer; raw WebGPU, no packages",
+  "category": "Rendering",
+  "tags": [
+    "gaussian splatting",
+    "3dgs",
+    "splats",
+    "ply",
+    "point cloud",
+    "radiance field",
+    "ewa",
+    "webgpu",
+    "wgsl",
+    "3d",
+    "deterministic"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/render/splats.ts"]
+}
