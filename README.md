@@ -31,6 +31,22 @@ Shaderera does the production work around your code:
   </tr>
 </table>
 
+Up close, three moments of MATTER. Millions of points and live data overlays, and every one of
+them a pure function of `t`: scrub back and the same frame comes back.
+
+<table>
+  <tr>
+    <td width="33%"><img src=".github/readme/td-reversal.webp" alt="MATTER at 18 s: TIME REVERSAL, a burst of particles played backwards"></td>
+    <td width="33%"><img src=".github/readme/td-speedheat.webp" alt="MATTER at 21 s: SPEED HEAT, shards coloured by their speed with live ID tags"></td>
+    <td width="33%"><img src=".github/readme/td-accretion.webp" alt="MATTER at 30 s: 2,096,704 points formed into an accretion disk"></td>
+  </tr>
+  <tr>
+    <td><b>Time reversal.</b> A burst of particles, the future played backwards.</td>
+    <td><b>Speed heat.</b> Shards coloured by their own speed, each tracked with a live ID, position and velocity.</td>
+    <td><b>Accretion disk.</b> 2,096,704 points at 60 fps, the same frame every time.</td>
+  </tr>
+</table>
+
 ## Quick start
 
 You need Node.js 24 or newer and [ffmpeg](https://ffmpeg.org/download.html) on the PATH.
@@ -77,21 +93,6 @@ check` after each edit, looks at stills, and reports what it could not verify by
 command takes `--json` and returns one envelope with `ok`, an exit code and findings that carry
 `t`, `file:line` and a box, so an agent can act on them.
 
-These three were made by agents that had only this README, each from an empty folder:
-
-<table>
-  <tr>
-    <td align="center"><img src=".github/readme/film-northwind.webp" alt="Northwind Coffee: a 6 s square title card in Canvas2D" height="270"></td>
-    <td align="center"><img src=".github/readme/film-late-signal.webp" alt="Late Signal: a 5 s vertical podcast intro with a WGSL shader background" height="270"></td>
-    <td align="center"><img src=".github/readme/film-knot.webp" alt="A 4 s three.js product shot of a glossy torus knot" height="270"></td>
-  </tr>
-  <tr>
-    <td>A 6 s 1080×1080 title card in Canvas2D, following the "By hand" steps, in about six minutes.</td>
-    <td>A 5 s 1080×1920 podcast intro: a WGSL shader and the title, from the skill alone.</td>
-    <td>A 4 s 1920×1080 three.js product shot through the registry's <code>render-three-host</code>, as an mp4 and a ProRes HQ master.</td>
-  </tr>
-</table>
-
 **Give the agent eyes.** The MCP server renders frames as images, inspects state and traces a
 pixel back to the line of code that drew it. From the project directory:
 
@@ -105,12 +106,12 @@ enlarged by whole pixels, so an agent can judge an edge, not just the code.
 
 <table>
   <tr>
-    <td width="58%"><img src=".github/readme/contact-sheet.webp" alt="A contact sheet of the Late Signal intro, one still per moment, labelled with t"></td>
-    <td width="42%"><img src=".github/readme/detail-full.webp" alt="The torus knot at t = 2 s"><br><img src=".github/readme/detail.webp" alt="A 300×200 region of the knot enlarged three times, every pixel a block"></td>
+    <td width="60%"><img src=".github/readme/sheet-matter.webp" alt="A contact sheet of MATTER: twelve moments, each labelled with t"></td>
+    <td width="40%"><img src=".github/readme/detail-matter-full.webp" alt="MATTER at t = 30 s"><br><img src=".github/readme/detail-matter.webp" alt="A 240×160 region of MATTER at 30 s enlarged four times: the live ID tags, every pixel a block"></td>
   </tr>
   <tr>
-    <td><code>npx shaderera still 0.15 1 1.6 2.2 3.5 4.9 --sheet</code></td>
-    <td><code>npx shaderera still 2 --region 700,250,300,200 --scale 3</code></td>
+    <td><code>npx shaderera still 2 6 10 14 18 21 26 30 34 38 42 45.5 --sheet</code></td>
+    <td><code>npx shaderera still 30 --region 1090,220,240,160 --scale 4</code></td>
   </tr>
 </table>
 
