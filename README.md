@@ -2,6 +2,8 @@
 
 **The programmable era of ads.**
 
+<p align="center"><img src=".github/readme/banner.webp" alt="Shaderera: a film is render(t). The wordmark is made of particles, each a function of t." width="100%"></p>
+
 Shaderera makes 2D/3D hybrid video in code, for people who write code and the AI agents they work
 with. A film is `render(t)`: a function from time to a frame. You draw with whatever you like:
 Canvas2D, three.js, raw WebGPU, a DOM page (HTML, CSS, React), footage, your own shaders. Code is
@@ -15,6 +17,19 @@ Shaderera does the production work around your code:
 - **delivers** campaign batches per placement (Reels, YouTube, CTV, broadcast, DOOH), checked
   against each spec;
 - **keeps revisions** and frozen render jobs, so a render can be repeated exactly.
+
+<table>
+  <tr>
+    <td width="33%"><img src=".github/readme/film-matter.webp" alt="MATTER, an opening film: one body of particles, no cuts"></td>
+    <td width="33%"><img src=".github/readme/film-pdoom.webp" alt="P(DOOM), a lyric video: Swiss type that assembles from particles"></td>
+    <td width="33%"><img src=".github/readme/film-wallloom.webp" alt="WALLLOOM, a product configurator loop: frames, mats and moulding swap in code"></td>
+  </tr>
+  <tr>
+    <td><b>MATTER</b>, opening film. One body of particles, no cuts: every transition is a morph, and the cut lands on the beat because the beat is a function of t.</td>
+    <td><b>P(DOOM)</b>, lyric video. Swiss type on paper; words assemble from particles and leave as dust, each set on the voice.</td>
+    <td><b>WALLLOOM</b>, product loop. A frame-swap configurator rebuilt as a film: pictures, mats, moulding and shadow, one order after another.</td>
+  </tr>
+</table>
 
 ## Quick start
 
@@ -62,6 +77,21 @@ check` after each edit, looks at stills, and reports what it could not verify by
 command takes `--json` and returns one envelope with `ok`, an exit code and findings that carry
 `t`, `file:line` and a box, so an agent can act on them.
 
+These three were made by agents that had only this README, each from an empty folder:
+
+<table>
+  <tr>
+    <td align="center"><img src=".github/readme/film-northwind.webp" alt="Northwind Coffee: a 6 s square title card in Canvas2D" height="270"></td>
+    <td align="center"><img src=".github/readme/film-late-signal.webp" alt="Late Signal: a 5 s vertical podcast intro with a WGSL shader background" height="270"></td>
+    <td align="center"><img src=".github/readme/film-knot.webp" alt="A 4 s three.js product shot of a glossy torus knot" height="270"></td>
+  </tr>
+  <tr>
+    <td>A 6 s 1080×1080 title card in Canvas2D, following the "By hand" steps, in about six minutes.</td>
+    <td>A 5 s 1080×1920 podcast intro: a WGSL shader and the title, from the skill alone.</td>
+    <td>A 4 s 1920×1080 three.js product shot through the registry's <code>render-three-host</code>, as an mp4 and a ProRes HQ master.</td>
+  </tr>
+</table>
+
 **Give the agent eyes.** The MCP server renders frames as images, inspects state and traces a
 pixel back to the line of code that drew it. From the project directory:
 
@@ -70,7 +100,19 @@ claude mcp add shaderera -- npx shaderera mcp
 ```
 
 In another agent, add a stdio MCP server with the command `npx shaderera mcp`, run in the
-project directory.
+project directory. The CLI shows the same things: a contact sheet of any moments, and a detail
+enlarged by whole pixels, so an agent can judge an edge, not just the code.
+
+<table>
+  <tr>
+    <td width="58%"><img src=".github/readme/contact-sheet.webp" alt="A contact sheet of the Late Signal intro, one still per moment, labelled with t"></td>
+    <td width="42%"><img src=".github/readme/detail-full.webp" alt="The torus knot at t = 2 s"><br><img src=".github/readme/detail.webp" alt="A 300×200 region of the knot enlarged three times, every pixel a block"></td>
+  </tr>
+  <tr>
+    <td><code>npx shaderera still 0.15 1 1.6 2.2 3.5 4.9 --sheet</code></td>
+    <td><code>npx shaderera still 2 --region 700,250,300,200 --scale 3</code></td>
+  </tr>
+</table>
 
 ### By hand
 
