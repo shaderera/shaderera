@@ -14,9 +14,10 @@ One file per decision, in the order they were made.
   items.
 - [0009](0009-no-camera-model-in-core.md): core has no camera model, only a matrices hook.
 - [0010](0010-engine-licence-and-public-history.md): the engine's licence, and a fresh history in
-  public.
+  public (its licence part is superseded by 0013).
 - [0011](0011-experts-and-agents-no-taste-lock.md): for experts and their agents, with no house
   style.
 - [0012](0012-delivery-and-agent-tooling.md): delivery and agent tooling for professionals.
+- [0013](0013-the-engine-is-mit.md): the engine is MIT, and the name stays the project's.
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.

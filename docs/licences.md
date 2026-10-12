@@ -1,9 +1,8 @@
 # Licences
 
 What the published packages (0.1.1) depend on, and what the catalog and the test fixtures vendor.
-The engine packages (`@shaderera/core`, `shaderera`, `@shaderera/registry`) are under the
-Shaderera License (`LICENSE`), a draft at 0.1.0; `create-shaderera`, `packages/catalog/` and the
-agent skill are MIT (`LICENSE-MIT`). Each tarball carries its own licence file.
+Every package (`@shaderera/core`, `shaderera`, `@shaderera/registry`, `create-shaderera`), the
+catalog and the agent skills are MIT. Each tarball carries its own licence file.
 
 The runtime lists come from the packed tarballs installed with npm in a fresh `create-shaderera`
 project (Windows x64). They walk `dependencies` and installed `optionalDependencies` from each
@@ -21,8 +20,8 @@ same packages under the same licences. Versions move; re-run the walk before a r
 `vite` (^8, MIT) is a peer dependency: the project installs it. `@napi-rs/canvas`'s native
 binding is built on Skia (BSD-3-Clause).
 
-Besides `@shaderera/core` 0.1.1 and `@shaderera/registry` 0.1.1 (Shaderera License; the
-registry's own list is below):
+Besides `@shaderera/core` 0.1.1 and `@shaderera/registry` 0.1.1 (MIT; the registry's own list
+is below):
 
 - **MIT:** @hono/node-server 2.1.3, @jridgewell/sourcemap-codec 1.6.0, @modelcontextprotocol/sdk
   1.32.1, @napi-rs/canvas-win32-x64-msvc 1.0.10, @napi-rs/canvas 1.0.10,

@@ -1,51 +1,21 @@
-Shaderera License
-DRAFT, published with 0.1.0 before legal review: the terms may change before 1.0.
+MIT License
 
 Copyright (c) 2026 Shaderera contributors
 
-This license covers the Shaderera engine: the packages `@shaderera/core` (packages/core),
-`shaderera` (apps/cli) and `@shaderera/registry` (apps/registry), and everything else in
-this repository that is not listed under "MIT-licensed parts" below.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. Free use
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-   You may use, copy, modify and run the Shaderera engine, and make and distribute videos and
-   other works with it, free of charge, if you are:
-   (a) an individual;
-   (b) a for-profit organisation with 3 or fewer employees (counting contractors who work for it
-       full time);
-   (c) a non-profit organisation, or a school, university or other educational institution; or
-   (d) anyone evaluating the engine, for up to 30 days, without using its output commercially.
-
-2. Company license
-
-   Any other organisation needs a company license from the Shaderera copyright holders to use the
-   engine. An organisation that grows past the limit in 1(b) needs one from that time on.
-
-3. Your work is yours
-
-   Whatever you make with the engine (your project's source code, the videos and images it
-   renders, and their sound) belongs to you. This license places no condition on it.
-
-4. What you may not do
-
-   You may not sell, sublicense, or offer as a service the engine itself or a modified copy of
-   it, or remove this license from copies of it, except as a company license allows.
-
-5. No warranty
-
-   THE ENGINE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
-   NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-   DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE ENGINE OR THE USE OR OTHER DEALINGS IN THE ENGINE.
-
-MIT-licensed parts
-
-The following are under the MIT License (LICENSE-MIT), so that what they put into your project
-is freely yours to change and share:
-- `create-shaderera` (packages/create-shaderera) and the starter project it copies (packages/create-shaderera/project);
-- the official registry items (packages/catalog/), except fonts, which keep their own licences (OFL 1.1);
-- the agent skills and the Claude Code plugin (plugins/shaderera/).
-
-Third-party code and assets keep their own licences; see docs/licences.md.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

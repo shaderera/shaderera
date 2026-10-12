@@ -2,7 +2,7 @@
   "name": "shaderera",
   "version": "0.1.1",
   "description": "Shaderera CLI and MCP: DevTools for programmable media that is deterministic in time.",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "homepage": "https://github.com/shaderera/shaderera",
   "repository": {
     "type": "git",

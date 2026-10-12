@@ -233,10 +233,7 @@ and mattpocock/skills, listed in [.claude/skills/SOURCES.md](.claude/skills/SOUR
 
 ## Licence
 
-The engine (`shaderera`, `@shaderera/core`, `@shaderera/registry`) is under the
-[Shaderera License](LICENSE). It is free for individuals, organisations of up to 3 people,
-non-profits and education. Other companies need a company license. The licence text is a draft
-and may change before 1.0. What you make with Shaderera is yours. `create-shaderera`, the
-registry items in `packages/catalog/` and the skills in `plugins/shaderera/` are
-[MIT](LICENSE-MIT), so the code they put in your project is yours to change and share. Fonts
-are under the SIL Open Font License; see [docs/licences.md](docs/licences.md).
+[MIT](LICENSE), all of it: the engine, `create-shaderera`, the registry items and the skills.
+Use it for anything, including inside a product you sell. What you make with Shaderera is
+yours. The name and logo are not part of the MIT licence: see [TRADEMARKS.md](TRADEMARKS.md).
+Fonts in the catalog are under the SIL Open Font License; see [docs/licences.md](docs/licences.md).

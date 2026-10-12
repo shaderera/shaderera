@@ -1,6 +1,7 @@
 # 0010: The engine's licence, and a fresh history in public
 
-2026-10-10. Owner accepted.
+2026-10-10. Owner accepted. Its licence part is superseded by
+[0013](0013-the-engine-is-mit.md): from 0.1.1 the engine is MIT.
 
 **Licence.** Decision 0008 said companies pay for the engine, as with Remotion, while every
 package said MIT. Code published under MIT stays MIT, so this was settled before anything went

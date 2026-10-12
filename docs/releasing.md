@@ -35,5 +35,5 @@ outside the monorepo.
 7. **Record.** Record the revision and each tarball's sha256 in the release notes.
 
 **The public repository** starts at 0.1.0 from one commit of the cleaned tree, not from the
-private repository's history ([ADR 0010](adr/0010-engine-licence-and-public-history.md)). The
-Shaderera License ships as a draft at 0.1.0; a lawyer reviews it later.
+private repository's history ([ADR 0010](adr/0010-engine-licence-and-public-history.md)). From
+0.1.1 everything is MIT ([ADR 0013](adr/0013-the-engine-is-mit.md)).
