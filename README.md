@@ -1,6 +1,6 @@
 # Shaderera
 
-**The programmable era of ads.** Version 0.1.0, the first public release.
+**The programmable era of ads.** Version 0.1.1. The first public release was 0.1.0.
 
 Shaderera makes 2D/3D hybrid video in code, for people who write code and the AI agents they work
 with. A film is `render(t)`: a function from time to a frame. You draw with whatever you like:
@@ -38,14 +38,18 @@ Claude also picks them up when you ask for a film.
 **Codex, Cursor, Gemini CLI, OpenCode and other agents with skills**: add the skills.
 
 ```bash
-npx skills add shaderera/shaderera        # this project; add -g for every project
+npx skills add shaderera/shaderera        # this project only; add -g for every project
 ```
 
-**Or paste this into any agent that can run a terminal:**
+In a project, it writes the skills to `.agents/skills/`, a `.claude/skills` link to them and
+`skills-lock.json`. With `-g` they are installed once for every project instead.
 
-> Install the Shaderera skills with `npx skills add shaderera/shaderera -g -y`. Then use the
-> shaderera skill to start a project called my-film, add its MCP server, and show me a contact
-> sheet of the empty film.
+**Or paste this into any agent that can run a terminal** (it installs the skills for every
+project, with no questions):
+
+> Install the Shaderera skills for every project with `npx skills add shaderera/shaderera -g -y`.
+> Then use the shaderera skill to start a project called my-film, add its MCP server, and show me
+> a contact sheet of the empty film.
 
 Then ask for the film in your own words, with the brief:
 
@@ -79,7 +83,10 @@ npx shaderera still 0 5 --sheet  # stills of t = 0 s and 5 s, and a contact shee
 npx shaderera render             # out/my-film.mp4
 ```
 
-The film is `render(t)` in `src/composition.ts`. It starts empty: every frame is your code.
+The film is `render(t)` in `src/composition.ts`. It starts empty: every frame is your code. The
+starting project is 1920×1080 at 60 fps, 10 s long, seed 1 (`shaderera.json`), and its
+`render(t)` clears a black frame on the GPU (`host.gpu`). Any renderer works; the example in
+[How it works](#how-it-works) is Canvas2D.
 Every new project is also set up for an agent: `AGENTS.md` (and `CLAUDE.md`, which points to
 it) says how to work there, `AUTHORING.md` is the workflow, `guides/` holds short guides (sound,
 typography, formats, 3D products, photos, logos, review, revisions), and `.claude/skills/` holds
@@ -115,6 +122,9 @@ pnpm install
 for d in packages/catalog/*/; do [ -f "$d/shaderera.item.json" ] && node apps/registry/bin/shaderera-registry.js publish "$d"; done
 ```
 
+For a team folder, put `SHADERERA_REGISTRY=<folder>` before `node` in the loop. `search` and
+`add` read the same folder, so set `SHADERERA_REGISTRY` where the film runs them too.
+
 Then, in a film:
 
 ```bash
@@ -126,6 +136,8 @@ npx shaderera-registry add audio-beat-clock
 
 A source module exports `open`. It gets the manifest and the host's I/O, and returns `render(t)`
 and, if you want, `inspect(t)`: the state at `t` as JSON, which `check`, `review` and agents read.
+The starting project clears a frame on the GPU; any renderer works, and this example is
+Canvas2D.
 
 ```ts
 import type { Open } from '@shaderera/core'
@@ -133,7 +145,10 @@ import type { Open } from '@shaderera/core'
 const open: Open = async ({ manifest, io }) => {
   const canvas = io.canvas(manifest.width, manifest.height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
-  const title = { id: 'title', text: 'Hello', x: 160, y: 300 }
+  const title = { id: 'title', text: 'Hello', x: 160, y: 300, size: 64 }
+  ctx.font = `${title.size}px sans-serif`
+  // A text run's box is [x, y, width, height] in frame pixels; review reads text only with one.
+  const box = [title.x, title.y - title.size, ctx.measureText(title.text).width, title.size * 1.25]
   return {
     async render(t) {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -142,7 +157,7 @@ const open: Open = async ({ manifest, io }) => {
       return { color: canvas }
     },
     async inspect(t) {
-      return { title: { ...title, opacity: Math.min(1, t) } }
+      return { title: { ...title, box, opacity: Math.min(1, t) } }
     },
   }
 }
@@ -199,11 +214,21 @@ git clone https://github.com/shaderera/shaderera.git
 cd shaderera
 pnpm install
 pnpm build
+pnpm lint
+pnpm typecheck
 pnpm test
 ```
 
-[CLAUDE.md](CLAUDE.md) is the short guide for agents working on this repository, and
-`.claude/skills/` holds the engineering skills it uses. Issues are on
+`pnpm install` warns `Ignored build scripts: esbuild, webgpu` and suggests `pnpm approve-builds`.
+That is expected: the tests pass without approving them (webgpu's script only clears a macOS
+download flag). The full tests need ffmpeg, a GPU and Chrome: the ffmpeg tests skip without
+ffmpeg, but the GPU and browser-host tests fail without a GPU and Chrome (`CHROME` names another
+Chrome).
+
+[CLAUDE.md](CLAUDE.md) is the short guide for agents working on this repository.
+`.claude/skills/` holds third-party engineering skills copied for contributors' agents (ponytail
+and mattpocock/skills, listed in [.claude/skills/SOURCES.md](.claude/skills/SOURCES.md));
+`npx skills add` does not offer them. Issues are on
 [GitHub](https://github.com/shaderera/shaderera/issues).
 
 ## Licence

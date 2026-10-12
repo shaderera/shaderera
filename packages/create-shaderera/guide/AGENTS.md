@@ -12,8 +12,9 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
   - a **plumbing** item may be added instead of writing the same plumbing again (say so in your
     summary);
   - **looks, motion and sound design** items only when the person asks.
-  Never search the registry or suggest items on your own. The `shaderera-registry` skill in
-  `.claude/skills/shaderera-registry/` says how to add. If a command refuses the project because a required
+  Never search the registry or suggest items on your own. The `shaderera-registry` skill says
+  how to add: it is in `.claude/skills/shaderera-registry/`, or in `.agents/skills/` for an agent
+  that installed it with `npx skills add`. If a command refuses the project because a required
   extension is missing, take one of the three ways out it names; never work around it silently.
 - Keep explicit instructions over defaults. If the brief names a real product, logo or brand asset
   and its model or files are missing, ask for them; never present a primitive as the real thing.

@@ -1,4 +1,4 @@
-/// <reference types="@webgpu/types" />
+/// <reference types="@webgpu/types" preserve="true" />
 /**
  * EXPERIMENTAL: not covered by semver until real consumers justify it (roadmap §14).
  *

@@ -4,6 +4,8 @@
 // - three advances its node clock from its own requestAnimationFrame loop (the wall clock): the
 //   loop is stopped (in Node, given a frame source that never fires), and the clock is set to t
 //   on every render;
+// - every render adds the wall-clock time since the last one to that clock (nodeFrame.update reads
+//   performance.now): update only counts the frame here, so the clock stays at t;
 // - WebGPURenderer applies neither tone mapping nor sRGB when it renders into a target: an output
 //   pass does both;
 // - multisampling a target that blends (a card's alpha, a reflection) is not deterministic on
@@ -18,7 +20,7 @@ import * as THREE from 'three/webgpu'
 
 type Internals = {
   _animation: { stop(): void }
-  _nodes: { nodeFrame: { update(): void; time: number; deltaTime: number } }
+  _nodes: { nodeFrame: { update(): void; frameId: number; time: number; deltaTime: number } }
   backend: { get(o: unknown): { texture?: GPUTexture } }
 }
 
@@ -77,6 +79,10 @@ export const createThreeHost = async (host: Host, o: ThreeHostOptions = {}) => {
     if (stub) delete g.self
   }
   internals._animation.stop()
+  const nodeFrame = internals._nodes.nodeFrame
+  nodeFrame.update = () => {
+    nodeFrame.frameId++
+  }
   renderer.toneMappingExposure = o.exposure ?? 1
 
   const scene = new THREE.RenderTarget(width, height, {
@@ -117,8 +123,6 @@ export const createThreeHost = async (host: Host, o: ThreeHostOptions = {}) => {
         }
       }
       // The node clock at t, never the wall clock.
-      const nodeFrame = internals._nodes.nodeFrame
-      nodeFrame.update()
       nodeFrame.time = t
       nodeFrame.deltaTime = 0
       renderer.setRenderTarget(scene)

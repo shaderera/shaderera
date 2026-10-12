@@ -1,6 +1,6 @@
 # Releasing
 
-The first public release is 0.1.0, from https://github.com/shaderera/shaderera. The four packages
+The repository went public at 0.1.0; 0.1.1 is the first release on npm. The four packages
 (`@shaderera/core`, `shaderera`, `@shaderera/registry`, `create-shaderera`) share one version. A
 release is checked as a user gets it: from packed tarballs, installed with npm in a fresh folder
 outside the monorepo.
@@ -26,11 +26,13 @@ outside the monorepo.
    npx shaderera-registry verify
    ```
    Every command must pass. The empty project needs WebGPU, so a GPU adapter.
-4. **Package fields.** Every package.json has version 0.1.0 and a `repository` field pointing at
+4. **Package fields.** Every package.json has the release version and a `repository` field pointing at
    `https://github.com/shaderera/shaderera`.
 5. **Licences.** Re-run the dependency walk and update [licences.md](licences.md): every bundled
    or vendored dependency and every asset with its licence.
-6. **Record.** Record the revision and each tarball's sha256 in the release notes.
+6. **Publish.** `npm publish --access public` for each tarball (core and registry first, then
+   `shaderera`, then `create-shaderera`), then tag `v<version>` and make a GitHub Release.
+7. **Record.** Record the revision and each tarball's sha256 in the release notes.
 
 **The public repository** starts at 0.1.0 from one commit of the cleaned tree, not from the
 private repository's history ([ADR 0010](adr/0010-engine-licence-and-public-history.md)). The

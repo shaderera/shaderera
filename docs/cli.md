@@ -59,7 +59,7 @@ There is no silent fallback. `npx shaderera-registry verify` runs the same check
 
 | Flag | Default | |
 |---|---|---|
-| `--time <s>` | required | seconds |
+| `--time <s>` | required | seconds, from 0 up to but not including the duration (the last frame is at duration − 1/fps) |
 | `--path <p>` | the whole JSON | `a.b`, `a[2]`, `a[id=k5]`, `a["x y"]` |
 | `--json` | off | pretty JSON instead of lines (ignores `--path`) |
 
@@ -125,7 +125,7 @@ Stills of any moment straight from the source, rendered by the same host as `che
 
 | Flag | Default |
 |---|---|
-| `<t>...`, `--time <s>` (repeatable) | the times, in seconds, inside the film |
+| `<t>...`, `--time <s>` (repeatable) | the times, in seconds, inside the film: from 0 up to but not including the duration, so `still 6` fails on a 6 s film (its last frame is at 6 − 1/fps) |
 | `--every <s>` | also a frame every s seconds from 0 |
 | `--sheet` | also a contact sheet, `<variant>-sheet.png` |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
@@ -259,7 +259,7 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 | `determinism` | `check` on 6 sampled t (two orders, inspect + pixels); `--quick` skips it |
 | `blank-frames` | a preview frame every 0.25 s; luma std-dev < 1 outside the first and last 0.3 s, listing the t; fails only with `noBlankFrames: true` |
 | `end-hold` | final frames at 10 fps over the last 3 s; the trailing span where the mean abs diff per channel to the previous sample is < 0.5; fails below `requirements.endHold` s |
-| `text-fit` | every text run (`{ text, box }` anywhere in inspect) at the sampled t: inside `requirements.safeArea` margins, or the frame when `requirements.copy` is set; reports the minimum margin |
+| `text-fit` | every [text run](protocol.md#text-runs) (`{ text, box: [x, y, w, h] }` anywhere in inspect) at the sampled t: inside `requirements.safeArea` margins, or the frame when `requirements.copy` is set; reports the minimum margin |
 | `text-overlap` | two runs at the same t overlapping more than `requirements.textOverlap` of the smaller box; without it, how many pairs overlap and the largest overlap |
 | `reading` | the longest visible stretch of each text (0.25 s samples, opacity ≥ 0.5); fails a text shown for less than `requirements.readingTime` (max(min, characters / charsPerSecond)); without it, the shortest |
 | `glyphs` | each run's characters in the cmap (formats 4 and 12) of the fonts registered through `io.font` for its family; a family not registered there is unknown |

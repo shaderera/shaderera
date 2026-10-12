@@ -262,6 +262,36 @@ test('an item that imports npm packages installs them, unless the project has th
   assert.deepEqual(installed, ['fast-png@8.0.0'])
 })
 
+test('npm keeps an exact version exact and saves @types packages as dev dependencies', () => {
+  const registry = temp('reg')
+  publish(
+    write(temp('render-three-host'), {
+      'shaderera.item.json': {
+        name: 'render-three-host',
+        type: 'component',
+        category: 'Rendering',
+        version: '0.1.0',
+        licence: 'MIT',
+        requires: {
+          packages: { three: '0.186.1', '@types/three': '0.186.0', 'fast-png': '^8.0.0' },
+        },
+        files: ['src/three/host.ts'],
+      },
+      'src/three/host.ts': 'export const x = 1\n',
+    }),
+    registry,
+  )
+  const installed: string[][] = []
+  add(project(), registry, 'render-three-host', {
+    install: (_, spec, flags = []) => installed.push([spec, ...flags]),
+  })
+  assert.deepEqual(installed, [
+    ['three@0.186.1', '--save-exact'],
+    ['@types/three@0.186.0', '--save-exact', '--save-dev'],
+    ['fast-png@^8.0.0'],
+  ])
+})
+
 /** A component label, for the tests below. */
 const piece = (name: string, files: string[], more: { [key: string]: unknown } = {}) =>
   write(temp(name), {
@@ -408,4 +438,13 @@ test('the index is replaced whole, never rewritten in place', () => {
   publish(piece('two', ['src/two.ts']), registry)
   assert.notEqual(statSync(file, { bigint: true }).ino, before)
   assert.ok(!existsSync(`${file}.partial`))
+})
+
+test('a file the project already has is refused, in the right number', () => {
+  const registry = temp('reg')
+  publish(piece('one', ['src/a.ts']), registry)
+  publish(piece('two', ['src/b.ts', 'src/c.ts']), registry)
+  const root = write(project(), { 'src/a.ts': '', 'src/b.ts': '', 'src/c.ts': '' })
+  assert.throws(() => add(root, registry, 'one'), /has src\/a\.ts; use --force to replace it$/)
+  assert.throws(() => add(root, registry, 'two'), /src\/c\.ts; use --force to replace them$/)
 })

@@ -1,6 +1,6 @@
 // One review of a project: principal frames, a contact sheet and technical checks. The CLI and MCP
 // both call this; each opens the child (for a variant or a frozen revision) itself.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
 import type { Json } from '@shaderera/core'
@@ -144,6 +144,9 @@ export const contactSheet = (
 export const readingTimes = (runs: (TextRun & { t: number })[], sampleT: number[]) => {
   const step = 0.25
   const sampled = new Set(sampleT)
+  // Samples snap to frames, so at 30 fps they are 0.2667 s or 0.2333 s apart: a stretch is
+  // consecutive samples, never a gap measured in seconds.
+  const index = new Map([...sampled].sort((a, b) => a - b).map((t, i) => [t, i]))
   const seen = new Map<string, number[]>()
   for (const r of runs)
     if (sampled.has(r.t) && (r.opacity ?? 1) >= 0.5 && r.text.trim()) {
@@ -157,7 +160,8 @@ export const readingTimes = (runs: (TextRun & { t: number })[], sampleT: number[
     const ts = [...new Set(times)].sort((a, b) => a - b)
     let best = 0
     for (let i = 0, start = 0; i < ts.length; i++) {
-      if (i > 0 && (ts[i] as number) - (ts[i - 1] as number) > step + 1e-6) start = i
+      if (i > 0 && index.get(ts[i] as number) !== (index.get(ts[i - 1] as number) as number) + 1)
+        start = i
       best = Math.max(best, (ts[i] as number) - (ts[start] as number) + step)
     }
     shown.push({ id, text, shown: round(best, 2), chars: chars(text) })
@@ -232,6 +236,9 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
   const last = (count - 1) / fps
   const snap = (t: number) => Math.min(count - 1, Math.max(0, Math.round(t * fps))) / fps
   mkdirSync(o.outDir, { recursive: true })
+  // Frames from an earlier run (another fps or times) would mix in: remove only what review writes.
+  for (const f of readdirSync(o.outDir))
+    if (/^\d+-\d+\.\d+s(\.thumb)?\.png$|^contact-sheet\.png$/.test(f)) rmSync(join(o.outDir, f))
   const checks: Check[] = []
 
   const inspected = new Map<number, Json | null>()

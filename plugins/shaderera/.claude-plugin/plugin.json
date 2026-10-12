@@ -1,6 +1,6 @@
 {
   "name": "shaderera",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Make, check, render and deliver films in code with Shaderera, and use its registry.",
   "author": { "name": "Shaderera", "url": "https://github.com/shaderera" },
   "homepage": "https://github.com/shaderera/shaderera",

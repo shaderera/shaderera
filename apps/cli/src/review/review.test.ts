@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -54,6 +54,22 @@ test('review (quick) on a fixture without shots or text: measured or unknown, ne
   }
 })
 
+test('review removes frames from an earlier run in its out dir, and nothing else', async () => {
+  const { project, child } = await open({ root: fixture })
+  const outDir = mkdtempSync(join(tmpdir(), 'review-'))
+  const stale = ['07-0.95s.png', '07-0.95s.thumb.png']
+  for (const f of [...stale, 'notes.txt']) writeFileSync(join(outDir, f), '')
+  try {
+    const r = await review({ project, child, outDir, quick: true })
+    const left = readdirSync(outDir).sort()
+    for (const f of stale) assert.ok(!left.includes(f), f)
+    assert.ok(left.includes('notes.txt'))
+    assert.equal(left.length, r.frames.length * 2 + 2)
+  } finally {
+    await child.close()
+  }
+})
+
 test('reading time: the longest visible stretch of each text against a declared max(min, characters / rate)', () => {
   const at = (id: string, text: string, ts: number[], opacity = 1) =>
     ts.map((t) => ({ id, text, box: [0, 0, 1, 1] as [number, number, number, number], opacity, t }))
@@ -81,4 +97,17 @@ test('reading time: the longest visible stretch of each text against a declared 
 test("the last frame reviewed is the export's last frame, also when duration × fps is not whole", () => {
   // 10.01 s at 30 fps exports frames 0 to 300: t = 10 is a frame.
   assert.equal(reviewTimes([], 30, 10.01).at(-1)?.t, 10)
+})
+
+test('reading time at 30 fps: samples snapped to frames still make one stretch', () => {
+  // review samples every 0.25 s snapped to frames: at 30 fps they are 0.2333 s or 0.2667 s apart.
+  const sampleT = [...new Set(Array.from({ length: 25 }, (_, i) => Math.round(i * 7.5) / 30))]
+  const shown = sampleT.filter((t) => t >= 1 && t <= 3.6)
+  const runs = shown.map((t) => ({
+    id: 'title',
+    text: 'NORTHWIND',
+    box: [0, 0, 1, 1] as [number, number, number, number],
+    t,
+  }))
+  assert.deepEqual(readingShort(runs, sampleT, { min: 1.5, charsPerSecond: 15 }), [])
 })

@@ -26,12 +26,15 @@ repository everyone checks out. Point to it in either of two ways:
 - set `SHADERERA_REGISTRY=<folder>`;
 - pass `--registry <folder>`.
 
-Without either, it is `~/.shaderera/registry`. To fill a new registry with the official items
-in [packages/catalog/](../../packages/catalog/):
+Without either, it is `~/.shaderera/registry`. `search`, `add` and `publish` all read the same
+folder. To fill a new registry with the official items in
+[packages/catalog/](../../packages/catalog/), from a clone of this repository after `pnpm install`:
 
 ```
-for d in packages/catalog/*/; do [ -f "$d/shaderera.item.json" ] && npx shaderera-registry publish "$d" --registry <folder>; done
+for d in packages/catalog/*/; do [ -f "$d/shaderera.item.json" ] && node apps/registry/bin/shaderera-registry.js publish "$d"; done
 ```
+
+For a team folder, put `SHADERERA_REGISTRY=<folder>` before `node`.
 
 The folder contains three things:
 - `index.json`: every item and version, with its sha256;

@@ -1,6 +1,6 @@
 {
   "name": "create-shaderera",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Start a Shaderera project: npm create shaderera@latest my-film",
   "license": "MIT",
   "homepage": "https://github.com/shaderera/shaderera",
@@ -21,7 +21,7 @@
     "files"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/files.ts",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node scripts/files.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\""
   }

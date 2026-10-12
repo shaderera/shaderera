@@ -8,6 +8,7 @@ npm install
 npx shaderera check                 # the same t gives the same frame, in any order
 npx shaderera still 0 2.5 5 --sheet # stills of any moment, and a contact sheet (out/stills/)
 npx shaderera render                # an mp4 (out/)
+npm run typecheck                   # tsc --noEmit on src/
 ```
 
 - `AUTHORING.md`: making and revising a film. `guides/`: focused references.

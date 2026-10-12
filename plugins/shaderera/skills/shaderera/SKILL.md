@@ -8,7 +8,7 @@ description: Use when the person asks to make, revise, check, render or deliver 
 A Shaderera film is code: `render(t)`, a function from time to a frame, in `src/`. The film draws
 with whatever it likes (Canvas2D, three.js, raw WebGPU, a DOM page, footage, its own shaders).
 Shaderera checks that the same `t` always gives the same frame, then renders, reviews and
-delivers it. Version 0.1.0.
+delivers it. Version 0.1.1.
 
 ## 1. Find or start the project
 
@@ -44,7 +44,9 @@ project directory. Without MCP, the CLI shows the same things (step 3).
    house style, so do not bring one. If the brief names a real product, logo or asset and its
    files are missing, ask for them.
 2. Write the film's code in `src/`. Report state from `inspect(t)` (ids, text, boxes), so checks
-   and review can read it.
+   and review can read it. Text is a run with `box: [x, y, width, height]` in frame pixels:
+   `{ id: 'title', text: 'Hello', box: [160, 236, 420, 84] }`. Review skips any other shape with
+   no warning (`node_modules/shaderera/docs/protocol.md`, "Text runs").
 3. Check after every edit: `npx shaderera check`. `render(t)` must stay a function of `t`.
 4. Look: `npx shaderera still <t>... --sheet`, a detail with `--region x,y,w,h --scale 8`, or
    `render_frame` with `image: true`. Read motion as a curve: `npx shaderera inspect --track <path>`.

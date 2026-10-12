@@ -5,13 +5,16 @@
   "scripts": {
     "check": "shaderera check",
     "still": "shaderera still",
-    "render": "shaderera render"
+    "render": "shaderera render",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@shaderera/core": "workspace:*"
   },
   "devDependencies": {
+    "@webgpu/types": "0.1.74",
     "shaderera": "workspace:*",
+    "typescript": "6.0.3",
     "vite": "8.3.0",
     "webgpu": "0.6.2"
   }

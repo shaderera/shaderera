@@ -1,4 +1,4 @@
-/// <reference types="@webgpu/types" />
+/// <reference types="@webgpu/types" preserve="true" />
 /**
  * The Shaderera protocol, as types. Anything that returns the same Frame for the same `t`
  * participates. Every optional member is a capability: the host detects it by its presence, and

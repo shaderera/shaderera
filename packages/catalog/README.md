@@ -41,7 +41,10 @@ Stills of any t and a contact sheet come from `npx shaderera still`, not from an
 Left in the film: the MATTER particle engine, blob tracking and the score. They are tied to
 that film, and the registry holds only what another film can use as it is.
 
+From the repository root, after `pnpm install` (the publish loop fills `~/.shaderera/registry`,
+or `SHADERERA_REGISTRY`, which `search` and `add` read too):
+
 ```
 pnpm --filter @shaderera/catalog test        # every item renders, headless
-for d in catalog/*/; do npx shaderera-registry publish "$d"; done
+for d in packages/catalog/*/; do [ -f "$d/shaderera.item.json" ] && node apps/registry/bin/shaderera-registry.js publish "$d"; done
 ```

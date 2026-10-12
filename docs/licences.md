@@ -1,6 +1,6 @@
 # Licences
 
-What the published packages (0.1.0) depend on, and what the catalog and the test fixtures vendor.
+What the published packages (0.1.1) depend on, and what the catalog and the test fixtures vendor.
 The engine packages (`@shaderera/core`, `shaderera`, `@shaderera/registry`) are under the
 Shaderera License (`LICENSE`), a draft at 0.1.0; `create-shaderera`, `packages/catalog/` and the
 agent skill are MIT (`LICENSE-MIT`). Each tarball carries its own licence file.
@@ -21,7 +21,7 @@ same packages under the same licences. Versions move; re-run the walk before a r
 `vite` (^8, MIT) is a peer dependency: the project installs it. `@napi-rs/canvas`'s native
 binding is built on Skia (BSD-3-Clause).
 
-Besides `@shaderera/core` 0.1.0 and `@shaderera/registry` 0.1.0 (Shaderera License; the
+Besides `@shaderera/core` 0.1.1 and `@shaderera/registry` 0.1.1 (Shaderera License; the
 registry's own list is below):
 
 - **MIT:** @hono/node-server 2.1.3, @jridgewell/sourcemap-codec 1.6.0, @modelcontextprotocol/sdk

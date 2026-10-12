@@ -42,7 +42,9 @@ type RenderOptions = {
 ```
 
 `render` takes the time in seconds, not a cursor. There is no `play()`, `next()` or `seek()`:
-the host owns the clock and asks for any `t` in any order. That is what lets `check` revisit a
+the host owns the clock and asks for any `t` in any order. `t` runs from 0 up to, but not
+including, `duration`: the last frame is at `duration - 1/fps` (5.9667 s in a 6 s film at
+30 fps), so `t = 6` is outside a 6 s film. That is what lets `check` revisit a
 frame after a different one, and lets `inspect` answer "what was the state at 4.133 s" without
 replaying the film. A source that reads `Date.now()` or `requestAnimationFrame` breaks this. What
 a host does frame by frame, and what a source must do in return, is in
@@ -250,6 +252,28 @@ object inside it:
 
 These are conventions on JSON, not an IR. With them an agent finds a camera jump through the
 protocol alone ([mcp.md](mcp.md#walk-through-a-camera-jump)).
+
+#### Text runs
+
+Review reads the text a source shows from the inspect JSON. Any object in it, at any depth, with
+a string `text` and a `box` of four numbers is one text run:
+
+```ts
+{ id: 'headline', text: 'Built for the last mile', box: [160, 220, 1280, 96], font: '96px "Brand Sans"' }
+```
+
+- **`box`** is `[x, y, width, height]` in frame pixels, from the top left.
+- **`id`** names the run across t. Without one, a run is numbered by its place (`#0`, `#1`),
+  which can change from one t to the next.
+- **`font`** is a CSS font string or a family name (`family` works too). The `glyphs` check
+  looks up the families in it among the fonts loaded through `io.font`.
+- **`opacity`** (default 1): `opacity: 0` or `visible: false` means the run is not shown.
+  `reading` counts a run as visible from 0.5 up.
+- `role` and `size` are optional. Objects inside a run are not searched for more runs.
+
+Anything else is skipped with no warning: `box: { x, y, w, h }`, a box of strings, a `text`
+that is not a string. When no run is found, the text checks are unknown with `neither inspect
+nor the DOM shows text`; when some are, `text-fit` says how many it read (`3 runs at 41 t`).
 
 ### The stamp
 

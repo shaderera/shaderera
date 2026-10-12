@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve as resolvePath, sep } from 'node:path'
 import { ITEM_FILE } from './item.ts'
 import { npm } from './npm.ts'
 import { installedVersion, setRequirement } from './requires.ts'
-import { satisfies as satisfiesRange } from './semver.ts'
+import { parseVersion, satisfies as satisfiesRange } from './semver.ts'
 import { folderName, latest, parseSpec, readIndex, resolve, versionDir } from './store.ts'
 
 /** The project folder: the nearest one up from `cwd` with a shaderera.json. */
@@ -17,11 +17,20 @@ export const findRoot = (cwd: string): string => {
   return dir
 }
 
-/** Installs an extension's tarball or an npm package spec into a project (npm by default; tests pass their own). */
-export type Installer = (root: string, tgz: string) => void
-export const npmInstall: Installer = (root, tgz) => {
-  npm(['install', tgz], { cwd: root, inherit: true })
+/**
+ * Installs an extension's tarball or an npm package spec into a project, with npm `install` flags
+ * (npm by default; tests pass their own).
+ */
+export type Installer = (root: string, tgz: string, flags?: string[]) => void
+export const npmInstall: Installer = (root, tgz, flags = []) => {
+  npm(['install', tgz, ...flags], { cwd: root, inherit: true })
 }
+
+/** How npm saves a package an item imports: an exact version stays exact, types are dev only. */
+export const saveFlags = (name: string, range: string): string[] => [
+  ...(parseVersion(range) ? ['--save-exact'] : []),
+  ...(name.startsWith('@types/') ? ['--save-dev'] : []),
+]
 
 /**
  * Adds `spec` (`name` or `name@range`) to the project at `root`: an extension is installed and
@@ -54,7 +63,9 @@ export const add = (
   visit(spec)
   const clash = (tree[0]?.item.files ?? []).filter((f) => existsSync(join(root, f)))
   if (clash.length > 0 && !o.force)
-    throw new Error(`the project already has ${clash.join(', ')}; use --force to replace them`)
+    throw new Error(
+      `the project already has ${clash.join(', ')}; use --force to replace ${clash.length === 1 ? 'it' : 'them'}`,
+    )
   const done: string[] = []
   for (const [i, { item, dir }] of tree.entries()) {
     if (item.type === 'extension') {
@@ -75,7 +86,7 @@ export const add = (
     for (const [name, range] of Object.entries(item.requires.packages)) {
       const have = installedVersion(root, name)
       if (have && satisfiesRange(have, range)) continue
-      install(root, `${name}@${range}`)
+      install(root, `${name}@${range}`, saveFlags(name, range))
       done.push(`installed ${name}@${range} (an npm package ${item.name} imports)`)
     }
   return done

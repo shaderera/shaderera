@@ -4,7 +4,8 @@ Canvas2D needs no dependency. The host hands over two ports:
 
 - **`io.canvas(w, h)`**: an `OffscreenCanvas` in the browser Worker, an `@napi-rs/canvas` canvas
   in Node. Only the 2D context is portable.
-- **`io.font(path, family)`**: registers a project font file under a family name, in both hosts.
+- **`io.font(path, family)`**: registers a font file of the project (TTF or OTF) under a
+  family name, in both hosts.
 
 Return the canvas itself as the layer; the host reads its pixels (straight alpha).
 
@@ -13,6 +14,7 @@ Return the canvas itself as the layer; the host reads its pixels (straight alpha
 ```ts
 import type { Open } from '@shaderera/core'
 
+// The project's own files: a new project has no fonts or sounds (guides/typography.md).
 const FONTS = [
   ['src/assets/fonts/NotoSans-Bold.ttf', 'Noto Sans Bold'],
   ['src/assets/fonts/NotoSansThai-Bold.ttf', 'Noto Sans Thai Bold'],

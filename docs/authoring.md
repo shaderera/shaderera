@@ -1,6 +1,6 @@
 # Authoring a Shaderera film
 
-For the person and the agent making or revising a film in this project (Shaderera 0.1.0). The
+For the person and the agent making or revising a film in this project (Shaderera 0.1.1). The
 project is ordinary code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
 ids, params and requirements in its `README.md`. There is no scene format to fill in: the film is
 the source. The reference is in `node_modules/shaderera/docs/` (below, `docs/`: the protocol,
@@ -18,7 +18,9 @@ determinism, the CLI, MCP, delivery, and `participants/` per renderer); the task
    never from a default of the engine.
 3. **Resolve the assets.** Use the real model, images and fonts, with their licences recorded in
    `ASSETS.md` (source, licence, sha256). If the product is missing, say so and stop or design an
-   original object openly. Never present a primitive placeholder as the product.
+   original object openly. Never present a primitive placeholder as the product. A new project
+   has no font: use the brand's font files from the person, otherwise ask (the order, and how
+   `io.font` loads one, are in `guides/typography.md`).
 4. **Write the direction down** in `DIRECTION.md`, in whatever form the film needs: it guides the
    work, and nothing parses it.
 5. **Look early and often:** `npx shaderera still <t>... --sheet`, or MCP's `render_frame` with
@@ -42,9 +44,10 @@ A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture`
 ## The registry
 
 A registry holds code that earlier films proved. What you add is copied into the project and is
-its own code from then on. The `shaderera-registry` skill in `.claude/skills/shaderera-registry/` says how to search and add, and
-how to recover when a `shaderera` command refuses a project whose `shaderera.item.json` requires
-something that is not installed.
+its own code from then on. The `shaderera-registry` skill says how to search and add, and how to
+recover when a `shaderera` command refuses a project whose `shaderera.item.json` requires
+something that is not installed. A new project has it in `.claude/skills/shaderera-registry/`;
+`npx skills add` puts it in `.agents/skills/` for other agents.
 
 What is on the shelf:
 
@@ -81,8 +84,10 @@ The CLI and MCP can only show and change what the source exposes.
 - **Say which space** an object lives in when it matters: `space: 'screen'` or `space: 'world'`.
 - **Expose timing**, not only content: return the groups that hold `enterAt`, `exitAt` or
   `stagger` so they can be selected and changed.
-- **Report text** as `{ text, box }` runs, and a `bbox` for what should be looked at closely, so
-  review and `still --object` can find them.
+- **Report text** as runs, `{ id: 'title', text: 'Hello', box: [160, 236, 420, 84] }` (`box` is
+  `[x, y, width, height]` in frame pixels), so review can read it. Any other shape is skipped with
+  no warning (`docs/protocol.md`, "Text runs"). Add a `bbox` (same form) for what should be looked
+  at closely, so `still --object` can find it.
 - **Params** are a JSON Schema in `shaderera.json` with titles and good defaults, for the few
   controls a non-programmer wants. If a param overrides a literal, say so in the README.
 - **`pick(t, x, y)`** returns `{ id, point? }` through the camera in effect, so a click selects.
