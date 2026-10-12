@@ -8,7 +8,7 @@ description: Use when the person asks to make, revise, check, render or deliver 
 A Shaderera film is code: `render(t)`, a function from time to a frame, in `src/`. The film draws
 with whatever it likes (Canvas2D, three.js, raw WebGPU, a DOM page, footage, its own shaders).
 Shaderera checks that the same `t` always gives the same frame, then renders, reviews and
-delivers it. Version 0.1.1.
+delivers it.
 
 ## 1. Find or start the project
 

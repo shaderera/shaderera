@@ -18,4 +18,4 @@ in Chrome), not a sandbox for hostile code. WebGPU in Node comes from the projec
 package. Every command refuses a project whose `shaderera.item.json` requires something that is
 not installed, and names the ways out (`shaderera-registry add`, `eject` or `drop`).
 
-Licence: [MIT](LICENSE). Version 0.1.1. Source and docs: https://github.com/shaderera/shaderera
+Licence: [MIT](LICENSE). Source and docs: https://github.com/shaderera/shaderera

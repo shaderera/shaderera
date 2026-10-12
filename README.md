@@ -1,6 +1,6 @@
 # Shaderera
 
-**The programmable era of ads.** Version 0.1.1. The first public release was 0.1.0.
+**The programmable era of ads.**
 
 Shaderera makes 2D/3D hybrid video in code, for people who write code and the AI agents they work
 with. A film is `render(t)`: a function from time to a frame. You draw with whatever you like:
