@@ -75,12 +75,9 @@ npx skills add shaderera/shaderera        # this project only; add -g for every 
 In a project, it writes the skills to `.agents/skills/`, a `.claude/skills` link to them and
 `skills-lock.json`. With `-g` they are installed once for every project instead.
 
-**Or paste this into any agent that can run a terminal** (it installs the skills for every
-project, with no questions):
-
-> Install the Shaderera skills for every project with `npx skills add shaderera/shaderera -g -y`.
-> Then use the shaderera skill to start a project called my-film, add its MCP server, and show me
-> a contact sheet of the empty film.
+**Or copy the [install prompt](INSTALL.md) into any agent that can run a terminal.** It checks
+Node.js and ffmpeg, installing only what is missing and only with tools the machine already has.
+Then it installs the skills, starts a film project, and gives the agent its MCP server.
 
 Then ask for the film in your own words, with the brief:
 
