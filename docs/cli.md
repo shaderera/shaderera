@@ -16,6 +16,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`handoff`](#handoff) | a frozen project, its job and `REPRODUCE.md` in `out/handoff/<job>/` |
 | [`review`](#review) | principal frames, a contact sheet and technical checks |
 | [`doctor`](#doctor) | what this machine and project have and lack |
+| [`search`, `info`, `add`, `remove`, `publish`](#add-ons) | find, copy in, remove and publish add-ons |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
 `shaderera` alone, or `--help` / `-h` anywhere, prints the usage.
@@ -37,23 +38,22 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 The project's own console output goes to stderr, so stdout carries only the command's result. Set
 `SHADERERA_DEBUG=1` to print a full error with its stack.
 
-## Required items and extensions
+## Required add-ons
 
 Every command that finds a project reads its `shaderera.item.json`, if it has one. When the
-project requires a `shaderera` range this is not in, or an extension that is not installed or
+project requires a `shaderera` range this is not in, or a package add-on that is not installed or
 installed in the wrong version, the command refuses the project before anything renders and names
-the three ways out:
+the two ways out:
 
 ```
 shaderera: This project needs what is not installed (shaderera.item.json):
   - @shaderera/music ^0.1 (not installed)
-Fix it one of three ways:
-  npx shaderera-registry add @shaderera/music@^0.1   install it from the registry
-  npx shaderera-registry eject @shaderera/music   make an installed one this project's own code
-  npx shaderera-registry drop @shaderera/music   stop requiring it, and write your own
+Fix it one of two ways:
+  npx shaderera add @shaderera/music@^0.1   install it
+  npx shaderera remove @shaderera/music   stop requiring it, and write your own
 ```
 
-There is no silent fallback. `npx shaderera-registry verify` runs the same check.
+There is no silent fallback. `npx shaderera doctor` lists the same problem as its `requires` item.
 
 ## `inspect`
 
@@ -303,7 +303,24 @@ percentiles in its box), motion (% static samples) and audio (clips and their co
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
 adapter with every feature and the storage and texture limits (asked in a child process), and more
-than one `webgpu` installed, which crashes a host. Each lack says how to fix it.
+than one `webgpu` installed, which crashes a host, and a package add-on the project requires and
+lacks (`requires`, [above](#required-add-ons)). Each lack says how to fix it.
+
+## Add-ons
+
+Add-ons come from a library: `--library <dir|url>`, else `SHADERERA_LIBRARY`, else the official
+catalog at `https://shaderera.com/r`. All of it is in [add-ons.md](add-ons.md).
+
+| Command | What it does |
+|---|---|
+| `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
+| `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
+| `add <name>[@range] [--force]` | copies an add-on and what it is built on into the project; a package add-on is installed and recorded in `shaderera.item.json` |
+| `remove <name>` | uninstalls a package add-on and stops requiring it |
+| `publish [dir] --library <folder> [--force]` | puts an add-on into a library folder |
+
+`add` never replaces a file the project already has; `--force` replaces only the add-on named. A
+copied add-on's files are the project's own code: to stop using one, delete them.
 
 ## `mcp`
 
@@ -346,5 +363,5 @@ Every command but `mcp` takes `--json`: stdout is then one JSON object, the exit
   `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and
   `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
-- `result`: the command's own JSON (`inspect`, `review`, `versions`, `doctor`); `log`: the lines
-  any other command printed.
+- `result`: the command's own JSON (`inspect`, `review`, `versions`, `doctor`, `search`,
+  `info`); `log`: the lines any other command printed.

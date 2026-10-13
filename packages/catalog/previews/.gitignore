@@ -1,0 +1,7 @@
+# The catalog items, copied in at their paths by scripts/assemble.ts (as shaderera add lays them out)
+src/*/
+tools/
+assets/
+delivery/
+# The track, its lyrics and its analysis: made by scripts/make-track.ts and the item's analyser
+audio/

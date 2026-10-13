@@ -32,9 +32,6 @@ importers:
       '@shaderera/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@shaderera/registry':
-        specifier: workspace:*
-        version: link:../registry
       comlink:
         specifier: 4.4.2
         version: 4.4.2
@@ -50,6 +47,9 @@ importers:
       magic-string:
         specifier: 1.4.3
         version: 1.4.3
+      minisearch:
+        specifier: 7.2.0
+        version: 7.2.0
       oxc-parser:
         specifier: 0.153.0
         version: 0.153.0
@@ -136,12 +136,6 @@ importers:
       webgpu:
         specifier: 0.6.2
         version: 0.6.2
-
-  apps/registry:
-    dependencies:
-      minisearch:
-        specifier: 7.2.0
-        version: 7.2.0
 
   packages/catalog:
     devDependencies:

@@ -55,7 +55,5 @@ export const create = (o: {
       if (range.startsWith('workspace:')) pkg[field][name] = `^${o.version}`
     }
   }
-  // Every project can search and add from the registry (decision 0008).
-  pkg.devDependencies = { ...pkg.devDependencies, '@shaderera/registry': `^${o.version}` }
   writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`)
 }

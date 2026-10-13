@@ -7,7 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "pnpm --filter @shaderera/core --filter shaderera --filter @shaderera/registry --filter create-shaderera build",
+    "build": "pnpm --filter @shaderera/core --filter shaderera --filter create-shaderera build",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "biome check ."

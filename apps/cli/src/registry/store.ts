@@ -10,7 +10,6 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { checkItem, ITEM_FILE, type Item, rawItem } from './item.ts'
 import { pack } from './npm.ts'
@@ -22,10 +21,14 @@ import { compareVersions, satisfies } from './semver.ts'
  * version with its sha256; `search.json` is the full-text index the CLI searches without a
  * server; `items/<name>/<version>/` holds each version's files (an extension also keeps the
  * tarball npm installs, `package.tgz`). Versions are immutable. A team shares one folder (a
- * network drive or a git checkout): `--registry <dir>` or `SHADERERA_REGISTRY`.
+ * network drive or a git checkout): `--library <dir>` or `SHADERERA_LIBRARY`. A URL is the
+ * same folder served over HTTP; without either, it is the official catalog.
  */
 export const registryDir = (flag?: string): string =>
-  flag ?? process.env.SHADERERA_REGISTRY ?? join(homedir(), '.shaderera', 'registry')
+  flag ?? process.env.SHADERERA_LIBRARY ?? OFFICIAL
+
+/** The official catalog: a registry folder served over HTTP, which remote.ts mirrors. */
+export const OFFICIAL = 'https://shaderera.com/r'
 
 export type Version = {
   readonly item: Item
@@ -33,6 +36,8 @@ export type Version = {
   readonly published: string
   /** Exported names and WGSL functions, for search. */
   readonly symbols: readonly string[]
+  /** Every file of the version, relative to its folder: what a registry served over HTTP downloads. */
+  readonly files?: readonly string[]
 }
 export type Index = {
   readonly kind: 'shaderera.registry/1'
@@ -54,7 +59,7 @@ export const versionDir = (registry: string, name: string, version: string): str
   join(registry, 'items', folderName(name), version)
 
 /** Every file under `dir`, relative to it. */
-const walk = (dir: string, base = dir): string[] =>
+export const walk = (dir: string, base = dir): string[] =>
   readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry)
     return statSync(path).isDirectory()
@@ -130,6 +135,7 @@ export const publish = (
     sha256,
     published: o.now ?? new Date().toISOString(),
     symbols,
+    files: walk(target).sort(),
   }
   const next: Index = { ...index, items: { ...index.items, [item.name]: entry } }
   writeWhole(join(registry, 'index.json'), `${JSON.stringify(next, null, 2)}\n`)
@@ -166,7 +172,7 @@ export const parseSpec = (spec: string): { name: string; range: string } => {
 export const resolve = (registry: string, spec: string): Version & { dir: string } => {
   const { name, range } = parseSpec(spec)
   const entry = readIndex(registry).items[name]
-  if (!entry) throw new Error(`${name} is not in the registry ${registry}`)
+  if (!entry) throw new Error(`${name} is not in the library ${registry}`)
   const version = newest(Object.keys(entry.versions), range)
   if (!version)
     throw new Error(

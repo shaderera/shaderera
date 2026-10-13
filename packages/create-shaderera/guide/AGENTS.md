@@ -8,14 +8,14 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
   `node_modules/shaderera/docs/`.
 - How the film looks comes from the brief and the person. Shaderera has no house style; do not
   bring one.
-- Write the film's code yourself. `AUTHORING.md` ("The registry") lists what is on the shelf:
-  - a **plumbing** item may be added instead of writing the same plumbing again (say so in your
+- Write the film's code yourself. `AUTHORING.md` ("Add-ons") lists what is on the shelf:
+  - a **plumbing** add-on may be added instead of writing the same plumbing again (say so in your
     summary);
-  - **looks, motion and sound design** items only when the person asks.
-  Never search the registry or suggest items on your own. The `shaderera-registry` skill says
-  how to add: it is in `.claude/skills/shaderera-registry/`, or in `.agents/skills/` for an agent
-  that installed it with `npx skills add`. If a command refuses the project because a required
-  extension is missing, take one of the three ways out it names; never work around it silently.
+  - **looks, motion and sound design** add-ons only when the person asks.
+  Never search for add-ons or suggest them on your own. The `shaderera-addons` skill says how to
+  add: it is in `.claude/skills/shaderera-addons/`, or in `.agents/skills/` for an agent that
+  installed it with `npx skills add`. If a command refuses the project because a required package
+  add-on is missing, take one of the two ways out it names; never work around it silently.
 - Keep explicit instructions over defaults. If the brief names a real product, logo or brand asset
   and its model or files are missing, ask for them; never present a primitive as the real thing.
   If the brief asks for an original design, or nobody can answer, design an original object or

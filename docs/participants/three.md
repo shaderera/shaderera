@@ -113,9 +113,9 @@ async pick(t, x, y) {
 
 A scene like this rendered at about 16 ms per frame at 1280×720 in Node (RTX 5070 Ti, D3D12).
 
-## The `render-three-host` registry item
+## The `render-three-host` add-on
 
-The registry item `render-three-host` (`npx shaderera-registry add render-three-host`) packages a deterministic
+The add-on `render-three-host` (`npx shaderera add render-three-host`) packages a deterministic
 three.js setup on `host.gpu` that closes the traps below:
 
 - three's node clock is set to `t`, never the wall clock;
@@ -124,7 +124,8 @@ three.js setup on `host.gpu` that closes the traps below:
 - the frame goes to the host as a `GPUTexture` layer with no copy (`output: 'bytes'` reads it back
   instead).
 
-It works in Node and the browser. Like every added item, its code becomes the project's own.
+It works in Node and the browser. Like every add-on, its code becomes the project's own once
+added.
 
 ## Traps
 

@@ -1,6 +1,6 @@
 {
   "name": "@shaderera/core",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Shaderera protocol: anything that returns the same frame for the same t can be previewed, inspected, debugged and rendered.",
   "license": "MIT",
   "homepage": "https://github.com/shaderera/shaderera",

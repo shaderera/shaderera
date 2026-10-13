@@ -1,10 +1,9 @@
-import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve as resolvePath, sep } from 'node:path'
-import { ITEM_FILE } from './item.ts'
+import { cpSync, existsSync } from 'node:fs'
+import { dirname, join, resolve as resolvePath } from 'node:path'
 import { npm } from './npm.ts'
-import { installedVersion, setRequirement } from './requires.ts'
+import { installedVersion, readLabel, setRequirement } from './requires.ts'
 import { parseVersion, satisfies as satisfiesRange } from './semver.ts'
-import { folderName, latest, parseSpec, readIndex, resolve, versionDir } from './store.ts'
+import { parseSpec, resolve } from './store.ts'
 
 /** The project folder: the nearest one up from `cwd` with a shaderera.json. */
 export const findRoot = (cwd: string): string => {
@@ -24,6 +23,10 @@ export const findRoot = (cwd: string): string => {
 export type Installer = (root: string, tgz: string, flags?: string[]) => void
 export const npmInstall: Installer = (root, tgz, flags = []) => {
   npm(['install', tgz, ...flags], { cwd: root, inherit: true })
+}
+
+export const npmUninstall: Installer = (root, name) => {
+  npm(['uninstall', name], { cwd: root, inherit: true })
 }
 
 /** How npm saves a package an item imports: an exact version stays exact, types are dev only. */
@@ -93,71 +96,16 @@ export const add = (
 }
 
 /**
- * Makes an installed extension the project's own code: copies it into vendor/<name>, points the
- * dependency there (imports stay as they are), and stops requiring it from the registry.
+ * Uninstalls a package add-on and stops requiring it. A component's, preset's or media item's
+ * files were copied in and are the project's own code, so only the person deletes them.
  */
-export const eject = (root: string, name: string): string[] => {
-  let dir = root
-  let found: string | null = null
-  for (;;) {
-    const p = join(dir, 'node_modules', ...name.split('/'))
-    if (existsSync(join(p, 'package.json'))) {
-      found = p
-      break
-    }
-    const parent = dirname(dir)
-    if (parent === dir) break
-    dir = parent
-  }
-  if (!found)
-    throw new Error(`${name} is not installed; add it first, or drop it and write your own`)
-  const target = join(root, 'vendor', folderName(name))
-  cpSync(found, target, {
-    recursive: true,
-    filter: (p) => !relative(found, p).split(sep).includes('node_modules'),
-  })
-  const file = join(root, 'package.json')
-  const pkg = JSON.parse(readFileSync(file, 'utf8'))
-  for (const field of ['dependencies', 'devDependencies'] as const)
-    if (pkg[field]?.[name]) delete pkg[field][name]
-  pkg.dependencies = { ...pkg.dependencies, [name]: `file:vendor/${folderName(name)}` }
-  writeFileSync(file, `${JSON.stringify(pkg, null, 2)}\n`)
+export const remove = (root: string, name: string, o: { uninstall?: Installer } = {}): string[] => {
+  const required = readLabel(root)?.requires?.extensions?.[name] !== undefined
+  if (!required && installedVersion(root, name) === null)
+    throw new Error(
+      `${name} is not a package add-on this project uses. A copied add-on's files are this project's code: delete them.`,
+    )
+  ;(o.uninstall ?? npmUninstall)(root, name)
   setRequirement(root, name, null)
-  return [
-    `ejected ${name} into vendor/${folderName(name)}: it is this project's code now, change anything`,
-    'run npm install so the dependency points at vendor/',
-  ]
-}
-
-/** Stops requiring an extension; the code that imports it is the project's to replace. */
-export const drop = (root: string, name: string): string[] => {
-  setRequirement(root, name, null)
-  return [
-    `${name} is no longer required by ${ITEM_FILE}`,
-    `replace what imports it with your own code, then npm uninstall ${name}`,
-  ]
-}
-
-/** Lines matching `pattern` in the newest version of every item: `name@version file:line: text`. */
-export const grep = (registry: string, pattern: string): string[] => {
-  const re = new RegExp(pattern)
-  const out: string[] = []
-  const walk = (dir: string, base: string): string[] =>
-    readdirSync(dir).flatMap((e) => {
-      const p = join(dir, e)
-      return statSync(p).isDirectory() ? walk(p, base) : [relative(base, p).split(sep).join('/')]
-    })
-  for (const v of latest(readIndex(registry))) {
-    const dir = versionDir(registry, v.item.name, v.item.version)
-    for (const f of walk(dir, dir)) {
-      if (!/\.(ts|tsx|js|mjs|wgsl|json|md|glsl)$/.test(f)) continue
-      readFileSync(join(dir, f), 'utf8')
-        .split(/\r?\n/)
-        .forEach((line, i) => {
-          if (re.test(line))
-            out.push(`${v.item.name}@${v.item.version} ${f}:${i + 1}: ${line.trim()}`)
-        })
-    }
-  }
-  return out
+  return [`removed ${name}: replace what imported it with your own code`]
 }

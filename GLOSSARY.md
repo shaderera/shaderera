@@ -152,26 +152,29 @@ broadcast slate. The film's `t = 0` does not move.
 Measurements of a footage or audio file (`shaderera.analysis/1`), made once by a script and read
 by the film as data.
 
-### Registry
+### Add-ons
 
-**Registry**:
-A folder of items that a project can search and copy from (`shaderera-registry`).
-_Avoid_: marketplace, store
+**Add-on**:
+Code that earlier films proved, of one type: a **package add-on** (type `extension`, an npm
+package the project imports), a **component** (code copied in), a **preset** (data only) or
+**media** (fonts, sound, models, images). Once copied in, it is the project's own. Called
+_item_ in code.
+_Avoid_: registry item, template, plugin, asset pack
+
+**Library**:
+A folder of add-ons, or the URL of one, that a project can search and copy from
+(`--library`, `SHADERERA_LIBRARY`).
+_Avoid_: registry, marketplace, store
 
 **Catalog**:
-The official items, in `packages/catalog/` in this repository, MIT.
-
-**Item**:
-One thing in a registry, of one type: an **extension** (an npm package the project imports), a
-**component** (code copied in), a **preset** (data only) or **media** (fonts, sound, models,
-images). Once added, it is the project's own.
-_Avoid_: template, plugin, asset pack
+The official add-ons, in `packages/catalog/` in this repository, MIT, served as a library at
+`https://shaderera.com/r`.
 
 **Label**:
-`shaderera.item.json`: an item's name, type, tags, licence and `requires`. It is for finding
-items and resolving requirements only; no host reads it to render.
+`shaderera.item.json`: an add-on's name, type, tags, licence and `requires`. It is for finding
+add-ons and resolving requirements only; no host reads it to render.
 _Avoid_: metadata, manifest
 
-**Plumbing item**:
-An item that carries no taste (music analysis, three.js on the host GPU, image decoding). An
-agent may add one without being asked. Every other item is added only when the person asks.
+**Plumbing add-on**:
+An add-on that carries no taste (music analysis, three.js on the host GPU, image decoding). An
+agent may add one without being asked. Every other add-on is added only when the person asks.

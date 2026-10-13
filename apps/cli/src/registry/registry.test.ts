@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { run } from './cli.ts'
 import { checkItem } from './item.ts'
-import { add, drop, eject, grep } from './project.ts'
+import { add, remove } from './project.ts'
+import { mirror } from './remote.ts'
 import { assertRequirements, requirementProblems } from './requires.ts'
 import { search } from './search.ts'
 import { satisfies, validRange } from './semver.ts'
 import { newest, publish, resolve } from './store.ts'
 
-const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-registry-${name}-`))
+const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-addons-${name}-`))
 const write = (dir: string, files: { [path: string]: unknown }) => {
   for (const [path, body] of Object.entries(files)) {
     mkdirSync(join(dir, path, '..'), { recursive: true })
@@ -113,10 +115,6 @@ test('publish, search by label and by code, resolve by range, and refuse a repub
   assert.equal(resolve(registry, 'text-code-wall@^0.1').item.version, '0.1.0')
   assert.throws(() => resolve(registry, 'text-code-wall@^1'), /no version in \^1/)
   assert.throws(() => publish(component(), registry), /already published/)
-  assert.match(
-    grep(registry, 'drawCodeWall')[0] ?? '',
-    /text-code-wall@0\.1\.0 src\/code-wall\.ts:2/,
-  )
 })
 
 test('a version whose bytes changed after publishing is refused', () => {
@@ -129,7 +127,7 @@ test('a version whose bytes changed after publishing is refused', () => {
   assert.throws(() => resolve(registry, 'text-code-wall'), /does not match its sha256/)
 })
 
-test('add copies a component, installs and requires what it needs; a missing one fails loudly with three ways out', () => {
+test('add copies a component, installs and requires what it needs; a missing one fails loudly with two ways out', () => {
   const registry = temp('reg')
   publish(component(), registry)
   const ext = write(temp('ext'), {
@@ -164,11 +162,11 @@ test('add copies a component, installs and requires what it needs; a missing one
   assert.equal(label.requires.extensions['@shaderera/kinetic-type'], '^0.1.2')
   assert.deepEqual(requirementProblems(root, '0.4.0'), [])
 
-  // An expert takes the extension over: its code moves into vendor/, imports keep working.
-  eject(root, '@shaderera/kinetic-type')
-  assert.ok(existsSync(join(root, 'vendor', 'shaderera__kinetic-type', 'package.json')))
-  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-  assert.equal(pkg.dependencies['@shaderera/kinetic-type'], 'file:vendor/shaderera__kinetic-type')
+  // Removed: uninstalled and no longer required. A copied add-on is the project's to delete.
+  const uninstalled: string[] = []
+  remove(root, '@shaderera/kinetic-type', { uninstall: (_r, name) => uninstalled.push(name) })
+  assert.deepEqual(uninstalled, ['@shaderera/kinetic-type'])
+  assert.throws(() => remove(root, 'text-code-wall'), /files are this project's code/)
   assert.equal(
     JSON.parse(readFileSync(join(root, 'shaderera.item.json'), 'utf8')).requires.extensions[
       '@shaderera/kinetic-type'
@@ -176,7 +174,7 @@ test('add copies a component, installs and requires what it needs; a missing one
     undefined,
   )
 
-  // Required and missing: refused, naming it and the three ways out.
+  // Required and missing: refused, naming it and the two ways out.
   write(root, {
     'shaderera.item.json': { requires: { extensions: { '@shaderera/music': '^1.0.0' } } },
   })
@@ -184,11 +182,10 @@ test('add copies a component, installs and requires what it needs; a missing one
     () => assertRequirements(root, '0.4.0'),
     (e: Error) =>
       /@shaderera\/music \^1\.0\.0 \(not installed\)/.test(e.message) &&
-      /add @shaderera\/music@\^1\.0\.0/.test(e.message) &&
-      /eject @shaderera\/music/.test(e.message) &&
-      /drop @shaderera\/music/.test(e.message),
+      /shaderera add @shaderera\/music@\^1\.0\.0/.test(e.message) &&
+      /shaderera remove @shaderera\/music/.test(e.message),
   )
-  drop(root, '@shaderera/music')
+  remove(root, '@shaderera/music', { uninstall: () => {} })
   assert.doesNotThrow(() => assertRequirements(root, '0.4.0'))
 })
 
@@ -388,7 +385,7 @@ test('add resolves everything first, copies only what a piece lacks, and stops a
   add(root, registry, 'top')
   assert.equal(readFileSync(join(root, 'src', 'a.ts'), 'utf8'), '// mine\n')
   assert.ok(existsSync(join(root, 'src', 'b.ts')) && existsSync(join(root, 'src', 'top.ts')))
-  assert.throws(() => add(root, registry, 'broken'), /gone is not in the registry/)
+  assert.throws(() => add(root, registry, 'broken'), /gone is not in the library/)
   assert.ok(!existsSync(join(root, 'src', 'broken.ts')))
   assert.doesNotThrow(() => add(root, registry, 'p'))
 })
@@ -398,17 +395,19 @@ test('a release ranks above its own pre-releases', () => {
   assert.equal(newest(['0.4.0-dev.10', '0.4.0-dev.9'], '^0.4.0'), '0.4.0-dev.10')
 })
 
-test('search --tag matches a tag with a space', () => {
+test('search --tag matches a tag with a space', async () => {
   const registry = temp('reg')
   publish(piece('smear', ['src/smear.ts'], { tags: ['motion blur'] }), registry)
   assert.equal(search(registry, 'blur')[0]?.name, 'smear')
-  const cli = fileURLToPath(new URL('./cli.ts', import.meta.url))
-  const run = spawnSync(
-    process.execPath,
-    [cli, 'search', '--tag', 'Motion Blur', '--json', '--registry', registry],
-    { encoding: 'utf8' },
-  )
-  assert.equal(JSON.parse(run.stdout)[0]?.name, 'smear')
+  const printed: string[] = []
+  const log = console.log
+  console.log = (s: string) => printed.push(s)
+  try {
+    await run('search', ['--tag', 'Motion Blur', '--json', '--library', registry])
+  } finally {
+    console.log = log
+  }
+  assert.equal(JSON.parse(printed.join('\n'))[0]?.name, 'smear')
 })
 
 test('a shaderera range that cannot be read is a problem, not ignored', () => {
@@ -447,4 +446,38 @@ test('a file the project already has is refused, in the right number', () => {
   const root = write(project(), { 'src/a.ts': '', 'src/b.ts': '', 'src/c.ts': '' })
   assert.throws(() => add(root, registry, 'one'), /has src\/a\.ts; use --force to replace it$/)
   assert.throws(() => add(root, registry, 'two'), /src\/c\.ts; use --force to replace them$/)
+})
+
+test('a registry served over HTTP is mirrored and added from like a folder; a path out of it is refused', async () => {
+  const folder = temp('served')
+  publish(piece('looks-base', ['src/base noise.ts']), folder)
+  publish(
+    piece('looks-grain', ['src/grain.ts'], { requires: { items: { 'looks-base': '^0.1.0' } } }),
+    folder,
+  )
+  const server = createServer((req, res) => {
+    const file = join(folder, decodeURIComponent(req.url ?? '/'))
+    if (!existsSync(file) || statSync(file).isDirectory()) return void res.writeHead(404).end()
+    res.end(readFileSync(file))
+  })
+  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok))
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
+  process.env.SHADERERA_CACHE = temp('cache')
+  try {
+    const dir = await mirror(url, 'add', ['looks-grain'])
+    assert.equal(search(dir, 'grain')[0]?.name, 'looks-grain')
+    const root = project()
+    add(root, dir, 'looks-grain')
+    assert.ok(existsSync(join(root, 'src', 'grain.ts')))
+    assert.ok(existsSync(join(root, 'src', 'base noise.ts')))
+
+    const index = JSON.parse(readFileSync(join(folder, 'index.json'), 'utf8'))
+    index.items['looks-grain'].versions['0.1.0'].files.push('../../escape.txt')
+    index.items['looks-grain'].versions['0.1.0'].sha256 = 'changed'
+    writeFileSync(join(folder, 'index.json'), JSON.stringify(index))
+    await assert.rejects(mirror(url, 'add', ['looks-grain']), /outside its folder/)
+  } finally {
+    server.close()
+    delete process.env.SHADERERA_CACHE
+  }
 })

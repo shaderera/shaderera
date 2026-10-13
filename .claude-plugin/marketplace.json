@@ -6,7 +6,7 @@
     {
       "name": "shaderera",
       "source": "./plugins/shaderera",
-      "description": "Make, check, render and deliver films in code with Shaderera, and use its registry.",
+      "description": "Make, check, render and deliver films in code with Shaderera, and use its add-ons.",
       "version": "0.1.1",
       "category": "media",
       "tags": ["video", "motion graphics", "webgpu", "three.js", "ffmpeg"]

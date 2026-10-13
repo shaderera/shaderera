@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { COMMANDS as ADD_ON, usage as addOnUsage } from '../registry/cli.ts'
 import { EXIT, errorFinding, findings, found } from './findings.ts'
 
 const usage = `Usage: shaderera <command> [--root <dir>] [--variant <name>] [--trusted] [--timeout <s>] [options]
@@ -24,6 +25,8 @@ Versions and jobs:
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems]   freeze a render job
 
+${addOnUsage}
+
 Stills: still (out/stills/). A review with technical checks: review (out/review/).`
 
 const commands = [
@@ -44,10 +47,11 @@ const commands = [
   'restore',
   'diff',
   'job',
+  ...ADD_ON,
 ]
 
 /** Commands whose own `--json` prints their result as JSON: the envelope carries it as `result`. */
-const OWN_JSON = new Set(['inspect', 'review', 'versions', 'doctor'])
+const OWN_JSON = new Set(['inspect', 'review', 'versions', 'doctor', 'search', 'info'])
 /** Commands that own stdout (a protocol): never wrapped. */
 const STREAMS = new Set(['mcp'])
 

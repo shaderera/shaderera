@@ -1,6 +1,6 @@
 # Authoring a Shaderera film
 
-For the person and the agent making or revising a film in this project (Shaderera 0.1.1). The
+For the person and the agent making or revising a film in this project (Shaderera 0.1.2). The
 project is ordinary code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
 ids, params and requirements in its `README.md`. There is no scene format to fill in: the film is
 the source. The reference is in `node_modules/shaderera/docs/` (below, `docs/`: the protocol,
@@ -36,18 +36,19 @@ A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture`
 | Renderer | Hosts | Notes |
 |---|---|---|
 | WebGPU (WGSL) on `host.gpu` | Node (the project's `webgpu` package, Dawn) and the browser | the device is the source's own; return the frame as a texture (`docs/participants/webgpu.md`) |
-| three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` item does this plumbing (`docs/participants/three.md`) |
+| three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` add-on does this plumbing (`docs/participants/three.md`) |
 | Canvas2D | both | `io.canvas`; text through `io.font`, loaded in `open` (`docs/participants/canvas.md`) |
 | HTML, CSS, React, GSAP | browser host only | name a `MountDom` module in `shaderera.json` `"dom"`, set `"host": "browser"`, and use `options.dom` as a layer or a texture (`docs/participants/dom.md`) |
 | Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); analysis by a model is decoded once to project files (`docs/analysis.md`) |
 
-## The registry
+## Add-ons
 
-A registry holds code that earlier films proved. What you add is copied into the project and is
-its own code from then on. The `shaderera-registry` skill says how to search and add, and how to
-recover when a `shaderera` command refuses a project whose `shaderera.item.json` requires
-something that is not installed. A new project has it in `.claude/skills/shaderera-registry/`;
-`npx skills add` puts it in `.agents/skills/` for other agents.
+Add-ons are code that earlier films proved. What you add is copied into the project and is its
+own code from then on. The `shaderera-addons` skill says how to search and add, and how to
+recover when a `shaderera` command refuses a project whose `shaderera.item.json` requires a
+package add-on that is not installed. A new project has it in `.claude/skills/shaderera-addons/`;
+`npx skills add` puts it in `.agents/skills/` for other agents. The commands are in
+`docs/add-ons.md`.
 
 What is on the shelf:
 
@@ -67,7 +68,7 @@ What is on the shelf:
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 
-An agent never searches the registry or suggests items on its own.
+An agent never searches for add-ons or suggests them on its own.
 
 ## Make it editable
 

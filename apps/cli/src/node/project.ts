@@ -3,8 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type { Manifest } from '@shaderera/core'
 import { checkManifest } from '@shaderera/core/host'
-import { assertRequirements } from '@shaderera/registry'
 import { shadereraVersion } from '../deliver/environment.ts'
+import { assertRequirements } from '../registry/requires.ts'
 
 export type Project = { readonly root: string; readonly manifest: Manifest }
 
@@ -19,7 +19,7 @@ export const findProject = async (cwd: string): Promise<Project> => {
   const text = await readFile(join(dir, 'shaderera.json'), 'utf8')
   const manifest = checkManifest(JSON.parse(text))
   // Decision 0008: a project whose shaderera.item.json requires what is not installed is refused
-  // here, before anything renders, with the ways out (add, eject, drop) in the message.
+  // here, before anything renders, with the ways out (add, remove) in the message.
   assertRequirements(dir, shadereraVersion())
   return { root: dir, manifest }
 }

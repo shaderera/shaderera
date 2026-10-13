@@ -15,9 +15,9 @@ const guides = {
   'AGENTS.md': join(here, '..', 'guide', 'AGENTS.md'),
   'CLAUDE.md': join(here, '..', 'guide', 'CLAUDE.md'),
   guides: packed ? join(files, 'guides') : join(repo, 'docs', 'guides'),
-  // The agent skills, the same as the Claude Code plugin's: making a film, and the registry.
+  // The agent skills, the same as the Claude Code plugin's: making a film, and its add-ons.
   '.claude/skills/shaderera': join(skills, 'shaderera'),
-  '.claude/skills/shaderera-registry': join(skills, 'shaderera-registry'),
+  '.claude/skills/shaderera-addons': join(skills, 'shaderera-addons'),
 }
 const target = positionals[0] ?? 'my-film'
 
