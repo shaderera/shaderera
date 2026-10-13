@@ -34,6 +34,7 @@ These ship in the `shaderera` package, so an installed project reads them in
 ## This repository
 
 - [adr/](adr/): recorded decisions.
+- [research/](research/README.md): the evidence behind them.
 - [releasing.md](releasing.md): how a release is checked.
 - [agents/](agents/): issue tracker, triage labels and domain docs for agents working here.
 - The official plugins: [packages/plugins/](../packages/plugins/README.md).
