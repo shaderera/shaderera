@@ -12,10 +12,10 @@ A new project has no font: Shaderera has no house style. Find one in this order:
    `assets/fonts/`) and use them as given. Record each in `ASSETS.md` with the licence the person
    states.
 2. **No brand font:** ask which font to use. Do not download fonts unless the person asks.
-3. **The registry** has four OFL fonts, once a registry is filled: `font-ibm-plex-mono`,
-   `font-ibm-plex-sans`, `font-instrument-serif` and `font-stix-two-text`. Add one when the
-   person picks it: `npx shaderera-registry add font-ibm-plex-sans` copies the files and their
-   licence into `assets/fonts/`.
+3. **The official catalog** has four OFL fonts: `font-ibm-plex-mono`, `font-ibm-plex-sans`,
+   `font-instrument-serif` and `font-stix-two-text`. Add one when the person picks it:
+   `npx shaderera add font-ibm-plex-sans` copies the files and their licence into
+   `assets/fonts/`.
 
 Any font needs a licence that allows the use (OFL faces do), recorded in `ASSETS.md`.
 

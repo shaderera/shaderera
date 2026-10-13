@@ -69,8 +69,8 @@ export const requirementProblems = (
 
 /**
  * Refuses a project whose requirements are not met (decision 0008's one hard rule: never a
- * silent fallback), and names the three ways out, so an extension never stands in the way of
- * what the person wants: install it, make its code the project's own, or stop requiring it.
+ * silent fallback), and names the two ways out, so a package add-on never stands in the way of
+ * what the person wants: install it, or remove it and write their own.
  */
 export const assertRequirements = (root: string, shadereraVersion: string): void => {
   const problems = requirementProblems(root, shadereraVersion)
@@ -79,10 +79,9 @@ export const assertRequirements = (root: string, shadereraVersion: string): void
   const ext = problems.find((p) => p.name !== 'shaderera')
   const fix = ext
     ? [
-        'Fix it one of three ways:',
-        `  npx shaderera-registry add ${ext.name}@${ext.range}   install it from the registry`,
-        `  npx shaderera-registry eject ${ext.name}   make an installed one this project's own code`,
-        `  npx shaderera-registry drop ${ext.name}   stop requiring it, and write your own`,
+        'Fix it one of two ways:',
+        `  npx shaderera add ${ext.name}@${ext.range}   install it`,
+        `  npx shaderera remove ${ext.name}   stop requiring it, and write your own`,
       ]
     : ['Install a shaderera in that range, or change requires.shaderera.']
   throw new Error(

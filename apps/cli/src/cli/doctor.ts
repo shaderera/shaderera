@@ -130,8 +130,23 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
   let project: Awaited<ReturnType<typeof findProject>> | undefined
   try {
     project = await findProject(cwd)
-  } catch {
-    // Not inside a project: the machine only.
+  } catch (e) {
+    // Not inside a project: the machine only. Or a project that requires an add-on it lacks.
+    const [head, ...lines] = ((e as Error).message ?? '').split('\n')
+    if (head?.startsWith('This project needs'))
+      items.push({
+        id: 'requires',
+        status: 'missing',
+        detail: lines
+          .filter((l) => l.startsWith('  - '))
+          .map((l) => l.slice(4))
+          .join('; '),
+        needed: true,
+        fix: lines
+          .filter((l) => l.startsWith('  npx'))
+          .map((l) => l.trim())
+          .join(' | '),
+      })
   }
   const browser = project ? hostOf(project.manifest, undefined) === 'browser' : false
   items.push({

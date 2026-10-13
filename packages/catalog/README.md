@@ -1,17 +1,17 @@
 # Catalog
 
-The official items of the Shaderera registry (decision 0008), one folder each, MIT. Each folder
-is what `shaderera-registry publish` reads: a `shaderera.item.json` label, a `README.md` that
+The official Shaderera add-ons (decision 0008), one folder each, MIT. Each folder is what
+`shaderera publish` reads: a `shaderera.item.json` label, a `README.md` that
 `info` prints, and the files `add` copies into a project at the same paths.
 
 They come from films that were made and accepted. Each one was made generic: no film's numbers,
-its options as parameters, defaults that render well. Once added, an item is the project's own
+its options as parameters, defaults that render well. Once added, an add-on is the project's own
 code, to change freely.
 
-Items are named `<category>-<thing>`, so related items sort together and the name says what it
+Add-ons are named `<category>-<thing>`, so related ones sort together and the name says what it
 is: `audio`, `camera`, `font`, `format`, `look`, `motion`, `render`, `review`, `text`.
 
-| Item | Type | What it does | From |
+| Add-on | Type | What it does | From |
 |---|---|---|---|
 | `audio-beat-clock` | component | measure a song (tempo fitted to its onsets, bars, onsets, bands) and read timed text (LRC, SRT, VTT, Whisper JSON); a clock, band levels, the line and the word at render time | opening film; tempo fit and timed text from later in-house films |
 | `audio-hall-ending` | component | an ending that rings out in a hall and dies to silence (ffmpeg) | opening film |
@@ -36,15 +36,16 @@ is: `audio`, `camera`, `font`, `format`, `look`, `motion`, `render`, `review`, `
 | `text-glyph-points` | component | text as a point set, for particles that form words | opening film |
 | `text-kinetic` | component | scramble, decode, glitch, fit: Canvas2D text primitives | opening film |
 
-Stills of any t and a contact sheet come from `npx shaderera still`, not from an item.
+Stills of any t and a contact sheet come from `npx shaderera still`, not from an add-on.
 
 Left in the film: the MATTER particle engine, blob tracking and the score. They are tied to
-that film, and the registry holds only what another film can use as it is.
+that film, and a library holds only what another film can use as it is.
 
-From the repository root, after `pnpm install` (the publish loop fills `~/.shaderera/registry`,
-or `SHADERERA_REGISTRY`, which `search` and `add` read too):
+The official catalog at `https://shaderera.com/r` is built from these folders. From the
+repository root, after `pnpm install` (the publish loop fills the library folder you name, which
+`search` and `add` then read with `--library` or `SHADERERA_LIBRARY`):
 
 ```
-pnpm --filter @shaderera/catalog test        # every item renders, headless
-for d in packages/catalog/*/; do [ -f "$d/shaderera.item.json" ] && node apps/registry/bin/shaderera-registry.js publish "$d"; done
+pnpm --filter @shaderera/catalog test        # every add-on renders, headless
+for d in packages/catalog/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --library <folder>; done
 ```

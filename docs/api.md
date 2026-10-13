@@ -1,16 +1,15 @@
 # API surface
 
-What each package exports at version 0.1.1, and how stable it is. The shapes themselves are in
+What each package exports at version 0.1.2, and how stable it is. The shapes themselves are in
 [protocol.md](protocol.md).
 
 | Package | What |
 |---|---|
 | `@shaderera/core` | the protocol types and the checks |
-| `shaderera` | the CLI and the MCP server |
-| `@shaderera/registry` | search, add, eject, drop and publish catalog items |
+| `shaderera` | the CLI (add-ons included) and the MCP server |
 | `create-shaderera` | `npm create shaderera` makes an empty project |
 
-The four packages share one version and follow 0.x semver: any minor may break, loudly. Each
+The three packages share one version and follow 0.x semver: any minor may break, loudly. Each
 surface is labelled:
 
 - **stable:** what authors build on; a change is a documented decision with a migration note.
@@ -51,25 +50,17 @@ What both hosts share (`checkManifest`, `withVariant`, `openSource`, `seekable`,
 
 ## `shaderera`: the commands are stable; the modules are internal
 
-- **Stable:** the commands and flags in [cli.md](cli.md), the MCP tool names ([mcp.md](mcp.md)),
-  the files they read (`shaderera.json`, `requirements.json`, `shaderera.item.json`) and the files
-  they write: `versions/` (revisions; jobs `job/3`), `out/` (`delivery/1`, `deliveries/1`), and
-  the `--json` envelope (`result/1`). A format change refuses the old file with a message to recreate it; there are no
-  readers for old formats.
+- **Stable:** the commands and flags in [cli.md](cli.md) but the add-on ones (below), the MCP
+  tool names ([mcp.md](mcp.md)), the files they read (`shaderera.json`, `requirements.json`,
+  `shaderera.item.json`) and the files they write: `versions/` (revisions; jobs `job/3`), `out/`
+  (`delivery/1`, `deliveries/1`), and the `--json` envelope (`result/1`). A format change refuses
+  the old file with a message to recreate it; there are no readers for old formats.
 - **Internal:** every module under `apps/cli/src`. No JavaScript API is exported.
 
-## `@shaderera/registry`: experimental
+## Add-ons: experimental
 
-A registry is a folder of catalog items: extensions, components, presets and media (the package's
-own README has the details).
-
-- **The CLI `shaderera-registry`:** `search`, `info`, `grep`, `add`, `eject`, `drop`, `verify`
-  and `publish`. `--registry <dir>`, else `SHADERERA_REGISTRY`, else `~/.shaderera/registry`.
-- **The label:** `shaderera.item.json` (an extension: `"shaderera"` in its `package.json`) holds
-  the item's name, type, category, tags, licence and `requires`; a project's may hold only
-  `requires`. It is for finding an item and resolving what it requires; the host never reads it
-  to render.
-- **The library export:** `assertRequirements`, which `shaderera` calls to refuse a project
-  ([cli.md](cli.md#required-items-and-extensions)), and the functions the registry CLI is made of
-  (`search`, `add`, `eject`, `drop`, `grep`, `publish`, `resolve`, `checkItem`, …). Internal: no
-  promise to other callers.
+The add-on commands are part of `shaderera`: `search`, `info`, `add`, `remove` and `publish`, with
+`--library <dir|url>`, else `SHADERERA_LIBRARY`, else the official catalog at
+`https://shaderera.com/r`. They, the library folder and the label (`shaderera.item.json`; a
+package add-on: `"shaderera"` in its `package.json`) are in [add-ons.md](add-ons.md). They may
+change in any release.

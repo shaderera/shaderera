@@ -19,5 +19,7 @@ One file per decision, in the order they were made.
   style.
 - [0012](0012-delivery-and-agent-tooling.md): delivery and agent tooling for professionals.
 - [0013](0013-the-engine-is-mit.md): the engine is MIT, and the name stays the project's.
+- [0014](0014-add-ons-in-one-cli.md): add-ons from libraries, in one CLI (supersedes 0008's
+  `shaderera-registry` CLI and its words).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.

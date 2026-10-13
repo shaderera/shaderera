@@ -8,9 +8,9 @@ Shaderera owns production: timing, determinism, export, variants, review, delive
 The project's code owns everything creative: what a frame shows, how it moves, its camera, its
 look. There is no scene format, timeline, effect graph or other representation of the film; the
 film is its code. Core has no adapter for any technology: a participant lives in the project that
-uses it, and becomes a registry item when another film can reuse it as it is. One test keeps the
+uses it, and becomes an add-on when another film can reuse it as it is. One test keeps the
 line: if changing a field could change a rendered frame, it does not belong in the manifest or in
-an item's label.
+an add-on's label.
 
 The protocol is a set of TypeScript types in `@shaderera/core` (`packages/core/src/protocol.ts`).
 A project's entry module default-exports an `Open` (or a `Source` directly). Everything else is
@@ -313,7 +313,7 @@ type CameraCapability = {
 ```
 
 Core has no camera model, and the hook is frozen: no lens fields, kinds or multiple cameras. How
-a camera moves is the film's code (the registry has `motion-keyframes`, `camera-keyframes` and
+a camera moves is the film's code (the catalog has `motion-keyframes`, `camera-keyframes` and
 `camera-shake`). The hook covers cameras a 4×4 view and projection describe; a source with
 another kind (fisheye, panoramic) or several leaves `camera` out and reports them in `inspect`.
 

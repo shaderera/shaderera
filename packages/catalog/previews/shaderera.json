@@ -1,0 +1,110 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 30,
+  "duration": 6,
+  "width": 1080,
+  "height": 1080,
+  "seed": 1,
+  "params": {
+    "type": "object",
+    "properties": {
+      "item": {
+        "title": "Catalog item",
+        "type": "string",
+        "enum": ["look-screen-passes", "text-kinetic", "audio-beat-clock"],
+        "default": "look-screen-passes"
+      },
+      "state": {
+        "title": "State (see src/items.ts)",
+        "type": "string",
+        "default": "all"
+      }
+    }
+  },
+  "variants": {
+    "look-screen-passes": {
+      "label": "look-screen-passes · all",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "all"
+      }
+    },
+    "look-screen-passes.ascii": {
+      "label": "look-screen-passes · ascii",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "ascii"
+      }
+    },
+    "look-screen-passes.halftone": {
+      "label": "look-screen-passes · halftone",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "halftone"
+      }
+    },
+    "look-screen-passes.off": {
+      "label": "look-screen-passes · off",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "off"
+      }
+    },
+    "text-kinetic": {
+      "label": "text-kinetic · all",
+      "params": {
+        "item": "text-kinetic",
+        "state": "all"
+      }
+    },
+    "text-kinetic.scramble": {
+      "label": "text-kinetic · scramble",
+      "params": {
+        "item": "text-kinetic",
+        "state": "scramble"
+      }
+    },
+    "text-kinetic.decode": {
+      "label": "text-kinetic · decode",
+      "params": {
+        "item": "text-kinetic",
+        "state": "decode"
+      }
+    },
+    "text-kinetic.glitch": {
+      "label": "text-kinetic · glitch",
+      "params": {
+        "item": "text-kinetic",
+        "state": "glitch"
+      }
+    },
+    "audio-beat-clock": {
+      "label": "audio-beat-clock · all",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "all"
+      }
+    },
+    "audio-beat-clock.bands": {
+      "label": "audio-beat-clock · bands",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "bands"
+      }
+    },
+    "audio-beat-clock.grid": {
+      "label": "audio-beat-clock · grid",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "grid"
+      }
+    },
+    "audio-beat-clock.lyrics": {
+      "label": "audio-beat-clock · lyrics",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "lyrics"
+      }
+    }
+  }
+}
