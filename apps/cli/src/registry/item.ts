@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize, sep } from 'node:path'
 import { parseVersion, validRange } from './semver.ts'
 
 /**
- * A catalog item's label (decision 0008): what it is, which part of the work it covers, what it
+ * A plugin's label (decision 0008): what it is, which part of the work it covers, what it
  * needs and its licence. It is for finding things and resolving dependencies only. The host never
  * reads it to render, so nothing in it may change a frame: what a film looks like is its code.
  *
@@ -64,7 +64,7 @@ export type Item = {
   readonly version: string
   readonly licence: string
   readonly requires: Requires
-  /** What `catalog add` copies into a project: paths relative to the item (components, presets, media). */
+  /** What `shaderera add` copies into a project: paths relative to the item (components, presets, media). */
   readonly files: readonly string[]
   /** Where media came from: its origin, and for generated media the generator and its terms. */
   readonly source?: {
@@ -106,7 +106,7 @@ const isObject = (v: unknown): v is { [key: string]: unknown } =>
 export const checkItem = (raw: unknown, where: string): { item: Item; warnings: string[] } => {
   const errors: string[] = []
   const warnings: string[] = []
-  if (!isObject(raw)) throw new Error(`${where}: an item is a JSON object`)
+  if (!isObject(raw)) throw new Error(`${where}: a plugin's label is a JSON object`)
   const str = (key: string, required: boolean): string => {
     const v = raw[key]
     if (typeof v === 'string' && v.trim()) return v.trim()
@@ -120,7 +120,7 @@ export const checkItem = (raw: unknown, where: string): { item: Item; warnings: 
   if (type && !TYPES.includes(type)) errors.push(`type must be one of ${TYPES.join(', ')}`)
   const title = str('title', false) || name
   const description = str('description', false)
-  if (!description) warnings.push('no description: the catalog shows one line about the item')
+  if (!description) warnings.push('no description: search shows one line about the plugin')
   const category = str('category', true)
   if (category && TYPES.includes(type) && !CATEGORIES[type].includes(category))
     warnings.push(
@@ -179,12 +179,12 @@ export const checkItem = (raw: unknown, where: string): { item: Item; warnings: 
       for (const f of raw.files as string[]) {
         const n = normalize(f)
         if (isAbsolute(f) || n.split(sep).includes('..'))
-          errors.push(`file "${f}" is outside the item`)
+          errors.push(`file "${f}" is outside the plugin`)
         else files.push(f)
       }
   }
   if (['component', 'preset', 'media'].includes(type) && files.length === 0)
-    warnings.push(`a ${type} with no files: catalog add has nothing to copy`)
+    warnings.push(`a ${type} with no files: shaderera add has nothing to copy`)
 
   let source: Item['source']
   if (raw.source !== undefined) {

@@ -16,7 +16,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`handoff`](#handoff) | a frozen project, its job and `REPRODUCE.md` in `out/handoff/<job>/` |
 | [`review`](#review) | principal frames, a contact sheet and technical checks |
 | [`doctor`](#doctor) | what this machine and project have and lack |
-| [`search`, `info`, `add`, `remove`, `publish`](#add-ons) | find, copy in, remove and publish add-ons |
+| [`search`, `info`, `add`, `remove`, `publish`](#plugins) | find, copy in, remove and publish plugins |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
 `shaderera` alone, or `--help` / `-h` anywhere, prints the usage.
@@ -38,10 +38,10 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 The project's own console output goes to stderr, so stdout carries only the command's result. Set
 `SHADERERA_DEBUG=1` to print a full error with its stack.
 
-## Required add-ons
+## Required plugins
 
 Every command that finds a project reads its `shaderera.item.json`, if it has one. When the
-project requires a `shaderera` range this is not in, or a package add-on that is not installed or
+project requires a `shaderera` range this is not in, or a package plugin that is not installed or
 installed in the wrong version, the command refuses the project before anything renders and names
 the two ways out:
 
@@ -303,24 +303,24 @@ percentiles in its box), motion (% static samples) and audio (clips and their co
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
 adapter with every feature and the storage and texture limits (asked in a child process), and more
-than one `webgpu` installed, which crashes a host, and a package add-on the project requires and
-lacks (`requires`, [above](#required-add-ons)). Each lack says how to fix it.
+than one `webgpu` installed, which crashes a host, and a package plugin the project requires and
+lacks (`requires`, [above](#required-plugins)). Each lack says how to fix it.
 
-## Add-ons
+## Plugins
 
-Add-ons come from a library: `--library <dir|url>`, else `SHADERERA_LIBRARY`, else the official
-catalog at `https://shaderera.com/r`. All of it is in [add-ons.md](add-ons.md).
+Plugins come from a folder or the URL of one: `--from <dir|url>`, else `SHADERERA_PLUGINS`, else
+Shaderera's own at `https://shaderera.com/r`. All of it is in [plugins.md](plugins.md).
 
 | Command | What it does |
 |---|---|
 | `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
-| `add <name>[@range] [--force]` | copies an add-on and what it is built on into the project; a package add-on is installed and recorded in `shaderera.item.json` |
-| `remove <name>` | uninstalls a package add-on and stops requiring it |
-| `publish [dir] --library <folder> [--force]` | puts an add-on into a library folder |
+| `add <name>[@range] [--force]` | copies a plugin and what it is built on into the project; a package plugin is installed and recorded in `shaderera.item.json` |
+| `remove <name>` | uninstalls a package plugin and stops requiring it |
+| `publish [dir] --from <folder> [--force]` | puts a plugin into a folder of plugins |
 
-`add` never replaces a file the project already has; `--force` replaces only the add-on named. A
-copied add-on's files are the project's own code: to stop using one, delete them.
+`add` never replaces a file the project already has; `--force` replaces only the plugin named. A
+copied plugin's files are the project's own code: to stop using one, delete them.
 
 ## `mcp`
 

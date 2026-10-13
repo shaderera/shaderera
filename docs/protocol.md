@@ -8,9 +8,9 @@ Shaderera owns production: timing, determinism, export, variants, review, delive
 The project's code owns everything creative: what a frame shows, how it moves, its camera, its
 look. There is no scene format, timeline, effect graph or other representation of the film; the
 film is its code. Core has no adapter for any technology: a participant lives in the project that
-uses it, and becomes an add-on when another film can reuse it as it is. One test keeps the
+uses it, and becomes a plugin when another film can reuse it as it is. One test keeps the
 line: if changing a field could change a rendered frame, it does not belong in the manifest or in
-an add-on's label.
+a plugin's label.
 
 The protocol is a set of TypeScript types in `@shaderera/core` (`packages/core/src/protocol.ts`).
 A project's entry module default-exports an `Open` (or a `Source` directly). Everything else is
@@ -128,7 +128,7 @@ it, before any frame.
 - `io.image` decodes PNG and JPEG in JavaScript (fast-png, jpeg-js) in both hosts, never with a
   canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the file's
   sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. Once per file in a host. Other formats
-  are converted to PNG once (the catalog's `render-image-textures` has the tool).
+  are converted to PNG once (the plugin `render-image-textures` has the tool).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with
   ffmpeg (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over;
   frames read in order stream, a frame before the last one restarts the decoder. Which frame a t
@@ -291,7 +291,7 @@ const title = { source: "src/composition.ts:16:15", id: 'title', x: 160 }
 The path is relative to the root with forward slashes; line and column are 1-based and point at
 the `{` (oxc-parser offsets count UTF-16 code units, as JavaScript strings do). Spread copies it
 (`{ ...title, opacity }` keeps title's source). Objects without `id`, and objects that already
-have `source`, are untouched. The plugin returns a hires source map, so stack traces still point
+have `source`, are untouched. The Vite plugin returns a hires source map, so stack traces still point
 at the original lines. The stamp is opt-in because the extra enumerable key reaches code that
 enumerates or hashes those objects. The CLI does not edit code: an agent follows the stamp to the
 file and edits it.
@@ -313,7 +313,7 @@ type CameraCapability = {
 ```
 
 Core has no camera model, and the hook is frozen: no lens fields, kinds or multiple cameras. How
-a camera moves is the film's code (the catalog has `motion-keyframes`, `camera-keyframes` and
+a camera moves is the film's code (see the plugins `motion-keyframes`, `camera-keyframes` and
 `camera-shake`). The hook covers cameras a 4×4 view and projection describe; a source with
 another kind (fisheye, panoramic) or several leaves `camera` out and reports them in `inspect`.
 

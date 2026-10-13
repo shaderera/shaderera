@@ -1,0 +1,13 @@
+{
+  "caption": "Runs a three.js scene on the GPU, frame by frame, with its clock set to the film time, so every render matches.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 0.9,
+  "crf": 30
+}

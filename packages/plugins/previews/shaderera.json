@@ -1,0 +1,357 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 30,
+  "duration": 6,
+  "width": 1080,
+  "height": 1080,
+  "seed": 1,
+  "params": {
+    "type": "object",
+    "properties": {
+      "item": {
+        "title": "Plugin",
+        "type": "string",
+        "enum": [
+          "audio-beat-clock",
+          "audio-hall-ending",
+          "camera-keyframes",
+          "camera-shake",
+          "font-ibm-plex-mono",
+          "font-ibm-plex-sans",
+          "font-instrument-serif",
+          "font-stix-two-text",
+          "format-broadcast-slate",
+          "format-placement-specs",
+          "format-safe-areas",
+          "look-screen-passes",
+          "motion-keyframes",
+          "render-gaussian-splats",
+          "render-image-textures",
+          "render-three-host",
+          "review-av-timeline",
+          "text-code-wall",
+          "text-feature-captions",
+          "text-glyph-outlines",
+          "text-glyph-points",
+          "text-kinetic"
+        ],
+        "default": "look-screen-passes"
+      },
+      "state": {
+        "title": "State (see the plugin's preview/preview.json)",
+        "type": "string",
+        "default": "all"
+      }
+    }
+  },
+  "variants": {
+    "audio-beat-clock": {
+      "label": "audio-beat-clock · all",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "all"
+      }
+    },
+    "audio-beat-clock.bands": {
+      "label": "audio-beat-clock · bands",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "bands"
+      }
+    },
+    "audio-beat-clock.grid": {
+      "label": "audio-beat-clock · grid",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "grid"
+      }
+    },
+    "audio-beat-clock.lyrics": {
+      "label": "audio-beat-clock · lyrics",
+      "params": {
+        "item": "audio-beat-clock",
+        "state": "lyrics"
+      }
+    },
+    "audio-hall-ending": {
+      "label": "audio-hall-ending",
+      "params": {
+        "item": "audio-hall-ending",
+        "state": "default"
+      }
+    },
+    "camera-keyframes": {
+      "label": "camera-keyframes · track",
+      "params": {
+        "item": "camera-keyframes",
+        "state": "track"
+      }
+    },
+    "camera-keyframes.path": {
+      "label": "camera-keyframes · path",
+      "params": {
+        "item": "camera-keyframes",
+        "state": "path"
+      }
+    },
+    "camera-shake": {
+      "label": "camera-shake · all",
+      "params": {
+        "item": "camera-shake",
+        "state": "all"
+      }
+    },
+    "camera-shake.breathe": {
+      "label": "camera-shake · breathe",
+      "params": {
+        "item": "camera-shake",
+        "state": "breathe"
+      }
+    },
+    "camera-shake.handheld": {
+      "label": "camera-shake · handheld",
+      "params": {
+        "item": "camera-shake",
+        "state": "handheld"
+      }
+    },
+    "camera-shake.impact": {
+      "label": "camera-shake · impact",
+      "params": {
+        "item": "camera-shake",
+        "state": "impact"
+      }
+    },
+    "font-ibm-plex-mono": {
+      "label": "font-ibm-plex-mono",
+      "params": {
+        "item": "font-ibm-plex-mono",
+        "state": "default"
+      }
+    },
+    "font-ibm-plex-sans": {
+      "label": "font-ibm-plex-sans",
+      "params": {
+        "item": "font-ibm-plex-sans",
+        "state": "default"
+      }
+    },
+    "font-instrument-serif": {
+      "label": "font-instrument-serif",
+      "params": {
+        "item": "font-instrument-serif",
+        "state": "default"
+      }
+    },
+    "font-stix-two-text": {
+      "label": "font-stix-two-text",
+      "params": {
+        "item": "font-stix-two-text",
+        "state": "default"
+      }
+    },
+    "format-broadcast-slate": {
+      "label": "format-broadcast-slate",
+      "params": {
+        "item": "format-broadcast-slate",
+        "state": "default"
+      }
+    },
+    "format-placement-specs": {
+      "label": "format-placement-specs",
+      "params": {
+        "item": "format-placement-specs",
+        "state": "default"
+      }
+    },
+    "format-safe-areas": {
+      "label": "format-safe-areas · all",
+      "params": {
+        "item": "format-safe-areas",
+        "state": "all"
+      }
+    },
+    "format-safe-areas.reels": {
+      "label": "format-safe-areas · reels",
+      "params": {
+        "item": "format-safe-areas",
+        "state": "reels"
+      }
+    },
+    "format-safe-areas.shorts": {
+      "label": "format-safe-areas · shorts",
+      "params": {
+        "item": "format-safe-areas",
+        "state": "shorts"
+      }
+    },
+    "look-screen-passes": {
+      "label": "look-screen-passes · all",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "all"
+      }
+    },
+    "look-screen-passes.ascii": {
+      "label": "look-screen-passes · ascii",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "ascii"
+      }
+    },
+    "look-screen-passes.halftone": {
+      "label": "look-screen-passes · halftone",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "halftone"
+      }
+    },
+    "look-screen-passes.off": {
+      "label": "look-screen-passes · off",
+      "params": {
+        "item": "look-screen-passes",
+        "state": "off"
+      }
+    },
+    "motion-keyframes": {
+      "label": "motion-keyframes",
+      "params": {
+        "item": "motion-keyframes",
+        "state": "default"
+      }
+    },
+    "render-gaussian-splats": {
+      "label": "render-gaussian-splats",
+      "params": {
+        "item": "render-gaussian-splats",
+        "state": "default"
+      }
+    },
+    "render-image-textures": {
+      "label": "render-image-textures",
+      "params": {
+        "item": "render-image-textures",
+        "state": "default"
+      }
+    },
+    "render-three-host": {
+      "label": "render-three-host",
+      "params": {
+        "item": "render-three-host",
+        "state": "default"
+      }
+    },
+    "review-av-timeline": {
+      "label": "review-av-timeline",
+      "params": {
+        "item": "review-av-timeline",
+        "state": "default"
+      }
+    },
+    "text-code-wall": {
+      "label": "text-code-wall",
+      "params": {
+        "item": "text-code-wall",
+        "state": "default"
+      }
+    },
+    "text-feature-captions": {
+      "label": "text-feature-captions · all",
+      "params": {
+        "item": "text-feature-captions",
+        "state": "all"
+      }
+    },
+    "text-feature-captions.edge": {
+      "label": "text-feature-captions · edge",
+      "params": {
+        "item": "text-feature-captions",
+        "state": "edge"
+      }
+    },
+    "text-feature-captions.split": {
+      "label": "text-feature-captions · split",
+      "params": {
+        "item": "text-feature-captions",
+        "state": "split"
+      }
+    },
+    "text-feature-captions.column": {
+      "label": "text-feature-captions · column",
+      "params": {
+        "item": "text-feature-captions",
+        "state": "column"
+      }
+    },
+    "text-feature-captions.spine": {
+      "label": "text-feature-captions · spine",
+      "params": {
+        "item": "text-feature-captions",
+        "state": "spine"
+      }
+    },
+    "text-glyph-outlines": {
+      "label": "text-glyph-outlines · all",
+      "params": {
+        "item": "text-glyph-outlines",
+        "state": "all"
+      }
+    },
+    "text-glyph-outlines.outlines": {
+      "label": "text-glyph-outlines · outlines",
+      "params": {
+        "item": "text-glyph-outlines",
+        "state": "outlines"
+      }
+    },
+    "text-glyph-outlines.fill": {
+      "label": "text-glyph-outlines · fill",
+      "params": {
+        "item": "text-glyph-outlines",
+        "state": "fill"
+      }
+    },
+    "text-glyph-outlines.solid": {
+      "label": "text-glyph-outlines · solid",
+      "params": {
+        "item": "text-glyph-outlines",
+        "state": "solid"
+      }
+    },
+    "text-glyph-points": {
+      "label": "text-glyph-points",
+      "params": {
+        "item": "text-glyph-points",
+        "state": "default"
+      }
+    },
+    "text-kinetic": {
+      "label": "text-kinetic · all",
+      "params": {
+        "item": "text-kinetic",
+        "state": "all"
+      }
+    },
+    "text-kinetic.scramble": {
+      "label": "text-kinetic · scramble",
+      "params": {
+        "item": "text-kinetic",
+        "state": "scramble"
+      }
+    },
+    "text-kinetic.decode": {
+      "label": "text-kinetic · decode",
+      "params": {
+        "item": "text-kinetic",
+        "state": "decode"
+      }
+    },
+    "text-kinetic.glitch": {
+      "label": "text-kinetic · glitch",
+      "params": {
+        "item": "text-kinetic",
+        "state": "glitch"
+      }
+    }
+  }
+}

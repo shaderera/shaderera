@@ -8,7 +8,7 @@ For requests built on a product photograph or a cutout (PNG with transparency).
   promise; ask for a cutout.
 - Label the result as photo or hybrid in `inspect().subject` (`kind: 'photo'`) and in the
   summary. Never describe it as 3D. A card that turns far enough shows it is flat.
-- Decode images with `io.image` (or the `render-image-textures` item for atlases and other
+- Decode images with `io.image` (or the `render-image-textures` plugin for atlases and other
   formats), never the platform's own decoder, so the browser and Node render the same pixels.
 - Record the photo in `ASSETS.md` as supplied by the person, with its sha256.
 

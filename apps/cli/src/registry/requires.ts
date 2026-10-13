@@ -69,7 +69,7 @@ export const requirementProblems = (
 
 /**
  * Refuses a project whose requirements are not met (decision 0008's one hard rule: never a
- * silent fallback), and names the two ways out, so a package add-on never stands in the way of
+ * silent fallback), and names the two ways out, so a package plugin never stands in the way of
  * what the person wants: install it, or remove it and write their own.
  */
 export const assertRequirements = (root: string, shadereraVersion: string): void => {

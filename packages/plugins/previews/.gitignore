@@ -1,0 +1,7 @@
+# The plugins, copied in at their paths by scripts/assemble.ts (as shaderera add lays them out)
+src/*/
+tools/
+assets/
+delivery/
+# What the plugins' preview/make.ts write: the beat track, its lyrics and analysis, sounds, films
+audio/

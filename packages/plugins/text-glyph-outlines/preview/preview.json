@@ -1,0 +1,24 @@
+{
+  "caption": "Turns text from a font file into geometry: outlines, fill triangles and a 3D extruded mesh, letter by letter.",
+  "states": [
+    {
+      "id": "all",
+      "label": "All"
+    },
+    {
+      "id": "outlines",
+      "label": "Outlines"
+    },
+    {
+      "id": "fill",
+      "label": "Fill"
+    },
+    {
+      "id": "solid",
+      "label": "Solid"
+    }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 4.3
+}

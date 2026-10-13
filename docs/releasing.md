@@ -12,8 +12,8 @@ user gets it: from packed tarballs, installed with npm in a fresh folder outside
    ```
    Check that `create-shaderera`'s tarball holds `files/project/`, `files/AUTHORING.md`, the eight
    `files/guides/*.md`, `files/skills/shaderera/SKILL.md` and
-   `files/skills/shaderera-addons/SKILL.md`, and that `shaderera`'s holds `guides/` (eight files)
-   and `docs/` (the reference, with `participants/` and `add-ons.md`).
+   `files/skills/shaderera-plugins/SKILL.md`, and that `shaderera`'s holds `guides/` (eight files)
+   and `docs/` (the reference, with `participants/` and `plugins.md`).
 3. **A clean folder.** In a folder outside the monorepo:
    ```bash
    npm exec --package=<create-shaderera.tgz> -- create-shaderera film

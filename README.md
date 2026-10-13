@@ -55,7 +55,7 @@ says what your machine has and lacks.
 
 ### With an AI coding agent
 
-**Claude Code**: install the plugin.
+**Claude Code**: install the Claude Code plugin.
 
 ```bash
 claude plugin marketplace add shaderera/shaderera
@@ -63,7 +63,7 @@ claude plugin install shaderera@shaderera
 ```
 
 To get new versions on their own, turn on auto-update in `/plugin` → Marketplaces →
-shaderera. The skills are `/shaderera:shaderera` and `/shaderera:shaderera-addons`, and
+shaderera. The skills are `/shaderera:shaderera` and `/shaderera:shaderera-plugins`, and
 Claude also picks them up when you ask for a film.
 
 **Codex, Cursor, Gemini CLI, OpenCode and other agents with skills**: add the skills.
@@ -130,45 +130,46 @@ starting project is 1920×1080 at 60 fps, 10 s long, seed 1 (`shaderera.json`), 
 Every new project is also set up for an agent: `AGENTS.md` (and `CLAUDE.md`, which points to
 it) says how to work there, `AUTHORING.md` is the workflow, `guides/` holds short guides (sound,
 typography, formats, 3D products, photos, logos, review, revisions), and `.claude/skills/` holds
-the same two skills as the plugin.
+the same two skills as the Claude Code plugin.
 
 ## Skills
 
 | Skill | What it does |
 |---|---|
 | `shaderera` | starts or finds a project, runs the edit → check → look loop, sets up MCP, reviews, renders and delivers |
-| `shaderera-addons` | searches, adds and removes add-ons, and publishes a piece of a film; used when you ask for add-ons, or when a check says a required package add-on is missing |
+| `shaderera-plugins` | searches, adds and removes plugins, and publishes a piece of a film; used when you ask for plugins, or when a check says a required package plugin is missing |
 
 They come from [`plugins/shaderera/`](plugins/shaderera/): the Claude Code plugin,
 `npx skills add` and every new project all get the same files. The skills never pick a look for
 your film. They add **plumbing** on their own (music analysis, three.js on the host's GPU, image
 decoding), because that carries no taste, and looks, motion and sound design only when you ask.
 
-## Add-ons
+## Plugins
 
-Add-ons are code that earlier films proved, like npm for clips. `add` copies an add-on's source
-into your project, where it becomes your code to change. The official catalog is built from
-[`packages/catalog/`](packages/catalog/README.md), MIT, named `<category>-<thing>`:
+Plugins are code that earlier films proved, like npm for clips. `add` copies a plugin's source
+into your project, where it becomes your code to change. Shaderera's own plugins are built from
+[`packages/plugins/`](packages/plugins/README.md), MIT, named `<category>-<thing>`:
 `audio-beat-clock`, `camera-keyframes`, `format-safe-areas`, `render-three-host`,
 `text-feature-captions`, `look-screen-passes`, four fonts, and more.
 
-`shaderera` reads the official catalog at `https://shaderera.com/r` unless you point it at another
-library. In a film:
+`shaderera` reads Shaderera's own at `https://shaderera.com/r` unless you point it elsewhere. In a
+film:
 
 ```bash
 npx shaderera search "beat sync"
 npx shaderera add audio-beat-clock
 ```
 
-A team's own library is a folder, or the URL it is served at: set `SHADERERA_LIBRARY` or pass
-`--library`. To fill a folder with the official add-ons, from a clone of this repository after
+A team keeps its own plugins in a folder, or at the URL it is served at: set `SHADERERA_PLUGINS`
+or pass `--from <dir|url>`. To fill a folder with the official plugins, from a clone of this repository after
 `pnpm install`:
 
 ```bash
-for d in packages/catalog/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --library <folder>; done
+for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --from <folder>; done
 ```
 
-All of it is in [docs/add-ons.md](docs/add-ons.md).
+All of it is in [docs/plugins.md](docs/plugins.md). To write a plugin, for the official ones or
+for a library of your own, see [docs/plugin-guide.md](docs/plugin-guide.md).
 
 ## How it works
 
@@ -223,7 +224,7 @@ hands ffmpeg the result.
 | `shaderera save` / `versions` / `undo` / `restore` / `diff` / `job` | revisions and render jobs |
 | `shaderera doctor` | what this machine has and lacks |
 | `shaderera mcp` | the same operations as MCP tools over stdio |
-| `shaderera search` / `info` / `add` / `remove` / `publish` | add-ons ([docs/add-ons.md](docs/add-ons.md)) |
+| `shaderera search` / `info` / `add` / `remove` / `publish` | plugins ([docs/plugins.md](docs/plugins.md)) |
 
 Every flag is in [docs/cli.md](docs/cli.md), and the MCP tools are in [docs/mcp.md](docs/mcp.md).
 
@@ -241,7 +242,7 @@ and decisions are recorded in [docs/adr/](docs/adr/).
 | `shaderera` | `apps/cli` | the CLI, the Node and browser hosts, and the MCP server |
 | `@shaderera/core` | `packages/core` | the protocol types and small helpers that work in any host |
 | `create-shaderera` | `packages/create-shaderera` | starts a project |
-| — | `packages/catalog` | the official add-ons (not on npm; publish them to a library) |
+| — | `packages/plugins` | the official plugins (not on npm; publish them to a folder) |
 | — | `plugins/shaderera` | the agent skills and the Claude Code plugin (MIT) |
 
 ## Develop
@@ -270,7 +271,7 @@ and mattpocock/skills, listed in [.claude/skills/SOURCES.md](.claude/skills/SOUR
 
 ## Licence
 
-[MIT](LICENSE), all of it: the engine, `create-shaderera`, the add-ons and the skills.
+[MIT](LICENSE), all of it: the engine, `create-shaderera`, the plugins and the skills.
 Use it for anything, including inside a product you sell. What you make with Shaderera is
 yours. The name and logo are not part of the MIT licence: see [TRADEMARKS.md](TRADEMARKS.md).
-Fonts in the catalog are under the SIL Open Font License; see [docs/licences.md](docs/licences.md).
+The font plugins are under the SIL Open Font License; see [docs/licences.md](docs/licences.md).

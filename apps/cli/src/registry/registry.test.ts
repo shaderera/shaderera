@@ -14,7 +14,7 @@ import { search } from './search.ts'
 import { satisfies, validRange } from './semver.ts'
 import { newest, publish, resolve } from './store.ts'
 
-const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-addons-${name}-`))
+const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-plugins-${name}-`))
 const write = (dir: string, files: { [path: string]: unknown }) => {
   for (const [path, body] of Object.entries(files)) {
     mkdirSync(join(dir, path, '..'), { recursive: true })
@@ -162,7 +162,7 @@ test('add copies a component, installs and requires what it needs; a missing one
   assert.equal(label.requires.extensions['@shaderera/kinetic-type'], '^0.1.2')
   assert.deepEqual(requirementProblems(root, '0.4.0'), [])
 
-  // Removed: uninstalled and no longer required. A copied add-on is the project's to delete.
+  // Removed: uninstalled and no longer required. A copied plugin is the project's to delete.
   const uninstalled: string[] = []
   remove(root, '@shaderera/kinetic-type', { uninstall: (_r, name) => uninstalled.push(name) })
   assert.deepEqual(uninstalled, ['@shaderera/kinetic-type'])
@@ -385,7 +385,7 @@ test('add resolves everything first, copies only what a piece lacks, and stops a
   add(root, registry, 'top')
   assert.equal(readFileSync(join(root, 'src', 'a.ts'), 'utf8'), '// mine\n')
   assert.ok(existsSync(join(root, 'src', 'b.ts')) && existsSync(join(root, 'src', 'top.ts')))
-  assert.throws(() => add(root, registry, 'broken'), /gone is not in the library/)
+  assert.throws(() => add(root, registry, 'broken'), /gone is not a plugin in/)
   assert.ok(!existsSync(join(root, 'src', 'broken.ts')))
   assert.doesNotThrow(() => add(root, registry, 'p'))
 })
@@ -403,7 +403,7 @@ test('search --tag matches a tag with a space', async () => {
   const log = console.log
   console.log = (s: string) => printed.push(s)
   try {
-    await run('search', ['--tag', 'Motion Blur', '--json', '--library', registry])
+    await run('search', ['--tag', 'Motion Blur', '--json', '--from', registry])
   } finally {
     console.log = log
   }

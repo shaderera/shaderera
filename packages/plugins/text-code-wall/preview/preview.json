@@ -1,0 +1,13 @@
+{
+  "caption": "Turns a film's own source code into a wall of text that scrolls and glitches on the beat, a claim cut out of the middle.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.6,
+  "crf": 29
+}

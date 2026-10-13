@@ -1,0 +1,12 @@
+{
+  "caption": "Draws 3D Gaussian splats on the GPU, sorted back to front every frame, from a capture or from code.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 2.9
+}

@@ -1,6 +1,6 @@
 ---
 name: shaderera
-description: Use when the person asks to make, revise, check, render or deliver a video, ad, motion graphic or animated film in code with Shaderera, or when the working directory (or a parent) has a shaderera.json. Covers starting a project, the edit, check and look loop, giving yourself eyes through MCP, and rendering and delivery. For searching, adding, removing or publishing add-ons, use the shaderera-addons skill.
+description: Use when the person asks to make, revise, check, render or deliver a video, ad, motion graphic or animated film in code with Shaderera, or when the working directory (or a parent) has a shaderera.json. Covers starting a project, the edit, check and look loop, giving yourself eyes through MCP, and rendering and delivery. For searching, adding, removing or publishing plugins, use the shaderera-plugins skill.
 ---
 
 # Shaderera
@@ -69,12 +69,12 @@ npx shaderera deliver --variants main,short   # a checked batch: the main film a
 Every flag is in `node_modules/shaderera/docs/cli.md`, and delivery, placements and handoffs are
 in `node_modules/shaderera/docs/delivery.md`.
 
-## 5. Add-ons
+## 5. Plugins
 
-Write the film's own code. You may add a **plumbing** add-on that `AUTHORING.md` lists (music
+Write the film's own code. You may add a **plumbing** plugin that `AUTHORING.md` lists (music
 analysis, three.js on the host's GPU, image decoding) instead of writing the same plumbing
-again; say so in your summary. Add looks, motion and sound design add-ons only when the person
-asks. The `shaderera-addons` skill says how.
+again; say so in your summary. Add looks, motion and sound design plugins only when the person
+asks. The `shaderera-plugins` skill says how.
 
 ## 6. Report
 

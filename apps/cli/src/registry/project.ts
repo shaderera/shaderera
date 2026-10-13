@@ -96,14 +96,14 @@ export const add = (
 }
 
 /**
- * Uninstalls a package add-on and stops requiring it. A component's, preset's or media item's
+ * Uninstalls a package plugin and stops requiring it. A component's, preset's or media item's
  * files were copied in and are the project's own code, so only the person deletes them.
  */
 export const remove = (root: string, name: string, o: { uninstall?: Installer } = {}): string[] => {
   const required = readLabel(root)?.requires?.extensions?.[name] !== undefined
   if (!required && installedVersion(root, name) === null)
     throw new Error(
-      `${name} is not a package add-on this project uses. A copied add-on's files are this project's code: delete them.`,
+      `${name} is not a package plugin this project uses. A copied plugin's files are this project's code: delete them.`,
     )
   ;(o.uninstall ?? npmUninstall)(root, name)
   setRequirement(root, name, null)

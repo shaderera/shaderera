@@ -1,0 +1,12 @@
+{
+  "caption": "IBM Plex Mono in Light, Regular and SemiBold: an engineered monospace for data, code, captions and ASCII looks.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.1
+}

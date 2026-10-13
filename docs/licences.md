@@ -1,8 +1,8 @@
 # Licences
 
-What the published packages (0.1.2) depend on, and what the catalog and the test fixtures vendor.
-Every package (`@shaderera/core`, `shaderera`, `create-shaderera`), the catalog and the agent
-skills are MIT. Each tarball carries its own licence file.
+What the published packages (0.1.2) depend on, and what the official plugins and the test fixtures vendor.
+Every package (`@shaderera/core`, `shaderera`, `create-shaderera`), the official plugins and the
+agent skills are MIT. Each tarball carries its own licence file.
 
 The runtime lists come from the packed tarballs installed with npm in a fresh `create-shaderera`
 project (Windows x64). They walk `dependencies` and installed `optionalDependencies` from each
@@ -48,7 +48,7 @@ Besides `@shaderera/core` 0.1.2 (MIT):
   1.0.2, zod-to-json-schema 3.25.2.
 - **BSD-2-Clause:** json-schema-typed 8.0.2.
 
-The agent skills (`shaderera`, `shaderera-addons`) and the Claude Code plugin are in
+The agent skills (`shaderera`, `shaderera-plugins`) and the Claude Code plugin are in
 `plugins/shaderera/` in the repository, MIT. `create-shaderera` copies them into every project.
 
 ## Development only
@@ -62,16 +62,16 @@ The fixtures in `apps/cli` are not published (`files` leaves out `dist/**/fixtur
 `three` 0.186.1 (MIT), `webgpu` 0.6.2 (MIT; Dawn BSD-3-Clause) and `@napi-rs/canvas` 1.0.10 (MIT),
 and carry Noto Sans and Noto Sans Thai (SIL OFL 1.1, `OFL.txt` beside the fonts).
 
-## Catalog
+## Plugins
 
-The official add-ons in `packages/catalog/` are MIT code, written for Shaderera; `add` copies them
+The official plugins in `packages/plugins/` are MIT code, written for Shaderera; `add` copies them
 into a project, where they are the project's own. Some declare npm packages the copied code
 imports (`requires.packages`): `three` 0.186.1 (MIT), `fast-png` 8.0.0 (MIT), `jpeg-js` 0.4.4
 (BSD-3-Clause), `@types/three` 0.186.0 (MIT), `opentype.js` 2.0.0 (MIT), `earcut` 3.2.3 (ISC).
 
-The media add-ons are fonts under SIL OFL 1.1, each with its OFL text beside the font files:
+The media plugins are fonts under SIL OFL 1.1, each with its OFL text beside the font files:
 
-| Add-on | Font |
+| Plugin | Font |
 |---|---|
 | `font-ibm-plex-mono` | IBM Plex Mono (IBM) |
 | `font-ibm-plex-sans` | IBM Plex Sans (IBM) |

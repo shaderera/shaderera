@@ -10,7 +10,7 @@ exporting files. The reference is `docs/protocol.md` (variants) and `docs/delive
   another.
 - Platform UI covers part of a vertical (9:16) social frame; each platform publishes its own safe
   zone. Declare the placement's in `requirements.json` (`safeArea`, or `placements`; the
-  `format-placement-specs` item has current specs with their sources): review checks text against
+  `format-placement-specs` plugin has current specs with their sources): review checks text against
   it, and there is no default.
 - A cutdown (for example 6 s) is a variant with its own `duration`. How the film fits the shorter
   time is the film's code; review checks that the required copy, and an end hold if one is

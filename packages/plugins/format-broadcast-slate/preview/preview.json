@@ -1,0 +1,12 @@
+{
+  "caption": "The clock slate before a TV spot, with its details and a countdown that goes to black, drawn by the film itself.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.2
+}

@@ -1,0 +1,12 @@
+{
+  "caption": "Instrument Serif, roman and italic: a condensed display serif for titles and phrases in a magazine voice.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.1
+}

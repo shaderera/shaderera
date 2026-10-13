@@ -21,13 +21,13 @@ import { compareVersions, satisfies } from './semver.ts'
  * version with its sha256; `search.json` is the full-text index the CLI searches without a
  * server; `items/<name>/<version>/` holds each version's files (an extension also keeps the
  * tarball npm installs, `package.tgz`). Versions are immutable. A team shares one folder (a
- * network drive or a git checkout): `--library <dir>` or `SHADERERA_LIBRARY`. A URL is the
- * same folder served over HTTP; without either, it is the official catalog.
+ * network drive or a git checkout): `--from <dir>` or `SHADERERA_PLUGINS`. A URL is the
+ * same folder served over HTTP; without either, it is Shaderera's own.
  */
 export const registryDir = (flag?: string): string =>
-  flag ?? process.env.SHADERERA_LIBRARY ?? OFFICIAL
+  flag ?? process.env.SHADERERA_PLUGINS ?? OFFICIAL
 
-/** The official catalog: a registry folder served over HTTP, which remote.ts mirrors. */
+/** The official plugins: a registry folder served over HTTP, which remote.ts mirrors. */
 export const OFFICIAL = 'https://shaderera.com/r'
 
 export type Version = {
@@ -172,7 +172,7 @@ export const parseSpec = (spec: string): { name: string; range: string } => {
 export const resolve = (registry: string, spec: string): Version & { dir: string } => {
   const { name, range } = parseSpec(spec)
   const entry = readIndex(registry).items[name]
-  if (!entry) throw new Error(`${name} is not in the library ${registry}`)
+  if (!entry) throw new Error(`${name} is not a plugin in ${registry}`)
   const version = newest(Object.keys(entry.versions), range)
   if (!version)
     throw new Error(

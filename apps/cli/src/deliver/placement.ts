@@ -7,7 +7,7 @@ type Margins = { top: number; right: number; bottom: number; left: number }
 /**
  * What a placement (a platform's slot: Reels ads, a CTV network, a DOOH screen) accepts, as the
  * person declares it in requirements.json `placements`, from that platform's current spec. Core
- * owns the shape and the check; the numbers are data the person brings (the catalog's
+ * owns the shape and the check; the numbers are data the person brings (the plugin
  * `format-placement-specs` holds some, with their sources and dates). Every field is optional:
  * only what is declared is checked (decision 0011).
  */

@@ -1,0 +1,12 @@
+{
+  "caption": "Moves anything from key to key over time, each move with its own ease: strike, back, settle, bezier.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1
+}

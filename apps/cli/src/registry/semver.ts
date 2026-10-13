@@ -1,5 +1,5 @@
 /**
- * Version ranges for catalog requirements: the part of npm's semver a catalog needs. A range is
+ * Version ranges for plugin requirements: the part of npm's semver plugins need. A range is
  * `||`-separated alternatives of space-separated comparators: `1.2.3`, `=1.2.3`, `>=1.2`, `<2`,
  * `>1`, `<=1.4`, `^1.2.3`, `~1.2.3`, `1.x`, `*`. Pre-release tags are ignored while matching
  * (`0.4.0-dev.0` satisfies `^0.4.0`): in-house builds carry them, and they must not lock a team out.

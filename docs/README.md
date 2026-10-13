@@ -15,8 +15,10 @@ These ship in the `shaderera` package, so an installed project reads them in
 - [authoring.md](authoring.md): the working loop for making and revising a film (every project
   gets it as `AUTHORING.md`).
 - [cli.md](cli.md): every command, its flags, exit codes and the `--json` envelope.
-- [add-ons.md](add-ons.md): searching, adding, removing and publishing add-ons, libraries and
-  the label.
+- [plugins.md](plugins.md): searching, adding, removing and publishing plugins, where they come
+  from, and the label.
+- [plugin-guide.md](plugin-guide.md): writing a plugin: the label, naming, the rules its code
+  follows, versions, testing, the preview, and hosting a library of your own.
 - [mcp.md](mcp.md): the same operations as MCP tools for agents.
 - [delivery.md](delivery.md): mp4, ProRes, stems, captions, PNG + WAV, batches, placements,
   broadcast, several machines, handoffs.
@@ -34,4 +36,4 @@ These ship in the `shaderera` package, so an installed project reads them in
 - [adr/](adr/): recorded decisions.
 - [releasing.md](releasing.md): how a release is checked.
 - [agents/](agents/): issue tracker, triage labels and domain docs for agents working here.
-- The official add-ons: [packages/catalog/](../packages/catalog/README.md).
+- The official plugins: [packages/plugins/](../packages/plugins/README.md).

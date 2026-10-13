@@ -220,7 +220,7 @@ file:
   placement Meta Reels ads: an edit list (--no-edit-list)
 ```
 
-The numbers are data the person brings, never defaults: the catalog's `format-placement-specs`
+The numbers are data the person brings, never defaults: the plugin `format-placement-specs`
 holds Meta Reels ads, YouTube 1080p, Amazon Streaming TV, EBU R128, ATSC A/85 and a 2026 DOOH
 screen, each with its source and the date it was read, to copy and keep current. A png handoff is a
 folder, not a file a placement takes: its placement check is unknown, so a placement on a png
@@ -248,7 +248,7 @@ it (Clearcast Library Technical Specification v1.6, 2024).
 - `preroll`: whole frames before the export's first frame, in the mp4 or mov and in a png handoff
   (`frames/000000.png` onward). `fill: 'black'` (the default) is opaque black and silence;
   `fill: 'source'` renders the source at the frame times before 0, so a slate is the film's own
-  code (the catalog's `format-broadcast-slate` draws a plain clock). The film's t = 0 stays where it
+  code (the plugin `format-broadcast-slate` draws a plain clock). The film's t = 0 stays where it
   is: its sound and captions move with the picture. Measured on 2026-10-12: 1 s of preroll at 30
   fps gave 90 frames, frame 29 black and frame 30 the film, and a beep at 0.5 s decoded at 1.5 s.
 - `timecode`: where the programme starts. The file's own timecode (mp4 and mov) is that, less the
