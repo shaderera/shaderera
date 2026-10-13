@@ -1,11 +1,10 @@
-// motion-keyframes: one shape keyed through seven poses, every move with a different ease, as a
-// motion designer sees it. On the stage the shape travels, turns, grows and morphs (square,
-// circle, triangle, star) from key to key, trailing onion skins one frame apart, so the spacing
-// shows the ease: bunched where it is slow, spread where it is fast, past the key where it
-// overshoots, nothing where it holds and cuts. A swarm of points follows it, each reading the same
-// tracks a little later (the plugin's way to follow a subject), so the frame never rests. Below,
-// the graph editor: x and y over the loop, the keys as red diamonds. The ease is the big word, its
-// formula the note (house.ts).
+// motion-keyframes: one plain square keyed through seven poses with `track`, every move with a
+// different ease, as a motion designer sees it. On the stage the square travels, turns and grows
+// from key to key, trailing onion skins one frame apart, with a dot where it is on every frame of
+// the move, so the spacing shows the ease: bunched where it is slow, spread where it is fast, past
+// the key where it overshoots, nothing where it holds and cuts. Below, the graph editor: x and y
+// over the loop, the keys as red diamonds. The ease is the big word, its formula the note
+// (house.ts).
 
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import {
@@ -26,19 +25,17 @@ const L = 48
 const R = 1032
 const STAGE = { left: 110, right: 970, top: 160, bottom: 560 }
 const GRAPH = { top: 620, bottom: 740 }
-const SHAPES = ['square', 'circle', 'triangle', 'star']
 
-type Pose = { at: number; x: number; y: number; size: number; turn: number; shape: number }
+type Pose = { at: number; x: number; y: number; size: number; turn: number }
 /** The keys, and the ease each move into a key uses (the first key has none). */
 const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
-  { at: 0, x: 230, y: 420, size: 150, turn: 0, shape: 0 },
+  { at: 0, x: 230, y: 420, size: 150, turn: 0 },
   {
     at: 0.8,
     x: 760,
     y: 250,
     size: 105,
     turn: 90,
-    shape: 1,
     ease: strike,
     name: 'strike',
     note: 'a hit: out fast, then a long settle',
@@ -49,7 +46,6 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     y: 460,
     size: 190,
     turn: 150,
-    shape: 2,
     ease: back(2.4),
     name: 'back',
     note: 'overshoots the key, then comes back to it',
@@ -60,7 +56,6 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     y: 340,
     size: 250,
     turn: 216,
-    shape: 3,
     ease: settle(10),
     name: 'settle',
     note: 'a damped spring, as a formula of t',
@@ -71,7 +66,6 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     y: 240,
     size: 115,
     turn: 288,
-    shape: 1,
     ease: expo,
     name: 'expo',
     note: 'still, then fast, then still',
@@ -82,7 +76,6 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     y: 470,
     size: 170,
     turn: 315,
-    shape: 0,
     ease: bezier(0.8, 0, 0.2, 1),
     name: 'bezier',
     note: 'bezier(0.8, 0, 0.2, 1), as drawn in a curve editor',
@@ -93,7 +86,6 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     y: 270,
     size: 140,
     turn: 330,
-    shape: 2,
     ease: hold,
     name: 'hold',
     note: 'holds, then cuts to the key',
@@ -104,47 +96,11 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     y: 420,
     size: 150,
     turn: 360,
-    shape: 0,
     ease: glide,
     name: 'glide',
     note: 'a long, even glide in and out',
   },
 ]
-
-const POINTS = 180
-/** A shape's radius at an angle: square, circle, triangle, five-point star. */
-const radius = (shape: number, a: number) => {
-  const tau = Math.PI * 2
-  switch (shape) {
-    case 0:
-      return 0.86 / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a)))
-    case 2: {
-      const k = tau / 3
-      const m = ((((a + Math.PI / 2) % k) + k) % k) - k / 2
-      return (0.62 / Math.cos(m)) * 1.05
-    }
-    case 3: {
-      const k = tau / 5
-      const m = Math.abs(((((a + Math.PI / 2) % k) + k) % k) - k / 2) / (k / 2)
-      return 0.48 + 0.62 * (1 - m) ** 1.6
-    }
-    default:
-      return 1
-  }
-}
-const OUTLINES = [0, 1, 2, 3].map((s) =>
-  Array.from({ length: POINTS }, (_, i) => radius(s, (i / POINTS) * Math.PI * 2)),
-)
-const rnd = (i: number, k: number) => {
-  const x = Math.sin(i * 127.1 + k * 311.7) * 43758.5453
-  return x - Math.floor(x)
-}
-const SWARM = Array.from({ length: 900 }, (_, i) => ({
-  lag: 0.03 + 0.55 * rnd(i, 1) ** 1.4,
-  at: Math.floor(rnd(i, 2) * POINTS),
-  out: 1 + 0.5 * (rnd(i, 3) - 0.3),
-  size: 1 + 1.8 * rnd(i, 4),
-}))
 
 const motionKeyframes: OpenPreview = async (host, stateId) => {
   if (stateId !== 'default') throw new Error(`motion-keyframes has no state "${stateId}"`)
@@ -175,21 +131,13 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
   }
   type P = ReturnType<typeof pose>
 
-  const radii = (p: Pick<P, 'seg' | 'u'>) => {
-    const a = OUTLINES[KEYS[p.seg - 1]?.shape ?? 0] as number[]
-    const b = OUTLINES[KEYS[p.seg]?.shape ?? 0] as number[]
-    return a.map((ra, i) => ra + ((b[i] ?? 1) - ra) * p.u)
-  }
-  const outline = (p: P) => {
-    const turnRad = (p.turn * Math.PI) / 180
-    return radii(p).map((r, i) => {
-      const ang = (i / POINTS) * Math.PI * 2 + turnRad
-      return [
-        p.x + Math.cos(ang) * r * p.size * 0.5,
-        p.y + Math.sin(ang) * r * p.size * 0.5,
-      ] as const
+  /** The square's corners, turned and sized by its tracks. */
+  const outline = (p: Pick<P, 'x' | 'y' | 'size' | 'turn'>) =>
+    [0, 1, 2, 3].map((i) => {
+      const a = ((p.turn + 45 + i * 90) * Math.PI) / 180
+      const r = (p.size / 2) * Math.SQRT2
+      return [p.x + Math.cos(a) * r, p.y + Math.sin(a) * r] as const
     })
-  }
   const path = (pts: readonly (readonly [number, number])[]) => {
     ctx.beginPath()
     pts.forEach(([px, py], i) => {
@@ -204,41 +152,17 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
     ctx.font = `14px ${mono}`
     ctx.textAlign = 'left'
     KEYS.slice(0, -1).forEach((k, i) => {
-      const target: P = {
-        t: k.at,
-        seg: Math.max(1, i),
-        u: i === 0 ? 0 : 1,
-        x: k.x,
-        y: k.y,
-        size: k.size,
-        turn: k.turn,
-      }
       const next = i === p.seg % (KEYS.length - 1)
       ctx.strokeStyle = next ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.16)'
       ctx.setLineDash([4, 6])
       ctx.lineWidth = 1.2
-      path(outline(target))
+      path(outline(k))
       ctx.stroke()
       ctx.setLineDash([])
       ctx.fillStyle = next ? '#fff' : '#666'
       ctx.fillText(`K${i + 1}`, k.x + k.size * 0.5 + 10, k.y - k.size * 0.5)
     })
-    // The swarm: each point reads the tracks a little behind, off the shape's outline.
-    const cache = new Map<number, { p: P; r: number[] }>()
-    for (const s of SWARM) {
-      const time = Math.round((t - s.lag) * 240) / 240
-      let c = cache.get(time)
-      if (!c) {
-        const q = pose(time)
-        c = { p: q, r: radii(q) }
-        cache.set(time, c)
-      }
-      const ang = (s.at / POINTS) * Math.PI * 2 + (c.p.turn * Math.PI) / 180
-      const rr = (c.r[s.at] ?? 1) * c.p.size * 0.5 * s.out
-      ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - s.lag / 0.62)})`
-      ctx.fillRect(c.p.x + Math.cos(ang) * rr, c.p.y + Math.sin(ang) * rr, s.size, s.size)
-    }
-    // This move's spacing: a dot where the shape is on every frame of it.
+    // This move's spacing: a dot where the square is on every frame of it.
     const from = KEYS[p.seg - 1]
     const to = KEYS[p.seg]
     if (from && to) {
@@ -252,18 +176,6 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
         ctx.fill()
       }
     }
-    // A thin ring bursts from each key as the shape lands on it.
-    for (const [i, k] of KEYS.entries()) {
-      if (i === 0) continue
-      const since = loop(t - k.at)
-      if (since > 0.45) continue
-      const e = 1 - (1 - since / 0.45) ** 3
-      ctx.strokeStyle = `rgba(255,255,255,${0.8 * (1 - since / 0.45)})`
-      ctx.lineWidth = 1.5
-      ctx.beginPath()
-      ctx.arc(k.x, k.y, k.size * 0.55 + e * 150, 0, Math.PI * 2)
-      ctx.stroke()
-    }
     // Onion skins, one frame apart, older ones fainter.
     for (let k = 8; k >= 1; k--) {
       ctx.strokeStyle = `rgba(255,255,255,${0.55 * (1 - k / 9)})`
@@ -271,10 +183,13 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
       path(outline(pose(t - k / fps)))
       ctx.stroke()
     }
-    // The shape now, and its centre: the live point.
-    ctx.fillStyle = '#fff'
+    // The square now, and its centre: the live point.
+    ctx.fillStyle = '#4a4a4a'
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 2
     path(outline(p))
     ctx.fill()
+    ctx.stroke()
     ctx.strokeStyle = RED
     ctx.lineWidth = 2
     ctx.strokeRect(p.x - 9, p.y - 9, 18, 18)
@@ -361,10 +276,10 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
     to: k.at,
     text: (k.name ?? '').toUpperCase(),
   }))
-  const shapes: Word[] = KEYS.slice(1).map((k, i) => ({
+  const targets: Word[] = KEYS.slice(1).map((k, i) => ({
     from: (KEYS[i] as Pose).at,
     to: k.at,
-    text: (SHAPES[k.shape] ?? '').toUpperCase(),
+    text: `TO K${i + 2 === KEYS.length ? 1 : i + 2}`,
   }))
 
   return {
@@ -375,7 +290,7 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
       theme.index()
       drawStage(t, p)
       drawGraph(t, p)
-      theme.words(eases, shapes, t, o.frame)
+      theme.words(eases, targets, t, o.frame)
       theme.note(KEYS[p.seg]?.note ?? '', R, 800)
       theme.hud(
         t,
@@ -392,7 +307,7 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
     inspect(t) {
       const p = pose(t)
       return {
-        id: 'shape',
+        id: 'square',
         key: p.seg,
         ease: KEYS[p.seg]?.name ?? '',
         u: p.u,

@@ -1,0 +1,12 @@
+{
+  "caption": "Reads lyrics and subtitles from LRC, SRT and WebVTT files, and gives the line and the word showing at any moment.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 2.9
+}

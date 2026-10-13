@@ -6,6 +6,7 @@ node tools/to-png.ts --frames 12 assets/clip.webm  # a clip's frames as PNGs
 ```
 
 ```ts
+import * as THREE from 'three/webgpu'
 import { loadAtlas, loadTexture } from './three/images.ts'
 
 const art = await loadTexture(host, 'assets/painting.png')       // { texture, aspect }

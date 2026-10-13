@@ -1,12 +1,12 @@
-// camera-shake: a 120 mm shot of the city's monolith (previews/src/city.ts), drifting slowly
-// round it, shaken by the item. 'all' gives each preset two seconds: breathe (a tripod that is
-// still alive), handheld, then impact, kicking on three hits while the city jumps with them. The
-// other states hold one preset for the loop. A dashed crosshair marks where the shot is aimed and
-// a red tracking box where the aim is now, trailing its last second; the yaw, pitch and roll scroll
-// past on one scale for every preset, so the gentlest and the hardest can be compared. The preset
-// and its size are the big words (house.ts).
+// camera-shake: a 120 mm shot of a plain grey box on a floor grid (camera-keyframes' preview
+// stage), drifting slowly round it, shaken by the plugin. 'all' gives each preset two seconds:
+// breathe (a tripod that is still alive), handheld, then impact, kicking on three hits. The other
+// states hold one preset for the loop. A dashed crosshair marks where the shot is aimed and a red
+// tracking box where the aim is now, trailing its last second; the yaw, pitch and roll scroll past
+// on one scale for every preset, so the gentlest and the hardest can be compared. The preset and
+// its size are the big words (house.ts).
 
-import { createCity, project } from '../../previews/src/city.ts'
+import { createStage, project, SUBJECT } from '../../camera-keyframes/preview/stage.ts'
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import {
   blendShots,
@@ -61,28 +61,26 @@ const smooth = (x: number) => {
 const cameraShake: OpenPreview = async (host, stateId) => {
   if (!['all', 'breathe', 'handheld', 'impact'].includes(stateId))
     throw new Error(`camera-shake has no state "${stateId}"`)
-  const device = host.gpu
-  if (!device) throw new Error('The camera-shake preview needs WebGPU (host.gpu)')
   const { width, height, duration } = host.manifest
   const aspect = width / height
-  const city = createCity(device, width, height)
   const canvas = host.io.canvas(width, height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
   const theme = createHouse(host, ctx)
+  const stage = createStage(ctx, width, height)
   const mono = `"${FONT.mono}"`
   const loop = (t: number) => ((t % duration) + duration) % duration
 
-  /** The authored shot: a slow drift round the monolith, once out and back a loop. */
+  /** The authored shot: a slow drift round the box, once out and back a loop. */
   const baseAt = (t: number): Shot => {
     const ph = loop(t) / duration
     return fit({
-      center: [0, 2.3, 0],
-      radius: 2.2,
+      center: SUBJECT.center,
+      radius: SUBJECT.radius,
       azimuth: 210 + 10 * Math.sin(ph * Math.PI * 2),
       elevation: 14 + 2 * Math.sin(ph * Math.PI * 4),
       fov: lens(MM, 1),
       aspect: 1,
-      fill: 0.6 + 0.06 * Math.cos(ph * Math.PI * 2),
+      fill: 0.4 + 0.04 * Math.cos(ph * Math.PI * 2),
       shift: LIFT,
     })
   }
@@ -312,8 +310,7 @@ const cameraShake: OpenPreview = async (host, stateId) => {
     async render(t, o) {
       const s = state(t)
       const vp = viewProjection(s.c, aspect)
-      const frame = city.render(vp, s.c.eye, { phase: t / duration, kick: s.kick, fog: 0.028 })
-      ctx.clearRect(0, 0, width, height)
+      stage.draw(vp, s.c.eye)
       theme.wash(width)
       theme.index()
       // Canvas state (line caps, dashes) must not carry from one frame to the next.
@@ -321,8 +318,7 @@ const cameraShake: OpenPreview = async (host, stateId) => {
       drawAim(t, s)
       ctx.restore()
       drawTraces(t, s)
-      // Impact words glitch on every hit.
-      theme.words(words, sizes, t, s.kick > 0.5 ? o.frame + 1000 : o.frame)
+      theme.words(words, sizes, t, o.frame)
       const style = STYLE[s.preset]
       theme.note(`${NOTES[s.preset]}, ${style.frequency.toFixed(2)} Hz`, R, 800)
       theme.hud(
@@ -331,15 +327,7 @@ const cameraShake: OpenPreview = async (host, stateId) => {
         `${MM} MM   HIT ${s.kick.toFixed(2)}`,
         `SHAKE.${s.preset.toUpperCase()}`,
       )
-      // A hit flashes the frame.
-      if (s.kick > 0.95) {
-        ctx.fillStyle = `rgba(255,255,255,${0.18 * Math.min(1, s.kick) ** 4})`
-        ctx.fillRect(0, 0, width, 904)
-      }
-      return [
-        { color: frame, alpha: 'opaque', name: 'city' },
-        { color: canvas, name: 'overlay' },
-      ]
+      return [{ color: canvas }]
     },
     status(t) {
       const s = state(t)

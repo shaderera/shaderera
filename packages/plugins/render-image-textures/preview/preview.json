@@ -8,6 +8,5 @@
   ],
   "default": "default",
   "audio": false,
-  "poster": 2.3,
-  "crf": 28
+  "poster": 2.3
 }

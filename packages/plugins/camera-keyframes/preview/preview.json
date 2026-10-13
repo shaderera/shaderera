@@ -12,6 +12,5 @@
   ],
   "default": "track",
   "audio": false,
-  "poster": 4.2,
-  "crf": 27
+  "poster": 4.2
 }

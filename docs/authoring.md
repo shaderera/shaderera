@@ -54,7 +54,8 @@ What is on the shelf:
 
 - **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
   plumbing again, and says so:
-  - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands, timed text), and a clock;
+  - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
+  - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper JSON), the line and word at t;
   - `render-three-host`: three.js on the host's GPU;
   - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
   - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;
@@ -62,9 +63,9 @@ What is on the shelf:
   - `review-av-timeline`: the sound and the picture's change on one timeline;
   - `format-placement-specs`: what placements accept, with sources, as requirements.json data.
 - **Looks, motion and sound design** are added only when the person asks: `look-screen-passes`,
-  `text-kinetic`, `text-feature-captions`, `text-code-wall`, `motion-keyframes`,
-  `camera-keyframes`, `camera-shake`, `format-safe-areas`, `format-broadcast-slate`,
-  `audio-hall-ending`.
+  `text-kinetic`, `text-feature-captions`, `text-code-wall`, `text-glyph-morph`,
+  `motion-keyframes`, `camera-keyframes`, `camera-shake`, `format-safe-areas`,
+  `format-broadcast-slate`, `audio-hall-ending`.
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 

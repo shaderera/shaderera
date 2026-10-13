@@ -1,12 +1,7 @@
 {
-  "caption": "IBM Plex Sans in Light, Regular and Medium: a restrained grotesque for names, dates, labels and captions.",
-  "states": [
-    {
-      "id": "default",
-      "label": "Default"
-    }
-  ],
+  "caption": "IBM Plex Sans font files, Light, Regular and Medium, under the OFL.",
+  "states": [{ "id": "default", "label": "Default" }],
   "default": "default",
   "audio": false,
-  "poster": 1.1
+  "poster": 0.5
 }

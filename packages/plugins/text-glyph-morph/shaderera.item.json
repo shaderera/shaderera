@@ -1,0 +1,21 @@
+{
+  "name": "text-glyph-morph",
+  "type": "component",
+  "title": "Glyph morph",
+  "description": "One glyph outline or word morphing into another: contours resampled by arc length, paired outer to outer and hole to hole, a contour with no partner grown from a point, the in-between a pure function of k",
+  "category": "Typography",
+  "tags": [
+    "morph",
+    "tween",
+    "glyph",
+    "outlines",
+    "letters",
+    "shape morph",
+    "kinetic typography",
+    "vector"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "text-glyph-outlines": "^0.1.0" } },
+  "files": ["src/type/glyph-morph.ts"]
+}

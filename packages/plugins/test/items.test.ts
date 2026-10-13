@@ -42,9 +42,6 @@ const { decoded, fitWidth, glitched, scramble } = (await from(
 const { bandsOf, clockFromAnalysis, clockOf, fitGrid, pulse } = (await from(
   'src/music/beat.ts',
 )) as typeof import('../audio-beat-clock/src/music/beat.ts')
-const { cueAt, parseLrc, parseSrt, parseTimedJson, parseTimedText, trimCues, wordAt } = (await from(
-  'src/music/timed-text.ts',
-)) as typeof import('../audio-beat-clock/src/music/timed-text.ts')
 const { safeArea, widenFov } = (await from(
   'src/layout/frame.ts',
 )) as typeof import('../format-safe-areas/src/layout/frame.ts')
@@ -152,75 +149,6 @@ test('audio-beat-clock: the grid is fitted to the onsets, on the steps they sit 
   )
 })
 
-test('audio-beat-clock: timed text from LRC, SRT, VTT and JSON, and the line and word at t', () => {
-  const lrc = parseLrc(
-    [
-      '[ar:Someone]',
-      '[00:01.50]first line',
-      '[00:04.00][00:20.00]chorus',
-      '[00:06.00]<00:06.00>one <00:06.40>two <00:07.10>',
-    ].join('\n'),
-  )
-  assert.deepEqual(
-    lrc.map((c) => [c.start, c.end, c.text]),
-    [
-      [1.5, 4, 'first line'],
-      [4, 6, 'chorus'],
-      [6, 20, 'one two'],
-      [20, Number.POSITIVE_INFINITY, 'chorus'],
-    ],
-  )
-  assert.deepEqual(lrc[2]?.words, [
-    { start: 6, end: 6.4, text: 'one' },
-    { start: 6.4, end: 7.1, text: 'two' },
-  ])
-  assert.equal(parseLrc('[offset:+500]\n[00:01.00]late')[0]?.start, 1.5)
-  const srt = parseSrt(
-    [
-      '1',
-      '00:00:01,000 --> 00:00:02,500',
-      '<i>Hello</i>',
-      'there',
-      '',
-      '2',
-      '00:00:03,000 --> 00:00:04,000',
-      'Bye',
-    ].join('\n'),
-  )
-  assert.deepEqual(srt, [
-    { start: 1, end: 2.5, text: 'Hello\nthere' },
-    { start: 3, end: 4, text: 'Bye' },
-  ])
-  const vtt = parseTimedText('a.vtt', 'WEBVTT\n\n00:01.000 --> 00:02.000\nHi\n')
-  assert.deepEqual(vtt, [{ start: 1, end: 2, text: 'Hi' }])
-  assert.deepEqual(
-    parseTimedJson([
-      [2, 3, ' b '],
-      [0.5, 1.5, 'a'],
-    ]).map((c) => c.text),
-    ['a', 'b'],
-  )
-  const whisper = parseTimedJson({
-    segments: [
-      {
-        start: 1,
-        end: 2,
-        text: ' hi you',
-        words: [
-          { start: 1, end: 1.4, word: ' hi' },
-          { start: 1.5, end: 2, word: ' you' },
-        ],
-      },
-    ],
-  })
-  assert.equal(whisper[0]?.text, 'hi you')
-  assert.equal(wordAt(whisper, 1.45)?.text, 'hi')
-  assert.equal(wordAt(whisper, 1.6)?.text, 'you')
-  assert.equal(cueAt(srt, 2.7), undefined)
-  assert.equal(cueAt(trimCues(srt, 1), 2.2)?.text, 'Bye')
-  assert.throws(() => parseTimedText('a.txt', ''), /\.lrc, \.srt, \.vtt or \.json/)
-})
-
 test('text-kinetic: deterministic scramble, decode in and out, glitch draws', () => {
   assert.equal(scramble('HELLO WORLD', 7, 0.5), scramble('HELLO WORLD', 7, 0.5))
   assert.notEqual(scramble('HELLO WORLD', 7, 1), 'HELLO WORLD')
@@ -229,10 +157,16 @@ test('text-kinetic: deterministic scramble, decode in and out, glitch draws', ()
   assert.equal(decoded('BEAT', 0.5, { from: 1, to: 3, frame: 9 }).visible, false)
   const c = io.canvas(640, 360)
   const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D
-  const size = fitWidth(ctx, '600 "Plex Bold"', 'GLITCH', 400)
-  ctx.font = `${size}px 600 "Plex Bold"`
+  // `font` is a family alone, as the README says: the functions put the size in front, and a
+  // weight there ('600 "Plex Bold"' → '100px 600 "Plex Bold"') is not a CSS font, so the canvas
+  // would fall back to another face. A monospace measures every letter the same.
+  const font = '"Plex Bold"'
+  assert.equal(fitWidth(ctx, font, 'iiii', 400), fitWidth(ctx, font, 'MMMM', 400))
+  const size = fitWidth(ctx, font, 'GLITCH', 400)
+  ctx.font = `${size}px ${font}`
+  assert.ok(Math.abs(ctx.measureText('GLITCH').width - 400) < 0.5)
   ctx.fillStyle = '#fff'
-  glitched(ctx, 'GLITCH', 320, 180, { font: '600 "Plex Bold"', size, frame: 3, align: 'center' })
+  glitched(ctx, 'GLITCH', 320, 180, { font, size, frame: 3, align: 'center' })
   assert.ok(inked(c) > 0.05, 'glitched text drew')
 })
 

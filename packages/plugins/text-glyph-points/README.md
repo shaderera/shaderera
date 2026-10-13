@@ -1,4 +1,4 @@
-Text as a fixed point set, for particles that form a word, a logo or a name.
+Text as a fixed point set, for particles that form a word or a name.
 
 ```ts
 import { glyphPoints } from './procedural/glyph-points.ts'

@@ -1,9 +1,9 @@
 // audio-beat-clock: a synthesised track (preview/make.ts), measured by the item's own
-// analyser (tools/analyze-music.ts), drives everything on screen. In the 'all' state the sung word
-// lands huge on its stab, the line fills word by word, a 16-step bar counts the clock, and below
-// it the song scrolls past the playhead as four band lanes (sub, low, mid, high) on the measured
-// beat grid, with the hits and words marked where they fall. Each bar's downbeat flashes the
-// frame. The other states give one of those the whole frame: the bands, the beat grid, the lyrics.
+// analyser (tools/analyze-music.ts), drives everything on screen. In the 'all' state the clock
+// counts bar, beat and 1/16, a 16-step bar fills with it, and below it the song scrolls past the
+// playhead as four band lanes (sub, low, mid, high) on the measured beat grid, with the hits
+// marked where they fall. Each bar's downbeat flashes the frame. The other states give one of
+// those the whole frame: the bands, the beat grid.
 
 import { createHouse, L, R, RED } from '../../previews/src/house.ts'
 import {
@@ -13,7 +13,6 @@ import {
   loadAnalysis,
   pulse,
 } from '../../previews/src/music/beat.ts'
-import { cueAt, loadTimedText, wordAt } from '../../previews/src/music/timed-text.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const SONG = 'audio/beat.wav'
@@ -25,8 +24,6 @@ type Timeline = { top: number; height: number; gap: number; lanes: boolean; labe
 type Layout = {
   /** The part of the frame a downbeat inverts. */
   flash: number
-  word?: { baseline: number; maxSize: number }
-  line?: { baseline: number; size: number }
   counter?: { baseline: number; size: number }
   steps?: { top: number; height: number }
   timeline: Timeline
@@ -34,11 +31,10 @@ type Layout = {
 
 const LAYOUTS: Record<string, Layout> = {
   all: {
-    flash: 494,
-    word: { baseline: 392, maxSize: 300 },
-    line: { baseline: 470, size: 40 },
-    steps: { top: 506, height: 44 },
-    timeline: { top: 624, height: 56, gap: 8, lanes: true, label: 15 },
+    flash: 390,
+    counter: { baseline: 310, size: 190 },
+    steps: { top: 430, height: 80 },
+    timeline: { top: 600, height: 52, gap: 8, lanes: true, label: 15 },
   },
   bands: {
     flash: 104,
@@ -49,12 +45,6 @@ const LAYOUTS: Record<string, Layout> = {
     counter: { baseline: 370, size: 250 },
     steps: { top: 470, height: 120 },
     timeline: { top: 690, height: 160, gap: 0, lanes: false, label: 15 },
-  },
-  lyrics: {
-    flash: 690,
-    word: { baseline: 500, maxSize: 400 },
-    line: { baseline: 620, size: 58 },
-    timeline: { top: 790, height: 60, gap: 0, lanes: false, label: 15 },
   },
 }
 
@@ -72,22 +62,17 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
   const bands = bandsOf(analysis)
   const strong = analysis.onsets.filter((o) => o.strength >= 450)
   const hits = hitsOf(analysis, { strength: 450 })
-  const lyrics = await loadTimedText(host, 'audio/beat.lrc')
-  const words = lyrics.flatMap((c) => c.words ?? [])
   const loop = (t: number) => ((t % duration) + duration) % duration
   /** Times repeated a loop either side, for what scrolls past the playhead. */
   const around = (times: readonly number[]) =>
     [-1, 0, 1].flatMap((k) => times.map((x) => x + k * duration))
   const beats = Array.from({ length: 16 }, (_, i) => clock.at(1 + Math.floor(i / 4), i % 4))
-  const sans = `"${FONT.sansMedium}"`
   const mono = `"${FONT.mono}"`
   const monoBold = `"${FONT.monoBold}"`
 
   const state = (t: number) => {
     const p = clock.position(t + 0.0005)
     const bar = ((p.bar - 1 + 400) % 4) + 1
-    const word = wordAt(lyrics, t)
-    const cue = cueAt(lyrics, t)
     const [sub, low, mid, high] = bands(t)
     return {
       bpm: clock.bpm,
@@ -95,61 +80,12 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
       beat: p.beat,
       sixteenth: p.sixteenth,
       step: (p.beat - 1) * 4 + (p.sixteenth - 1),
-      word: word?.text ?? '',
-      wordAt: word?.start ?? 0,
-      line: cue?.words ?? [],
       bands: { sub, low, mid, high },
       downbeat: pulse(t, around(beats.filter((_, i) => i % 4 === 0)), 0.07),
       hit: pulse(t, around(hits), 0.09),
     }
   }
   type S = ReturnType<typeof state>
-
-  const drawWord = (
-    t: number,
-    s: S,
-    o: { baseline: number; maxSize: number },
-    ink: string,
-    flash: boolean,
-  ) => {
-    if (!s.word) return
-    const since = t - s.wordAt
-    const kick = 1 + 0.14 * Math.exp(-since / 0.07)
-    ctx.font = `100px ${sans}`
-    const size = Math.min(o.maxSize, (100 * (R - L)) / ctx.measureText(s.word).width / 1.14) * kick
-    ctx.font = `${size}px ${sans}`
-    ctx.textAlign = 'left'
-    ctx.fillStyle = since < 0.05 && !flash ? RED : ink
-    ctx.fillText(s.word, L - size * 0.04, o.baseline)
-  }
-
-  const drawLine = (t: number, s: S, o: { baseline: number; size: number }, flash: boolean) => {
-    ctx.font = `${o.size}px ${sans}`
-    ctx.textAlign = 'left'
-    let x = L
-    for (const w of s.line) {
-      const sung = w.start <= t
-      const current = sung && t < w.end
-      ctx.fillStyle = current
-        ? flash
-          ? '#000'
-          : '#fff'
-        : sung
-          ? flash
-            ? '#000'
-            : '#8a8a8a'
-          : flash
-            ? 'rgba(0,0,0,0.35)'
-            : '#3a3a3a'
-      ctx.fillText(w.text, x, o.baseline)
-      const ww = ctx.measureText(w.text).width
-      if (current) {
-        ctx.fillStyle = flash ? '#000' : RED
-        ctx.fillRect(x, o.baseline + o.size * 0.25, ww, Math.max(4, o.size * 0.1))
-      }
-      x += ww + o.size * 0.3
-    }
-  }
 
   const drawCounter = (s: S, o: { baseline: number; size: number }, ink: string) => {
     ctx.font = `${o.size}px ${monoBold}`
@@ -201,7 +137,7 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
   }
 
   // The song scrolling past the playhead: band lanes (or the onsets alone) on the beat grid, the
-  // hits and words marked where they fall.
+  // hits marked where they fall.
   const drawTimeline = (t: number, s: S, o: Timeline) => {
     const left = t - PLAYHEAD / PX_PER_S
     const right = t + (R - PLAYHEAD) / PX_PER_S
@@ -271,17 +207,6 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
         ctx.lineTo(hx, bottom - 6)
         ctx.fill()
       }
-    for (const w of [-1, 0, 1].flatMap((k) =>
-      words.map((x) => ({ ...x, start: x.start + k * duration })),
-    )) {
-      if (w.start < left - 1 || w.start > right) continue
-      const wx = xOf(w.start)
-      ctx.font = `17px ${mono}`
-      ctx.textAlign = 'left'
-      ctx.fillStyle = w.start <= t ? '#fff' : '#6a6a6a'
-      ctx.fillText(w.text, wx + 5, top - 30)
-      ctx.fillRect(wx, top - 46, 2, 20)
-    }
     ctx.restore()
     // The playhead: now.
     ctx.fillStyle = s.hit > 0.4 ? RED : '#fff'
@@ -312,8 +237,6 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
       ctx.fillText(`BAR ${s.bar}   BEAT ${s.beat}   16TH ${s.sixteenth}`, R, 70)
       ctx.fillStyle = ink
       ctx.fillRect(L, 88, R - L, 2)
-      if (layout.word) drawWord(t, s, layout.word, ink, flash)
-      if (layout.line) drawLine(t, s, layout.line, flash)
       if (layout.counter) drawCounter(s, layout.counter, ink)
       if (layout.steps) drawSteps(s, layout.steps)
       drawTimeline(t, s, layout.timeline)
@@ -334,7 +257,6 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
         bands: s.bands,
         downbeat: s.downbeat,
         hit: s.hit,
-        word: s.word,
       }
     },
     async audio() {

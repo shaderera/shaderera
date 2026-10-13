@@ -66,7 +66,8 @@ export const fill: Draw = (ctx, text, x, y) => ctx.fillText(text, x, y)
 
 /**
  * Text cut into horizontal bands, each thrown sideways by its own amount on each frame. `font` is
- * a CSS font without the size ('600 "IBM Plex Mono"'). `amount` 0 draws it whole, 1 is a hard
+ * a font family alone ('"IBM Plex Mono SemiBold"'): the size goes in front of it, so a weight there
+ * would not parse; register each weight as its own family. `amount` 0 draws it whole, 1 is a hard
  * glitch. `draw` paints one band (fill by default; stroke for outlines).
  */
 export const glitched = (
@@ -108,7 +109,7 @@ export const glitched = (
   }
 }
 
-/** The size at which `text` in `font` (a CSS font without the size) is exactly `width` wide. */
+/** The size at which `text` in `font` (a family alone, as in glitched) is `width` wide. */
 export const fitWidth = (ctx: Ctx, font: string, text: string, width: number) => {
   ctx.font = `100px ${font}`
   return (100 * width) / Math.max(1, ctx.measureText(text).width)
