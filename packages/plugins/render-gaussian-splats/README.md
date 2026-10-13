@@ -2,21 +2,21 @@
 
 ```ts
 import { createSplatRenderer, loadSplats } from './render/splats.ts'
-import { matricesOf } from './motion/camera.ts'   // camera-keyframes, or any view + projection
 
 // in open
 const splats = createSplatRenderer(host.gpu!, { width: W, height: H })   // format 'rgba16float'
 splats.upload(await loadSplats(host, 'assets/garden.ply'))             // or .splat
 
-// in render(t, options)
-const { view, projection } = options.camera ?? matricesOf(camera(t, W / H), W / H)
+// in render(t, options): the host's camera when it passes one, else the film's own
+const { view, projection } = options.camera ?? myCamera(t)   // column-major Mat4s
 return [{ color: splats.render(view, projection), alpha: 'premultiplied' }]
 ```
 
 The layer is an `rgba16float` texture (or `rgba8unorm` with `format`) at the frame size,
 premultiplied alpha, transparent where there are no splats. Colours are as stored in the file
 (display values, no conversion, no grading). The texture is reused: composite or read it before
-the next `render`. Matrices are column-major, the projection in WebGPU clip space (z 0–1).
+the next `render`. Pass any view and projection in: column-major, the projection in WebGPU clip
+space (z 0–1). It needs no other plugin; `camera-keyframes`' `matricesOf(shot, W / H)` gives both.
 
 - Formats: `.splat` (32 bytes a splat) and binary little-endian `.ply` from 3DGS training
   (`parseSplat`, `parsePly`, or `parseSplats`, which reads the header). Splats are plain typed

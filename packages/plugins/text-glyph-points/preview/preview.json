@@ -1,5 +1,5 @@
 {
-  "caption": "Turns a word or logo into a fixed cloud of points for particles to form, and knows where each letter is.",
+  "caption": "Turns text set in a font into a fixed cloud of points for particles to form, and knows where each letter is.",
   "states": [
     {
       "id": "default",
@@ -8,6 +8,5 @@
   ],
   "default": "default",
   "audio": false,
-  "poster": 4.2,
-  "crf": 31
+  "poster": 4.2
 }

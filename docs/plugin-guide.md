@@ -249,6 +249,12 @@ The loop is 1080², 30 fps and 6 s. It must be seamless: frame 0 follows the las
 moves on every frame. Every asset is made in code: no photos, footage, music or fonts from outside
 the repository (fonts come from the font plugins).
 
+A preview shows only what you get by installing that plugin. Around the house frame, every visual
+comes from the plugin's own calls, made the way its README shows. A subject the plugin acts on is a
+plain stand-in, not a scene that reads as a feature. A font plugin's preview is a type specimen of
+the weights and styles it ships. Its only motion is presentation: a steady drift, or a cut between
+panels. Morphing type is `text-glyph-morph`'s preview, not a font's.
+
 Render it, with ffmpeg and libwebp on the PATH:
 
 ```sh

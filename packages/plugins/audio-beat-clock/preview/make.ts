@@ -1,8 +1,7 @@
 // Synthesises the audio-beat-clock preview's music in code, so its licence is this repository's:
 // four bars at 160 BPM (exactly 6 s, so it loops), kick, snare, hats, a sub bass and a lead stab
-// on every lyric word. Writes audio/beat.wav (48 kHz, 16-bit stereo) and audio/beat.lrc (the
-// words, with word times, on the same steps as the stabs), then measures the WAV with the
-// plugin's own analyser (tools/analyze-music.ts, copied in by scripts/assemble.ts) into
+// phrase. Writes audio/beat.wav (48 kHz, 16-bit stereo), then measures it with the plugin's own
+// analyser (tools/analyze-music.ts, copied in by scripts/assemble.ts) into
 // audio/beat.analysis.json, as a film would measure a song. scripts/render.ts runs it.
 //   node packages/plugins/audio-beat-clock/preview/make.ts
 
@@ -17,29 +16,29 @@ const BARS = 4
 const LENGTH = BARS * 16 * STEP
 const N = Math.round(LENGTH * RATE)
 
-/** The words, one line a bar, each on a 1/16 step of its bar, with the stab's note (MIDI). */
-const LYRICS: { step: number; word: string; note: number }[][] = [
+/** The lead stabs, one phrase a bar, each on a 1/16 step of its bar, with its note (MIDI). */
+const STABS: { step: number; note: number }[][] = [
   [
-    { step: 0, word: 'CUT', note: 69 },
-    { step: 3, word: 'TO', note: 72 },
-    { step: 6, word: 'THE', note: 76 },
-    { step: 8, word: 'BEAT', note: 74 },
+    { step: 0, note: 69 },
+    { step: 3, note: 72 },
+    { step: 6, note: 76 },
+    { step: 8, note: 74 },
   ],
   [
-    { step: 0, word: 'COUNT', note: 69 },
-    { step: 4, word: 'EVERY', note: 72 },
-    { step: 8, word: 'BAR', note: 79 },
+    { step: 0, note: 69 },
+    { step: 4, note: 72 },
+    { step: 8, note: 79 },
   ],
   [
-    { step: 0, word: 'RIDE', note: 65 },
-    { step: 3, word: 'THE', note: 69 },
-    { step: 6, word: 'LOW', note: 72 },
-    { step: 8, word: 'END', note: 77 },
+    { step: 0, note: 65 },
+    { step: 3, note: 69 },
+    { step: 6, note: 72 },
+    { step: 8, note: 77 },
   ],
   [
-    { step: 0, word: 'HIT', note: 67 },
-    { step: 4, word: 'EVERY', note: 71 },
-    { step: 8, word: 'WORD', note: 74 },
+    { step: 0, note: 67 },
+    { step: 4, note: 71 },
+    { step: 8, note: 74 },
   ],
 ]
 const KICK = [0, 4, 8, 12]
@@ -140,8 +139,8 @@ for (let loop = 0; loop < 2; loop++)
         return (0.5 * Math.sin(2 * Math.PI * f * t) + 0.35 * lp) * env * (duck[k0 + i] ?? 1)
       })
     }
-    // A stab on every word: three detuned saws through a closing filter, echoed across the field.
-    for (const w of LYRICS[bar] ?? []) {
+    // The stabs: three detuned saws through a closing filter, echoed across the field.
+    for (const w of STABS[bar] ?? []) {
       const t0 = at(w.step)
       for (const [delay, gainL, gainR] of [
         [0, 1, 1],
@@ -208,21 +207,12 @@ for (let i = 0; i < N; i++)
       true,
     )
 
-const stamp = (s: number) =>
-  `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(3).padStart(6, '0')}`
-const lrc = LYRICS.map((line, bar) => {
-  const at = (step: number) => (bar * 16 + step) * STEP
-  const words = line.map((w) => `<${stamp(at(w.step))}>${w.word} `).join('')
-  return `[${stamp(at(0))}]${words}<${stamp(at(12))}>`
-})
-
 // The previews project, where the composition reads its audio/.
 const root = join(import.meta.dirname, '..', '..', 'previews')
 const dir = join(root, 'audio')
 mkdirSync(dir, { recursive: true })
 writeFileSync(join(dir, 'beat.wav'), new Uint8Array(wav.buffer))
-writeFileSync(join(dir, 'beat.lrc'), `[ti:Beat clock preview, synthesised]\n${lrc.join('\n')}\n`)
-console.log(`audio/beat.wav ${LENGTH} s, ${BPM} BPM; audio/beat.lrc`)
+console.log(`audio/beat.wav ${LENGTH} s, ${BPM} BPM`)
 // The track is 160 BPM; the default 70–180 range would also take 80.
 execFileSync(
   process.execPath,

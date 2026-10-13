@@ -136,7 +136,7 @@ export const parseTimedText = (path: string, source: string): Cue[] => {
   throw new Error(`${path}: timed text is .lrc, .srt, .vtt or .json.`)
 }
 
-/** Shifts every time by `-trim` (seconds of the song the film leaves out), as clockFromAnalysis. */
+/** Shifts every time by `-trim`: the seconds of the source the film leaves out at its start. */
 export const trimCues = (cues: readonly Cue[], trim: number): Cue[] =>
   cues.map((c) => ({
     ...c,
@@ -147,7 +147,7 @@ export const trimCues = (cues: readonly Cue[], trim: number): Cue[] =>
       : {}),
   }))
 
-/** Reads a project file of timed text in `open`. `trim` as in clockFromAnalysis. */
+/** Reads a project file of timed text in `open`, its times shifted by `-trim` (see trimCues). */
 export const loadTimedText = async (host: Host, path: string, o: { trim?: number } = {}) =>
   trimCues(parseTimedText(path, new TextDecoder().decode(await host.io.read(path))), o.trim ?? 0)
 

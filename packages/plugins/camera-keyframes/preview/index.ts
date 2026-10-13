@@ -1,12 +1,11 @@
-// camera-keyframes: a camera on keyframed shots flies over a procedural wireframe city
-// (previews/src/city.ts) and frames its luminous monolith. 'track' is five shots, each move
-// coming to rest on its key: a wide 35 mm, an orbit to 50 mm, a crane to a 24 mm top shot, a hard
-// cut to an 85 mm close-up, a straight fly-by, and a spring back to the first. 'path' is one move
-// that flows through six shots without stopping. The camera's own route is drawn into the scene
-// as a thin white line with red key markers, and the keys sit on a timeline with each move's ease
-// drawn as a curve. The move and the lens are the big words (house.ts).
+// camera-keyframes: a camera on keyframed shots films a plain grey box on a floor grid
+// (stage.ts). 'track' is five shots, each move coming to rest on its key: a wide 35 mm, an orbit
+// to 50 mm, a crane to a 24 mm top shot, a hard cut to an 85 mm close-up, a straight fly-by, and a
+// spring back to the first. 'path' is one move that flows through six shots without stopping. The
+// camera's own route is drawn into the scene as a thin white line with red key markers, and the
+// keys sit on a timeline with each move's ease drawn as a curve. The move and the lens are the big
+// words (house.ts).
 
-import { createCity, project } from '../../previews/src/city.ts'
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import {
   cameraPath,
@@ -29,18 +28,18 @@ import {
   type V3,
 } from '../../previews/src/motion/keyframes.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
+import { createStage, project, SUBJECT } from './stage.ts'
 
 const L = 48
 const R = 1032
 /** The caption covers the bottom; shots lift the subject to the middle of the picture above it. */
 const LIFT: readonly [number, number] = [0, 0.082]
-const SUBJECT = { radius: 2.1 }
 
 type Move = { at: number; shot: Shot; mm: number; ease: Ease; easeName: string; move: string }
 
-const framed = (mm: number, azimuth: number, elevation: number, fill: number, y = 2): Shot =>
+const framed = (mm: number, azimuth: number, elevation: number, fill: number): Shot =>
   fit({
-    center: [0, y, 0],
+    center: SUBJECT.center,
     radius: SUBJECT.radius,
     azimuth,
     elevation,
@@ -72,7 +71,7 @@ const TRACK: Move[] = [
     // A hard cut, on the frame after the crane lands.
     at: 2.5 + 1 / 30,
     shot: fit({
-      center: [0, 3.1, 0],
+      center: [0, 2.2, 0],
       radius: 1.1,
       azimuth: 250,
       elevation: 9,
@@ -88,7 +87,7 @@ const TRACK: Move[] = [
   },
   {
     at: 4.4,
-    shot: shot([-8, 4.4, -5], [0, 2.2, 0], lens(28, 1), 0, { path: 'line', shift: LIFT }),
+    shot: shot([-8, 3, -5], [0, 1.2, 0], lens(28, 1), 0, { path: 'line', shift: LIFT }),
     mm: 28,
     ease: smooth,
     easeName: 'smooth',
@@ -98,16 +97,15 @@ const TRACK: Move[] = [
 TRACK.push({ ...(TRACK[0] as Move), at: 6, ease: settle(9), easeName: 'settle', move: 'land' })
 
 /**
- * One flowing move round the monolith: start high, sweep low over the rooftops, drop into the
- * plaza and look up at it, climb away. Every shot looks at the monolith, so the target holds still
- * while the eye flows.
+ * One flowing move round the box: start high, sweep low round it, drop to the floor and look up
+ * at it, climb away. Every shot looks at the box, so the target holds still while the eye flows.
  */
-const AIM: V3 = [0, 2.4, 0]
+const AIM: V3 = SUBJECT.center
 const PATH: { shot: Shot; mm: number }[] = [
   { shot: shot([7, 6.4, 10], AIM, lens(35, 1), 0, { shift: LIFT }), mm: 35 },
-  { shot: shot([10, 5, 0], AIM, lens(24, 1), 0.12, { shift: LIFT }), mm: 24 },
-  { shot: shot([3.4, 2.8, -2.8], AIM, lens(28, 1), 0, { shift: LIFT }), mm: 28 },
-  { shot: shot([-3, 1.4, -2.8], AIM, lens(20, 1), -0.15, { shift: LIFT }), mm: 20 },
+  { shot: shot([10, 3.6, 0], AIM, lens(24, 1), 0.12, { shift: LIFT }), mm: 24 },
+  { shot: shot([4.2, 2, -3.4], AIM, lens(28, 1), 0, { shift: LIFT }), mm: 28 },
+  { shot: shot([-3.6, 0.5, -3.2], AIM, lens(20, 1), -0.15, { shift: LIFT }), mm: 20 },
   { shot: shot([-9, 9, 7], AIM, lens(35, 1), 0, { shift: LIFT }), mm: 35 },
 ]
 PATH.push(PATH[0] as { shot: Shot; mm: number })
@@ -126,15 +124,13 @@ const NOTES: Record<string, string> = {
 const cameraKeyframes: OpenPreview = async (host, stateId) => {
   if (stateId !== 'track' && stateId !== 'path')
     throw new Error(`camera-keyframes has no state "${stateId}"`)
-  const device = host.gpu
-  if (!device) throw new Error('The camera-keyframes preview needs WebGPU (host.gpu)')
   const { width, height, duration } = host.manifest
   const fps = Number(host.manifest.fps)
   const aspect = width / height
-  const city = createCity(device, width, height)
   const canvas = host.io.canvas(width, height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
   const theme = createHouse(host, ctx)
+  const stage = createStage(ctx, width, height)
   const options = { designed: 1 }
 
   const camera =
@@ -344,8 +340,7 @@ const cameraKeyframes: OpenPreview = async (host, stateId) => {
     async render(t, o) {
       const s = state(t)
       const vp = viewProjection(s.c, aspect)
-      const frame = city.render(vp, s.c.eye, { phase: t / duration })
-      ctx.clearRect(0, 0, width, height)
+      stage.draw(vp, s.c.eye)
       theme.wash(width)
       theme.index()
       drawRoute(vp, t)
@@ -364,10 +359,7 @@ const cameraKeyframes: OpenPreview = async (host, stateId) => {
         `EYE ${e.map((v) => v.toFixed(2)).join(' ')}   FOV ${s.c.fov.toFixed(2)}`,
         `${s.mm.toFixed(1)} MM   ${fps} FPS`,
       )
-      return [
-        { color: frame, alpha: 'opaque', name: 'city' },
-        { color: canvas, name: 'overlay' },
-      ]
+      return [{ color: canvas }]
     },
     status(t) {
       const s = state(t)

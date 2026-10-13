@@ -16,4 +16,4 @@ Then look at `out/av/timeline.png` and each `out/av/at-<t>.png`:
 
 An agent cannot hear or watch playback. This turns both into pictures and numbers it can check,
 and the person still listens to the final. Needs ffmpeg and ffprobe on PATH, and @napi-rs/canvas
-(installed with Shaderera).
+(installed with it).

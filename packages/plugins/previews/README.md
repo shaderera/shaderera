@@ -15,7 +15,7 @@ packages/plugins/previews/
   src/house.ts         the house style every preview draws with
   src/caption.ts       the caption band under every preview
   src/preview.ts       the shared types and fonts
-  src/city.ts, src/glyph-morph.ts   drawing that more than one preview uses
+  src/specimen.ts                   the font previews' type specimen
   scripts/render.ts    finds the previews, writes the variants, renders
   scripts/assemble.ts  copies the plugins in, as `add` lays them out
 ```
@@ -37,9 +37,8 @@ every plugin's files here at their paths (`src/looks/`, `src/type/`, `src/music/
 film would use it. `preview/` is never in a plugin's `files`, so `add` and `publish` leave it out.
 
 Every asset is made in code: the music for `audio-beat-clock` (four bars at 160 BPM, drums, bass
-and a stab on every lyric word, with the words as `audio/beat.lrc`) comes from its
-`preview/make.ts`, which then measures it with the plugin's own analyser. Fonts come from the OFL
-font plugins.
+and a lead stab phrase) comes from its `preview/make.ts`, which then measures it with the plugin's
+own analyser. Fonts come from the OFL font plugins.
 
 ## Render
 

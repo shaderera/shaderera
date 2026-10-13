@@ -1,12 +1,7 @@
 {
-  "caption": "Instrument Serif, roman and italic: a condensed display serif for titles and phrases in a magazine voice.",
-  "states": [
-    {
-      "id": "default",
-      "label": "Default"
-    }
-  ],
+  "caption": "Instrument Serif font files, roman and italic, under the OFL.",
+  "states": [{ "id": "default", "label": "Default" }],
   "default": "default",
   "audio": false,
-  "poster": 1.1
+  "poster": 0.5
 }

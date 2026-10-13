@@ -27,6 +27,7 @@ device.queue.writeBuffer(uniforms, 0, viewProjection(c, W / H))  // or raw WebGP
 - Everything is a formula of t: no damping stepped per frame. For a damped feel use the `settle`
   ease; to follow a moving subject, read its track at `t - lag`.
 
-Built on `motion-keyframes` and `format-safe-areas`, which `add` copies in with it. Novice defaults: `fit` with a
-35 mm lens, a medium shot, 10° above the horizon; moves `glide`, cuts `hold`; and `camera-shake`'s
-`breathe` on top.
+Built on `motion-keyframes` and `format-safe-areas`, which `add` copies in with it. `focus` and
+`fStop` are carried from shot to shot and set on a three.js camera, but nothing here blurs: depth
+of field is the renderer's. Defaults: `fit` with a 35 mm lens, a medium shot, 10° above the
+horizon.

@@ -31,9 +31,11 @@
           "review-av-timeline",
           "text-code-wall",
           "text-feature-captions",
+          "text-glyph-morph",
           "text-glyph-outlines",
           "text-glyph-points",
-          "text-kinetic"
+          "text-kinetic",
+          "text-timed-cues"
         ],
         "default": "look-screen-passes"
       },
@@ -64,13 +66,6 @@
       "params": {
         "item": "audio-beat-clock",
         "state": "grid"
-      }
-    },
-    "audio-beat-clock.lyrics": {
-      "label": "audio-beat-clock · lyrics",
-      "params": {
-        "item": "audio-beat-clock",
-        "state": "lyrics"
       }
     },
     "audio-hall-ending": {
@@ -290,6 +285,20 @@
         "state": "spine"
       }
     },
+    "text-glyph-morph": {
+      "label": "text-glyph-morph · words",
+      "params": {
+        "item": "text-glyph-morph",
+        "state": "words"
+      }
+    },
+    "text-glyph-morph.glyph": {
+      "label": "text-glyph-morph · glyph",
+      "params": {
+        "item": "text-glyph-morph",
+        "state": "glyph"
+      }
+    },
     "text-glyph-outlines": {
       "label": "text-glyph-outlines · all",
       "params": {
@@ -351,6 +360,13 @@
       "params": {
         "item": "text-kinetic",
         "state": "glitch"
+      }
+    },
+    "text-timed-cues": {
+      "label": "text-timed-cues",
+      "params": {
+        "item": "text-timed-cues",
+        "state": "default"
       }
     }
   }

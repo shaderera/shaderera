@@ -27,5 +27,6 @@
   ],
   "version": "0.1.0",
   "licence": "MIT",
+  "requires": { "packages": { "@napi-rs/canvas": "1.0.10" } },
   "files": ["tools/av-review.ts"]
 }

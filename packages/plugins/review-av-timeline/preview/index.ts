@@ -1,9 +1,10 @@
 // review-av-timeline: a 6 s film made in code (preview/make.ts), with five hits and
 // the third cut 4 frames late on purpose, reviewed by the item's own tools/av-review.ts. The film
-// plays in its panel with its sound; the tool's timeline.png (spectrogram, waveform with onsets,
-// picture change), recoloured to the house's greys, scrolls past the playhead as three lanes, like
-// audio-beat-clock's; the tool's printed report is the list of moments, and each moment's verdict
-// and offset scramble in at the corners as the playhead reaches it. The late hit reads in red.
+// plays in its panel with its sound; the tool's timeline.png (spectrogram, waveform with yellow
+// onsets, green picture change, its red moment lines), in its own colours, scrolls past the
+// playhead as three lanes; the tool's printed report is the list of moments, and each moment's
+// verdict and offset scramble in at the corners as the playhead reaches it. The late hit reads in
+// red.
 
 import { AREA, createHouse, frameLabel, RED } from '../../previews/src/house.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
@@ -66,35 +67,13 @@ const reviewAvTimeline: OpenPreview = async (host, stateId) => {
   if (!moments.length)
     throw new Error('audio/review-av/report.txt has no moments; run its preview/make.ts')
 
-  // The tool's timeline, recoloured: greys from its luminance on black, its yellow onset ticks
-  // white. Its red moment lines turn grey; the preview draws its own.
+  // The tool's timeline, as it wrote it.
   if (!host.io.image) throw new Error('The review-av-timeline preview needs io.image')
   const img = await host.io.image('audio/review-av/timeline.png')
   const tl = host.io.canvas(img.width, img.height)
   const tctx = tl.getContext('2d') as OffscreenCanvasRenderingContext2D
   const data = tctx.createImageData(img.width, img.height)
-  const px = img.data
-  for (let i = 0; i < img.width * img.height; i++) {
-    const r = px[i * 4] as number
-    const g = px[i * 4 + 1] as number
-    const b = px[i * 4 + 2] as number
-    const y = Math.floor(i / img.width)
-    const x = i % img.width
-    // The tool's label inside the waveform lane goes.
-    const label = y >= 244 && y < 262 && x < 130
-    let o: [number, number, number]
-    if (label) o = [0, 0, 0]
-    else if (r > 200 && g > 160 && b < 120 && y >= 244 && y < 256) o = [255, 255, 255]
-    else {
-      const lum = Math.max(0, (0.3 * r + 0.59 * g + 0.11 * b - 17) / 238)
-      const v = Math.round(255 * lum ** 1.25)
-      o = [v, v, v]
-    }
-    data.data[i * 4] = o[0]
-    data.data[i * 4 + 1] = o[1]
-    data.data[i * 4 + 2] = o[2]
-    data.data[i * 4 + 3] = 255
-  }
+  data.data.set(img.data)
   tctx.putImageData(data, 0, 0)
   const srcPerS = img.width / duration
 
@@ -148,8 +127,8 @@ const reviewAvTimeline: OpenPreview = async (host, stateId) => {
       ctx.fillStyle = 'rgba(0,0,0,0.55)'
       ctx.fillRect(PLAYHEAD + 2, lane.top, R - PLAYHEAD, lane.height)
     }
-    // Each moment: a line through the lanes, a red marker under them and its offset above them,
-    // like beat-clock's words.
+    // Each moment (the tool draws its line through the lanes): a marker under them and its offset
+    // above them.
     const top = LANES[0].top
     const bottom = LANES[2].top + LANES[2].height
     for (const k of [-1, 0, 1])
@@ -157,8 +136,6 @@ const reviewAvTimeline: OpenPreview = async (host, stateId) => {
         const x = xOf(m.t + k * duration)
         if (x < L - 200 || x > R + 20) continue
         const past = m.t + k * duration <= t
-        ctx.fillStyle = past ? 'rgba(255,59,31,0.9)' : 'rgba(255,59,31,0.35)'
-        ctx.fillRect(Math.round(x), top, 1, bottom - top)
         ctx.fillStyle = past ? (m.out ? RED : '#fff') : '#6a6a6a'
         ctx.fillRect(Math.round(x), top - 42, 2, 20)
         ctx.font = `15px ${mono}`

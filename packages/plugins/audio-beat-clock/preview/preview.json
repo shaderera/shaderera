@@ -1,5 +1,5 @@
 {
-  "caption": "Measures a song's tempo, bars, hits and bass-to-treble levels, so picture and lyrics land on the beat.",
+  "caption": "Measures a song's tempo, bars, hits and bass-to-treble levels, so the picture lands on the beat.",
   "states": [
     {
       "id": "all",
@@ -12,10 +12,6 @@
     {
       "id": "grid",
       "label": "Beat grid"
-    },
-    {
-      "id": "lyrics",
-      "label": "Lyrics"
     }
   ],
   "default": "all",

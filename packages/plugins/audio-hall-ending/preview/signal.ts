@@ -1,5 +1,5 @@
-// A WAV file's samples, and what the previews draw from them: the level and the spectrum per
-// frame. Used by the audio-hall-ending and review-av-timeline previews to read the sound they play.
+// A WAV file's samples, and its level at a time: what the audio-hall-ending preview reads from the
+// file the item wrote.
 
 import type { Host } from '@shaderera/core'
 
@@ -68,76 +68,4 @@ export const levelAt = (s: Signal, t: number, window = 1 / 30) => {
     peak: 20 * Math.log10(peak || 1e-30),
     silent: peak === 0,
   }
-}
-
-const fft = (re: Float64Array, im: Float64Array) => {
-  const n = re.length
-  for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1
-    for (; j & bit; bit >>= 1) j ^= bit
-    j ^= bit
-    if (i < j) {
-      ;[re[i], re[j]] = [re[j] as number, re[i] as number]
-      ;[im[i], im[j]] = [im[j] as number, im[i] as number]
-    }
-  }
-  for (let len = 2; len <= n; len <<= 1) {
-    const a = (-2 * Math.PI) / len
-    for (let i = 0; i < n; i += len)
-      for (let k = 0; k < len / 2; k++) {
-        const wr = Math.cos(a * k)
-        const wi = Math.sin(a * k)
-        const p = i + k
-        const q = p + len / 2
-        const xr = (re[q] as number) * wr - (im[q] as number) * wi
-        const xi = (re[q] as number) * wi + (im[q] as number) * wr
-        re[q] = (re[p] as number) - xr
-        im[q] = (im[p] as number) - xi
-        re[p] = (re[p] as number) + xr
-        im[p] = (im[p] as number) + xi
-      }
-  }
-}
-
-/**
- * The spectrum `perSecond` times a second over the signal, in `bands` log-spaced bands from `low`
- * to `high` Hz, each in dBFS: row r (time r / perSecond) is `db[r * bands … r * bands + bands]`.
- */
-export const spectrogram = (
-  s: Signal,
-  o: { perSecond: number; bands: number; low?: number; high?: number; size?: number },
-) => {
-  const size = o.size ?? 2048
-  const low = o.low ?? 40
-  const high = o.high ?? 16000
-  const rows = Math.ceil(s.length * o.perSecond)
-  const db = new Float32Array(rows * o.bands).fill(-120)
-  const edges = Array.from(
-    { length: o.bands + 1 },
-    (_, i) => (low * (high / low) ** (i / o.bands) * size) / s.rate,
-  )
-  const hann = Float64Array.from(
-    { length: size },
-    (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size),
-  )
-  const norm = 4 / size
-  const re = new Float64Array(size)
-  const im = new Float64Array(size)
-  for (let r = 0; r < rows; r++) {
-    const centre = Math.round((r / o.perSecond) * s.rate)
-    for (let i = 0; i < size; i++) {
-      re[i] = (s.mono[centre - size / 2 + i] ?? 0) * (hann[i] as number)
-      im[i] = 0
-    }
-    fft(re, im)
-    for (let b = 0; b < o.bands; b++) {
-      const from = Math.floor(edges[b] as number)
-      const to = Math.max(from + 1, Math.ceil(edges[b + 1] as number))
-      let m = 0
-      for (let k = from; k < to && k < size / 2; k++)
-        m = Math.max(m, ((re[k] as number) ** 2 + (im[k] as number) ** 2) * norm * norm)
-      db[r * o.bands + b] = 10 * Math.log10(m || 1e-12)
-    }
-  }
-  return { rows, bands: o.bands, perSecond: o.perSecond, db }
 }

@@ -1,0 +1,7 @@
+{
+  "caption": "Morphs one glyph outline or word into another, letter by letter, as a pure function of time.",
+  "states": [{ "id": "words", "label": "Words" }, { "id": "glyph", "label": "Glyph" }],
+  "default": "words",
+  "audio": false,
+  "poster": 1.3
+}

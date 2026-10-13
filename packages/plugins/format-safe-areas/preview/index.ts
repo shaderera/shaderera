@@ -1,9 +1,9 @@
-// format-safe-areas: one shot relaid for 16:9, 1:1 and 9:16. The frame morphs between formats
-// while the item answers for every in-between: safeArea gives the box text may use (thin white
-// lines, the margins dimmed, red brackets on its corners that flash where its rule changes class),
-// the two big words hold its corners, and the luminous point field behind is seen through
-// widenFov's lens, so a skyline that spans 16:9 still reads in 9:16. In 'all' the vertical frame
-// then takes each platform's zone; a state holds one platform.
+// format-safe-areas: one shot relaid for 16:9, 1:1 and 9:16, with hard cuts between formats and
+// platforms. In each, safeArea gives the box text may use (thin white lines, the margins it returns
+// dimmed, red brackets on its corners), the two big words hold its corners, and a thin grey grid on
+// a wall is seen through widenFov's lens: the 16:9 design's view of the wall is the brighter box, so
+// a tall frame shows how far the lens opened to keep it. The grid drifts a whole number of cells a
+// loop. In 'all' the vertical frame then takes each platform's zone; a state holds one platform.
 
 import { AREA, createHouse, RED } from '../../previews/src/house.ts'
 import { type Platform, safeArea, widenFov } from '../../previews/src/layout/frame.ts'
@@ -11,50 +11,34 @@ import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const L = AREA.left
 const R = AREA.right
-/** The stage the frame morphs in. */
+/** The stage the frame sits in. */
 const STAGE = { top: 120, bottom: 850 }
 const FOV = (40 * Math.PI) / 180
 const WIDE = 16 / 9
 const TALL = 9 / 16
-const TAU = Math.PI * 2
+/** The wall at distance 1: the 16:9 design sees 16 by 9 cells of it. */
+const HALF_H = Math.tan(FOV / 2)
+const HALF_W = HALF_H * WIDE
+const CELL = (2 * HALF_H) / 9
+/** Cells the grid drifts a loop. */
+const DRIFT = 4
 
-type Key = { at: number; aspect: number; platform: Platform }
-const k = (at: number, aspect: number, platform: Platform = 'none'): Key => ({
-  at,
+type Segment = { from: number; aspect: number; platform: Platform }
+const seg = (from: number, aspect: number, platform: Platform = 'none'): Segment => ({
+  from,
   aspect,
   platform,
 })
-const STATES: Record<string, Key[]> = {
+const STATES: Record<string, Segment[]> = {
   all: [
-    k(0, WIDE),
-    k(0.55, WIDE),
-    k(1.05, 1),
-    k(1.6, 1),
-    k(2.15, TALL),
-    k(2.75, TALL),
-    k(3.0, TALL, 'reels'),
-    k(3.85, TALL, 'reels'),
-    k(4.1, TALL, 'shorts'),
-    k(5.25, TALL, 'shorts'),
-    k(5.85, WIDE),
-    k(6, WIDE),
+    seg(0, WIDE),
+    seg(1.2, 1),
+    seg(2.4, TALL),
+    seg(3.6, TALL, 'reels'),
+    seg(4.8, TALL, 'shorts'),
   ],
-  reels: [
-    k(0, WIDE, 'reels'),
-    k(0.7, WIDE, 'reels'),
-    k(1.5, TALL, 'reels'),
-    k(4.7, TALL, 'reels'),
-    k(5.5, WIDE, 'reels'),
-    k(6, WIDE, 'reels'),
-  ],
-  shorts: [
-    k(0, WIDE, 'shorts'),
-    k(0.7, WIDE, 'shorts'),
-    k(1.5, TALL, 'shorts'),
-    k(4.7, TALL, 'shorts'),
-    k(5.5, WIDE, 'shorts'),
-    k(6, WIDE, 'shorts'),
-  ],
+  reels: [seg(0, WIDE, 'reels'), seg(1.5, 1, 'reels'), seg(3, TALL, 'reels')],
+  shorts: [seg(0, WIDE, 'shorts'), seg(1.5, 1, 'shorts'), seg(3, TALL, 'shorts')],
 }
 /** shorts and tiktok are the same estimate in safeArea, so they share a name. */
 const PLATFORM_LABEL: Record<Platform, string> = {
@@ -64,22 +48,14 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   tiktok: 'SHORTS',
 }
 
-const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2)
-const lerp = (a: number, b: number, x: number) => a + (b - a) * x
-const ratioName = (a: number) =>
-  Math.abs(a - WIDE) < 0.01
-    ? '16:9'
-    : Math.abs(a - 1) < 0.01
-      ? '1:1'
-      : Math.abs(a - TALL) < 0.01
-        ? '9:16'
-        : `${a.toFixed(2)}:1`
+const ratioName = (a: number) => (a > 1.7 ? '16:9' : a < 0.6 ? '9:16' : '1:1')
 const classOf = (aspect: number) =>
   1 / aspect > 4 / 3 ? 'vertical' : 1 / aspect >= 0.8 ? 'near-square' : 'landscape'
+const deg = (rad: number) => ((rad * 180) / Math.PI).toFixed(1)
 
 const formatSafeAreas: OpenPreview = async (host, stateId) => {
-  const keys = STATES[stateId]
-  if (!keys) throw new Error(`format-safe-areas has no state "${stateId}"`)
+  const segments = STATES[stateId]
+  if (!segments) throw new Error(`format-safe-areas has no state "${stateId}"`)
   const { width, height, duration } = host.manifest
   const canvas = host.io.canvas(width, height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
@@ -88,33 +64,25 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
 
   const frameAt = (time: number) => {
     const t = ((time % duration) + duration) % duration
-    let i = 0
-    while (i < keys.length - 2 && t >= (keys[i + 1] as Key).at) i++
-    const a = keys[i] as Key
-    const b = keys[i + 1] as Key
-    const x = ease(Math.min(1, Math.max(0, (t - a.at) / (b.at - a.at || 1))))
-    const aspect = Math.exp(lerp(Math.log(a.aspect), Math.log(b.aspect), x))
+    const { aspect, platform } = segments.findLast((s) => t >= s.from) as Segment
     // The frame as large as the stage allows.
-    const maxW = R - L
     const maxH = STAGE.bottom - STAGE.top
-    const w = Math.min(maxW, maxH * aspect)
+    const w = Math.min(R - L, maxH * aspect)
     const h = w / aspect
     const fx = (width - w) / 2
     const fy = STAGE.top + (maxH - h) / 2
-    // The margins at this aspect, blended across a change of platform.
-    const pa = safeArea(w, h, a.platform)
-    const pb = safeArea(w, h, b.platform)
-    const m = a.platform === b.platform ? 0 : x
-    const area = {
-      left: lerp(pa.left, pb.left, m),
-      right: lerp(pa.right, pb.right, m),
-      top: lerp(pa.top, pb.top, m),
-      bottom: lerp(pa.bottom, pb.bottom, m),
+    return {
+      t,
+      aspect,
+      platform,
+      w,
+      h,
+      fx,
+      fy,
+      area: safeArea(w, h, platform),
+      fov: widenFov(FOV, w / h),
+      vertical: classOf(aspect) === 'vertical',
     }
-    const platform = m < 0.5 ? a.platform : b.platform
-    // When the label last changed, for the words to scramble in.
-    const vertical = classOf(aspect) === 'vertical'
-    return { t, aspect, w, h, fx, fy, area, platform, vertical, fov: widenFov(FOV, aspect) }
   }
   type F = ReturnType<typeof frameAt>
   /** Seconds since `label(f)` last changed, looking back up to a second. */
@@ -128,69 +96,40 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
     for (let d = 1 / 30; d <= 1; d += 1 / 30) if (label(frameAt(t + d)) !== now) return d
     return 9
   }
-  const formatWord = (f: F) =>
-    f.aspect > 1.7
-      ? '16:9'
-      : f.aspect < 0.6
-        ? '9:16'
-        : f.aspect > 0.9 && f.aspect < 1.1
-          ? '1:1'
-          : ''
+  const formatWord = (f: F) => ratioName(f.aspect)
   const platformWord = (f: F) =>
     f.vertical ? PLATFORM_LABEL[f.platform] : classOf(f.aspect).toUpperCase()
 
-  // The luminous field: a rolling terrain of points, and a skyline of point columns as wide as a
-  // 16:9 shot, every motion a whole number of cycles a loop.
-  const drawScene = (f: F) => {
+  // The wall through the frame's lens: grid lines every CELL, and the 16:9 design's view of it.
+  const drawGrid = (f: F) => {
     const { fx, fy, w, h, fov, t } = f
-    const ph = (t / duration) * TAU
     const focal = h / 2 / Math.tan(fov / 2)
-    const cx = fx + w / 2 + Math.sin(ph) * w * 0.03
-    const cy = fy + h * 0.5
-    const camY = 1.25 + 0.15 * Math.sin(ph * 2)
-    const pitch = -0.06
-    const cp = Math.cos(pitch)
-    const sp = Math.sin(pitch)
-    ctx.globalCompositeOperation = 'lighter'
-    const dot = (x: number, y: number, z: number, a: number, rgb = '255,255,255', size = 1) => {
-      const yy = y - camY
-      const y2 = yy * cp - z * sp
-      const z2 = yy * sp + z * cp
-      if (z2 > -0.2) return
-      const sx = cx + (x / -z2) * focal
-      const sy = cy - (y2 / -z2) * focal
-      if (sx < fx - 4 || sx > fx + w + 4 || sy < fy - 4 || sy > fy + h + 4) return
-      const s = size * (0.9 + 9 / -z2)
-      ctx.fillStyle = `rgba(${rgb},${a})`
-      ctx.fillRect(sx - s / 2, sy - s / 2, s, s)
+    const cx = fx + w / 2
+    const cy = fy + h / 2
+    const shift = ((t / duration) * DRIFT * CELL) % CELL
+    ctx.fillStyle = 'rgba(255,255,255,0.2)'
+    const reachX = w / 2 / focal + CELL
+    for (let x = -Math.ceil(reachX / CELL) * CELL; x <= reachX; x += CELL) {
+      const sx = Math.round(cx + (x + shift) * focal)
+      if (sx >= fx && sx < fx + w) ctx.fillRect(sx, fy, 1, h)
     }
-    // Rows spaced geometrically and points closer together near the camera, so the field is
-    // equally dense on screen from the foot of the frame to the horizon.
-    for (let zi = 0; zi < 64; zi++) {
-      const z = -1.1 * 1.058 ** zi
-      const depth = Math.min(1, (-z - 1) / 36)
-      const step = 0.05 * (-z) ** 0.75
-      const reach = Math.min(14, 1.5 - z * 1.3)
-      const a = 0.85 * (1 - depth) ** 1.2 + 0.12
-      const rgb = depth > 0.45 ? '205,190,255' : '255,255,255'
-      for (let x = -reach; x <= reach; x += step) {
-        const y =
-          0.42 * Math.sin(0.5 * x + 2 * ph) * Math.cos(0.33 * z - 3 * ph) +
-          0.22 * Math.sin(0.8 * x - 0.6 * z + 4 * ph)
-        dot(x, y - 0.4, z, a, rgb, 1)
-      }
+    const reachY = h / 2 / focal
+    for (let y = -Math.floor(reachY / CELL) * CELL; y <= reachY; y += CELL) {
+      const sy = Math.round(cy + y * focal)
+      if (sy >= fy && sy < fy + h) ctx.fillRect(fx, sy, w, 1)
     }
-    const bars = 25
-    for (let i = 0; i < bars; i++) {
-      const x = -6 + (12 * i) / (bars - 1)
-      const hgt =
-        1.4 +
-        3.2 * (0.5 + 0.5 * Math.sin(ph * 2 + i * 0.7)) * (0.5 + 0.5 * Math.cos(ph * 3 - i * 0.31))
-      for (let y = 0; y < hgt; y += 0.1)
-        for (const dx of [-0.12, 0, 0.12])
-          dot(x + dx, y - 0.4, -10, 0.9, i === 12 ? '255,205,170' : '255,255,255', 0.9)
-    }
-    ctx.globalCompositeOperation = 'source-over'
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(
+      cx - HALF_W * focal + 0.5,
+      cy - HALF_H * focal + 0.5,
+      2 * HALF_W * focal - 1,
+      2 * HALF_H * focal - 1,
+    )
+    ctx.font = `12px ${mono}`
+    ctx.textAlign = 'left'
+    ctx.fillStyle = '#9a9a9a'
+    ctx.fillText('THE 16:9 SHOT', Math.max(fx, cx - HALF_W * focal) + 6, cy + HALF_H * focal + 16)
   }
 
   const bracket = (x: number, y: number, w: number, h: number, color: string, len = 16) => {
@@ -216,7 +155,7 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
       ctx.fillStyle = '#000'
       ctx.fillRect(0, 0, width, height)
       house.index()
-      // The three formats, dashed, for the frame to morph between.
+      // The three formats, dashed.
       ctx.setLineDash([4, 8])
       ctx.lineWidth = 1
       ctx.strokeStyle = 'rgba(255,255,255,0.16)'
@@ -227,16 +166,16 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
         ctx.strokeRect((width - gw) / 2, STAGE.top + (maxH - gh) / 2, gw, gh)
       }
       ctx.setLineDash([])
-      // The frame and what it sees, the margins dimmed.
+      // The frame and the grid it sees, the margins safeArea returns dimmed.
       const sx = fx + area.left
       const sy = fy + area.top
-      const sw = w - area.left - area.right
-      const sh = h - area.top - area.bottom
+      const sw = area.width
+      const sh = area.height
       ctx.save()
       ctx.beginPath()
       ctx.rect(fx, fy, w, h)
       ctx.clip()
-      drawScene(f)
+      drawGrid(f)
       ctx.fillStyle = 'rgba(0,0,0,0.62)'
       ctx.fillRect(fx, fy, w, area.top)
       ctx.fillRect(fx, sy + sh, w, area.bottom)
@@ -253,14 +192,14 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
       const pad = 10
       const wordWidth = sw - 2 * pad
       house.bigWord({
-        text: formatWord(f) || ratioName(f.aspect),
+        text: formatWord(f),
         corner: 'tl',
         x: sx + pad,
         y: sy + pad,
         size: 96,
         maxWidth: wordWidth * 0.8,
-        since: formatWord(f) ? sinceChange(t, formatWord) : 0,
-        until: formatWord(f) ? untilChange(t, formatWord) : 9,
+        since: sinceChange(t, formatWord),
+        until: untilChange(t, formatWord),
         frame: o.frame,
       })
       house.bigWord({
@@ -286,21 +225,20 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
       if (area.left > 30) ctx.fillText(pct(area.left, w), fx + area.left / 2, sy + sh / 2)
       // A note over the frame: the lens.
       house.note(
-        flash
-          ? 'the rule changes class here'
-          : `the lens opens to ${((f.fov * 180) / Math.PI).toFixed(1)}°, and the skyline still reads`,
+        f.fov > FOV + 1e-6
+          ? `widenFov opens the 40° lens to ${deg(f.fov)}°`
+          : 'widenFov keeps the 40° lens',
         fx + w,
         fy - 12,
         'right',
         24,
-        flash ? RED : '#d8d8d8',
       )
       const plat = f.platform === 'none' ? '' : `, '${f.platform}'`
       house.hud(
         t,
         o.frame,
         `${classOf(f.aspect).toUpperCase()}   T ${pct(area.top, h)}  R ${pct(area.right, w)}  B ${pct(area.bottom, h)}  L ${pct(area.left, w)}`,
-        `safeArea(${ratioName(f.aspect)}${plat})   widenFov 40° → ${((f.fov * 180) / Math.PI).toFixed(1)}°`,
+        `safeArea(${ratioName(f.aspect)}${plat})   widenFov 40° → ${deg(f.fov)}°`,
       )
       return [{ color: canvas }]
     },
@@ -316,7 +254,7 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
         id: 'frame',
         aspect: f.aspect,
         platform: f.platform,
-        margins: { ...f.area },
+        margins: { left: f.area.left, right: f.area.right, top: f.area.top, bottom: f.area.bottom },
         fov: (f.fov * 180) / Math.PI,
       }
     },

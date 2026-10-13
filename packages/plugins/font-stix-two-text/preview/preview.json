@@ -1,12 +1,7 @@
 {
-  "caption": "STIX Two Text, roman and italic in variable weight: a scientific serif for notes, Greek and formulas.",
-  "states": [
-    {
-      "id": "default",
-      "label": "Default"
-    }
-  ],
+  "caption": "STIX Two Text font files, roman and italic, each with a variable weight axis, under the OFL.",
+  "states": [{ "id": "default", "label": "Default" }],
   "default": "default",
   "audio": false,
-  "poster": 1.9
+  "poster": 0.5
 }

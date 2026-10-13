@@ -1,4 +1,4 @@
-IBM Plex Sans (OFL 1.1): Light, Regular and Medium, for names, dates, labels and captions.
+IBM Plex Sans (OFL 1.1): Light, Regular and Medium, for names, dates, labels and captions, in Latin, Greek and Cyrillic.
 
 ```ts
 await host.io.font('assets/fonts/IBMPlexSans-Regular.ttf', 'IBM Plex Sans')
