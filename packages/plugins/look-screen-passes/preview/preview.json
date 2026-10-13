@@ -1,0 +1,25 @@
+{
+  "caption": "Turns any frame into ASCII, halftone, dither, heat map, contours, pixels or glitch, in one GPU pass.",
+  "states": [
+    {
+      "id": "all",
+      "label": "All passes"
+    },
+    {
+      "id": "ascii",
+      "label": "ASCII"
+    },
+    {
+      "id": "halftone",
+      "label": "Halftone"
+    },
+    {
+      "id": "off",
+      "label": "Off"
+    }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 3.3,
+  "crf": 32
+}

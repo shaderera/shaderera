@@ -13,12 +13,12 @@ const guides = {
   'CLAUDE.md': join(import.meta.dirname, '..', 'guide', 'CLAUDE.md'),
   guides: join(repo, 'docs', 'guides'),
   '.claude/skills/shaderera': join(repo, 'plugins', 'shaderera', 'skills', 'shaderera'),
-  '.claude/skills/shaderera-addons': join(
+  '.claude/skills/shaderera-plugins': join(
     repo,
     'plugins',
     'shaderera',
     'skills',
-    'shaderera-addons',
+    'shaderera-plugins',
   ),
 }
 
@@ -50,8 +50,8 @@ test('every created project gets the authoring guide, the agent notes, the guide
     /^---\r?\nname: shaderera\r?\n/,
   )
   assert.match(
-    readFileSync(join(target, '.claude', 'skills', 'shaderera-addons', 'SKILL.md'), 'utf8'),
-    /^---\r?\nname: shaderera-addons\r?\n/,
+    readFileSync(join(target, '.claude', 'skills', 'shaderera-plugins', 'SKILL.md'), 'utf8'),
+    /^---\r?\nname: shaderera-plugins\r?\n/,
   )
 })
 

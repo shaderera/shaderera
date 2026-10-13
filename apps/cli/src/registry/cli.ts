@@ -6,26 +6,26 @@ import { isUrl, mirror } from './remote.ts'
 import { search } from './search.ts'
 import { parseSpec, publish, readIndex, registryDir, resolve } from './store.ts'
 
-/** The add-on commands, run as `shaderera <command>` (decision 0008). */
+/** The plugin commands, run as `shaderera <command>` (decision 0008). */
 export const COMMANDS = ['add', 'search', 'info', 'remove', 'publish'] as const
 
-export const usage = `Add-ons:
-  add <name>[@range] [--force]               copy an add-on into this project (a package is installed)
+export const usage = `Plugins:
+  add <name>[@range] [--force]               copy a plugin into this project (a package is installed)
   search <words> [--type t] [--category c] [--tag x] [--json]   full-text over names, descriptions and code
   info <name>[@range] [--json]               what it is, its licence, what it copies, how to use it
-  remove <name>                              uninstall a package add-on (copied files are yours: delete them)
-  publish [dir] [--force]                    put an add-on into a library folder
+  remove <name>                              uninstall a package plugin (copied files are yours: delete them)
+  publish [dir] [--force]                    put a plugin into a folder of plugins (--from <dir>)
 
-A library is a folder or the URL of one: --library <dir|url>, else SHADERERA_LIBRARY, else the
-official catalog at https://shaderera.com/r.`
+Plugins come from a folder or the URL of one: --from <dir|url>, else SHADERERA_PLUGINS, else
+Shaderera's own at https://shaderera.com/r.`
 
-/** Runs one add-on command; `argv` is what follows it. */
+/** Runs one plugin command; `argv` is what follows it. */
 export const run = async (command: string, argv: readonly string[]): Promise<number> => {
   const { values: v, positionals: args } = parseArgs({
     args: [...argv],
     allowPositionals: true,
     options: {
-      library: { type: 'string' },
+      from: { type: 'string' },
       json: { type: 'boolean' },
       force: { type: 'boolean' },
       type: { type: 'string' },
@@ -39,16 +39,16 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
     console.log(usage)
     return 0
   }
-  const source = registryDir(v.library)
+  const source = registryDir(v.from)
   if (command === 'publish' && isUrl(source))
-    throw new Error(`publish writes to a folder, not ${source}: pass --library <dir>`)
+    throw new Error(`publish writes to a folder, not ${source}: pass --from <dir>`)
   const registry = isUrl(source) ? await mirror(source, command, args) : source
   const root = () => findRoot(v.root ?? process.cwd())
   const print = (lines: string[]) => {
     for (const l of lines) console.log(l)
     return 0
   }
-  // A library served over HTTP is read from its local mirror: messages name the URL, not the copy.
+  // Plugins served over HTTP are read from their local mirror: messages name the URL, not the copy.
   try {
     return await dispatch()
   } catch (e) {
@@ -86,7 +86,7 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
           `${i.name}@${i.version}  ${i.title}`,
           `  ${i.type} · ${i.category}${i.tags.length ? ` · ${i.tags.join(', ')}` : ''}`,
           ...(i.description ? [`  ${i.description}`] : []),
-          `  licence ${i.licence} (the item's; the engine has its own)`,
+          `  licence ${i.licence} (the plugin's; the engine has its own)`,
           `  requires shaderera ${i.requires.shaderera ?? 'any'}${Object.entries(
             i.requires.extensions,
           )
@@ -114,7 +114,7 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
             : []),
           `  versions ${versions.join(', ')}`,
           `  sha256 ${found.sha256}`,
-          // How to use it, from the item's README, so the choice is made before anything is copied.
+          // How to use it, from the plugin's README, so the choice is made before anything is copied.
           ...(existsSync(join(found.dir, 'README.md'))
             ? ['', readFileSync(join(found.dir, 'README.md'), 'utf8').trimEnd()]
             : []),

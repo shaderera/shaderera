@@ -1,0 +1,28 @@
+{
+  "caption": "Huge feature titles with a small note, swapping on the beat through ASCII noise, each set in a new layout.",
+  "states": [
+    {
+      "id": "all",
+      "label": "All layouts"
+    },
+    {
+      "id": "edge",
+      "label": "Edge"
+    },
+    {
+      "id": "split",
+      "label": "Split"
+    },
+    {
+      "id": "column",
+      "label": "Column"
+    },
+    {
+      "id": "spine",
+      "label": "Spine"
+    }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 0.5
+}

@@ -36,19 +36,19 @@ A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture`
 | Renderer | Hosts | Notes |
 |---|---|---|
 | WebGPU (WGSL) on `host.gpu` | Node (the project's `webgpu` package, Dawn) and the browser | the device is the source's own; return the frame as a texture (`docs/participants/webgpu.md`) |
-| three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` add-on does this plumbing (`docs/participants/three.md`) |
+| three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` plugin does this plumbing (`docs/participants/three.md`) |
 | Canvas2D | both | `io.canvas`; text through `io.font`, loaded in `open` (`docs/participants/canvas.md`) |
 | HTML, CSS, React, GSAP | browser host only | name a `MountDom` module in `shaderera.json` `"dom"`, set `"host": "browser"`, and use `options.dom` as a layer or a texture (`docs/participants/dom.md`) |
 | Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); analysis by a model is decoded once to project files (`docs/analysis.md`) |
 
-## Add-ons
+## Plugins
 
-Add-ons are code that earlier films proved. What you add is copied into the project and is its
-own code from then on. The `shaderera-addons` skill says how to search and add, and how to
+Plugins are code that earlier films proved. What you add is copied into the project and is its
+own code from then on. The `shaderera-plugins` skill says how to search and add, and how to
 recover when a `shaderera` command refuses a project whose `shaderera.item.json` requires a
-package add-on that is not installed. A new project has it in `.claude/skills/shaderera-addons/`;
+package plugin that is not installed. A new project has it in `.claude/skills/shaderera-plugins/`;
 `npx skills add` puts it in `.agents/skills/` for other agents. The commands are in
-`docs/add-ons.md`.
+`docs/plugins.md`.
 
 What is on the shelf:
 
@@ -68,7 +68,7 @@ What is on the shelf:
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 
-An agent never searches for add-ons or suggests them on its own.
+An agent never searches for plugins or suggests them on its own.
 
 ## Make it editable
 

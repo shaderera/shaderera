@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { COMMANDS as ADD_ON, usage as addOnUsage } from '../registry/cli.ts'
+import { COMMANDS as PLUGIN, usage as pluginUsage } from '../registry/cli.ts'
 import { EXIT, errorFinding, findings, found } from './findings.ts'
 
 const usage = `Usage: shaderera <command> [--root <dir>] [--variant <name>] [--trusted] [--timeout <s>] [options]
@@ -25,7 +25,7 @@ Versions and jobs:
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems]   freeze a render job
 
-${addOnUsage}
+${pluginUsage}
 
 Stills: still (out/stills/). A review with technical checks: review (out/review/).`
 
@@ -47,7 +47,7 @@ const commands = [
   'restore',
   'diff',
   'job',
-  ...ADD_ON,
+  ...PLUGIN,
 ]
 
 /** Commands whose own `--json` prints their result as JSON: the envelope carries it as `result`. */

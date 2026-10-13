@@ -1,0 +1,20 @@
+{
+  "caption": "Shows where text may go in 16:9, 1:1 and 9:16, clear of Reels, Shorts and TikTok buttons, and widens the lens for tall frames.",
+  "states": [
+    {
+      "id": "all",
+      "label": "All formats"
+    },
+    {
+      "id": "reels",
+      "label": "Reels"
+    },
+    {
+      "id": "shorts",
+      "label": "Shorts · TikTok"
+    }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 3.4
+}

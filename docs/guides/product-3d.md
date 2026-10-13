@@ -13,7 +13,7 @@ For requests about a physical product shown in 3D: a supplied model, an original
   original in `inspect().subject` and the summary.
 
 ## Rendering
-- The renderer is the film's choice: WebGPU on `host.gpu`, three.js (the `render-three-host` item puts
+- The renderer is the film's choice: WebGPU on `host.gpu`, three.js (the `render-three-host` plugin puts
   its WebGPURenderer on the host's device), a ray or path tracer, or anything else. Return the
   frame as a `GPUTexture` layer to skip a copy.
 - Judge materials and light on final-quality frames (`npx shaderera still <t>`, or MCP

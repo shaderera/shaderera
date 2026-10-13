@@ -15,9 +15,9 @@ npx shaderera mcp                     # the same operations as MCP tools over st
 
 Project code runs behind an execution boundary (Node's permission model in Node, a separate origin
 in Chrome), not a sandbox for hostile code. WebGPU in Node comes from the project's own `webgpu`
-package. Every command refuses a project whose `shaderera.item.json` requires a package add-on
-that is not installed, and names the two ways out (`shaderera add` or `shaderera remove`). Add-ons
+package. Every command refuses a project whose `shaderera.item.json` requires a package plugin
+that is not installed, and names the two ways out (`shaderera add` or `shaderera remove`). Plugins
 are searched, added and published with `shaderera search`, `info`, `add`, `remove` and `publish`
-(`docs/add-ons.md`).
+(`docs/plugins.md`).
 
 Licence: [MIT](LICENSE). Source and docs: https://github.com/shaderera/shaderera

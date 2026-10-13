@@ -53,7 +53,8 @@ Run `node --version` and `ffmpeg -version` again. Continue only if Node.js is 24
 ffmpeg runs. Open a new terminal first if PATH changed.
 
 Install the skills:
-- In Claude Code: run `claude plugin marketplace add shaderera/shaderera`, then
+- In Claude Code, install the Claude Code plugin: run
+  `claude plugin marketplace add shaderera/shaderera`, then
   `claude plugin install shaderera@shaderera`. Tell the person to run `/reload-plugins`.
 - In any other agent: run `npx skills add shaderera/shaderera -g -y`.
 

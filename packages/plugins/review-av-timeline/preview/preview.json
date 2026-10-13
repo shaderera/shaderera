@@ -1,0 +1,12 @@
+{
+  "caption": "Draws a film's sound and motion on one timeline and measures how far the picture lands from the sound.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": true,
+  "poster": 3.25
+}

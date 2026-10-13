@@ -152,29 +152,22 @@ broadcast slate. The film's `t = 0` does not move.
 Measurements of a footage or audio file (`shaderera.analysis/1`), made once by a script and read
 by the film as data.
 
-### Add-ons
+### Plugins
 
-**Add-on**:
-Code that earlier films proved, of one type: a **package add-on** (type `extension`, an npm
+**Plugin**:
+Code that earlier films proved, of one type: a **package plugin** (type `extension`, an npm
 package the project imports), a **component** (code copied in), a **preset** (data only) or
-**media** (fonts, sound, models, images). Once copied in, it is the project's own. Called
-_item_ in code.
-_Avoid_: registry item, template, plugin, asset pack
-
-**Library**:
-A folder of add-ons, or the URL of one, that a project can search and copy from
-(`--library`, `SHADERERA_LIBRARY`).
-_Avoid_: registry, marketplace, store
-
-**Catalog**:
-The official add-ons, in `packages/catalog/` in this repository, MIT, served as a library at
-`https://shaderera.com/r`.
+**media** (fonts, sound, models, images). Once copied in, it is the project's own. Plugins come
+from a folder or the URL of one (`--from`, `SHADERERA_PLUGINS`), else Shaderera's own at
+`https://shaderera.com/r`, built from `packages/plugins/` in this repository, MIT. Not the
+Claude Code plugin, which installs the agent skills. Called _item_ in code.
+_Avoid_: add-on, registry item, template, asset pack, library, catalog
 
 **Label**:
-`shaderera.item.json`: an add-on's name, type, tags, licence and `requires`. It is for finding
-add-ons and resolving requirements only; no host reads it to render.
+`shaderera.item.json`: a plugin's name, type, tags, licence and `requires`. It is for finding
+plugins and resolving requirements only; no host reads it to render.
 _Avoid_: metadata, manifest
 
-**Plumbing add-on**:
-An add-on that carries no taste (music analysis, three.js on the host GPU, image decoding). An
-agent may add one without being asked. Every other add-on is added only when the person asks.
+**Plumbing plugin**:
+A plugin that carries no taste (music analysis, three.js on the host GPU, image decoding). An
+agent may add one without being asked. Every other plugin is added only when the person asks.

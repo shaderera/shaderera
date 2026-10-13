@@ -14,7 +14,7 @@ Makes an empty Shaderera project that is set up correctly:
   review and delivery;
 - `AGENTS.md` / `CLAUDE.md`, which point agents to them;
 - the agent skills in `.claude/skills/`: `shaderera` (making a film) and
-  `shaderera-addons` (add-ons), the same as the Claude Code plugin's.
+  `shaderera-plugins` (plugins), the same as the Claude Code plugin's.
 
 There is no starter film and no house style (decision 0011): how the film looks is your code, in
 WGSL, three.js, Canvas2D or any library.

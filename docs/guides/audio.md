@@ -13,7 +13,7 @@ is what the engine does with sound.
 - Sound made in code is a clip with `pcm: { sampleRate, channels }` instead of `src`, computed
   in `open` or `audio()` from the seed, and mixed like any file.
 - Times taken from music come from measuring the exact file that plays: tempo, beats, onsets and
-  band energy (the `audio-beat-clock` item measures and keys them). Listen to check the tempo: a measured
+  band energy (the `audio-beat-clock` plugin measures and keys them). Listen to check the tempo: a measured
   BPM can be a ratio of the real one.
 - A clip that ends while it still sounds stops dead in the export.
 - Record every track in `ASSETS.md` (source, licence, sha256). Do not download music unless the

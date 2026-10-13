@@ -131,7 +131,7 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
   try {
     project = await findProject(cwd)
   } catch (e) {
-    // Not inside a project: the machine only. Or a project that requires an add-on it lacks.
+    // Not inside a project: the machine only. Or a project that requires a plugin it lacks.
     const [head, ...lines] = ((e as Error).message ?? '').split('\n')
     if (head?.startsWith('This project needs'))
       items.push({

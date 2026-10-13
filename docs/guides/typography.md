@@ -12,7 +12,7 @@ A new project has no font: Shaderera has no house style. Find one in this order:
    `assets/fonts/`) and use them as given. Record each in `ASSETS.md` with the licence the person
    states.
 2. **No brand font:** ask which font to use. Do not download fonts unless the person asks.
-3. **The official catalog** has four OFL fonts: `font-ibm-plex-mono`, `font-ibm-plex-sans`,
+3. **Shaderera's own plugins** have four OFL fonts: `font-ibm-plex-mono`, `font-ibm-plex-sans`,
    `font-instrument-serif` and `font-stix-two-text`. Add one when the person picks it:
    `npx shaderera add font-ibm-plex-sans` copies the files and their licence into
    `assets/fonts/`.
@@ -33,7 +33,7 @@ Node refuses one outside it. Review's `glyphs` check reads the files loaded this
 ## Text in the engine
 - Text drawn with Canvas2D is a raster.
 - Text as points, outlines or geometry needs the font's outlines: a font parser in the project,
-  the `text-glyph-points` item for point sets, or `text-glyph-outlines` for contours and solids.
+  the `text-glyph-points` plugin for point sets, or `text-glyph-outlines` for contours and solids.
 - Review reads the text a source reports in `inspect` as runs,
   `{ id, text, box: [x, y, w, h], font }` in frame pixels (`docs/protocol.md`, "Text runs";
   any other shape is skipped with no warning), or the DOM's text in the browser host, for

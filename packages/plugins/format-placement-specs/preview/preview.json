@@ -1,0 +1,12 @@
+{
+  "caption": "What Reels, YouTube, Amazon CTV, EU and US broadcast and a DOOH screen accept, as specs the delivery check reads.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 0.6
+}

@@ -1,0 +1,12 @@
+{
+  "caption": "Gives a song that stops dead a real ending: its last chord rings out in a hall and dies to silence.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": true,
+  "poster": 2.7
+}

@@ -1,0 +1,12 @@
+{
+  "caption": "IBM Plex Sans in Light, Regular and Medium: a restrained grotesque for names, dates, labels and captions.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.1
+}

@@ -1,0 +1,12 @@
+{
+  "caption": "STIX Two Text, roman and italic in variable weight: a scientific serif for notes, Greek and formulas.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.9
+}

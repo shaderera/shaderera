@@ -1,0 +1,17 @@
+{
+  "caption": "A 3D camera on keyframed shots that orbit, dolly, crane and cut, with real lens lengths.",
+  "states": [
+    {
+      "id": "track",
+      "label": "Shot to shot"
+    },
+    {
+      "id": "path",
+      "label": "One flowing move"
+    }
+  ],
+  "default": "track",
+  "audio": false,
+  "poster": 4.2,
+  "crf": 27
+}

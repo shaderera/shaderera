@@ -1,0 +1,13 @@
+{
+  "caption": "Turns PNG and JPEG images into three.js textures with the same pixels everywhere, many packed in one atlas.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 2.3,
+  "crf": 28
+}
