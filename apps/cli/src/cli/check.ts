@@ -18,12 +18,16 @@ export type CheckResult = DeterminismReport & {
 }
 
 /** One line on how a sequential source seeks, or none for a source that renders any t. */
-export const describeSeeks = (s: SeekStats | null): string | null =>
-  s === null
-    ? null
-    : s.checkpoint
-      ? `  sequential: stepped in order, seeks back restore checkpoints (${s.restored} restored, ${s.kept} kept, ${s.opened - 1} replays from frame 0, ${s.rendered} frames rendered)`
-      : `  sequential, no checkpoint: every seek back replays from frame 0 (${s.opened - 1} replays, ${s.rendered} frames rendered)`
+export const describeSeeks = (
+  s: SeekStats | null,
+  sequential: Manifest['sequential'] = true,
+): string | null => {
+  if (s === null) return null
+  const from = sequential === true ? 'frame 0' : `${sequential} frames back`
+  return s.checkpoint
+    ? `  sequential: stepped in order, seeks back restore checkpoints (${s.restored} restored, ${s.kept} kept, ${s.opened - 1} replays from ${from}, ${s.rendered} frames rendered)`
+    : `  sequential, no checkpoint: every seek back replays from ${from} (${s.opened - 1} replays, ${s.rendered} frames rendered)`
+}
 
 /** Renders sampled t twice in two orders and compares, plus preview against final at 3 t. */
 export const checkChild = async (
@@ -81,7 +85,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         `✓ deterministic: ${r.times.length} timestamps, two orders, ${r.what} (${r.msPerFrame.toFixed(1)} ms/frame)`,
       )
       console.log(compare)
-      const seeks = describeSeeks(r.seeks)
+      const seeks = describeSeeks(r.seeks, project.manifest.sequential)
       if (seeks) console.log(seeks)
       const warning = clockWarning(r.clock)
       if (warning) {
@@ -108,7 +112,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       })
     }
     console.log(compare)
-    const seeks = describeSeeks(r.seeks)
+    const seeks = describeSeeks(r.seeks, project.manifest.sequential)
     if (seeks) console.log(seeks)
     const warning = clockWarning(r.clock)
     if (warning) {
