@@ -63,9 +63,10 @@ What is on the shelf:
   - `review-av-timeline`: the sound and the picture's change on one timeline;
   - `format-placement-specs`: what placements accept, with sources, as requirements.json data.
 - **Looks, motion and sound design** are added only when the person asks: `look-blur`,
-  `look-screen-passes`, `text-kinetic`, `text-feature-captions`, `text-code-wall`,
-  `text-glyph-morph`, `motion-keyframes`, `camera-keyframes`, `camera-shake`,
-  `format-safe-areas`, `format-broadcast-slate`, `audio-hall-ending`.
+  `look-screen-passes`, `look-row-glitch`, `look-film-grain`, `look-vignette`, `text-kinetic`,
+  `text-feature-captions`, `text-code-wall`, `text-glyph-morph`, `motion-keyframes`,
+  `camera-keyframes`, `camera-shake`, `format-safe-areas`, `format-broadcast-slate`,
+  `audio-hall-ending`.
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 

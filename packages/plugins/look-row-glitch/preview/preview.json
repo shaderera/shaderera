@@ -1,0 +1,12 @@
+{
+  "caption": "Throws bands of rows sideways and pixel sorts runs of light, along rows or down columns, on the GPU.",
+  "states": [
+    { "id": "all", "label": "All" },
+    { "id": "shift", "label": "Thrown" },
+    { "id": "sort", "label": "Sorted" },
+    { "id": "columns", "label": "Columns" }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 2.2
+}
