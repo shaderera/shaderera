@@ -1,0 +1,21 @@
+{
+  "name": "look-film-grain",
+  "type": "component",
+  "title": "Film grain",
+  "description": "Film grain over a finished frame, one WebGPU pass: Gaussian, of a set size at the same strength, strongest in the mid-tones, mono or colour, a new pattern each frame or one that holds",
+  "category": "Looks",
+  "tags": [
+    "grain",
+    "film grain",
+    "noise",
+    "texture",
+    "analogue",
+    "finishing",
+    "post",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/looks/grain.ts", "src/looks/grain.wgsl.ts"]
+}

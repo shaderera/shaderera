@@ -1,0 +1,13 @@
+{
+  "caption": "Adds film grain to any frame on the GPU: Gaussian, sized, strongest in the mid-tones, mono or colour.",
+  "states": [
+    { "id": "all", "label": "All" },
+    { "id": "fine", "label": "Fine" },
+    { "id": "coarse", "label": "Coarse" },
+    { "id": "colour", "label": "Colour" }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 2.2,
+  "crf": 30
+}

@@ -24,7 +24,10 @@
           "format-placement-specs",
           "format-safe-areas",
           "look-blur",
+          "look-film-grain",
+          "look-row-glitch",
           "look-screen-passes",
+          "look-vignette",
           "motion-keyframes",
           "render-gaussian-splats",
           "render-image-textures",
@@ -216,6 +219,62 @@
         "state": "radial"
       }
     },
+    "look-film-grain": {
+      "label": "look-film-grain · all",
+      "params": {
+        "item": "look-film-grain",
+        "state": "all"
+      }
+    },
+    "look-film-grain.fine": {
+      "label": "look-film-grain · fine",
+      "params": {
+        "item": "look-film-grain",
+        "state": "fine"
+      }
+    },
+    "look-film-grain.coarse": {
+      "label": "look-film-grain · coarse",
+      "params": {
+        "item": "look-film-grain",
+        "state": "coarse"
+      }
+    },
+    "look-film-grain.colour": {
+      "label": "look-film-grain · colour",
+      "params": {
+        "item": "look-film-grain",
+        "state": "colour"
+      }
+    },
+    "look-row-glitch": {
+      "label": "look-row-glitch · all",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "all"
+      }
+    },
+    "look-row-glitch.shift": {
+      "label": "look-row-glitch · shift",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "shift"
+      }
+    },
+    "look-row-glitch.sort": {
+      "label": "look-row-glitch · sort",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "sort"
+      }
+    },
+    "look-row-glitch.columns": {
+      "label": "look-row-glitch · columns",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "columns"
+      }
+    },
     "look-screen-passes": {
       "label": "look-screen-passes · all",
       "params": {
@@ -242,6 +301,41 @@
       "params": {
         "item": "look-screen-passes",
         "state": "off"
+      }
+    },
+    "look-vignette": {
+      "label": "look-vignette · all",
+      "params": {
+        "item": "look-vignette",
+        "state": "all"
+      }
+    },
+    "look-vignette.round": {
+      "label": "look-vignette · round",
+      "params": {
+        "item": "look-vignette",
+        "state": "round"
+      }
+    },
+    "look-vignette.hard": {
+      "label": "look-vignette · hard",
+      "params": {
+        "item": "look-vignette",
+        "state": "hard"
+      }
+    },
+    "look-vignette.centre": {
+      "label": "look-vignette · centre",
+      "params": {
+        "item": "look-vignette",
+        "state": "centre"
+      }
+    },
+    "look-vignette.white": {
+      "label": "look-vignette · white",
+      "params": {
+        "item": "look-vignette",
+        "state": "white"
       }
     },
     "motion-keyframes": {
