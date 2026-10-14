@@ -56,6 +56,11 @@ A source that carries state from frame to frame and so must render its frames in
 the one property a manifest declares.
 _Avoid_: stateful source, simulation mode
 
+**Motion blur**:
+The picture averaged over several `t` inside a shutter, or over earlier frames a sequential
+source keeps. A blur of one frame along a direction is a directional blur, not motion blur.
+_Avoid_: temporal blur, shutter blur
+
 **Lookback**:
 How many frames before frame f a sequential source's frame f depends on. Opened fresh and
 stepped through only those frames, the source gives the same frame f as stepped from frame 0.

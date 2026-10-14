@@ -30,6 +30,7 @@ is: `audio`, `camera`, `font`, `format`, `look`, `motion`, `render`, `review`, `
 | `format-broadcast-slate` | component | a clock slate for a broadcast preroll: the spot's details and a countdown, at negative t | research for 0.1.0 |
 | `format-placement-specs` | preset | what Reels ads, YouTube, Amazon CTV, EU and US broadcast loudness and a DOOH screen accept, as requirements.json placements deliver checks the file against; each with its source and the date read | research for 0.1.0 |
 | `format-safe-areas` | component | where text may go per format and platform; the lens rule for tall frames | opening film |
+| `look-blur` | component | blur one frame, Gaussian, bokeh, directional or radial, by an amount from shapes, a map or depth: a sharp window, tilt-shift, depth of field | research: a poster's sharp window in a blurred world |
 | `look-screen-passes` | component | ascii, halftone, dither, heat, contours, pixels, inverse, row glitch: a GPU pass over any frame | opening film |
 | `motion-keyframes` | component | values over time with eases (a stateless spring, bezier), paths that flow through points | opening film |
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |

@@ -23,6 +23,7 @@
           "format-broadcast-slate",
           "format-placement-specs",
           "format-safe-areas",
+          "look-blur",
           "look-screen-passes",
           "motion-keyframes",
           "render-gaussian-splats",
@@ -178,6 +179,41 @@
       "params": {
         "item": "format-safe-areas",
         "state": "shorts"
+      }
+    },
+    "look-blur": {
+      "label": "look-blur · all",
+      "params": {
+        "item": "look-blur",
+        "state": "all"
+      }
+    },
+    "look-blur.gaussian": {
+      "label": "look-blur · gaussian",
+      "params": {
+        "item": "look-blur",
+        "state": "gaussian"
+      }
+    },
+    "look-blur.bokeh": {
+      "label": "look-blur · bokeh",
+      "params": {
+        "item": "look-blur",
+        "state": "bokeh"
+      }
+    },
+    "look-blur.directional": {
+      "label": "look-blur · directional",
+      "params": {
+        "item": "look-blur",
+        "state": "directional"
+      }
+    },
+    "look-blur.radial": {
+      "label": "look-blur · radial",
+      "params": {
+        "item": "look-blur",
+        "state": "radial"
       }
     },
     "look-screen-passes": {
