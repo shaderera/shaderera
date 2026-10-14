@@ -122,7 +122,12 @@ export const checkManifest = (value: unknown): Manifest => {
   if (m.seed !== undefined && !(typeof m.seed === 'number' && Number.isFinite(m.seed))) {
     problems.push('seed must be a finite number')
   }
-  if (m.sequential !== undefined && m.sequential !== true) problems.push('sequential must be true')
+  if (
+    m.sequential !== undefined &&
+    m.sequential !== true &&
+    !(Number.isInteger(m.sequential) && (m.sequential as number) >= 1)
+  )
+    problems.push('sequential must be true or a whole number of frames from 1')
   if (m.stamp !== undefined && m.stamp !== true) problems.push('stamp must be true')
   if (m.dom !== undefined && (typeof m.dom !== 'string' || m.dom === ''))
     problems.push('dom must be a non-empty string')
