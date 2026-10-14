@@ -1,0 +1,25 @@
+{
+  "name": "look-blur",
+  "type": "component",
+  "title": "Blur",
+  "description": "Blur one frame on the GPU, Gaussian, bokeh (round or bladed), directional or radial, by an amount each pixel takes from shapes, a map or depth: a sharp window in a blurred world, tilt-shift, depth of field, a censor box; any radius at the same cost",
+  "category": "Looks",
+  "tags": [
+    "blur",
+    "gaussian blur",
+    "bokeh",
+    "depth of field",
+    "tilt shift",
+    "directional blur",
+    "radial blur",
+    "zoom blur",
+    "focus",
+    "mask",
+    "post",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/looks/blur.ts", "src/looks/blur.wgsl.ts"]
+}
