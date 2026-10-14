@@ -8,7 +8,7 @@ first feedback was that it was hard to use:
 - a person could only get the items by cloning the monorepo and running a publish loop;
 - the names (`review-av-timeline`, `look-screen-passes`) mean nothing without a picture.
 
-The research in `research_notes/add-on naming and install.md` added three findings:
+The research in [plugin-naming.md](../research/plugin-naming.md) added three findings:
 - **A security hole.** Outside a project, `npx shaderera-registry` resolves the unscoped npm name
   `shaderera-registry`, which nobody owned, and without a terminal npx answers yes by itself.
 - **"Registry" is a word users do not know** outside npm, Docker and Unity.
