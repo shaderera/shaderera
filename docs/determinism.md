@@ -101,13 +101,32 @@ and the host never pretends it can:
    coarser pixels, but it steps the simulation exactly as a final render.
 5. **Seeking back** (or rendering the same frame again): the host restores the latest checkpoint at
    or before the frame and steps on, or, without one, disposes the source, opens it again and
-   replays from frame 0. Looping is a seek back to frame 0.
+   replays from frame 0 (from *f* − k with a [lookback](#lookback)). Looping is a seek back to
+   frame 0.
 6. **Inspection is aligned.** `inspect`, `pick` and `camera.get` at *t* answer about the state after
    frame *t*: the host brings the source through frame *t* first.
 
 Export from frame 0 is correct; scrubbing costs more, and export renders a sequential source on
-one worker. A source that keeps state without declaring `sequential` is caught by the check (two
+one worker (`plan` and `render --chunk` split it, each chunk reaching its first frame as a seek). A source that keeps state without declaring `sequential` is caught by the check (two
 orders) and cannot export. There is no silent fallback.
+
+## Lookback
+
+`"sequential": 8` says frame *f* depends only on the 8 frames before it: opened fresh and stepped
+through frames *f* − 8 … *f* − 1, the source gives the same frame *f* as stepped from frame 0. For
+a path tracer that reuses earlier frames' samples, a trail, a motion blur over past frames.
+
+- **Fresh starts.** On its first render, on a jump back and at the start of a chunk, the host
+  opens the source and steps from *f* − 8, not from frame 0. A jump forward still steps every frame
+  between, and checkpoints still apply.
+- **The state must be a window.** Keep the last 8 frames (a ring), never an average that decays:
+  an exponential average still carries a trace of frame 0, so frame *f* differs by how it was
+  reached.
+- **The check catches a wrong lookback.** In the ascending pass a frame comes after every frame
+  since the first; in the shuffled pass a jump back gives it only 8. A source that remembers more
+  than it declared differs between the two and fails, as export does.
+- **Warm-up frames render at `preview`**, so intent independence holds as before: the frames that
+  feed the window take the same samples at both intents.
 
 ## Checkpoints
 

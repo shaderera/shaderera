@@ -160,7 +160,7 @@ it, before any frame.
 | `duration`, `width`, `height` | yes | seconds; integer pixels |
 | `params` | no | a JSON Schema (`type: 'object'`) of what the host passes to `open` |
 | `seed` | no | the only randomness a source may use |
-| `sequential` | no | only `true`: state carries from frame to frame ([determinism.md](determinism.md#pure-and-sequential-sources)) |
+| `sequential` | no | `true`: state carries from frame to frame; or a whole number, the [lookback](determinism.md#lookback) in frames ([determinism.md](determinism.md#pure-and-sequential-sources)) |
 | `host` | no | `node` (default) or `browser`: the host every tool opens |
 | `dom` | no | a `MountDom` module; needs `"host": "browser"` |
 | `domScale` | no | 1–4: pixels per CSS pixel the browser host draws `dom` with |
