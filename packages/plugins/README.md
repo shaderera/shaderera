@@ -31,8 +31,12 @@ is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `r
 | `format-placement-specs` | preset | what Reels ads, YouTube, Amazon CTV, EU and US broadcast loudness and a DOOH screen accept, as requirements.json placements deliver checks the file against; each with its source and the date read | research for 0.1.0 |
 | `format-safe-areas` | component | where text may go per format and platform; the lens rule for tall frames | opening film |
 | `image-regions` | component | named regions of a photograph (mask, box, centre, the region that holds each) as analysis data; SAM 3.1 from words, or painted masks | a collage POC, 2026-10-14 |
+| `look-blur` | component | blur one frame, Gaussian, bokeh, directional or radial, by an amount from shapes, a map or depth: a sharp window, tilt-shift, depth of field | research: a poster's sharp window in a blurred world |
+| `look-film-grain` | component | film grain: Gaussian, sized, strongest in the mid-tones, mono or colour | split from `look-screen-passes` (0.2.0) |
 | `look-paper-edges` | component | a print on paper: cut out along any shape with a paper border, or a strip cut straight or torn, with white core and fibre | a collage POC, 2026-10-14 |
-| `look-screen-passes` | component | ascii, halftone, dither, heat, contours, pixels, inverse, row glitch: a GPU pass over any frame | opening film |
+| `look-row-glitch` | component | bands of rows thrown sideways, and a real pixel sort of runs of light, along rows or columns | split from `look-screen-passes` (0.2.0) |
+| `look-screen-passes` | component | the frame in another medium: ascii, halftone, dither, heat, contours, pixels, inverse; ink, paper, cell and palette as parameters | opening film |
+| `look-vignette` | component | the edges towards black or a colour, in linear light, round or the frame's shape | split from `look-screen-passes` (0.2.0) |
 | `motion-keyframes` | component | values over time with eases (a stateless spring, bezier), paths that flow through points | opening film |
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |
 | `render-image-textures` | component | PNG/JPEG decoded the same in Node and the browser, atlases for many cards, WebP and video frames to PNG once | product-studio's plumbing (no look) |

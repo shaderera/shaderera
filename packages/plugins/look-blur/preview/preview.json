@@ -1,0 +1,28 @@
+{
+  "caption": "Blurs any frame on the GPU, soft, through a lens, along a line or out from a centre, wherever shapes, a map or depth say.",
+  "states": [
+    {
+      "id": "all",
+      "label": "All kinds"
+    },
+    {
+      "id": "gaussian",
+      "label": "Gaussian"
+    },
+    {
+      "id": "bokeh",
+      "label": "Bokeh"
+    },
+    {
+      "id": "directional",
+      "label": "Directional"
+    },
+    {
+      "id": "radial",
+      "label": "Radial"
+    }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 0.9
+}

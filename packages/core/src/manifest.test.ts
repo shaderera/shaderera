@@ -14,7 +14,13 @@ test('checkManifest lists every problem', () => {
     message:
       'shaderera.json: fps must be a positive number or a fraction such as "24000/1001"; width must be a positive integer; unknown key "scenes"',
   })
-  assert.throws(() => checkManifest({ ...good, sequential: false }), /sequential must be true/)
+  assert.throws(
+    () => checkManifest({ ...good, sequential: false }),
+    /sequential must be true or a whole number/,
+  )
+  assert.throws(() => checkManifest({ ...good, sequential: 0 }), /sequential must be true or/)
+  assert.throws(() => checkManifest({ ...good, sequential: 2.5 }), /sequential must be true or/)
+  checkManifest({ ...good, sequential: 8 })
   assert.throws(() => checkManifest({ ...good, host: 'gpu' }), /host must be "node" or "browser"/)
   assert.throws(() => checkManifest({ ...good, dom: './d.ts' }), /dom needs the browser host/)
   checkManifest({ ...good, dom: './d.ts', host: 'browser' })

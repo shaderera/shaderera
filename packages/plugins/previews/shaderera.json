@@ -24,8 +24,12 @@
           "format-placement-specs",
           "format-safe-areas",
           "image-regions",
+          "look-blur",
+          "look-film-grain",
           "look-paper-edges",
+          "look-row-glitch",
           "look-screen-passes",
+          "look-vignette",
           "motion-keyframes",
           "render-gaussian-splats",
           "render-image-textures",
@@ -189,11 +193,102 @@
         "state": "default"
       }
     },
+    "look-blur": {
+      "label": "look-blur · all",
+      "params": {
+        "item": "look-blur",
+        "state": "all"
+      }
+    },
+    "look-blur.gaussian": {
+      "label": "look-blur · gaussian",
+      "params": {
+        "item": "look-blur",
+        "state": "gaussian"
+      }
+    },
+    "look-blur.bokeh": {
+      "label": "look-blur · bokeh",
+      "params": {
+        "item": "look-blur",
+        "state": "bokeh"
+      }
+    },
+    "look-blur.directional": {
+      "label": "look-blur · directional",
+      "params": {
+        "item": "look-blur",
+        "state": "directional"
+      }
+    },
+    "look-blur.radial": {
+      "label": "look-blur · radial",
+      "params": {
+        "item": "look-blur",
+        "state": "radial"
+      }
+    },
+    "look-film-grain": {
+      "label": "look-film-grain · all",
+      "params": {
+        "item": "look-film-grain",
+        "state": "all"
+      }
+    },
+    "look-film-grain.fine": {
+      "label": "look-film-grain · fine",
+      "params": {
+        "item": "look-film-grain",
+        "state": "fine"
+      }
+    },
+    "look-film-grain.coarse": {
+      "label": "look-film-grain · coarse",
+      "params": {
+        "item": "look-film-grain",
+        "state": "coarse"
+      }
+    },
+    "look-film-grain.colour": {
+      "label": "look-film-grain · colour",
+      "params": {
+        "item": "look-film-grain",
+        "state": "colour"
+      }
+    },
     "look-paper-edges": {
       "label": "look-paper-edges",
       "params": {
         "item": "look-paper-edges",
         "state": "default"
+      }
+    },
+    "look-row-glitch": {
+      "label": "look-row-glitch · all",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "all"
+      }
+    },
+    "look-row-glitch.shift": {
+      "label": "look-row-glitch · shift",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "shift"
+      }
+    },
+    "look-row-glitch.sort": {
+      "label": "look-row-glitch · sort",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "sort"
+      }
+    },
+    "look-row-glitch.columns": {
+      "label": "look-row-glitch · columns",
+      "params": {
+        "item": "look-row-glitch",
+        "state": "columns"
       }
     },
     "look-screen-passes": {
@@ -222,6 +317,41 @@
       "params": {
         "item": "look-screen-passes",
         "state": "off"
+      }
+    },
+    "look-vignette": {
+      "label": "look-vignette · all",
+      "params": {
+        "item": "look-vignette",
+        "state": "all"
+      }
+    },
+    "look-vignette.round": {
+      "label": "look-vignette · round",
+      "params": {
+        "item": "look-vignette",
+        "state": "round"
+      }
+    },
+    "look-vignette.hard": {
+      "label": "look-vignette · hard",
+      "params": {
+        "item": "look-vignette",
+        "state": "hard"
+      }
+    },
+    "look-vignette.centre": {
+      "label": "look-vignette · centre",
+      "params": {
+        "item": "look-vignette",
+        "state": "centre"
+      }
+    },
+    "look-vignette.white": {
+      "label": "look-vignette · white",
+      "params": {
+        "item": "look-vignette",
+        "state": "white"
       }
     },
     "motion-keyframes": {
