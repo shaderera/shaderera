@@ -58,9 +58,11 @@ export type Manifest = {
   /**
    * The source carries state from frame to frame (a simulation, a feedback buffer), so `render(t)`
    * alone cannot reconstruct t: the host renders its frames 0, 1, 2… in order and replays them for
-   * a jump back, or restores a `checkpoint` the source can take.
+   * a jump back, or restores a `checkpoint` the source can take. A number is the source's
+   * lookback: frame f depends only on the frames since f − lookback, so a fresh source starts there
+   * instead of at frame 0.
    */
-  readonly sequential?: true
+  readonly sequential?: true | number
   /**
    * Stamp `source: "file:line:col"` on every object literal with an `id` in the project's files,
    * so pick and inspect lead back to the line. Opt-in: the extra enumerable key reaches code that

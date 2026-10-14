@@ -411,3 +411,54 @@ test('a cancelled seek stops between frames and the source goes on from where it
     await hostRender(await seekable(domFeedback([]), manifest, { prepare: domAt(made) }), 9, made),
   )
 })
+
+/** A source with a lookback of k: frame f shows f plus the k frames before it, and nothing older. */
+const windowed = (k: number, log: string[]) => async (): Promise<Source> => {
+  const recent: number[] = []
+  log.push('open')
+  return {
+    render: async (_t, o) => {
+      log.push(`${o.intent[0]}${o.frame}`)
+      const sum = recent.reduce((a, b) => a + b, o.frame)
+      recent.push(o.frame)
+      if (recent.length > k) recent.shift()
+      return { color: new Uint8Array([sum, 0, 0, 255]), alpha: 'opaque' }
+    },
+    inspect: async () => ({ recent: [...recent] }),
+  }
+}
+
+const sum = async (s: Source, f: number) => {
+  const frame = await s.render(f / 10, { width: 1, height: 1, intent: 'final', frame: f })
+  return (frame as { color: Uint8Array }).color[0]
+}
+
+test('with a lookback, a fresh source or a jump back starts k frames before; a jump forward steps', async () => {
+  const log: string[] = []
+  const s = await seekable(windowed(3, log), { ...manifest, sequential: 3 })
+  assert.equal(await sum(s, 9), 6 + 7 + 8 + 9)
+  assert.deepEqual(log, ['open', 'p6', 'p7', 'p8', 'f9'])
+  log.length = 0
+  assert.equal(await sum(s, 15), 12 + 13 + 14 + 15)
+  assert.deepEqual(log, ['p10', 'p11', 'p12', 'p13', 'p14', 'f15'])
+  log.length = 0
+  assert.equal(await sum(s, 4), 1 + 2 + 3 + 4)
+  assert.deepEqual(log, ['open', 'p1', 'p2', 'p3', 'f4'])
+  log.length = 0
+  assert.equal(await sum(s, 1), 0 + 1)
+  assert.deepEqual(log, ['open', 'p0', 'f1'])
+  // The state after frame f comes from the k frames before it and f itself.
+  log.length = 0
+  const fresh = await seekable(windowed(3, log), { ...manifest, sequential: 3 })
+  assert.deepEqual(await fresh.inspect?.(0.9), { recent: [7, 8, 9] })
+  assert.deepEqual(log, ['open', 'p6', 'p7', 'p8', 'p9'])
+})
+
+test('a source that remembers more than its lookback differs by the way it was reached', async () => {
+  const m: Manifest = { ...manifest, sequential: 3 }
+  const long = await seekable(simulation([]), m)
+  await shown(long, 0.2)
+  const stepped = await shown(long, 1.5)
+  const fresh = await shown(await seekable(simulation([]), m), 1.5)
+  assert.notEqual(stepped, fresh, 'what check compares: a long history against k frames')
+})

@@ -60,9 +60,6 @@ const { createThreeHost, threeCamera } = (await from(
 const { decodeImage, loadAtlas, loadTexture } = (await from(
   'src/three/images.ts',
 )) as typeof import('../render-image-textures/src/three/images.ts')
-const { createLooks, LOOKS } = (await from(
-  'src/looks/looks.ts',
-)) as typeof import('../look-screen-passes/src/looks/looks.ts')
 type Analysis = import('../audio-beat-clock/src/music/beat.ts').Analysis
 
 Object.assign(globalThis, globals)
@@ -233,53 +230,6 @@ test('text-glyph-points: fixed points inside the text, character marks in order'
   assert.equal(a.marks.length, 9)
   assert.ok(a.marks.every((m, i) => i === 0 || m > (a.marks[i - 1] ?? 0)))
   assert.ok(a.aspect > 3)
-})
-
-test('look-screen-passes: every look turns a gradient into something else, on a texture and on a canvas', async () => {
-  const gpu = create([])
-  const adapter = await gpu.requestAdapter()
-  assert.ok(adapter, 'a WebGPU adapter')
-  const device = await adapter.requestDevice()
-  const errors: string[] = []
-  device.addEventListener('uncapturederror', (e) =>
-    errors.push((e as GPUUncapturedErrorEvent).error.message),
-  )
-  const W = 320
-  const H = 180
-  const looks = createLooks(hostOf(W, H, device), { width: W, height: H, face: 'Plex' })
-  const src = io.canvas(W, H)
-  const sctx = src.getContext('2d') as OffscreenCanvasRenderingContext2D
-  const g = sctx.createLinearGradient(0, 0, W, 0)
-  g.addColorStop(0, '#000')
-  g.addColorStop(1, '#fff')
-  sctx.fillStyle = g
-  sctx.fillRect(0, 0, W, H)
-  const row = Math.ceil((W * 4) / 256) * 256
-  const buf = device.createBuffer({
-    size: row * H,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-  })
-  const read = async (t: GPUTexture) => {
-    const e = device.createCommandEncoder()
-    e.copyTextureToBuffer({ texture: t }, { buffer: buf, bytesPerRow: row }, [W, H])
-    device.queue.submit([e.finish()])
-    await buf.mapAsync(GPUMapMode.READ)
-    const p = new Uint8Array(buf.getMappedRange()).slice()
-    buf.unmap()
-    return p
-  }
-  const plain = await read(looks.apply(src, { look: 'none' }))
-  for (const look of LOOKS.slice(1)) {
-    const out = await read(looks.apply(src, { look, cell: 6 }))
-    let diff = 0
-    for (let i = 0; i < out.length; i++) if (out[i] !== plain[i]) diff++
-    assert.ok(diff > out.length * 0.05, `${look} changed the frame`)
-  }
-  const glitch = await read(looks.apply(src, { glitch: 0.5, throw: 0.3, seed: 4 }))
-  assert.notDeepEqual(glitch, plain)
-  assert.deepEqual(errors, [])
-  looks.dispose()
-  device.destroy()
 })
 
 test('motion-keyframes: held, eased, cut', () => {

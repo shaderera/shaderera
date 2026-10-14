@@ -1,0 +1,11 @@
+{
+  "name": "look-vignette",
+  "type": "component",
+  "title": "Vignette",
+  "description": "A vignette over a finished frame, one WebGPU pass: the edges towards black or any colour in linear light, round or following the frame's shape, from any centre",
+  "category": "Looks",
+  "tags": ["vignette", "lens", "falloff", "edges", "finishing", "post", "shader", "wgsl"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/looks/vignette.ts", "src/looks/vignette.wgsl.ts"]
+}

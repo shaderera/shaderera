@@ -1,0 +1,21 @@
+{
+  "name": "look-row-glitch",
+  "type": "component",
+  "title": "Row glitch",
+  "description": "Bands of rows thrown sideways, and pixel sorting: each run of pixels within a brightness range sorted by brightness, along rows or columns, on the GPU in one compute pass; pixels move, none is changed",
+  "category": "Looks",
+  "tags": [
+    "glitch",
+    "pixel sort",
+    "pixel sorting",
+    "datamosh",
+    "row shift",
+    "scanlines",
+    "post",
+    "compute shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/looks/row-glitch.ts", "src/looks/row-glitch.wgsl.ts"]
+}
