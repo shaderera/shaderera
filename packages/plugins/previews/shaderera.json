@@ -23,8 +23,10 @@
           "format-broadcast-slate",
           "format-placement-specs",
           "format-safe-areas",
+          "image-regions",
           "look-blur",
           "look-film-grain",
+          "look-paper-edges",
           "look-row-glitch",
           "look-screen-passes",
           "look-vignette",
@@ -184,6 +186,13 @@
         "state": "shorts"
       }
     },
+    "image-regions": {
+      "label": "image-regions",
+      "params": {
+        "item": "image-regions",
+        "state": "default"
+      }
+    },
     "look-blur": {
       "label": "look-blur · all",
       "params": {
@@ -245,6 +254,13 @@
       "params": {
         "item": "look-film-grain",
         "state": "colour"
+      }
+    },
+    "look-paper-edges": {
+      "label": "look-paper-edges",
+      "params": {
+        "item": "look-paper-edges",
+        "state": "default"
       }
     },
     "look-row-glitch": {
