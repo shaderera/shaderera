@@ -56,6 +56,11 @@ A source that carries state from frame to frame and so must render its frames in
 the one property a manifest declares.
 _Avoid_: stateful source, simulation mode
 
+**Lookback**:
+How many frames before frame f a sequential source's frame f depends on. Opened fresh and
+stepped through only those frames, the source gives the same frame f as stepped from frame 0.
+_Avoid_: history, window, warm-up
+
 **Checkpoint**:
 A copy of a sequential source's state after a frame, so a jump back restores it instead of
 replaying from frame 0.

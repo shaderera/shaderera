@@ -54,6 +54,8 @@ export const seekable = async (
   o: { prepare?: Prepare; checkpointMs?: number; maxCheckpoints?: number } = {},
 ): Promise<Seekable> => {
   const { fps, width, height } = manifest
+  const lookback =
+    manifest.sequential === true || !manifest.sequential ? Infinity : manifest.sequential
   const max = o.maxCheckpoints ?? 32
   let every = o.checkpointMs ?? 250
   const stats: Omit<SeekStats, 'checkpoint'> = {
@@ -103,12 +105,18 @@ export const seekable = async (
     return rendered
   }
 
-  /** Brings the source through frame `to`: restores, reopens or steps, whichever is needed. */
-  const reach = async (to: number, signal?: AbortSignal) => {
+  /**
+   * Brings the source through frame `to`, for frame `f` (`to`, or the one after it for a render):
+   * restores, reopens or steps, whichever is needed. With a lookback, a fresh source starts at
+   * f − lookback instead of frame 0; a jump forward still steps every frame, so that check compares
+   * a long history with a short one.
+   */
+  const reach = async (to: number, signal?: AbortSignal, f = to) => {
     if (disposed) throw new Error('The source was disposed.')
     if (to < -1) throw new Error(`Frame ${to} is before frame 0.`)
     signal?.throwIfAborted()
-    const best = checkpoints.findLast((c) => c.frame <= to)
+    const start = Math.max(-1, f - lookback - 1)
+    const best = checkpoints.findLast((c) => c.frame <= to && c.frame > start)
     if (best && source.checkpoint && (best.frame > at || at > to)) {
       at = Number.POSITIVE_INFINITY
       // A restore that fails is the participant's error, never a reason to show another state.
@@ -129,6 +137,7 @@ export const seekable = async (
       at = -1
       spent = 0
     }
+    if (at === -1) at = start
     while (at < to) {
       const f = at + 1
       signal?.throwIfAborted()
@@ -152,7 +161,7 @@ export const seekable = async (
   const wrapped: Seekable = {
     render: async (t, options) => {
       const f = frame(t)
-      await reach(f - 1, options.signal)
+      await reach(f - 1, options.signal, f)
       return step(f, t, options)
     },
     dispose: () => {
