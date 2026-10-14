@@ -15,7 +15,7 @@ its options as parameters, defaults that render well. Once added, a plugin is th
 code, to change freely.
 
 Plugins are named `<category>-<thing>`, so related ones sort together and the name says what it
-is: `audio`, `camera`, `font`, `format`, `look`, `motion`, `render`, `review`, `text`.
+is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`, `text`.
 
 | Plugin | Type | What it does | From |
 |---|---|---|---|
@@ -30,6 +30,8 @@ is: `audio`, `camera`, `font`, `format`, `look`, `motion`, `render`, `review`, `
 | `format-broadcast-slate` | component | a clock slate for a broadcast preroll: the spot's details and a countdown, at negative t | research for 0.1.0 |
 | `format-placement-specs` | preset | what Reels ads, YouTube, Amazon CTV, EU and US broadcast loudness and a DOOH screen accept, as requirements.json placements deliver checks the file against; each with its source and the date read | research for 0.1.0 |
 | `format-safe-areas` | component | where text may go per format and platform; the lens rule for tall frames | opening film |
+| `image-regions` | component | named regions of a photograph (mask, box, centre, the region that holds each) as analysis data; SAM 3.1 from words, or painted masks | a collage POC, 2026-10-14 |
+| `look-paper-edges` | component | a print on paper: cut out along any shape with a paper border, or a strip cut straight or torn, with white core and fibre | a collage POC, 2026-10-14 |
 | `look-screen-passes` | component | ascii, halftone, dither, heat, contours, pixels, inverse, row glitch: a GPU pass over any frame | opening film |
 | `motion-keyframes` | component | values over time with eases (a stateless spring, bezier), paths that flow through points | opening film |
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |

@@ -1,0 +1,12 @@
+{
+  "caption": "Reads where each part of a photograph is, its mask, box and centre, measured once by SAM 3.1 from a word or painted by hand.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 3.2
+}

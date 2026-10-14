@@ -149,8 +149,18 @@ Whole frames before a delivery's first frame (black, or the film at negative tim
 broadcast slate. The film's `t = 0` does not move.
 
 **Analysis artifact**:
-Measurements of a footage or audio file (`shaderera.analysis/1`), made once by a script and read
-by the film as data.
+Measurements of a footage, image or audio file (`shaderera.analysis/1`), made once by an
+analyser and read by the film as data.
+
+**Analyser**:
+A script run apart from rendering that measures a file and writes an analysis artifact: ffmpeg,
+a music analysis, a model the person downloads. Each one is optional; core runs none.
+_Avoid_: adapter (the GPU's word), detector
+
+**Region**:
+A named area of an image in an analysis artifact: its mask, its box, its centre, and the region
+that holds it (an eye's head).
+_Avoid_: segment, selection, object, matte
 
 ### Plugins
 

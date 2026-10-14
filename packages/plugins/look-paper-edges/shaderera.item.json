@@ -1,0 +1,23 @@
+{
+  "name": "look-paper-edges",
+  "type": "component",
+  "title": "Paper edges",
+  "description": "A print on paper for collage: cut out along any shape with a paper border, or a strip with each side cut straight or torn, showing the paper's white core and fibre; the same piece from the same seed",
+  "category": "Looks",
+  "tags": [
+    "collage",
+    "paper",
+    "cut-out",
+    "torn paper",
+    "scissors",
+    "sticker",
+    "border",
+    "mask",
+    "zine",
+    "canvas2d"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "shaderera": ">=0.1.0" },
+  "files": ["src/looks/paper.ts"]
+}

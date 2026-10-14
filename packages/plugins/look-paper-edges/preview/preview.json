@@ -1,0 +1,12 @@
+{
+  "caption": "Cuts a picture out along any shape with scissors or a knife, or tears it, on paper stocks with tone, fibre and a cut face.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.1
+}

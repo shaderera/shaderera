@@ -13,7 +13,7 @@ format, and the rules that keep a reaction deterministic.
   inference. Core installs no model, needs no account and no vendor runtime.
 - Shaderera owns time alignment, artifact identity, failure and replay. It does not own a
   perception graph, a model registry or an inference framework.
-- An adapter is a script the user runs (ffmpeg, a Python model). Each one is optional. A model
+- An analyser is a script the user runs (ffmpeg, a Python model). Each one is optional. A model
   is the user's own download, recorded with its version, checksum and licence.
 
 ## Contracts
@@ -39,14 +39,15 @@ format, and the rules that keep a reaction deterministic.
 - A sequential participant that must spawn state per event spawns it when its step crosses the
   event's time (`prev < t_event ≤ now`); replay ([sequential sources](determinism.md#pure-and-sequential-sources)) makes that deterministic.
 
-### Rasters (masks, depth, when an adapter provides them)
+### Rasters (masks, depth, when an analyser provides them)
 
 - Stored beside the JSON as raw little-endian arrays, one file per frame or one file per clip with
   an index; the JSON states `dtype` (`u8` | `f32`), `channels`, `width`, `height`,
   `rowStride` **in elements**, origin **top-left**, rows downward, and the source frame `t` each
-  raster belongs to.
-- A mask is `u8` coverage 0–255 in the source frame's pixel grid; the participant maps it to its
-  own frame.
+  raster belongs to (none for a still image).
+- A mask is `u8` coverage 0–255 in the source frame's pixel grid, over the whole frame or over a
+  rectangle of it whose top-left `at: [x, y]` the JSON states; the participant maps it to its own
+  frame.
 
 ### Depth (optional, experimental until calibrated)
 
@@ -62,7 +63,7 @@ format, and the rules that keep a reaction deterministic.
   loader refuses the old one with "rebuild" (no readers for old formats).
 - `source`: path, bytes, sha256. The participant checks the hash at open and refuses a mismatch.
 - `tool`: script, its tool versions (ffmpeg version string; model name, version and checkpoint
-  sha256 for model-backed adapters); `params`: every setting that changes the output.
+  sha256 for model-backed analysers); `params`: every setting that changes the output.
 - Artifacts are project files: saved revisions and jobs freeze them like any asset (their sha256 is
   in `job.inputs.assets`).
 

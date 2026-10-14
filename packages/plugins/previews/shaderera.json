@@ -23,6 +23,8 @@
           "format-broadcast-slate",
           "format-placement-specs",
           "format-safe-areas",
+          "image-regions",
+          "look-paper-edges",
           "look-screen-passes",
           "motion-keyframes",
           "render-gaussian-splats",
@@ -178,6 +180,20 @@
       "params": {
         "item": "format-safe-areas",
         "state": "shorts"
+      }
+    },
+    "image-regions": {
+      "label": "image-regions",
+      "params": {
+        "item": "image-regions",
+        "state": "default"
+      }
+    },
+    "look-paper-edges": {
+      "label": "look-paper-edges",
+      "params": {
+        "item": "look-paper-edges",
+        "state": "default"
       }
     },
     "look-screen-passes": {
