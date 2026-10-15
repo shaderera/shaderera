@@ -218,6 +218,7 @@ export const deliverBatch = async (
           to,
           out: file,
           quality: job.delivery.quality,
+          revision: job.revision,
           audio: o.audio,
           loudness: o.loudness,
         })

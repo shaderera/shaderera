@@ -1,0 +1,10 @@
+{
+  "id": "17872fb7cdaad98f",
+  "parent": null,
+  "created": "2026-10-15T11:55:35.588Z",
+  "by": "cli",
+  "files": {
+    "shaderera.json": "e69f6f3c6fe7337af9630dd53bc24e2b1ea9603114583611135b106679006ec0",
+    "src/composition.ts": "37d84acc035215c39858b4249b5be96b92d1ad6b8e78fc048c08e584c3990e89"
+  }
+}
