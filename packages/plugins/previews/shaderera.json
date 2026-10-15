@@ -32,6 +32,7 @@
           "look-tonemap",
           "look-vignette",
           "motion-keyframes",
+          "render-bvh",
           "render-gaussian-splats",
           "render-gltf-read",
           "render-image-textures",
@@ -381,6 +382,13 @@
       "label": "motion-keyframes",
       "params": {
         "item": "motion-keyframes",
+        "state": "default"
+      }
+    },
+    "render-bvh": {
+      "label": "render-bvh",
+      "params": {
+        "item": "render-bvh",
         "state": "default"
       }
     },

@@ -61,6 +61,7 @@ What is on the shelf:
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-regions`: named regions of a photograph (mask, box, centre), from SAM 3.1 or painted masks;
   - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;
+  - `render-bvh`: ray queries against a mesh's triangles on the GPU, closest hit and any hit;
   - `text-glyph-points` and `text-glyph-outlines`: text as a point set, or as contours and solids;
   - `review-av-timeline`: the sound and the picture's change on one timeline;
   - `format-placement-specs`: what placements accept, with sources, as requirements.json data.
