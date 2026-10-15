@@ -15,6 +15,7 @@ import {
   matte64,
   PRIMING,
   probe,
+  requireFrames,
   stemsOf,
   wavArgs,
   withGainFiles,
@@ -273,6 +274,25 @@ test('an ffmpeg that exits early fails the write, and the process stays up', {
       for (let i = 0; i < 400; i++) await sink.write(new Uint8Array(64 * 36 * 4))
       await sink.end()
     })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a file that ffmpeg finished short, exiting 0, is told from the film', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'shaderera-short-'))
+  try {
+    // ffmpeg stops reading after 25 of the window's 40 frames, as on a demuxing error, and exits 0.
+    const out = join(dir, 'o.mp4')
+    const sink = ffmpegSink(ffmpegArgs({ ...base, out, clips: [] }))
+    for (let i = 0; i < 25; i++) await sink.write(new Uint8Array(64 * 36 * 4))
+    await sink.end()
+    const p = probe(out)
+    assert.equal(p.video?.frames, 25)
+    requireFrames(out, p, 25)
+    assert.throws(() => requireFrames(out, p, 40), /ffmpeg wrote 25 of the 40 frames .* exited 0/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

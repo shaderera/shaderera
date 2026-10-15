@@ -509,6 +509,8 @@ export type Probe = {
     width: number
     height: number
     fps: number
+    /** Frames in the file, from its index (`nb_frames`); absent when the container has none. */
+    frames?: number
     bitrate?: number
     color?: { matrix?: string; primaries?: string; transfer?: string; range?: string }
   }
@@ -548,6 +550,7 @@ export const probe = (file: string): Probe => {
             width: Number(v.width),
             height: Number(v.height),
             fps: rate(v.avg_frame_rate),
+            ...(v.nb_frames ? { frames: Number(v.nb_frames) } : {}),
             ...(v.bit_rate ? { bitrate: num(v.bit_rate) } : {}),
             color: {
               ...(v.color_space ? { matrix: String(v.color_space) } : {}),
@@ -569,6 +572,19 @@ export const probe = (file: string): Probe => {
       : {}),
     editList: hasEditList(file),
   }
+}
+
+/**
+ * Throws when the file holds fewer (or more) frames than were written to ffmpeg. ffmpeg can stop
+ * reading its input on an error ("Error during demuxing: Cannot allocate memory"), finish the file
+ * with what it has and exit 0: its exit code alone would pass a short film.
+ */
+export const requireFrames = (file: string, p: Probe, written: number) => {
+  const frames = p.video?.frames
+  if (frames !== undefined && frames !== written)
+    throw new Error(
+      `ffmpeg wrote ${frames} of the ${written} frames it was given to ${file} and exited 0: the file is not the film (ffmpeg's own error is above; it may have run out of memory). Render again.`,
+    )
 }
 
 /**

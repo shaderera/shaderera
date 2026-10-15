@@ -31,6 +31,7 @@ import {
   probeLine,
   type Quality,
   requireFfmpeg,
+  requireFrames,
   withGainFiles,
   writeStems,
 } from './ffmpeg.ts'
@@ -225,6 +226,8 @@ export const exportVideo = async (
           onFrame: o.onFrame,
           ahead: hosts.length * 2,
         })
+    const probed = probe(out)
+    requireFrames(out, probed, preroll.frames + frames)
     const stems =
       o.stems && clips.length > 0
         ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
@@ -246,7 +249,7 @@ export const exportVideo = async (
       bits: input === 'rgba64' ? 16 : 8,
       loudness: clips.length > 0 ? measureLoudness(out) : null,
       ...(level ? { gainDb: level.gainDb } : {}),
-      probe: probe(out),
+      probe: probed,
       clock,
       ...(stems ? { stems } : {}),
       ...(sidecars.length ? { captions: sidecars } : {}),
