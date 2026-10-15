@@ -105,6 +105,30 @@ are in `docs/determinism.md`; each renderer's traps (three.js's frame clock, rea
 to 256 bytes, multisampling with blending on Dawn) are in its `docs/participants/` page. Canvas2D
 pixels differ slightly between the browser and Node: export a film from one host.
 
+## Expensive films
+
+A film whose frames take seconds, or that is rendered partly outside the host, needs a few flags
+that already exist. Use them, and tell the person what is running and how far it is: a long
+command that prints nothing looks frozen.
+
+- **Check with fewer frames.** `check` renders every timestamp twice; at 5 s a frame, the default
+  50 take over eight minutes. `npx shaderera check --times 4` still compares two orders.
+- **Render in the background with progress.** `npx shaderera render --progress 2> render.log`
+  writes `frame 120/360  2.1 fps` to stderr as it goes; read the end of the log to say how far
+  it is, instead of guessing.
+- **Bake what the host cannot run.** When a frame needs a program project code may not start (a
+  native denoiser that keeps history, a simulation in another tool), or minutes of work that
+  another program does better, make those frames a bake: declare it in `shaderera.json` `bakes`
+  (the command, its inputs, the folder, how the frames are named; `docs/protocol.md`, "Bakes"),
+  run `npx shaderera bake <name>`, and read the frames with `io.bake(name)`. Every command that
+  renders refuses a bake whose inputs or frames changed since it was made, and a job pins it.
+  Never read such frames with `io.read` and a cache you clear by hand: nothing would tie them to
+  the code that made them.
+- **Compare a final with what was approved.** Before handing over a final, put it beside the
+  approved variant: `npx shaderera still 4 16.9 --variant final --compare animatic --sheet`. It
+  writes each pair side by side with PSNR and mean ΔE; it measures and never judges, so look at
+  the pairs and say what differs.
+
 ## Before you finish
 
 Three different questions, never one score:

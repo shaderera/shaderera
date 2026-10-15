@@ -67,7 +67,10 @@ npx shaderera deliver --variants main,short   # a checked batch: the main film a
 ```
 
 Every flag is in `node_modules/shaderera/docs/cli.md`, and delivery, placements and handoffs are
-in `node_modules/shaderera/docs/delivery.md`.
+in `node_modules/shaderera/docs/delivery.md`. For a film whose frames take seconds, or that is
+rendered partly outside the host (a bake), follow `AUTHORING.md`, "Expensive films": fewer
+`check --times`, `render --progress` in the background, `shaderera bake`, and `still --compare`
+against the approved variant before a final.
 
 ## 5. Plugins
 
