@@ -29,9 +29,12 @@
           "look-paper-edges",
           "look-row-glitch",
           "look-screen-passes",
+          "look-tonemap",
           "look-vignette",
           "motion-keyframes",
+          "render-bvh",
           "render-gaussian-splats",
+          "render-gltf-read",
           "render-image-textures",
           "render-three-host",
           "review-av-timeline",
@@ -319,6 +322,27 @@
         "state": "off"
       }
     },
+    "look-tonemap": {
+      "label": "look-tonemap · all",
+      "params": {
+        "item": "look-tonemap",
+        "state": "all"
+      }
+    },
+    "look-tonemap.neutral": {
+      "label": "look-tonemap · neutral",
+      "params": {
+        "item": "look-tonemap",
+        "state": "neutral"
+      }
+    },
+    "look-tonemap.agx": {
+      "label": "look-tonemap · agx",
+      "params": {
+        "item": "look-tonemap",
+        "state": "agx"
+      }
+    },
     "look-vignette": {
       "label": "look-vignette · all",
       "params": {
@@ -361,10 +385,24 @@
         "state": "default"
       }
     },
+    "render-bvh": {
+      "label": "render-bvh",
+      "params": {
+        "item": "render-bvh",
+        "state": "default"
+      }
+    },
     "render-gaussian-splats": {
       "label": "render-gaussian-splats",
       "params": {
         "item": "render-gaussian-splats",
+        "state": "default"
+      }
+    },
+    "render-gltf-read": {
+      "label": "render-gltf-read",
+      "params": {
+        "item": "render-gltf-read",
         "state": "default"
       }
     },

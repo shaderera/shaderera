@@ -215,7 +215,7 @@ hands ffmpeg the result.
 |---|---|
 | `shaderera check` | renders sampled `t` twice in two orders and compares state and pixels |
 | `shaderera still <t>…` | stills of any moment, a contact sheet (`--sheet`), a detail (`--region`, `--scale`) |
-| `shaderera inspect --time <s>` | the state at `t`; `--track <path>` reads it as a curve |
+| `shaderera inspect <t>` | the state at `t`; `--track <path>` reads it as a curve |
 | `shaderera render` | an mp4 or a ProRes mov; `--job` renders a frozen job |
 | `shaderera review` | frames, a contact sheet and technical checks against `requirements.json` |
 | `shaderera deliver` | a campaign batch: variants × locales × placements, each checked |

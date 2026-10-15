@@ -1,6 +1,6 @@
 import type { Json } from '@shaderera/core'
 import { track } from '../review/timing.ts'
-import { open, parse } from './args.ts'
+import { insideFilm, open, parseRendering } from './args.ts'
 
 const show = (v: Json): string =>
   typeof v === 'number'
@@ -58,20 +58,25 @@ export const formatInspect = (json: Json, path?: string): string => {
 }
 
 /**
- * `shaderera inspect --time <s> [--path a.b] [--json]`, or `inspect --track <path> [--from s]
+ * `shaderera inspect <t> [--path a.b] [--json]` (or `--time <t>`), or `inspect --track <path> [--from s]
  * [--to s] [--json]`: the value at a path at every frame, with its speed per second (numbers and
  * arrays of numbers): a curve to read easing, holds and overshoot from.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const v = parse(argv, {
-    time: { type: 'string' },
-    path: { type: 'string' },
-    json: { type: 'boolean' },
-    track: { type: 'string' },
-    from: { type: 'string' },
-    to: { type: 'string' },
-  })
+  const { values: v, times } = parseRendering(
+    argv,
+    {
+      path: { type: 'string' },
+      json: { type: 'boolean' },
+      track: { type: 'string' },
+      from: { type: 'string' },
+      to: { type: 'string' },
+    },
+    { command: 'inspect', times: true },
+  )
   if (typeof v.track === 'string') {
+    if (times.length > 0)
+      throw new Error('inspect --track reads every frame: give --from and --to, not times.')
     const { project, child } = await open(v)
     try {
       if (!child.has.inspect) throw new Error('This source has no inspect(t).')
@@ -94,11 +99,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       await child.close()
     }
   }
-  const t = Number(v.time)
-  if (v.time === undefined || !Number.isFinite(t))
-    throw new Error('inspect needs --time <seconds>.')
-  const { child } = await open(v)
+  const [t, ...more] = times
+  if (t === undefined || more.length > 0)
+    throw new Error('inspect takes one time: inspect <seconds>.')
+  const { project, child } = await open(v)
   try {
+    insideFilm([t], project.manifest.duration)
     if (!child.has.inspect) throw new Error('This source has no inspect(t).')
     const json = await child.inspect(t)
     console.log(

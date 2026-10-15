@@ -35,6 +35,16 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
   Default 600 s: a GPU source's first call compiles its pipelines, which can take minutes on Dawn
   (a path tracer took about 165 s). In the browser host it bounds every DevTools call.
 
+The commands that render the source (`check`, `inspect`, `still`, `render`, `review`) also take:
+
+- **`--param k=v`** (repeatable): a param over the defaults and the variant's; the value is JSON
+  when it parses (`--param count=4096`, `--param look=ascii`). A name the manifest's `params`
+  schema does not declare is refused: `Unknown params: x. shaderera.json declares a, b.` `render
+  --job` refuses it: a job froze its params.
+- **`<t>...`** or **`--time <s>`** (repeatable): times in seconds, inside the film: from 0 up to
+  but not including the duration (the last frame is at duration − 1/fps). `inspect` takes one,
+  `still` any number; the others take none and refuse them.
+
 The project's own console output goes to stderr, so stdout carries only the command's result. Set
 `SHADERERA_DEBUG=1` to print a full error with its stack.
 
@@ -59,7 +69,7 @@ There is no silent fallback. `npx shaderera doctor` lists the same problem as it
 
 | Flag | Default | |
 |---|---|---|
-| `--time <s>` | required | seconds, from 0 up to but not including the duration (the last frame is at duration − 1/fps) |
+| `<t>` or `--time <s>` | required | one time, see [the common flags](#common-flags) |
 | `--path <p>` | the whole JSON | `a.b`, `a[2]`, `a[id=k5]`, `a["x y"]` |
 | `--json` | off | pretty JSON instead of lines (ignores `--path`) |
 
@@ -67,7 +77,7 @@ One leaf per line, `path value`; arrays of objects with string `id`s are keyed b
 shown to 4 decimals. A source without `inspect` fails with `This source has no inspect(t).`
 
 ```
-$ shaderera inspect --time 4.1 --path camera
+$ shaderera inspect 4.1 --path camera
 camera.source src/composition.ts:37:10
 camera.id "camera"
 camera.eye [3.77, 1.6, 1.337]
@@ -125,11 +135,10 @@ Stills of any moment straight from the source, rendered by the same host as `che
 
 | Flag | Default |
 |---|---|
-| `<t>...`, `--time <s>` (repeatable) | the times, in seconds, inside the film: from 0 up to but not including the duration, so `still 6` fails on a 6 s film (its last frame is at 6 − 1/fps) |
+| `<t>...`, `--time <s>` (repeatable) | the times, see [the common flags](#common-flags): `still 6` fails on a 6 s film |
 | `--every <s>` | also a frame every s seconds from 0 |
 | `--sheet` | also a contact sheet, `<variant>-sheet.png` |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
-| `--param k=v` (repeatable) | params over the defaults and the variant's; the value is JSON when it parses |
 | `--out <dir>` | `out/stills/` |
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely |
@@ -317,9 +326,20 @@ percentiles in its box), motion (% static samples) and audio (clips and their co
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
-adapter with every feature and the storage and texture limits (asked in a child process), and more
-than one `webgpu` installed, which crashes a host, and a package plugin the project requires and
-lacks (`requires`, [above](#required-plugins)). Each lack says how to fix it.
+adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
+installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
+[above](#required-plugins)). Each lack says how to fix it.
+
+The limits are the ones films run into, as the Node host's device gets them (it asks for the
+adapter's maximum). They come from the GPU and its backend, not from Shaderera: Dawn on D3D12 caps
+a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
+
+| Limit | What it bounds |
+|---|---|
+| `maxBufferSize` | one buffer, in bytes: a particle pool or a scene's triangles must fit, or be split |
+| `maxStorageBufferBindingSize` | how much of a buffer one storage binding reads, in bytes |
+| `maxTextureDimension2D` | a 2D texture's width and height, in pixels: the frame and every render target |
+| `maxTextureArrayLayers` | the layers of one texture array, such as a stack of baked frames |
 
 ## Plugins
 

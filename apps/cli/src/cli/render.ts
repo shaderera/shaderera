@@ -12,7 +12,7 @@ import { findProject } from '../node/project.ts'
 import { DELIVERY_FLAGS, deliveryOf, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { save } from '../project/revisions.ts'
-import { childOptions, open, parse } from './args.ts'
+import { childOptions, open, parseRendering } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
   bitsPerSecond,
@@ -322,21 +322,25 @@ const encoderOf = (value: unknown): Encoder => {
 }
 
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const v = parse(argv, {
-    job: { type: 'string' },
-    from: { type: 'string' },
-    to: { type: 'string' },
-    out: { type: 'string' },
-    crf: { type: 'string' },
-    progress: { type: 'boolean' },
-    workers: { type: 'string' },
-    encoder: { type: 'string' },
-    'no-audio': { type: 'boolean' },
-    chunk: { type: 'string' },
-    plan: { type: 'string' },
-    loudness: { type: 'string' },
-    ...DELIVERY_FLAGS,
-  })
+  const { values: v } = parseRendering(
+    argv,
+    {
+      job: { type: 'string' },
+      from: { type: 'string' },
+      to: { type: 'string' },
+      out: { type: 'string' },
+      crf: { type: 'string' },
+      progress: { type: 'boolean' },
+      workers: { type: 'string' },
+      encoder: { type: 'string' },
+      'no-audio': { type: 'boolean' },
+      chunk: { type: 'string' },
+      plan: { type: 'string' },
+      loudness: { type: 'string' },
+      ...DELIVERY_FLAGS,
+    },
+    { command: 'render', times: false },
+  )
   const audio = v['no-audio'] !== true
   const loudness = v.loudness === undefined ? undefined : Number(v.loudness)
   if (loudness !== undefined && !Number.isFinite(loudness))
@@ -356,6 +360,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     )
   const video = videoOptionsOf(delivery)
   checkVideoOptions(video)
+  if (job && v.param !== undefined)
+    throw new Error(`Job ${job.name} froze its params; make a new job with shaderera job --params.`)
   if (job && v.host !== undefined && v.host !== job.host)
     throw new Error(
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,

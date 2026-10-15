@@ -36,9 +36,12 @@ is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `r
 | `look-paper-edges` | component | a print on paper: cut out along any shape with a paper border, or a strip cut straight or torn, with white core and fibre | a collage POC, 2026-10-14 |
 | `look-row-glitch` | component | bands of rows thrown sideways, and a real pixel sort of runs of light, along rows or columns | split from `look-screen-passes` (0.2.0) |
 | `look-screen-passes` | component | the frame in another medium: ascii, halftone, dither, heat, contours, pixels, inverse; ink, paper, cell and palette as parameters | opening film |
+| `look-tonemap` | component | linear light to display-referred colour through Khronos PBR Neutral or AgX, as WGSL functions and a CPU version with the same values | the Wallloom opening film's output shader |
 | `look-vignette` | component | the edges towards black or a colour, in linear light, round or the frame's shape | split from `look-screen-passes` (0.2.0) |
 | `motion-keyframes` | component | values over time with eases (a stateless spring, bezier), paths that flow through points | opening film |
+| `render-bvh` | component | ray queries against triangles on the GPU: a binned SAH tree from positions and indices, WGSL closest-hit and any-hit; no shading | the Wallloom opening film's path tracer, its traversal only |
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |
+| `render-gltf-read` | component | glTF 2.0 (.gltf + .bin, or .glb) read into plain data: each primitive's typed arrays, its node's world matrix, its material as stated; refuses Draco and other required extensions by name | the Wallloom opening film, which wrote it twice |
 | `render-image-textures` | component | PNG/JPEG decoded the same in Node and the browser, atlases for many cards, WebP and video frames to PNG once | product-studio's plumbing (no look) |
 | `render-three-host` | component | three.js WebGPURenderer on host.gpu, deterministic, the frame as a GPU texture layer | product-studio's plumbing (no look) |
 | `review-av-timeline` | component | the sound as pictures and the picture's change per frame on one timeline; picture-to-sound offsets in ms | opening film's review method |

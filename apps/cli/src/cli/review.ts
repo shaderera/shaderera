@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { outputRequirements, type Requirements, readRequirements } from '../project/requirements.ts'
 import { type Check, review } from '../review/review.ts'
-import { open, parse } from './args.ts'
+import { open, parseRendering } from './args.ts'
 import { EXIT, type Finding, found } from './findings.ts'
 
 const SEVERITY = { fail: 'error', unknown: 'warning', info: 'info' } as const
@@ -36,14 +36,18 @@ export const formatCheck = (c: Check): string =>
   [`${mark[c.status]} ${c.title}`, c.measured, c.detail].filter(Boolean).join(' · ') +
   (c.at?.length ? ` @ ${c.at.slice(0, 8).join(', ')}` : '')
 
-/** `shaderera review [--variant name] [--out dir] [--requirements file] [--quick]` */
+/** `shaderera review [--variant name] [--out dir] [--requirements file] [--quick] [--param k=v]...` */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const v = parse(argv, {
-    out: { type: 'string' },
-    requirements: { type: 'string' },
-    quick: { type: 'boolean' },
-    json: { type: 'boolean' },
-  })
+  const { values: v } = parseRendering(
+    argv,
+    {
+      out: { type: 'string' },
+      requirements: { type: 'string' },
+      quick: { type: 'boolean' },
+      json: { type: 'boolean' },
+    },
+    { command: 'review', times: false },
+  )
   const { project, child } = await open(v)
   try {
     const variant = typeof v.variant === 'string' ? v.variant : undefined

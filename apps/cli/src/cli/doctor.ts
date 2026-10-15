@@ -17,7 +17,27 @@ export type DoctorItem = {
   /** What a render, a still or a delivery cannot do without it. */
   needed: boolean
   fix?: string
+  /** The `gpu` item: the adapter's limits a film runs into, as the Node host's device gets them. */
+  limits?: { [name: string]: number }
 }
+
+/**
+ * The limits films run into: one buffer's size, one storage binding's, a 2D texture's side and an
+ * array's layers. The Node host asks for each at the adapter's maximum (fullDevice), so the
+ * adapter's are the device's.
+ */
+export const LIMITS = [
+  'maxBufferSize',
+  'maxStorageBufferBindingSize',
+  'maxTextureDimension2D',
+  'maxTextureArrayLayers',
+] as const
+
+const mb = (bytes = 0) => `${(bytes / 2 ** 20).toFixed(0)} MB`
+
+/** The limits in one line: `buffers to 2048 MB, storage binding 2048 MB, textures to 16384 px, 2048 layers`. */
+export const limitsLine = (l: { [name: string]: number }) =>
+  `buffers to ${mb(l.maxBufferSize)}, storage binding ${mb(l.maxStorageBufferBindingSize)}, textures to ${l.maxTextureDimension2D} px, ${l.maxTextureArrayLayers} layers`
 
 const firstLine = (cmd: string, args: string[]) => {
   const r = spawnSync(cmd, args, { encoding: 'utf8', timeout: 20_000 })
@@ -49,8 +69,7 @@ const probeGpu = (root: string) => {
       version,
       adapter: info ? [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') : null,
       features: adapter ? [...adapter.features].sort() : [],
-      maxStorageBufferBindingSize: adapter?.limits.maxStorageBufferBindingSize,
-      maxTextureDimension2D: adapter?.limits.maxTextureDimension2D,
+      limits: adapter ? Object.fromEntries(${JSON.stringify(LIMITS)}.map((k) => [k, adapter.limits[k]])) : {},
     }))
     process.exit(0)`
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -63,8 +82,7 @@ const probeGpu = (root: string) => {
       version: string
       adapter: string | null
       features: string[]
-      maxStorageBufferBindingSize?: number
-      maxTextureDimension2D?: number
+      limits: { [name: string]: number }
     }
   } catch {
     return { error: (r.stderr || r.stdout || 'no output').trim().split(/\r?\n/)[0] as string }
@@ -195,9 +213,10 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
         id: 'gpu',
         status: gpu.adapter ? 'ok' : 'missing',
         detail: gpu.adapter
-          ? `${gpu.adapter}; ${gpu.features.length} features (${gpu.features.join(', ')}); storage binding ${((gpu.maxStorageBufferBindingSize ?? 0) / 2 ** 20).toFixed(0)} MB, textures to ${gpu.maxTextureDimension2D} px`
+          ? `${gpu.adapter}; ${gpu.features.length} features (${gpu.features.join(', ')}); ${limitsLine(gpu.limits)}`
           : 'Dawn found no GPU adapter',
         needed: true,
+        ...(gpu.adapter ? { limits: gpu.limits } : {}),
       })
     }
     // Two Dawns in one process crash it (decision 0011, G2): more than one webgpu installed.
