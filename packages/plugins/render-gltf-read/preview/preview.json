@@ -1,0 +1,12 @@
+{
+  "caption": "Reads a glTF or GLB model into plain arrays of points, normals and triangles, each part with its place in the scene and its material.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 3
+}

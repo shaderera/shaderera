@@ -5,7 +5,8 @@ For requests about a physical product shown in 3D: a supplied model, an original
 ## The subject decides the route
 - **A supplied model** (GLB or glTF + textures): import it as the subject and keep its geometry
   and materials. Report unsupported features (Draco, KTX2, meshopt, skins, morph targets) instead
-  of dropping them, and put the model report in `inspect().subject`.
+  of dropping them, and put the model report in `inspect().subject`. The `render-gltf-read`
+  plugin reads one into plain arrays, refuses what it cannot read and lists what it leaves out.
 - **A real product with no model:** do not build a stand-in and call it the product. Say the model
   is missing (a `blocked` or `missing` item in requirements.json), and offer the photo route
   (`guides/photo.md`) if a photo exists.

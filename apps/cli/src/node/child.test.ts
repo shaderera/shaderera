@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { sha256 } from '@shaderera/core/host'
@@ -103,8 +103,11 @@ test('a hung source fails the call after timeoutMs and closes without a crash', 
 })
 
 test('the CLI inspects, checks and renders the tiny project', () => {
+  // A copy: render saves a revision into the project it renders.
+  const root = mkdtempSync(join(tmpdir(), 'shaderera-tiny-'))
+  cpSync(tiny, root, { recursive: true, filter: (f) => !/[/](out|\.shaderera|versions)$/.test(f) })
   const cli = (...args: string[]) =>
-    spawnSync(process.execPath, [bin, ...args], { cwd: tiny, encoding: 'utf8' })
+    spawnSync(process.execPath, [bin, ...args], { cwd: root, encoding: 'utf8' })
   const inspect = cli('inspect', '--time', '0.5')
   assert.equal(inspect.status, 0, inspect.stderr)
   assert.match(inspect.stdout, /square\.position \[18, 8\]/)
@@ -112,8 +115,7 @@ test('the CLI inspects, checks and renders the tiny project', () => {
   assert.equal(check.status, 0, check.stderr)
   assert.match(check.stdout, /✓ deterministic: 5 timestamps/)
   if (spawnSync('ffmpeg', ['-version']).status !== 0) return
-  const out = join(tiny, 'out', 'tiny.mp4')
-  rmSync(out, { force: true })
+  const out = join(root, 'out', `${basename(root)}.mp4`)
   const render = cli('render')
   assert.equal(render.status, 0, render.stderr)
   const probe = spawnSync(
