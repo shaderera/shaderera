@@ -31,6 +31,7 @@
           "look-screen-passes",
           "look-vignette",
           "motion-keyframes",
+          "render-bvh",
           "render-gaussian-splats",
           "render-image-textures",
           "render-three-host",
@@ -358,6 +359,13 @@
       "label": "motion-keyframes",
       "params": {
         "item": "motion-keyframes",
+        "state": "default"
+      }
+    },
+    "render-bvh": {
+      "label": "render-bvh",
+      "params": {
+        "item": "render-bvh",
         "state": "default"
       }
     },
