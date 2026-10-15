@@ -1,0 +1,12 @@
+{
+  "caption": "Finds where rays meet a mesh's triangles on the GPU, the nearest hit or any at all, through a tree built from the mesh.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.4
+}

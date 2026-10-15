@@ -43,6 +43,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           ? resolve(v.out)
           : join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
       quality: job.delivery.quality,
+      revision: job.revision,
       audio: v['no-audio'] !== true,
       ...(loudness === undefined ? {} : { loudness }),
       frames: {
