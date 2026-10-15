@@ -164,7 +164,10 @@ test('sound made in code is mixed like a file, in both hosts', async () => {
   for (const open of [node, () => openBrowserChild(project, {})]) {
     const child = await open()
     try {
-      const done = await exportVideo(project, child, { out: join(root, 'out', 'pcm.mp4') })
+      const done = await exportVideo(project, child, {
+        out: join(root, 'out', 'pcm.mp4'),
+        revision: 'test',
+      })
       assert.equal(done.probe.audio?.sampleRate, 48000)
       // The same tone as a mono WAV file, mixed the same way, measures the same.
       const file = mixLoudness([{ src: 'tone', file: wav, at: 0.25 }], 0, 1)

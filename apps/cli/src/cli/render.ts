@@ -6,10 +6,12 @@ import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import type { Child, ClockReads } from '../node/child.ts'
+import { outside } from '../node/inside.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
 import { DELIVERY_FLAGS, deliveryOf, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
+import { save } from '../project/revisions.ts'
 import { childOptions, open, parseRendering } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
@@ -112,6 +114,8 @@ export const exportVideo = async (
     frames?: { input: Input; count: number; read: () => AsyncIterable<Uint8Array> }
     /** Stops the render between frames (Ctrl-C): it fails as any other error does. */
     signal?: AbortSignal
+    /** The revision that made the film, tagged on the file (`shaderera_revision`). */
+    revision: string
   },
 ): Promise<{
   out: string
@@ -157,6 +161,11 @@ export const exportVideo = async (
   const out = o.out
     ? resolve(root, o.out)
     : join(root, 'out', `${basename(root)}${extensionOf(codec)}`)
+  // Anywhere else in the project, the film would be saved into every later revision.
+  if (!outside(root, out) && outside(join(root, 'out'), out))
+    throw new Error(
+      `${out} is in the project but not in out/: render to out/ or outside the project, since every other file in it is saved into each revision.`,
+    )
   mkdirSync(dirname(out), { recursive: true })
   const partial = `${out}.partial`
   // Project files as they are; sound made in code as temporary WAVs.
@@ -212,6 +221,7 @@ export const exportVideo = async (
       ...(o.maxrate ? { maxrate: o.maxrate } : {}),
       ...(o.editList === false ? { editList: false } : {}),
       ...(level ? { gainDb: level.gainDb } : {}),
+      revision: o.revision,
     })
     let next = 0
     const sink = ffmpegSink(args, input, codec !== 'prores-4444')
@@ -356,6 +366,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     throw new Error(
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
     )
+  // What the output is traced to: the job's revision, or the working tree saved now (the same
+  // files give the same id, so an unchanged project saves nothing new).
+  const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const { project, child, more } = job ? await openJob(root, job, childOptions(v)) : await open(v)
   // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
   const stop = new AbortController()
@@ -440,12 +453,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       loudness,
       onFrame,
       signal: stop.signal,
+      revision,
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
     console.log(
       `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}`,
     )
     console.log(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
+    console.log(`revision: ${revision}`)
     for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) console.log(f)
     if (sound.loudness)
       console.log(

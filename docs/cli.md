@@ -165,10 +165,16 @@ its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, r
 memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
 The file must hold every frame rendered; one ffmpeg finished short is refused.
 
+Every file says which revision made it. `render` saves the project first, as `job` does (the same
+files give the same id, so nothing new is saved when nothing changed); `render --job` uses the
+job's revision and saves nothing. The id is printed (`revision: <id>`) and written into the file
+as its `shaderera_revision` tag, which `ffprobe -show_entries format_tags` shows; `deliver` tags
+its files with their job's revision too.
+
 | Flag | Default |
 |---|---|
 | `--from <s>`, `--to <s>` | 0, `duration` |
-| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory |
+| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
 | `--master` | off: review quality (crf 18). On: crf 12, preset slow |
 | `--crf <n>` | the quality's |
@@ -210,7 +216,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id. Links (symlinks, junctions) are never followed or stored |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |

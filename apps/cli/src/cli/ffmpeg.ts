@@ -302,6 +302,8 @@ export const ffmpegArgs = (o: {
   editList?: boolean
   /** The timecode of the file's first frame, written as the container's timecode. */
   timecode?: string
+  /** The revision that made the file, written as its `shaderera_revision` tag. */
+  revision?: string
   /** The muxer (`-f`), when `out`'s own name does not say it: containerOf. */
   container?: string
 }): string[] => {
@@ -344,6 +346,7 @@ export const ffmpegArgs = (o: {
     )
     if (o.clips.length > 0) args.push('-c:a', 'pcm_s24le', '-ar', '48000', '-ac', '2')
     if (o.timecode) args.push('-timecode', o.timecode)
+    if (o.revision) args.push(...revisionTag(o.revision), '-movflags', '+use_metadata_tags')
     // The mov muxer stamps the time of writing: bitexact leaves it out, so the same frames give
     // the same file.
     args.push('-fflags', '+bitexact', ...muxer(o.container), '-t', s(o.to - o.from), o.out)
@@ -382,11 +385,16 @@ export const ffmpegArgs = (o: {
   }
   // Without an edit list, B-frames' reordering would start the picture two frames late: negative
   // composition offsets keep its first frame at 0 instead (measured with -ignore_editlist).
-  args.push('-movflags', o.editList === false ? '+faststart+negative_cts_offsets' : '+faststart')
+  const tags = o.revision ? '+use_metadata_tags' : ''
+  args.push(
+    '-movflags',
+    `${o.editList === false ? '+faststart+negative_cts_offsets' : '+faststart'}${tags}`,
+  )
   if (o.editList === false) args.push('-use_editlist', '0')
   // 48 kHz stereo, as YouTube asks and the WAV handoff is (an mp4 otherwise keeps the files' rate).
   if (o.clips.length > 0) args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2')
   if (o.timecode) args.push('-timecode', o.timecode)
+  if (o.revision) args.push(...revisionTag(o.revision))
   args.push(...muxer(o.container), '-t', s(o.to - o.from), o.out)
   return args
 }
@@ -404,6 +412,9 @@ export const containerOf = (file: string, codec: Codec = 'h264'): string => {
   if (ext === '.mp4' || ext === '.m4v') return 'mp4'
   return codec === 'h264' ? 'mp4' : 'mov'
 }
+
+/** The tag that names a file's revision, so a file found later leads back to its source. */
+const revisionTag = (id: string) => ['-metadata', `shaderera_revision=${id}`]
 
 /** A rate such as `15M`, `800k` or `2500000` in bits a second; throws on anything else. */
 export const bitsPerSecond = (rate: string): number => {
@@ -533,6 +544,8 @@ export type Probe = {
   audio?: { codec: string; sampleRate: number; channels: number }
   /** Whether an mp4 or mov has an edit list (`elst`) in any track. */
   editList: boolean
+  /** The revision that made the file (its `shaderera_revision` tag), when it has one. */
+  revision?: string
 }
 
 /** Probes a rendered file with ffprobe; throws when ffprobe cannot read it. */
@@ -544,7 +557,7 @@ export const probe = (file: string): Probe => {
   )
   if (r.status !== 0) throw new Error(`ffprobe cannot read ${file}: ${r.stderr.trim()}`)
   type Stream = { [key: string]: string | number | undefined }
-  const j = JSON.parse(r.stdout) as { format: Stream; streams: Stream[] }
+  const j = JSON.parse(r.stdout) as { format: Stream & { tags?: Stream }; streams: Stream[] }
   const v = j.streams.find((x) => x.codec_type === 'video')
   const a = j.streams.find((x) => x.codec_type === 'audio')
   const num = (x: unknown) => (x === undefined ? undefined : Number(x))
@@ -587,6 +600,9 @@ export const probe = (file: string): Probe => {
         }
       : {}),
     editList: hasEditList(file),
+    ...(j.format.tags?.shaderera_revision
+      ? { revision: String(j.format.tags.shaderera_revision) }
+      : {}),
   }
 }
 
@@ -646,6 +662,7 @@ export const probeLine = (p: Probe): string =>
       ? `${p.audio.codec} ${p.audio.sampleRate / 1000} kHz ${p.audio.channels} ch`
       : 'no audio',
     p.editList ? 'edit list' : 'no edit list',
+    ...(p.revision ? [`revision ${p.revision.slice(0, 12)}`] : []),
   ].join(', ')
 
 /** A WAV of 32-bit float samples, channels interleaved. */

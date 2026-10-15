@@ -29,7 +29,7 @@ test('render refuses a source that is not deterministic and leaves no file', {
   const out = join(stateful, 'out', 'refused.mp4')
   try {
     await assert.rejects(
-      exportVideo(project, child, { out }),
+      exportVideo(project, child, { out, revision: 'test' }),
       /Not exported: the source is not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
     )
     assert.equal(existsSync(out), false)
@@ -83,6 +83,7 @@ test('the output holds the previous film until the new one is complete; a failed
     await assert.rejects(
       exportVideo(project, child, {
         out,
+        revision: 'test',
         signal: stop.signal,
         onFrame: (i) => {
           if (i !== 3) return
@@ -104,7 +105,7 @@ test('the output holds the previous film until the new one is complete; a failed
           : child.render(t, ...rest),
     }
     await assert.rejects(
-      exportVideo(project, lost, { out }),
+      exportVideo(project, lost, { out, revision: 'test' }),
       /^Error: Frame 5 \(t 0\.5 s\) failed: The WebGPU device was lost \(Device removed\)/,
     )
     assert.equal(existsSync(partial), false)
@@ -115,13 +116,19 @@ test('the output holds the previous film until the new one is complete; a failed
     const blocked = join(dirname(out), 'blocked.mp4')
     mkdirSync(join(blocked, 'inside'), { recursive: true })
     await assert.rejects(
-      exportVideo(project, child, { out: blocked }),
+      exportVideo(project, child, { out: blocked, revision: 'test' }),
       /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.partial/,
     )
     assert.equal(probe(`${blocked}.partial`).video?.frames, 10)
 
+    // In the project but not in out/: it would be saved into every later revision.
+    await assert.rejects(
+      exportVideo(project, child, { out: join(project.root, 'film.mp4'), revision: 'test' }),
+      /film\.mp4 is in the project but not in out\//,
+    )
+
     // Complete: renamed over the previous film.
-    await exportVideo(project, child, { out })
+    await exportVideo(project, child, { out, revision: 'test' })
     assert.equal(existsSync(partial), false)
     assert.equal(probe(out).video?.frames, 10)
   } finally {
@@ -137,4 +144,35 @@ test('a device error names its frame and, with several hosts, fewer --workers', 
     frameError(new Error('x is undefined'), 2, 30, 4).message,
     'Frame 60 (t 2 s) failed: x is undefined',
   )
+})
+
+test('render saves the revision it renders and tags the file; render --job saves nothing', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const root = copy('./fixtures/mcp/')
+  const cli = (...args: string[]) =>
+    spawnSync(process.execPath, [main, ...args, '--root', root], { encoding: 'utf8' })
+  const out = join(root, 'out', 'film.mp4')
+  const r = cli('render', '--out', out)
+  assert.equal(r.status, 0, r.stderr)
+  const id = /^revision: (\w+)$/m.exec(r.stdout)?.[1]
+  const versions = () => JSON.parse(cli('versions', '--json').stdout).result
+  assert.equal(versions().head, id)
+  assert.equal(probe(out).revision, id)
+
+  // Unchanged files: the same revision, and save says so instead of echoing its label.
+  assert.equal(
+    cli('save', '--label', 'again').stdout.trim(),
+    `same files as revision ${id}; label added`,
+  )
+
+  const job = cli('job', '--name', 'final', '--to', '0.5')
+  assert.equal(job.status, 0, job.stderr)
+  writeFileSync(join(root, 'notes.txt'), 'a change after the job')
+  const saves = versions().log.length
+  const frozen = cli('render', '--job', 'final')
+  assert.equal(frozen.status, 0, frozen.stderr)
+  assert.equal(versions().log.length, saves)
+  assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
 })
