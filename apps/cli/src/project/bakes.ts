@@ -109,9 +109,9 @@ const hashOf = (files: { readonly [path: string]: string }) => {
 /** The frame number a file name holds by the bake's `frames` (`beauty.####.jpg`), or none. */
 const framePattern = (frames: string) => {
   const run = /#+/.exec(frames) as RegExpExecArray
-  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const literal = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const re = new RegExp(
-    `^${escape(frames.slice(0, run.index))}(\\d{${run[0].length},})${escape(frames.slice(run.index + run[0].length))}$`,
+    `^${literal(frames.slice(0, run.index))}(\\d{${run[0].length},})${literal(frames.slice(run.index + run[0].length))}$`,
   )
   return (file: string) => {
     const m = re.exec(file)
