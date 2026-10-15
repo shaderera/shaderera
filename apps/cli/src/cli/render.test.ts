@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import type { Child } from '../node/child.ts'
 import { open } from './args.ts'
-import { exportVideo } from './render.ts'
+import { probe } from './ffmpeg.ts'
+import { exportVideo, frameError } from './render.ts'
 
 /** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
 const copy = (dir: string) => {
@@ -66,4 +68,73 @@ test('a variant renders at its own length', { skip: !ffmpeg && 'no ffmpeg' }, ()
   )
   assert.equal(r.status, 0, r.stderr)
   assert.match(r.stdout, /^5 frames in/m)
+})
+
+test('the output holds the previous film until the new one is complete; a failed render leaves it', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const { project, child } = await open({ root: copy('./fixtures/mcp/') })
+  const out = join(mkdtempSync(join(tmpdir(), 'shaderera-partial-')), 'film.mp4')
+  const partial = `${out}.partial`
+  writeFileSync(out, 'the previous film')
+  try {
+    // Interrupted midway (Ctrl-C): the new frames went to .partial, never to the output.
+    const stop = new AbortController()
+    await assert.rejects(
+      exportVideo(project, child, {
+        out,
+        signal: stop.signal,
+        onFrame: (i) => {
+          if (i !== 3) return
+          assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+          stop.abort(new Error('Interrupted'))
+        },
+      }),
+      /Interrupted/,
+    )
+    assert.equal(existsSync(partial), false)
+    assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+
+    // A host whose device is lost at 0.5 s: the render fails with that frame and never writes it.
+    const lost: Child = {
+      ...child,
+      render: (t, ...rest) =>
+        t >= 0.5
+          ? Promise.reject(new Error('The WebGPU device was lost (Device removed)'))
+          : child.render(t, ...rest),
+    }
+    await assert.rejects(
+      exportVideo(project, lost, { out }),
+      /^Error: Frame 5 \(t 0\.5 s\) failed: The WebGPU device was lost \(Device removed\)/,
+    )
+    assert.equal(existsSync(partial), false)
+    assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+
+    // Finished, but the output cannot be replaced (a folder here; on Windows, a file a player
+    // holds open): the new film is kept as .partial and the error says where it is.
+    const blocked = join(dirname(out), 'blocked.mp4')
+    mkdirSync(join(blocked, 'inside'), { recursive: true })
+    await assert.rejects(
+      exportVideo(project, child, { out: blocked }),
+      /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.partial/,
+    )
+    assert.equal(probe(`${blocked}.partial`).video?.frames, 10)
+
+    // Complete: renamed over the previous film.
+    await exportVideo(project, child, { out })
+    assert.equal(existsSync(partial), false)
+    assert.equal(probe(out).video?.frames, 10)
+  } finally {
+    await child.close()
+  }
+})
+
+test('a device error names its frame and, with several hosts, fewer --workers', () => {
+  const lost = new Error('The WebGPU device was lost (Device removed)')
+  assert.match(frameError(lost, 2, 30, 4).message, /^Frame 60 \(t 2 s\) failed: .*fewer --workers/)
+  assert.doesNotMatch(frameError(lost, 2, 30, 1).message, /--workers/)
+  assert.equal(
+    frameError(new Error('x is undefined'), 2, 30, 4).message,
+    'Frame 60 (t 2 s) failed: x is undefined',
+  )
 })
