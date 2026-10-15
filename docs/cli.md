@@ -143,12 +143,22 @@ Stills of any moment straight from the source, rendered by the same host as `che
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
+| `--compare <variant>` | none. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
+| `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet` |
 
 ```
 $ shaderera still 0 2.5 --sheet --diff
 out/stills/main-0.000.png  13 ms  differing channels after a jump: 0
 out/stills/main-2.500.png  10 ms  differing channels after a jump: 0
 out/stills/main-sheet.png
+```
+
+Before handing over a final, compare it with the variant that was approved:
+
+```
+$ shaderera still 4 16.9 --variant final --compare animatic
+out/stills/final-4.000.png  212 ms
+out/stills/final-vs-animatic-4.000.png  vs animatic: PSNR 38.41 dB, mean ΔE 0.412 (max 6.80), 18342 pixels differ
 ```
 
 ## `render`
