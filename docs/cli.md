@@ -382,5 +382,5 @@ Every command but `mcp` takes `--json`: stdout is then one JSON object, the exit
   `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and
   `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
-- `result`: the command's own JSON (`inspect`, `review`, `versions`, `doctor`, `search`,
-  `info`); `log`: the lines any other command printed.
+- `result`: the command's own JSON (`inspect`, `still`, `review`, `versions`, `doctor`,
+  `search`, `info`); `log`: the lines any other command printed.
