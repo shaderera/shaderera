@@ -210,7 +210,7 @@ export const checkBakes = (root: string, manifest: Manifest): BakeFrames => {
     out[name] = checkFrames(
       `Bake ${name}`,
       bakeDir(root, bake),
-      bake,
+      bake.frames,
       stamp.frames,
       `Run ${again}.`,
     )
@@ -226,11 +226,11 @@ export const checkBakes = (root: string, manifest: Manifest): BakeFrames => {
 export const checkFrames = (
   what: string,
   dir: string,
-  bake: Bake,
+  pattern: string,
   frames: BakeStamp['frames'],
   fix: string,
 ) => {
-  const number = framePattern(bake.frames)
+  const number = framePattern(pattern)
   return frames.map((f, i) => {
     if (number(f.file) !== i) throw new Error(`${what}: ${f.file} is not its frame ${i}. ${fix}`)
     const file = join(dir, f.file)
@@ -240,3 +240,63 @@ export const checkFrames = (
     return file
   })
 }
+
+/**
+ * What a job pins of each bake its source reads: the stamp's inputs, the folder as it resolved
+ * when the job was made, the frames' names and every frame's size and hash.
+ */
+export type JobBakes = {
+  [name: string]: { inputs: string; dir: string; pattern: string; frames: BakeStamp['frames'] }
+}
+
+/**
+ * The bakes a revision's manifest declares, pinned for a job: each stamp must have been made from
+ * the inputs as that revision has them (`files`, path → sha256), and its frames must be there.
+ */
+export const pinBakes = (
+  root: string,
+  manifest: Manifest,
+  revision: string,
+  files: { readonly [path: string]: string },
+): JobBakes => {
+  const pinned: JobBakes = {}
+  for (const [name, bake] of Object.entries(manifest.bakes ?? {})) {
+    const again = `shaderera bake ${name}`
+    const stamp = readStamp(root, name)
+    if (!stamp) throw new Error(`Bake ${name} has not been made: ${again}.`)
+    if (JSON.stringify(stamp.bake) !== JSON.stringify(bake))
+      throw new Error(
+        `Bake ${name} was made from another declaration than revision ${revision}'s: ${again}.`,
+      )
+    if (hashInputs(root, bake.inputs, files).hash !== stamp.inputs.hash)
+      throw new Error(
+        `Bake ${name} was made from other inputs than revision ${revision} has: bake it from that revision (shaderera restore ${revision}, then ${again}), or make the job from the revision it was made from.`,
+      )
+    const dir = bakeDir(root, bake)
+    checkFrames(`Bake ${name}`, dir, bake.frames, stamp.frames, `Run ${again}.`)
+    pinned[name] = { inputs: stamp.inputs.hash, dir, pattern: bake.frames, frames: stamp.frames }
+  }
+  return pinned
+}
+
+/**
+ * A job's bakes as it pinned them, each frame still there with its hash: the frames its host
+ * reads. Throws naming the bake and the way back.
+ */
+export const checkJobBakes = (job: {
+  name: string
+  revision: string
+  inputs: { bakes?: JobBakes }
+}): BakeFrames =>
+  Object.fromEntries(
+    Object.entries(job.inputs.bakes ?? {}).map(([name, pin]) => [
+      name,
+      checkFrames(
+        `Bake ${name} no longer matches job ${job.name}`,
+        pin.dir,
+        pin.pattern,
+        pin.frames,
+        `Bake it again from the job's revision (shaderera restore ${job.revision}, then shaderera bake ${name}), or make a new job.`,
+      ),
+    ]),
+  )
