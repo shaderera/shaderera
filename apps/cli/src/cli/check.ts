@@ -2,7 +2,7 @@ import type { DeterminismReport, Manifest } from '@shaderera/core'
 import { checkDeterminism, diffPixels } from '@shaderera/core'
 import { type SeekStats, sampleTimes } from '@shaderera/core/host'
 import type { Child, ClockReads } from '../node/child.ts'
-import { open, parse } from './args.ts'
+import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { EXIT, found } from './findings.ts'
 
@@ -69,9 +69,13 @@ export const checkChild = async (
   return { ...report, times, what, msPerFrame, previewVsFinal: { mean, max, at }, seeks, clock }
 }
 
-/** `shaderera check [--times 50] [--seed 1]` */
+/** `shaderera check [--times 50] [--seed 1] [--param k=v]...` */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const v = parse(argv, { times: { type: 'string' }, seed: { type: 'string' } })
+  const { values: v } = parseRendering(
+    argv,
+    { times: { type: 'string' }, seed: { type: 'string' } },
+    { command: 'check', times: false },
+  )
   const { project, child } = await open(v)
   try {
     const r = await checkChild(child, project.manifest, {

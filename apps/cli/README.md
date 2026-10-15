@@ -9,7 +9,7 @@ npx shaderera check                   # the same t gives the same state and pixe
 npx shaderera render                  # export (needs ffmpeg on PATH)
 npx shaderera review                  # stills, safe areas and checks for a person to look at
 npx shaderera deliver                 # every format the project declares
-npx shaderera inspect --time 4.13     # the state at t
+npx shaderera inspect 4.13            # the state at t
 npx shaderera mcp                     # the same operations as MCP tools over stdio
 ```
 
