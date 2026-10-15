@@ -14,7 +14,11 @@ folder they are written to (anywhere: that film's frames had to live on another 
 they are named (`beauty.####.jpg`, from 0).
 
 - `shaderera bake <name>` runs the command in the project folder with the person's rights, the
-  same trust as the Vite config or an npm script. A render never runs it.
+  same trust as the Vite config or an npm script. A render never runs it. Frames an earlier run
+  left are removed first, so every frame stamped is one this run wrote.
+- Inputs are listed as a revision lists them, so a stamp and a revision always agree on what an
+  input holds. A bake's folder inside the project goes under `out/`: anywhere else, its frames
+  would be saved into every revision.
 - When it exits 0, it stamps what it made in `versions/bakes/<name>.json`: the inputs' hash, and
   every frame's size and hash. Inputs that change while it runs are refused.
 - Every command that renders checks each declared bake against its stamp before the source opens.

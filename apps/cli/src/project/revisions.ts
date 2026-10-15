@@ -88,19 +88,25 @@ export const hashFile = (file: string, to?: string): string => {
 
 /**
  * The project's files as they are now: path (with `/`) → sha256. Links are skipped, and listed in
- * `links` when it is given.
+ * `links` when it is given. `keep` narrows it to some paths (a bake's inputs): a folder it
+ * refuses is not entered, a file it refuses not hashed.
  */
-export const scan = (root: string, links?: string[]): Files => {
+export const scan = (
+  root: string,
+  links?: string[],
+  keep: (path: string, folder: boolean) => boolean = () => true,
+): Files => {
   const files: Files = {}
   const walk = (dir: string) => {
     for (const name of readdirSync(dir).sort()) {
       if (ANYWHERE.has(name) || TEMPORARY.test(name) || (dir === root && ROOT_ONLY.has(name)))
         continue
       const full = join(dir, name)
+      const path = slash(relative(root, full))
       const s = lstatSync(full)
-      if (s.isSymbolicLink()) links?.push(slash(relative(root, full)))
-      else if (s.isDirectory()) walk(full)
-      else if (s.isFile()) files[slash(relative(root, full))] = hashFile(full)
+      if (s.isSymbolicLink()) links?.push(path)
+      else if (s.isDirectory()) keep(path, true) && walk(full)
+      else if (s.isFile() && keep(path, false)) files[path] = hashFile(full)
     }
   }
   walk(root)
