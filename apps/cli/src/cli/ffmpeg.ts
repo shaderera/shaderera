@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { extname, join, resolve } from 'node:path'
 import type { Pcm, SampledClip, Sink } from '@shaderera/core'
 import { fpsFraction, gainAt, matte } from '@shaderera/core/host'
 
@@ -304,6 +304,8 @@ export const ffmpegArgs = (o: {
   timecode?: string
   /** The revision that made the file, written as its `shaderera_revision` tag. */
   revision?: string
+  /** The muxer (`-f`), when `out`'s own name does not say it: containerOf. */
+  container?: string
 }): string[] => {
   const codec = o.codec ?? 'h264'
   const prores = codec !== 'h264'
@@ -347,8 +349,7 @@ export const ffmpegArgs = (o: {
     if (o.revision) args.push(...revisionTag(o.revision), '-movflags', '+use_metadata_tags')
     // The mov muxer stamps the time of writing: bitexact leaves it out, so the same frames give
     // the same file.
-    // The container by name: the file may be written as `<out>.partial` (exportVideo).
-    args.push('-fflags', '+bitexact', '-f', 'mov', '-t', s(o.to - o.from), o.out)
+    args.push('-fflags', '+bitexact', ...muxer(o.container), '-t', s(o.to - o.from), o.out)
     return args
   }
   const sdr: readonly string[] = yuv ? ['-vf', TAGS, ...SDR_BT709.slice(2)] : SDR_BT709
@@ -394,8 +395,22 @@ export const ffmpegArgs = (o: {
   if (o.clips.length > 0) args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2')
   if (o.timecode) args.push('-timecode', o.timecode)
   if (o.revision) args.push(...revisionTag(o.revision))
-  args.push('-f', 'mp4', '-t', s(o.to - o.from), o.out)
+  args.push(...muxer(o.container), '-t', s(o.to - o.from), o.out)
   return args
+}
+
+const muxer = (container?: string) => (container ? ['-f', container] : [])
+
+/**
+ * The muxer a file name's extension asks for, as ffmpeg would pick it: for a file written under
+ * another name first (`<out>.partial`, exportVideo).
+ */
+export const containerOf = (file: string, codec: Codec = 'h264'): string => {
+  const ext = extname(file).toLowerCase()
+  if (ext === '.mov') return 'mov'
+  if (ext === '.mkv') return 'matroska'
+  if (ext === '.mp4' || ext === '.m4v') return 'mp4'
+  return codec === 'h264' ? 'mp4' : 'mov'
 }
 
 /** The tag that names a file's revision, so a file found later leads back to its source. */

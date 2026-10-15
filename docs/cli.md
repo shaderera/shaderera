@@ -149,7 +149,9 @@ written in order. What each format is, and what was measured: [delivery.md](deli
 
 The file is written as `<out>.partial` and renamed to `<out>` only when it is complete: while a
 render runs, `<out>` is the previous film or nothing, never half a film. A render that fails or is
-stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was. A host error fails the render with
+stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
+finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
+kept as `<out>.partial` and the error says so. A host error fails the render with
 its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
 memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
 The file must hold every frame rendered; one ffmpeg finished short is refused.
@@ -163,7 +165,7 @@ its files with their job's revision too.
 | Flag | Default |
 |---|---|
 | `--from <s>`, `--to <s>` | 0, `duration` |
-| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory |
+| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
 | `--master` | off: review quality (crf 18). On: crf 12, preset slow |
 | `--crf <n>` | the quality's |

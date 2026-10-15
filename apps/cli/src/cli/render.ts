@@ -6,6 +6,7 @@ import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import type { Child, ClockReads } from '../node/child.ts'
+import { outside } from '../node/inside.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
 import { DELIVERY_FLAGS, deliveryOf, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
@@ -18,6 +19,7 @@ import {
   CODECS,
   type Codec,
   clipFiles,
+  containerOf,
   type Encoder,
   ffmpegArgs,
   ffmpegSink,
@@ -159,6 +161,11 @@ export const exportVideo = async (
   const out = o.out
     ? resolve(root, o.out)
     : join(root, 'out', `${basename(root)}${extensionOf(codec)}`)
+  // Anywhere else in the project, the film would be saved into every later revision.
+  if (!outside(root, out) && outside(join(root, 'out'), out))
+    throw new Error(
+      `${out} is in the project but not in out/: render to out/ or outside the project, since every other file in it is saved into each revision.`,
+    )
   mkdirSync(dirname(out), { recursive: true })
   const partial = `${out}.partial`
   // Project files as they are; sound made in code as temporary WAVs.
@@ -170,6 +177,9 @@ export const exportVideo = async (
   // Everything that can throw is inside the try, so the hosts opened here are always closed.
   let opened: Child[] = []
   let cleanup = () => {}
+  // The finished film when only its rename failed; stems this render began to write.
+  let finished = false
+  let stemsWritten = false
   try {
     const gains = withGainFiles(files.clips, head, to)
     cleanup = gains.cleanup
@@ -200,6 +210,7 @@ export const exportVideo = async (
         ? { timecode: fileTimecode(manifest, from, preroll.frames) }
         : {}),
       out: partial,
+      container: containerOf(out, codec),
       quality: o.quality,
       crf: o.crf,
       clips,
@@ -245,11 +256,20 @@ export const exportVideo = async (
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
     const loudness = clips.length > 0 ? measureLoudness(partial) : null
-    renameSync(partial, out)
-    const stems =
-      o.stems && clips.length > 0
-        ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
-        : undefined
+    try {
+      renameSync(partial, out)
+    } catch (error) {
+      // Windows refuses to replace a file another program holds open (a player showing the last
+      // film): the new one is finished, so it is kept, never thrown away.
+      finished = true
+      throw new Error(
+        `The film is finished, but ${out} could not be replaced (${(error as NodeJS.ErrnoException).code}): is it open in another program? The new film is ${partial}; close ${out} and rename it.`,
+      )
+    }
+    stemsWritten = o.stems === true && clips.length > 0
+    const stems = stemsWritten
+      ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
+      : undefined
     const clock = await clockOf(hosts)
     const captions = await child.captions()
     if (captions) {
@@ -273,9 +293,10 @@ export const exportVideo = async (
       ...(sidecars.length ? { captions: sidecars } : {}),
     }
   } catch (error) {
-    rmSync(partial, { force: true })
+    if (!finished) rmSync(partial, { force: true })
     for (const f of sidecars) rmSync(f, { force: true })
-    if (o.stems) rmSync(`${base}.stems`, { recursive: true, force: true })
+    // Only stems this render wrote: the previous film's stay with it.
+    if (stemsWritten) rmSync(`${base}.stems`, { recursive: true, force: true })
     throw error
   } finally {
     await Promise.all(opened.map((h) => h.close()))
@@ -343,11 +364,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // files give the same id, so an unchanged project saves nothing new).
   const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const { project, child, more } = job ? await openJob(root, job, childOptions(v)) : await open(v)
-  // Ctrl-C stops the render between frames, so it fails like any other: no .partial is left.
+  // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
   const stop = new AbortController()
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
-  process.once('SIGINT', interrupt)
-  process.once('SIGTERM', interrupt)
   // The progress line goes to a terminal, or to a reader that asks (--progress);
   // piped into a log, it would be one line per frame.
   const progress = process.stderr.isTTY || v.progress === true
@@ -400,6 +419,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         console.log(`audio: ${loudnessLine(done.record.audio.loudness)}`)
       return 0
     }
+    // Only around the video export: a chunk or a png job keeps the default Ctrl-C.
+    process.once('SIGINT', interrupt)
+    process.once('SIGTERM', interrupt)
     const from = job?.output.from ?? num(v.from) ?? 0
     const to = job?.output.to ?? num(v.to) ?? project.manifest.duration
     const ext = extensionOf(video.codec)
