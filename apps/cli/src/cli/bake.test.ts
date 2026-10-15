@@ -91,7 +91,8 @@ test('a job pins the bakes its source reads; render --job refuses one that no lo
   const stamp = JSON.parse(readFileSync(join(root, 'versions', 'bakes', 'glow.json'), 'utf8'))
   assert.deepEqual(job.inputs.bakes.glow, {
     inputs: stamp.inputs.hash,
-    dir: stamp.dir,
+    dir: join(root, '..', 'glow'),
+    pattern: 'glow.###.bin',
     frames: stamp.frames,
   })
   const rendered = cli('render', '--job', 'final')
@@ -120,4 +121,47 @@ test('a job pins the bakes its source reads; render --job refuses one that no lo
     cli('job', '--name', 'other').stderr,
     /Bake glow was made from other inputs than revision \w+ has/,
   )
+})
+
+test('a bake stamps only what this run wrote, follows the project when it moves, and keeps out of revisions', () => {
+  const base = mkdtempSync(join(tmpdir(), 'shaderera-bake-'))
+  const root = join(base, 'film')
+  cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
+  const cli = (at: string, ...args: string[]) =>
+    spawnSync(process.execPath, [main, ...args, '--root', at], { encoding: 'utf8' })
+  const manifest = join(root, 'shaderera.json')
+  const declare = (change: (bake: { [key: string]: unknown }) => void) => {
+    const m = JSON.parse(readFileSync(manifest, 'utf8'))
+    change(m.bakes.glow)
+    writeFileSync(manifest, JSON.stringify(m))
+  }
+
+  // Inputs as a revision lists them: `.` leaves out node_modules, out/ and the stamp itself.
+  declare((b) => {
+    b.inputs = ['.']
+  })
+  cpSync(join(root, 'tools'), join(root, 'node_modules', 'x'), { recursive: true })
+  assert.equal(cli(root, 'bake').status, 0)
+  writeFileSync(join(root, 'node_modules', 'x', 'make.mjs'), '// changed')
+  assert.equal(cli(root, 'check', '--times', '2').status, 0)
+  // A job lists the inputs from its revision by the same rules, so the stamp matches it.
+  const job = cli(root, 'job', '--name', 'dot')
+  assert.equal(job.status, 0, job.stderr)
+
+  // A frame left from an earlier, longer run is removed, never stamped as fresh.
+  writeFileSync(join(base, 'glow', 'glow.010.bin'), new Uint8Array([1]))
+  assert.equal(cli(root, 'bake').status, 0)
+  assert.equal(existsSync(join(base, 'glow', 'glow.010.bin')), false)
+
+  // Moved with its frames: the declared dir is read where the project is now.
+  const moved = join(mkdtempSync(join(tmpdir(), 'shaderera-moved-')), 'film')
+  cpSync(base, join(moved, '..'), { recursive: true })
+  rmSync(join(base, 'glow'), { recursive: true })
+  assert.equal(cli(moved, 'check', '--times', '2').status, 0)
+
+  // In the project, a bake's folder goes under out/.
+  declare((b) => {
+    b.dir = 'frames'
+  })
+  assert.match(cli(root, 'bake').stderr, /A bake's dir in the project goes under out\//)
 })
