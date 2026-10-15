@@ -63,3 +63,22 @@ test('withVariant applies a variant to the manifest and returns its params', () 
   assert.deepEqual(withVariant(m), { manifest: m, params: {} })
   assert.throws(() => withVariant(m, 'square'), /no variant "square"/)
 })
+
+test('bakes: a command, its inputs, a folder and frame names with one run of #s', () => {
+  const bake = {
+    command: 'node tools/trace.ts',
+    inputs: ['src/scene.json'],
+    dir: 'D:/frames',
+    frames: 'beauty.####.jpg',
+  }
+  assert.deepEqual(checkManifest({ ...good, bakes: { trace: bake } }).bakes, { trace: bake })
+  assert.throws(
+    () =>
+      checkManifest({
+        ...good,
+        bakes: { trace: { ...bake, frames: 'beauty.jpg', inputs: 'x', more: 1 } },
+      }),
+    /bakes\.trace\.inputs must be a list of project paths; bakes\.trace\.frames must be a file name with one run of #s, such as beauty\.####\.jpg; bakes\.trace: unknown key "more"/,
+  )
+  assert.throws(() => checkManifest({ ...good, bakes: { 'a b': bake } }), /bakes\.a b: a name is/)
+})

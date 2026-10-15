@@ -15,6 +15,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`plan`, `assemble`](#plan-render---chunk-assemble) | render a job's chunks on several machines |
 | [`handoff`](#handoff) | a frozen project, its job and `REPRODUCE.md` in `out/handoff/<job>/` |
 | [`review`](#review) | principal frames, a contact sheet and technical checks |
+| [`bake`](#bake) | run a bake's command and stamp the frames it made outside the host |
 | [`doctor`](#doctor) | what this machine and project have and lack |
 | [`search`, `info`, `add`, `remove`, `publish`](#plugins) | find, copy in, remove and publish plugins |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
@@ -304,6 +305,25 @@ percentiles in its box), motion (% static samples) and audio (clips and their co
 ✓ readback · mean luma diff 1.43 on a 108×135 grid, 1080 vs 1088 px wide at t=6 (limit 4) @ 6
 /path/to/project/out/review/contact-sheet.png
 8 frames in 4.4 s
+```
+
+## `bake`
+
+`shaderera bake [name...]` runs each named [bake](protocol.md#bakes)'s command (every declared
+bake when none is named) in the project folder, with your rights, and when it exits 0 stamps the
+frames it made in `versions/bakes/<name>.json`: the inputs' hash, and each frame's size and hash.
+
+```
+$ shaderera bake beauty
+beauty: 360 frames, 412.6 MB in D:eauty, 1843.2 s; stamped
+```
+
+A command that fails, writes no frames, or leaves a gap in their numbers stamps nothing, and an
+input that changed while it ran is refused. `check`, `inspect`, `still`, `render` and `review`
+refuse a bake that is not made or stale, before anything renders:
+
+```
+shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run shaderera bake beauty.
 ```
 
 ## `doctor`

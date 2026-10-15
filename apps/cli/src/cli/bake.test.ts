@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
+import { decode } from 'fast-png'
+
+const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
+
+/**
+ * The fixture's bake writes one byte a frame (level.txt + the frame number) into `../glow`, a
+ * folder outside the project; the source paints the byte as a grey.
+ */
+test('a bake is made and stamped, read by the host, and refused when stale or changed', () => {
+  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-bake-')), 'film')
+  cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
+  const glow = join(root, '..', 'glow')
+  const out = join(root, 'out', 'stills')
+  const cli = (...args: string[]) =>
+    spawnSync(process.execPath, [main, ...args, '--root', root], { encoding: 'utf8' })
+  const grey = (t: string, ...flags: string[]) => {
+    const r = cli('still', t, '--out', out, ...flags)
+    assert.equal(r.status, 0, r.stderr)
+    return decode(readFileSync(join(out, `main-${Number(t).toFixed(3)}.png`))).data[0]
+  }
+  const refused = (pattern: RegExp) => {
+    for (const command of [['check', '--times', '2'], ['still', '0'], ['render']]) {
+      const r = cli(...command)
+      assert.equal(r.status, 2, `${command[0]}: ${r.stderr}`)
+      assert.match(r.stderr, pattern, command[0])
+    }
+  }
+
+  refused(/Bake glow has not been made: shaderera bake glow\./)
+  const made = cli('bake')
+  assert.equal(made.status, 0, made.stderr)
+  assert.match(made.stdout, /^glow: 10 frames, .* stamped$/m)
+  const stamp = JSON.parse(readFileSync(join(root, 'versions', 'bakes', 'glow.json'), 'utf8'))
+  assert.equal(stamp.frames.length, 10)
+  assert.deepEqual(Object.keys(stamp.inputs.files), ['level.txt', 'tools/make.mjs'])
+
+  // Read through the host, from outside the project; in the browser host too.
+  assert.equal(grey('0.5'), 45)
+  assert.equal(grey('0.3', '--host', 'browser'), 43)
+  if (ffmpeg) assert.equal(cli('render', '--out', join(root, 'out', 'f.mp4')).status, 0)
+  // The bake's folder is read only through io.bake: io.read still refuses it.
+  const peek = cli('inspect', '0', '--param', `peek=${join(glow, 'glow.000.bin')}`, '--json')
+  assert.match(JSON.parse(peek.stdout).result.peek, /outside the project/)
+
+  writeFileSync(join(root, 'level.txt'), '90')
+  refused(/Bake glow is stale: level\.txt changed since it was made\. Run shaderera bake glow\./)
+  assert.equal(cli('bake', 'glow').status, 0)
+  assert.equal(grey('0.5'), 95)
+
+  writeFileSync(join(glow, 'glow.003.bin'), new Uint8Array([1]))
+  refused(/Bake glow: glow\.003\.bin changed since it was made\. Run shaderera bake glow\./)
+  rmSync(join(glow, 'glow.003.bin'))
+  refused(/Bake glow: glow\.003\.bin is missing from .*glow\. Run shaderera bake glow\./)
+  assert.equal(cli('bake').status, 0)
+  assert.ok(existsSync(join(glow, 'glow.003.bin')))
+})
+
+test('a bake whose command fails, or names another bake, stamps nothing', () => {
+  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-bake-')), 'film')
+  cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
+  writeFileSync(join(root, 'tools', 'make.mjs'), 'process.exit(3)\n')
+  const cli = (...args: string[]) =>
+    spawnSync(process.execPath, [main, ...args, '--root', root], { encoding: 'utf8' })
+  assert.match(
+    cli('bake').stderr,
+    /bake glow: node tools\/make\.mjs exited with 3; nothing was stamped/,
+  )
+  assert.equal(existsSync(join(root, 'versions', 'bakes', 'glow.json')), false)
+  assert.match(cli('bake', 'snow').stderr, /declares no bake "snow" \(it declares glow\)/)
+})

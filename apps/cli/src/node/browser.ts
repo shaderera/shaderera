@@ -18,6 +18,7 @@ import { type Child, TIMEOUT } from './child.ts'
 import type { Project } from './project.ts'
 import { FRAME_PATH, frameUploads, RUNNER_PATH } from './runner-plugin.ts'
 import { freePort, HOST, startRunner } from './runner-server.ts'
+import type { BakeFrames } from './services.ts'
 
 export const chromePath = () =>
   process.env.CHROME ??
@@ -133,6 +134,8 @@ export const openBrowserChild = async (
     /** Overrides the manifest's frame size (review's resized reopen). */
     size?: { width: number; height: number }
     timeoutMs?: number
+    /** The bakes' frames, checked against their stamps: what io.bake reads. */
+    bakes?: BakeFrames
   } = {},
 ): Promise<Child> => {
   const chrome = chromePath()
@@ -152,6 +155,7 @@ export const openBrowserChild = async (
         studioOrigins: ["'none'"],
         port,
         cacheDir: join(profile, 'vite'),
+        ...(o.bakes ? { bakes: o.bakes } : {}),
       })
     } catch (error) {
       // Vite's strictPort throws a plain "Port N is already in use".

@@ -154,6 +154,12 @@ _Avoid_: archive, bundle
 A plan splits a job into chunks of whole frames, each rendered anywhere and then assembled into
 one file that equals a single render.
 
+**Bake**:
+Frames a film reads that were made outside the host by a command the manifest declares, from
+declared inputs. `shaderera bake` makes and stamps them; every command that renders refuses a bake
+whose inputs or frames changed since its stamp.
+_Avoid_: cache (`io.cache` is derived bytes the host makes itself), render pass
+
 **Preroll**:
 Whole frames before a delivery's first frame (black, or the film at negative times), for a
 broadcast slate. The film's `t = 0` does not move.

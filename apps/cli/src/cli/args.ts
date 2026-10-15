@@ -6,6 +6,7 @@ import { buildForNode } from '../node/build.ts'
 import { type Child, openChild } from '../node/child.ts'
 import { hostOf } from '../node/host-of.ts'
 import { findProject, type Project } from '../node/project.ts'
+import { checkBakes } from '../project/bakes.ts'
 import { effectiveParams } from '../project/jobs.ts'
 
 /**
@@ -97,7 +98,9 @@ export const parseParam = (kv: string): [string, Json] => {
  * child process; the browser host opens it on a headless Chrome (node/browser.ts: WebGPU, the
  * project's DOM). With `--variant`, the manifest is that variant's and its params go over the
  * defaults; `size` overrides the frame size (review's resized reopen); `--param`s go over both,
- * and a name the manifest's params schema does not declare is refused (effectiveParams).
+ * and a name the manifest's params schema does not declare is refused (effectiveParams). Every
+ * bake the manifest declares is checked against its stamp first, and refused when stale
+ * (project/bakes.ts); its frames are what the source's io.bake reads.
  */
 export const open = async (
   flags: {
@@ -118,6 +121,7 @@ export const open = async (
   )
   const params = effectiveParams(manifest, variantParams, given)
   const project = { ...found, manifest: size ? { ...manifest, ...size } : manifest }
+  const bakes = checkBakes(found.root, found.manifest)
   if (hostOf(manifest, flags.host) === 'browser') {
     const more = () =>
       openBrowserChild(found, {
@@ -125,6 +129,7 @@ export const open = async (
         ...(name ? { variant: name } : {}),
         ...(size ? { size } : {}),
         timeoutMs: childOptions(flags).timeoutMs,
+        bakes,
       })
     return { project, child: await more(), more }
   }
@@ -134,6 +139,7 @@ export const open = async (
     openChild(project, {
       entryFile,
       params,
+      bakes,
       ...childOptions(flags),
     })
   return { project, child: await more(), more }

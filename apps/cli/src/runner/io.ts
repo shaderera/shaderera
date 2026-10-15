@@ -1,6 +1,6 @@
-// `io.image`, `io.video` and `io.cache`, the same in both hosts: the Node host passes its IPC
+// `io.image`, `io.video`, `io.cache` and `io.bake`, the same in both hosts: the Node host passes its IPC
 // to the CLI process as `ask`, the runner worker its requests to the runner server.
-import type { DecodedImage, Footage, Io } from '@shaderera/core'
+import type { Baked, DecodedImage, Footage, Io } from '@shaderera/core'
 import { sha256 } from '@shaderera/core/host'
 import { decodeImage } from './image.ts'
 
@@ -10,15 +10,17 @@ export type Ask = {
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
   videoOpen(path: string): Promise<{ width: number; height: number; fps: number; frames: number }>
   videoFrame(path: string, index: number): Promise<Uint8Array>
+  bakeOpen(name: string): Promise<{ frames: number }>
+  bakeFrame(name: string, index: number): Promise<Uint8Array>
 }
 
 const text = new TextEncoder()
 
-/** The three ports over a host's `read` and its way to the CLI's process. */
+/** The ports over a host's `read` and its way to the CLI's process. */
 export const extraIo = (
   read: (path: string) => Promise<Uint8Array>,
   ask: Ask,
-): Required<Pick<Io, 'image' | 'video' | 'cache'>> => {
+): Required<Pick<Io, 'image' | 'video' | 'cache' | 'bake'>> => {
   const images = new Map<string, Promise<DecodedImage>>()
   return {
     image: (path) => {
@@ -45,6 +47,15 @@ export const extraIo = (
         throw new Error(`io.cache(${key}): make must return a Uint8Array.`)
       await ask.cachePut(hash, made)
       return made
+    },
+    bake: async (name): Promise<Baked> => {
+      const { frames } = await ask.bakeOpen(name)
+      const read = (index: number) => ask.bakeFrame(name, index)
+      return {
+        frames,
+        read,
+        image: async (index) => decodeImage(await read(index), `bake ${name} frame ${index}`),
+      }
     },
   }
 }

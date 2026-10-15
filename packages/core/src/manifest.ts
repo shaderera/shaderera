@@ -19,7 +19,32 @@ const known = new Set([
   'preroll',
   'timecode',
   'textless',
+  'bakes',
 ])
+
+/** Problems with `bakes`: each a command, its inputs, a folder, and frame names with `#`s. */
+const bakeProblems = (bakes: unknown): string[] => {
+  if (!isObject(bakes)) return ['bakes must be an object']
+  const p: string[] = []
+  for (const [name, b] of Object.entries(bakes)) {
+    if (!/^[\w.-]+$/.test(name)) p.push(`bakes.${name}: a name is letters, digits, . _ -`)
+    if (!isObject(b)) {
+      p.push(`bakes.${name} must be an object`)
+      continue
+    }
+    if (typeof b.command !== 'string' || b.command.trim() === '')
+      p.push(`bakes.${name}.command must be a non-empty string`)
+    if (!Array.isArray(b.inputs) || b.inputs.some((i) => typeof i !== 'string' || i === ''))
+      p.push(`bakes.${name}.inputs must be a list of project paths`)
+    if (typeof b.dir !== 'string' || b.dir === '') p.push(`bakes.${name}.dir must be a folder`)
+    if (typeof b.frames !== 'string' || !/^[^#/\\]*#+[^#/\\]*$/.test(b.frames))
+      p.push(`bakes.${name}.frames must be a file name with one run of #s, such as beauty.####.jpg`)
+    for (const key of Object.keys(b))
+      if (!['command', 'inputs', 'dir', 'frames'].includes(key))
+        p.push(`bakes.${name}: unknown key "${key}"`)
+  }
+  return p
+}
 
 const TIMECODE = /^\d\d:[0-5]\d:[0-5]\d[:;]\d\d$/
 
@@ -144,6 +169,7 @@ export const checkManifest = (value: unknown): Manifest => {
   if (m.$schema !== undefined && typeof m.$schema !== 'string')
     problems.push('$schema must be a string')
   if (m.variants !== undefined) problems.push(...variantProblems(m.variants))
+  if (m.bakes !== undefined) problems.push(...bakeProblems(m.bakes))
   problems.push(...deliveryProblems(m, ''))
   for (const key of Object.keys(m)) if (!known.has(key)) problems.push(`unknown key "${key}"`)
   if (problems.length > 0) throw new Error(`shaderera.json: ${problems.join('; ')}`)

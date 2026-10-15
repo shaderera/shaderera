@@ -1,10 +1,13 @@
 // What the hosts ask of the CLI's own process, which may write files and run ffmpeg where a
-// project's code may not: the derived-data cache and decoded video frames. The Node host asks
+// project's code may not: the derived-data cache, decoded video frames and baked frames. The Node host asks
 // over IPC (child.ts), the browser host's worker over the runner server (runner-plugin.ts).
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { insideForRead } from './inside.ts'
+
+/** The frames a host may read, by bake: absolute files, in order, checked against their stamps. */
+export type BakeFrames = { readonly [name: string]: readonly string[] }
 
 /** A request from a host. */
 export type ServiceRequest =
@@ -12,6 +15,8 @@ export type ServiceRequest =
   | { op: 'cache-put'; hash: string; bytes: Uint8Array }
   | { op: 'video-open'; path: string }
   | { op: 'video-frame'; path: string; index: number }
+  | { op: 'bake-open'; name: string }
+  | { op: 'bake-frame'; name: string; index: number }
 
 type VideoInfo = { width: number; height: number; fps: number; frames: number }
 
@@ -128,8 +133,18 @@ const videoReader = (file: string) => {
   return { info, frame, close: () => proc?.kill() }
 }
 
-/** The services for one project: answers each request, or throws. */
-export const createServices = (root: string) => {
+/**
+ * The services for one project: answers each request, or throws. `bakes` are the frames of each
+ * bake, checked against its stamp before the source opened (project/bakes.ts): the only files
+ * outside the project a host may read.
+ */
+export const createServices = (root: string, bakes: BakeFrames = {}) => {
+  const baked = (name: string) => {
+    const frames = bakes[name]
+    if (!frames)
+      throw new Error(`No bake ${name} was checked for this host: is it in shaderera.json?`)
+    return frames
+  }
   const cacheDir = join(root, '.shaderera', 'cache')
   const videos = new Map<string, ReturnType<typeof videoReader>>()
   const video = (path: string) => {
@@ -161,6 +176,16 @@ export const createServices = (root: string) => {
         return video(r.path).info
       case 'video-frame':
         return video(r.path).frame(r.index)
+      case 'bake-open':
+        return { frames: baked(r.name).length }
+      case 'bake-frame': {
+        const file = baked(r.name)[r.index]
+        if (file === undefined || !Number.isInteger(r.index))
+          throw new Error(
+            `Bake ${r.name} has frames 0 to ${baked(r.name).length - 1}, not ${r.index}.`,
+          )
+        return new Uint8Array(readFileSync(file))
+      }
     }
   }
   return { handle, close: () => videos.forEach((v) => void v.close()) }
