@@ -10,14 +10,14 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
-  statSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs'
-import { isAbsolute, join, resolve } from 'node:path'
+import { isAbsolute, join, posix, resolve } from 'node:path'
 import type { Bake, Manifest } from '@shaderera/core'
-import { inside } from '../node/inside.ts'
+import { outside } from '../node/inside.ts'
 import type { BakeFrames } from '../node/services.ts'
-import { slash } from './revisions.ts'
+import { scan } from './revisions.ts'
 
 /** What `shaderera bake` made: the stamp a render checks the bake against. */
 export type BakeStamp = {
@@ -27,9 +27,7 @@ export type BakeStamp = {
   bake: Bake
   /** The hash of the inputs' paths and contents, and each input file's own hash. */
   inputs: { hash: string; files: { [path: string]: string } }
-  /** The folder the frames are in, absolute. */
-  dir: string
-  /** The frames in order: file name, bytes and sha256. */
+  /** The frames in order, in the bake's folder: file name, bytes and sha256. */
   frames: { file: string; bytes: number; sha256: string }[]
   made: string
 }
@@ -52,33 +50,53 @@ export const bakeOf = (manifest: Manifest, name: string): Bake => {
   return bake
 }
 
-/** The folder a bake writes: relative to the project, or absolute (another drive). */
-export const bakeDir = (root: string, bake: Bake) =>
-  isAbsolute(bake.dir) ? resolve(bake.dir) : resolve(root, bake.dir)
+/**
+ * The folder a bake writes, absolute: relative to the project, or anywhere (another drive). In the
+ * project it must be under `out/`: anywhere else its frames would be saved into every revision,
+ * and readable with `io.read`, past the stamp.
+ */
+export const bakeDir = (root: string, bake: Bake): string => {
+  const dir = isAbsolute(bake.dir) ? resolve(bake.dir) : resolve(root, bake.dir)
+  if (!outside(root, dir) && outside(join(root, 'out'), dir))
+    throw new Error(
+      `A bake's dir in the project goes under out/ (or outside the project), not ${bake.dir}: every other file in the project is saved into each revision.`,
+    )
+  return dir
+}
+
+/** A bake's inputs as revision paths: `/`-separated, relative, `.` for the whole project. */
+const inputPaths = (inputs: readonly string[]) =>
+  inputs.map((i) => {
+    const p = posix.normalize(i.replaceAll('\\', '/')).replace(/\/$/, '')
+    if (isAbsolute(i) || p === '..' || p.startsWith('../'))
+      throw new Error(`A bake input is a project path, not ${i}.`)
+    return p
+  })
+
+/** Whether `path` is the input or under it. */
+const under = (input: string, path: string) =>
+  input === '.' || path === input || path.startsWith(`${input}/`)
 
 /**
- * The inputs' files, each with its hash, and one hash over their paths and contents. A folder is
- * every file under it. Inputs are project paths; one that is missing or outside is refused.
+ * The inputs' files as a revision lists them (the same files left out: node_modules, out/,
+ * versions/…), each with its hash, and one hash over their paths and hashes. `files` is a listing
+ * already made (a revision's); without it the working tree is scanned.
  */
-export const hashInputs = (root: string, inputs: readonly string[]) => {
-  const files: { [path: string]: string } = {}
-  const add = (file: string) => {
-    files[slash(file.slice(resolve(root).length + 1))] = sha256(readFileSync(file))
-  }
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const file = join(dir, entry.name)
-      if (entry.isDirectory()) walk(file)
-      else if (entry.isFile()) add(file)
-    }
-  }
-  for (const input of inputs) {
-    const file = inside(root, input)
-    if (!existsSync(file)) throw new Error(`A bake input is missing: ${input}.`)
-    if (statSync(file).isDirectory()) walk(file)
-    else add(file)
-  }
-  return hashOf(files)
+export const hashInputs = (
+  root: string,
+  inputs: readonly string[],
+  files?: { readonly [path: string]: string },
+) => {
+  const paths = inputPaths(inputs)
+  const keep = (path: string, folder: boolean) =>
+    paths.some((i) => under(i, path) || (folder && i.startsWith(`${path}/`)))
+  const listed = files
+    ? Object.fromEntries(Object.entries(files).filter(([p]) => keep(p, false)))
+    : scan(root, undefined, keep)
+  for (const i of paths)
+    if (!Object.keys(listed).some((p) => under(i, p)))
+      throw new Error(`A bake input is missing, or holds no file a revision keeps: ${i}.`)
+  return hashOf(listed)
 }
 
 /** One hash over files' paths and hashes, and the files in order. */
@@ -88,20 +106,29 @@ const hashOf = (files: { readonly [path: string]: string }) => {
   return { hash, files: Object.fromEntries(sorted.map((p) => [p, files[p] as string])) }
 }
 
+/** The frame number a file name holds by the bake's `frames` (`beauty.####.jpg`), or none. */
+const framePattern = (frames: string) => {
+  const run = /#+/.exec(frames) as RegExpExecArray
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const re = new RegExp(
+    `^${escape(frames.slice(0, run.index))}(\\d{${run[0].length},})${escape(frames.slice(run.index + run[0].length))}$`,
+  )
+  return (file: string) => {
+    const m = re.exec(file)
+    return m ? Number(m[1]) : undefined
+  }
+}
+
 /**
  * The frames in a bake's folder, in order: the files its `frames` names with 0, 1, 2… A number
- * missing between them, or a file numbered past the end with a gap, is refused.
+ * missing between them is refused.
  */
 export const listFrames = (dir: string, frames: string): string[] => {
-  const run = /#+/.exec(frames) as RegExpExecArray
-  const before = frames.slice(0, run.index)
-  const after = frames.slice(run.index + run[0].length)
-  const digits = run[0].length
+  const number = framePattern(frames)
   const named = new Map<number, string>()
   for (const file of existsSync(dir) ? readdirSync(dir) : []) {
-    if (!file.startsWith(before) || !file.endsWith(after)) continue
-    const number = file.slice(before.length, file.length - after.length)
-    if (new RegExp(`^\\d{${digits},}$`).test(number)) named.set(Number(number), file)
+    const n = number(file)
+    if (n !== undefined) named.set(n, file)
   }
   const list = [...named.keys()].sort((a, b) => a - b)
   const missing = list.findIndex((n, i) => n !== i)
@@ -119,14 +146,18 @@ const readStamp = (root: string, name: string): BakeStamp | undefined => {
 
 /**
  * Runs a bake's command in the project folder with the person's rights (the same trust as an npm
- * script: render never runs it), then stamps what it made. The inputs are hashed before and after:
- * a change while it ran is refused, since the frames may come from either.
+ * script: render never runs it), then stamps what it made. Frames from an earlier run are removed
+ * first, so every frame stamped is one this run wrote. The inputs are hashed before and after: a
+ * change while it ran is refused, since the frames may come from either.
  */
 export const makeBake = (root: string, manifest: Manifest, name: string): BakeStamp => {
   const bake = bakeOf(manifest, name)
   const inputs = hashInputs(root, bake.inputs)
   const dir = bakeDir(root, bake)
   mkdirSync(dir, { recursive: true })
+  const number = framePattern(bake.frames)
+  for (const file of readdirSync(dir)) if (number(file) !== undefined) rmSync(join(dir, file))
+  rmSync(stampFile(root, name), { force: true })
   const r = spawnSync(bake.command, { cwd: root, shell: true, stdio: ['ignore', 2, 2] })
   if (r.error) throw new Error(`bake ${name}: ${bake.command} could not start: ${r.error.message}`)
   if (r.status !== 0)
@@ -141,7 +172,6 @@ export const makeBake = (root: string, manifest: Manifest, name: string): BakeSt
     name,
     bake,
     inputs,
-    dir,
     frames: files.map((file) => {
       const bytes = readFileSync(join(dir, file))
       return { file, bytes: bytes.length, sha256: sha256(bytes) }
@@ -166,41 +196,57 @@ export const checkBakes = (root: string, manifest: Manifest): BakeFrames => {
     const again = `shaderera bake ${name}`
     const stamp = readStamp(root, name)
     if (!stamp) throw new Error(`Bake ${name} has not been made: ${again}.`)
-    out[name] = checkStamp(root, stamp, bake, again)
+    if (JSON.stringify(stamp.bake) !== JSON.stringify(bake))
+      throw new Error(`Bake ${name} is declared differently from when it was made: ${again}.`)
+    const now = hashInputs(root, bake.inputs)
+    if (now.hash !== stamp.inputs.hash) {
+      const changed = Object.keys({ ...now.files, ...stamp.inputs.files })
+        .filter((p) => now.files[p] !== stamp.inputs.files[p])
+        .sort()
+      throw new Error(
+        `Bake ${name} is stale: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ` and ${changed.length - 5} more` : ''} changed since it was made. Run ${again}.`,
+      )
+    }
+    out[name] = checkFrames(
+      `Bake ${name}`,
+      bakeDir(root, bake),
+      bake.frames,
+      stamp.frames,
+      `Run ${again}.`,
+    )
   }
   return out
 }
 
-/** A stamp against the declaration, the inputs and the frames as they are now. */
-export const checkStamp = (root: string, stamp: BakeStamp, bake: Bake, again: string): string[] => {
-  const name = stamp.name
-  if (JSON.stringify(stamp.bake) !== JSON.stringify(bake))
-    throw new Error(`Bake ${name} is declared differently from when it was made: ${again}.`)
-  const now = hashInputs(root, bake.inputs)
-  if (now.hash !== stamp.inputs.hash) {
-    const changed = Object.keys({ ...now.files, ...stamp.inputs.files })
-      .filter((p) => now.files[p] !== stamp.inputs.files[p])
-      .sort()
-    throw new Error(
-      `Bake ${name} is stale: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ` and ${changed.length - 5} more` : ''} changed since it was made. Run ${again}.`,
-    )
-  }
-  return checkFrames(`Bake ${name}`, stamp, `Run ${again}.`)
-}
-
-/** The frames as stamped, each still there with its hash; or throws `what: <frame> …. <fix>`. */
-const checkFrames = (what: string, s: Pick<BakeStamp, 'dir' | 'frames'>, fix: string) =>
-  s.frames.map((f) => {
-    const file = join(s.dir, f.file)
-    if (!existsSync(file)) throw new Error(`${what}: ${f.file} is missing from ${s.dir}. ${fix}`)
+/**
+ * The frames as stamped, in `dir`, each still there with its hash; or throws `what: <frame> ….
+ * <fix>`. A name that is not the bake's frame i (a stamp edited by hand) is refused, so nothing
+ * but the bake's own files is ever read.
+ */
+export const checkFrames = (
+  what: string,
+  dir: string,
+  pattern: string,
+  frames: BakeStamp['frames'],
+  fix: string,
+) => {
+  const number = framePattern(pattern)
+  return frames.map((f, i) => {
+    if (number(f.file) !== i) throw new Error(`${what}: ${f.file} is not its frame ${i}. ${fix}`)
+    const file = join(dir, f.file)
+    if (!existsSync(file)) throw new Error(`${what}: ${f.file} is missing from ${dir}. ${fix}`)
     if (sha256(readFileSync(file)) !== f.sha256)
       throw new Error(`${what}: ${f.file} changed since it was made. ${fix}`)
     return file
   })
+}
 
-/** What a job pins of each bake its source reads: the stamp's inputs, folder and frames. */
+/**
+ * What a job pins of each bake its source reads: the stamp's inputs, the folder as it resolved
+ * when the job was made, the frames' names and every frame's size and hash.
+ */
 export type JobBakes = {
-  [name: string]: { inputs: string; dir: string; frames: BakeStamp['frames'] }
+  [name: string]: { inputs: string; dir: string; pattern: string; frames: BakeStamp['frames'] }
 }
 
 /**
@@ -222,15 +268,13 @@ export const pinBakes = (
       throw new Error(
         `Bake ${name} was made from another declaration than revision ${revision}'s: ${again}.`,
       )
-    const inputs = bake.inputs.map((i) => slash(i).replace(/^\.\//, '').replace(/\/$/, ''))
-    const under = (path: string) => inputs.some((i) => path === i || path.startsWith(`${i}/`))
-    const at = hashOf(Object.fromEntries(Object.entries(files).filter(([p]) => under(p))))
-    if (at.hash !== stamp.inputs.hash)
+    if (hashInputs(root, bake.inputs, files).hash !== stamp.inputs.hash)
       throw new Error(
         `Bake ${name} was made from other inputs than revision ${revision} has: bake it from that revision (shaderera restore ${revision}, then ${again}), or make the job from the revision it was made from.`,
       )
-    checkFrames(`Bake ${name}`, stamp, `Run ${again}.`)
-    pinned[name] = { inputs: stamp.inputs.hash, dir: stamp.dir, frames: stamp.frames }
+    const dir = bakeDir(root, bake)
+    checkFrames(`Bake ${name}`, dir, bake.frames, stamp.frames, `Run ${again}.`)
+    pinned[name] = { inputs: stamp.inputs.hash, dir, pattern: bake.frames, frames: stamp.frames }
   }
   return pinned
 }
@@ -249,7 +293,9 @@ export const checkJobBakes = (job: {
       name,
       checkFrames(
         `Bake ${name} no longer matches job ${job.name}`,
-        pin,
+        pin.dir,
+        pin.pattern,
+        pin.frames,
         `Bake it again from the job's revision (shaderera restore ${job.revision}, then shaderera bake ${name}), or make a new job.`,
       ),
     ]),

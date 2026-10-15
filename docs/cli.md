@@ -315,7 +315,7 @@ frames it made in `versions/bakes/<name>.json`: the inputs' hash, and each frame
 
 ```
 $ shaderera bake beauty
-beauty: 360 frames, 412.6 MB in D:eauty, 1843.2 s; stamped
+beauty: 360 frames, 412.6 MB in D:\beauty, 1843.2 s; stamped
 ```
 
 A command that fails, writes no frames, or leaves a gap in their numbers stamps nothing, and an

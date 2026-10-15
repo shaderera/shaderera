@@ -1,5 +1,5 @@
 import { findProject } from '../node/project.ts'
-import { makeBake } from '../project/bakes.ts'
+import { bakeDir, makeBake } from '../project/bakes.ts'
 import { parseWithPositionals } from './args.ts'
 
 /**
@@ -19,7 +19,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const stamp = makeBake(root, manifest, name)
     const bytes = stamp.frames.reduce((n, f) => n + f.bytes, 0)
     console.log(
-      `${name}: ${stamp.frames.length} frames, ${(bytes / 2 ** 20).toFixed(1)} MB in ${stamp.dir}, ${((performance.now() - started) / 1000).toFixed(1)} s; stamped`,
+      `${name}: ${stamp.frames.length} frames, ${(bytes / 2 ** 20).toFixed(1)} MB in ${bakeDir(root, stamp.bake)}, ${((performance.now() - started) / 1000).toFixed(1)} s; stamped`,
     )
   }
   return 0

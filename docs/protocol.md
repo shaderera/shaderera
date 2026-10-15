@@ -221,11 +221,12 @@ render. The manifest declares how they are made, and from what:
 | Key | Meaning |
 |---|---|
 | `command` | what makes the frames, run by `shaderera bake` in the project folder with the person's rights (the same trust as an npm script); a render never runs it |
-| `inputs` | the project files and folders the frames derive from (a folder is every file under it) |
-| `dir` | where the command writes them: relative to the project, or an absolute path on another drive |
+| `inputs` | the project files and folders the frames derive from, as a revision lists them: a folder is every file under it except what a revision leaves out (`node_modules`, `out/`, `versions/`); `.` is the whole project |
+| `dir` | where the command writes them: outside the project (relative to it, or an absolute path on another drive), or under `out/`. Anywhere else in the project, the frames would be saved into every revision |
 | `frames` | their names, one run of `#` for the frame number: `beauty.####.jpg` is `beauty.0000.jpg`, `beauty.0001.jpg`… from 0, without a gap |
 
-`shaderera bake <name>` runs the command, and when it exits 0 stamps what it made in
+`shaderera bake <name>` removes the frames an earlier run left (the files `frames` names in
+`dir`), runs the command, and when it exits 0 stamps what it made in
 `versions/bakes/<name>.json`: the inputs' hash, and every frame's size and hash. Every command
 that renders (`check`, `inspect`, `still`, `render`, `review`) checks each bake against its
 stamp first and refuses one that was never made, was declared differently, has an input that
