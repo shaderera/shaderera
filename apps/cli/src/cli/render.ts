@@ -366,10 +366,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     throw new Error(
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
     )
-  // What the output is traced to: the job's revision, or the working tree saved now (the same
-  // files give the same id, so an unchanged project saves nothing new).
-  const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const { project, child, more } = job ? await openJob(root, job, childOptions(v)) : await open(v)
+  // What the output is traced to: the job's revision, or the working tree saved now (the same
+  // files give the same id, so an unchanged project saves nothing new). Saved once the source
+  // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
+  const revision = job?.revision ?? save(root, { by: 'cli' }).id
   // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
   const stop = new AbortController()
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))

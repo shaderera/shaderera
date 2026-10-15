@@ -1,2 +1,4 @@
 docs/
 guides/
+# A test that renders a fixture in place must not leave its revisions in the repository.
+src/**/fixtures/*/versions/
