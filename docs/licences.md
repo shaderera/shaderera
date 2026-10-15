@@ -1,6 +1,6 @@
 # Licences
 
-What the published packages (0.1.2) depend on, and what the official plugins and the test fixtures vendor.
+What the published packages (0.1.3) depend on, and what the official plugins and the test fixtures vendor.
 Every package (`@shaderera/core`, `shaderera`, `create-shaderera`), the official plugins and the
 agent skills are MIT. Each tarball carries its own licence file.
 
@@ -20,7 +20,7 @@ same packages under the same licences. Versions move; re-run the walk before a r
 `vite` (^8, MIT) is a peer dependency: the project installs it. `@napi-rs/canvas`'s native
 binding is built on Skia (BSD-3-Clause).
 
-Besides `@shaderera/core` 0.1.2 (MIT):
+Besides `@shaderera/core` 0.1.3 (MIT):
 
 - **MIT:** @hono/node-server 2.1.3, @jridgewell/sourcemap-codec 1.6.0, @modelcontextprotocol/sdk
   1.32.1, @napi-rs/canvas-win32-x64-msvc 1.0.10, @napi-rs/canvas 1.0.10,
