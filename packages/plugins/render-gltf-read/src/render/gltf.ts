@@ -86,12 +86,16 @@ type Json = Record<string, any>
 
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength)
 
-/** `dir` and a relative `uri` joined, `.` and `..` resolved: a project path. */
+/**
+ * `dir` and a relative `uri` joined, `.` and `..` resolved: a project path. A `..` above the
+ * project is refused, never dropped: it would name another file.
+ */
 const resolve = (dir: string, uri: string) => {
   const out: string[] = []
   for (const part of `${dir}${decodeURIComponent(uri)}`.split('/'))
-    if (part === '..') out.pop()
-    else if (part !== '.' && part !== '') out.push(part)
+    if (part === '..') {
+      if (out.pop() === undefined) throw new Error(`${uri} is outside the project`)
+    } else if (part !== '.' && part !== '') out.push(part)
   return out.join('/')
 }
 
