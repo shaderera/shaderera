@@ -197,9 +197,17 @@ export const openBrowserChild = async (
     }
   }
   try {
+    // Chrome creates the file before it has written it, and on Windows may still hold it open
+    // (EBUSY): read until its first line is a port.
     const portFile = join(profile, 'DevToolsActivePort')
-    for (let i = 0; i < 200 && !existsSync(portFile); i++) await sleep(100)
-    const devtools = readFileSync(portFile, 'utf8').split('\n')[0]
+    let devtools = ''
+    for (let i = 0; i < 200 && !/^\d+$/.test(devtools); i++) {
+      try {
+        devtools = readFileSync(portFile, 'utf8').split('\n')[0] ?? ''
+      } catch {}
+      if (!/^\d+$/.test(devtools)) await sleep(100)
+    }
+    if (!/^\d+$/.test(devtools)) throw new Error('Chrome did not report its DevTools port.')
     const targets = (await (await fetch(`http://127.0.0.1:${devtools}/json`)).json()) as {
       type: string
       webSocketDebuggerUrl: string
