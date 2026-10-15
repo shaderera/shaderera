@@ -92,9 +92,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (v.compare === variant)
     throw new Error(`--compare ${variant} is the variant rendered already.`)
   const { project, child } = await open(v)
-  // The other variant, with the same params given: what differs is what the variants design.
-  const other = v.compare === undefined ? undefined : await open({ ...v, variant: v.compare })
+  let other: Awaited<ReturnType<typeof open>> | undefined
   try {
+    // The other variant, with the same params given: what differs is what the variants design.
+    // `main` is the manifest's own output, as still names its files.
+    if (v.compare !== undefined)
+      other = await open({ ...v, variant: v.compare === 'main' ? undefined : v.compare })
     const { width, height, duration, fps } = project.manifest
     if (other) {
       const o = other.project.manifest

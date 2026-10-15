@@ -55,6 +55,16 @@ test('still --compare: each t beside the other variant, with PSNR and mean ΔE, 
   assert.ok(c.psnr > 0 && c.deltaE > 0)
   assert.equal(c.differing, 256)
 
+  // The other way round, against the manifest's own output, named main as still names it.
+  const back = JSON.parse(
+    still('0.5', '--variant', 'lighter', '--compare', 'main', '--json').stdout,
+  )
+  assert.equal(back.result.stills[0].compare.differing, 256)
+  // An unknown variant is refused, and the host already open is closed (no hang).
+  const typo = still('0.5', '--compare', 'lightr')
+  assert.equal(typo.status, 2)
+  assert.match(typo.stderr, /no variant "lightr"/)
+
   // A param given goes to both: the same grey, so the same frames.
   const same = JSON.parse(
     still('0.5', '--compare', 'lighter', '--param', 'grey=7', '--json').stdout,
