@@ -29,6 +29,7 @@
           "look-paper-edges",
           "look-row-glitch",
           "look-screen-passes",
+          "look-tonemap",
           "look-vignette",
           "motion-keyframes",
           "render-gaussian-splats",
@@ -317,6 +318,27 @@
       "params": {
         "item": "look-screen-passes",
         "state": "off"
+      }
+    },
+    "look-tonemap": {
+      "label": "look-tonemap · all",
+      "params": {
+        "item": "look-tonemap",
+        "state": "all"
+      }
+    },
+    "look-tonemap.neutral": {
+      "label": "look-tonemap · neutral",
+      "params": {
+        "item": "look-tonemap",
+        "state": "neutral"
+      }
+    },
+    "look-tonemap.agx": {
+      "label": "look-tonemap · agx",
+      "params": {
+        "item": "look-tonemap",
+        "state": "agx"
       }
     },
     "look-vignette": {
