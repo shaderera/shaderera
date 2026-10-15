@@ -144,6 +144,8 @@ Stills of any moment straight from the source, rendered by the same host as `che
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
+| `--compare <variant>` | none. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
+| `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet` |
 
 ```
 $ shaderera still 0 2.5 --sheet --diff
@@ -152,15 +154,38 @@ out/stills/main-2.500.png  10 ms  differing channels after a jump: 0
 out/stills/main-sheet.png
 ```
 
+Before handing over a final, compare it with the variant that was approved:
+
+```
+$ shaderera still 4 16.9 --variant final --compare animatic
+out/stills/final-4.000.png  212 ms
+out/stills/final-vs-animatic-4.000.png  vs animatic: PSNR 38.41 dB, mean ΔE 0.412 (max 6.80), 18342 pixels differ
+```
+
 ## `render`
 
 Renders every frame `i / fps` in `[from, to)` at `intent: 'final'`, spread over the workers and
 written in order. What each format is, and what was measured: [delivery.md](delivery.md).
 
+The file is written as `<out>.partial` and renamed to `<out>` only when it is complete: while a
+render runs, `<out>` is the previous film or nothing, never half a film. A render that fails or is
+stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
+finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
+kept as `<out>.partial` and the error says so. A host error fails the render with
+its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
+memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
+The file must hold every frame rendered; one ffmpeg finished short is refused.
+
+Every file says which revision made it. `render` saves the project first, as `job` does (the same
+files give the same id, so nothing new is saved when nothing changed); `render --job` uses the
+job's revision and saves nothing. The id is printed (`revision: <id>`) and written into the file
+as its `shaderera_revision` tag, which `ffprobe -show_entries format_tags` shows; `deliver` tags
+its files with their job's revision too.
+
 | Flag | Default |
 |---|---|
 | `--from <s>`, `--to <s>` | 0, `duration` |
-| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory |
+| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
 | `--master` | off: review quality (crf 18). On: crf 12, preset slow |
 | `--crf <n>` | the quality's |
@@ -202,7 +227,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id. Links (symlinks, junctions) are never followed or stored |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
@@ -331,9 +356,20 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
-adapter with every feature and the storage and texture limits (asked in a child process), and more
-than one `webgpu` installed, which crashes a host, and a package plugin the project requires and
-lacks (`requires`, [above](#required-plugins)). Each lack says how to fix it.
+adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
+installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
+[above](#required-plugins)). Each lack says how to fix it.
+
+The limits are the ones films run into, as the Node host's device gets them (it asks for the
+adapter's maximum). They come from the GPU and its backend, not from Shaderera: Dawn on D3D12 caps
+a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
+
+| Limit | What it bounds |
+|---|---|
+| `maxBufferSize` | one buffer, in bytes: a particle pool or a scene's triangles must fit, or be split |
+| `maxStorageBufferBindingSize` | how much of a buffer one storage binding reads, in bytes |
+| `maxTextureDimension2D` | a 2D texture's width and height, in pixels: the frame and every render target |
+| `maxTextureArrayLayers` | the layers of one texture array, such as a stack of baked frames |
 
 ## Plugins
 
@@ -392,5 +428,5 @@ Every command but `mcp` takes `--json`: stdout is then one JSON object, the exit
   `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and
   `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
-- `result`: the command's own JSON (`inspect`, `review`, `versions`, `doctor`, `search`,
-  `info`); `log`: the lines any other command printed.
+- `result`: the command's own JSON (`inspect`, `still`, `review`, `versions`, `doctor`,
+  `search`, `info`); `log`: the lines any other command printed.

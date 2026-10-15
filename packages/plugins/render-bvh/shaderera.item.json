@@ -1,0 +1,27 @@
+{
+  "name": "render-bvh",
+  "type": "component",
+  "title": "Triangle BVH",
+  "description": "Ray queries against triangles on the GPU: a binned SAH builder from positions and indices as plain typed arrays, and WGSL closest-hit and any-hit functions that read its two storage buffers; no shading, no materials; raw WebGPU, no packages",
+  "category": "Rendering",
+  "tags": [
+    "bvh",
+    "ray tracing",
+    "path tracing",
+    "ray queries",
+    "closest hit",
+    "any hit",
+    "shadows",
+    "sah",
+    "acceleration structure",
+    "triangles",
+    "mesh",
+    "webgpu",
+    "wgsl",
+    "3d",
+    "deterministic"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/render/bvh.ts", "src/render/bvh.wgsl.ts"]
+}

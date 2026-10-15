@@ -1,0 +1,23 @@
+{
+  "name": "look-tonemap",
+  "type": "component",
+  "title": "Tone map",
+  "description": "Linear light to display-referred colour through Khronos PBR Neutral or AgX, as WGSL functions for a film's own shader and a CPU version that gives the same values",
+  "category": "Looks",
+  "tags": [
+    "tone mapping",
+    "tonemap",
+    "pbr neutral",
+    "khronos",
+    "agx",
+    "hdr",
+    "highlights",
+    "linear light",
+    "colour",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/looks/tonemap.ts", "src/looks/tonemap.wgsl.ts"]
+}

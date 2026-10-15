@@ -7,7 +7,6 @@
       "name": "shaderera",
       "source": "./plugins/shaderera",
       "description": "Make, check, render and deliver films in code with Shaderera, and search and add Shaderera's own plugins (building blocks for films).",
-      "version": "0.1.1",
       "category": "media",
       "tags": ["video", "motion graphics", "webgpu", "three.js", "ffmpeg"]
     }

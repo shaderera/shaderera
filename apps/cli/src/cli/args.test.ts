@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -38,6 +38,11 @@ test('an unknown param is refused with the same message on every command', () =>
       `${command[0]}: ${r.stderr}`,
     )
   }
+})
+
+test('a render refused before the source opens saves no revision', () => {
+  cli('render', '--param', 'gray=1')
+  assert.equal(existsSync(join(root, 'versions')), false)
 })
 
 test('a time outside the film, or one given where none is taken, is refused', () => {

@@ -102,7 +102,7 @@ for (const [name, open, film] of hosts) {
       assert.deepEqual(new Uint8Array(decode(png)), pixels, 'PNG round trip')
 
       const out = join(dir, 'frame.mp4')
-      await exportVideo(film, child, { out })
+      await exportVideo(film, child, { out, revision: 'test' })
       const video = new Uint8Array(decode(out))
       // H.264 at crf 18, 4:2:0, limited range: flat areas, sampled away from the edge.
       near(at(video, 4, 8).slice(0, 3), MATTE_LEFT, 4, 'mp4 left')
@@ -119,7 +119,7 @@ for (const [name, open, film] of hosts) {
       await child.render(0, 'preview')
       await assert.rejects(child.render(0, 'final'), /unfinished layer \(veil: final: false\)/)
       const out = join(mkdtempSync(join(tmpdir(), 'shaderera-unfinished-')), 'x.mp4')
-      await assert.rejects(exportVideo(film, child, { out }), /unfinished layer/)
+      await assert.rejects(exportVideo(film, child, { out, revision: 'test' }), /unfinished layer/)
       assert.equal(existsSync(out), false)
     } finally {
       await child.close()
