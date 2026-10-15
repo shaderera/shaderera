@@ -76,3 +76,48 @@ test('a bake whose command fails, or names another bake, stamps nothing', () => 
   assert.equal(existsSync(join(root, 'versions', 'bakes', 'glow.json')), false)
   assert.match(cli('bake', 'snow').stderr, /declares no bake "snow" \(it declares glow\)/)
 })
+
+test('a job pins the bakes its source reads; render --job refuses one that no longer matches', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-bake-job-')), 'film')
+  cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
+  const cli = (...args: string[]) =>
+    spawnSync(process.execPath, [main, ...args, '--root', root], { encoding: 'utf8' })
+  assert.equal(cli('bake').status, 0)
+  const made = cli('job', '--name', 'final')
+  assert.equal(made.status, 0, made.stderr)
+  const job = JSON.parse(readFileSync(join(root, 'versions', 'jobs', 'final.json'), 'utf8'))
+  const stamp = JSON.parse(readFileSync(join(root, 'versions', 'bakes', 'glow.json'), 'utf8'))
+  assert.deepEqual(job.inputs.bakes.glow, {
+    inputs: stamp.inputs.hash,
+    dir: stamp.dir,
+    frames: stamp.frames,
+  })
+  const rendered = cli('render', '--job', 'final')
+  assert.equal(rendered.status, 0, rendered.stderr)
+
+  const handoff = cli('handoff', 'final')
+  assert.equal(handoff.status, 0, handoff.stderr)
+  const reproduce = readFileSync(join(root, 'out', 'handoff', 'final', 'REPRODUCE.md'), 'utf8')
+  assert.match(
+    reproduce,
+    /## Bakes[\s\S]*- `glow`: 10 frames in `.*glow`, made by `node tools\/make\.mjs`/,
+  )
+
+  // Baked again from other inputs: the working tree renders, the job does not.
+  writeFileSync(join(root, 'level.txt'), '70')
+  assert.equal(cli('bake').status, 0)
+  const refused = cli('render', '--job', 'final')
+  assert.equal(refused.status, 2, refused.stderr)
+  assert.match(
+    refused.stderr,
+    /Bake glow no longer matches job final: glow\.000\.bin changed since it was made\. Bake it again from the job's revision \(shaderera restore \w+, then shaderera bake glow\), or make a new job\./,
+  )
+  // A job of a revision the stamp was not made from is refused when it is made.
+  writeFileSync(join(root, 'level.txt'), '71')
+  assert.match(
+    cli('job', '--name', 'other').stderr,
+    /Bake glow was made from other inputs than revision \w+ has/,
+  )
+})

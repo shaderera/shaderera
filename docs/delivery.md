@@ -303,6 +303,15 @@ changed (the same version with different code included) or Shaderera's version d
 pins what the job renders against; it does not install anything. The lock file is what lets
 someone else install the same packages. Assets are project files, hashed into the job.
 
+A job also pins the [bakes](protocol.md#bakes) its source reads: each bake's stamp (its inputs'
+hash, its folder, and every frame's size and sha256) goes into the job, and so into its id. Making
+the job refuses a bake whose stamp was made from other inputs than the job's revision has.
+`render --job` and `handoff --verify` check every frame against the job's hashes and refuse a
+missing or changed one, naming the bake and the way back: bake it again from the job's revision
+(`shaderera restore <revision>`, then `shaderera bake <name>`), or make a new job. A handoff does
+not carry the frames (they may be gigabytes, on another drive); its REPRODUCE.md lists each bake,
+where its frames were and what makes them.
+
 **Reproducible from a clean install** is stated at the top of REPRODUCE.md and printed: yes only
 when the revision carries a lock file and no `workspace:`, `file:` or `link:` dependency. A handoff
 without that is not a production handoff, and says so.

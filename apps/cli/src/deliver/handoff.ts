@@ -141,9 +141,38 @@ export const writeHandoff = (
       ? Object.entries(job.inputs.assets).map(([p, h]) => `- \`${p}\` ${h}`)
       : ['- (none)']),
     '',
+    ...bakesSection(root, job, revision.files['shaderera.json']),
   ].join('\n')
   put('REPRODUCE.md', md)
   return { dir, environment: env, reproducible: reasons.length === 0, reasons }
+}
+
+/**
+ * What REPRODUCE.md says of the bakes a job reads. Their frames are not in the handoff (they may be
+ * gigabytes, on another drive): where they must be, what makes them, and that `render --job`
+ * checks every frame against the sha256 the job pinned.
+ */
+const bakesSection = (root: string, job: Job, manifestHash: string | undefined): string[] => {
+  const bakes = Object.entries(job.inputs.bakes ?? {})
+  if (bakes.length === 0) return []
+  const declared: { [name: string]: { command?: string } } = manifestHash
+    ? (JSON.parse(readObject(root, manifestHash).toString('utf8')).bakes ?? {})
+    : {}
+  return [
+    '## Bakes',
+    '',
+    'Frames made outside the host, which the source reads. They are not in this handoff: put them',
+    'where the job read them, or make them again from this revision with `npx shaderera bake <name>`.',
+    `\`render --job\` checks every frame against the sha256 the job pinned (\`inputs.bakes\` in`,
+    `\`versions/jobs/${job.name}.json\`) and refuses a missing or different one, so a bake that does`,
+    'not make the same bytes again cannot render this job.',
+    '',
+    ...bakes.map(
+      ([name, pin]) =>
+        `- \`${name}\`: ${pin.frames.length} frames in \`${pin.dir}\`, made by \`${declared[name]?.command ?? '?'}\` (inputs ${pin.inputs})`,
+    ),
+    '',
+  ]
 }
 
 const hashes = async (

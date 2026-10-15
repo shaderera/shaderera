@@ -78,6 +78,11 @@ export const hashInputs = (root: string, inputs: readonly string[]) => {
     if (statSync(file).isDirectory()) walk(file)
     else add(file)
   }
+  return hashOf(files)
+}
+
+/** One hash over files' paths and hashes, and the files in order. */
+const hashOf = (files: { readonly [path: string]: string }) => {
   const sorted = Object.keys(files).sort()
   const hash = sha256(sorted.map((p) => `${p}\0${files[p]}`).join('\n'))
   return { hash, files: Object.fromEntries(sorted.map((p) => [p, files[p] as string])) }
@@ -180,12 +185,72 @@ export const checkStamp = (root: string, stamp: BakeStamp, bake: Bake, again: st
       `Bake ${name} is stale: ${changed.slice(0, 5).join(', ')}${changed.length > 5 ? ` and ${changed.length - 5} more` : ''} changed since it was made. Run ${again}.`,
     )
   }
-  return stamp.frames.map((f) => {
-    const file = join(stamp.dir, f.file)
-    if (!existsSync(file))
-      throw new Error(`Bake ${name}: ${f.file} is missing from ${stamp.dir}. Run ${again}.`)
+  return checkFrames(`Bake ${name}`, stamp, `Run ${again}.`)
+}
+
+/** The frames as stamped, each still there with its hash; or throws `what: <frame> …. <fix>`. */
+const checkFrames = (what: string, s: Pick<BakeStamp, 'dir' | 'frames'>, fix: string) =>
+  s.frames.map((f) => {
+    const file = join(s.dir, f.file)
+    if (!existsSync(file)) throw new Error(`${what}: ${f.file} is missing from ${s.dir}. ${fix}`)
     if (sha256(readFileSync(file)) !== f.sha256)
-      throw new Error(`Bake ${name}: ${f.file} changed since it was made. Run ${again}.`)
+      throw new Error(`${what}: ${f.file} changed since it was made. ${fix}`)
     return file
   })
+
+/** What a job pins of each bake its source reads: the stamp's inputs, folder and frames. */
+export type JobBakes = {
+  [name: string]: { inputs: string; dir: string; frames: BakeStamp['frames'] }
 }
+
+/**
+ * The bakes a revision's manifest declares, pinned for a job: each stamp must have been made from
+ * the inputs as that revision has them (`files`, path → sha256), and its frames must be there.
+ */
+export const pinBakes = (
+  root: string,
+  manifest: Manifest,
+  revision: string,
+  files: { readonly [path: string]: string },
+): JobBakes => {
+  const pinned: JobBakes = {}
+  for (const [name, bake] of Object.entries(manifest.bakes ?? {})) {
+    const again = `shaderera bake ${name}`
+    const stamp = readStamp(root, name)
+    if (!stamp) throw new Error(`Bake ${name} has not been made: ${again}.`)
+    if (JSON.stringify(stamp.bake) !== JSON.stringify(bake))
+      throw new Error(
+        `Bake ${name} was made from another declaration than revision ${revision}'s: ${again}.`,
+      )
+    const inputs = bake.inputs.map((i) => slash(i).replace(/^\.\//, '').replace(/\/$/, ''))
+    const under = (path: string) => inputs.some((i) => path === i || path.startsWith(`${i}/`))
+    const at = hashOf(Object.fromEntries(Object.entries(files).filter(([p]) => under(p))))
+    if (at.hash !== stamp.inputs.hash)
+      throw new Error(
+        `Bake ${name} was made from other inputs than revision ${revision} has: bake it from that revision (shaderera restore ${revision}, then ${again}), or make the job from the revision it was made from.`,
+      )
+    checkFrames(`Bake ${name}`, stamp, `Run ${again}.`)
+    pinned[name] = { inputs: stamp.inputs.hash, dir: stamp.dir, frames: stamp.frames }
+  }
+  return pinned
+}
+
+/**
+ * A job's bakes as it pinned them, each frame still there with its hash: the frames its host
+ * reads. Throws naming the bake and the way back.
+ */
+export const checkJobBakes = (job: {
+  name: string
+  revision: string
+  inputs: { bakes?: JobBakes }
+}): BakeFrames =>
+  Object.fromEntries(
+    Object.entries(job.inputs.bakes ?? {}).map(([name, pin]) => [
+      name,
+      checkFrames(
+        `Bake ${name} no longer matches job ${job.name}`,
+        pin,
+        `Bake it again from the job's revision (shaderera restore ${job.revision}, then shaderera bake ${name}), or make a new job.`,
+      ),
+    ]),
+  )

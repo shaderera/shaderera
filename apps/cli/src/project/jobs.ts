@@ -18,6 +18,7 @@ import { buildNode } from '../node/build.ts'
 import { type Child, openChild } from '../node/child.ts'
 import { type HostName, hostOf } from '../node/host-of.ts'
 import type { Project } from '../node/project.ts'
+import { checkJobBakes, type JobBakes, pinBakes } from './bakes.ts'
 import { installedPackages, type Packages, packageChanges } from './dependencies.ts'
 import { type By, fileAt, materialize, readRevision, save } from './revisions.ts'
 
@@ -58,6 +59,8 @@ export type Job = {
     /** The installed packages the source executes in Node: `name@version` → sha256 of its files. */
     packages: Packages
     shaderera: string
+    /** The bakes the source reads, as stamped when the job was made (decision 0016). */
+    bakes?: JobBakes
   }
 }
 
@@ -264,6 +267,7 @@ export const createJob = async (
     throw new Error(`The window ${from}–${to} s holds no frame at ${manifest.fps} fps.`)
   const files = readRevision(root, revision).files
   const lock = LOCKS.find((l) => files[l])
+  const bakes = pinBakes(root, declared, revision, files)
   const { packages } = await frozenBuild(root, revision, o.variant)
   const frozen = {
     shaderera: 'job/3' as const,
@@ -280,6 +284,7 @@ export const createJob = async (
       ...(lock ? { lock: files[lock] } : {}),
       packages,
       shaderera: shadereraVersion(),
+      ...(Object.keys(bakes).length > 0 ? { bakes } : {}),
     },
   }
   const id = jobId(frozen)
@@ -381,7 +386,7 @@ export const verifyJob = async (root: string, job: Job) => {
       `it was made with Shaderera ${job.inputs.shaderera} and this is ${shadereraVersion()}`,
     )
   if (changes.length > 0) throw new ChangedEnvironment(job, changes)
-  return built
+  return { ...built, bakes: checkJobBakes(job) }
 }
 
 /**
@@ -390,7 +395,7 @@ export const verifyJob = async (root: string, job: Job) => {
  */
 const openFrozen = (
   root: string,
-  built: Awaited<ReturnType<typeof frozenBuild>>,
+  built: Awaited<ReturnType<typeof verifyJob>>,
   host: HostName,
   r: { revision: string; variant?: string; params: { [key: string]: Json }; seed: number },
   o: { trusted?: boolean; timeoutMs?: number },
@@ -403,9 +408,16 @@ const openFrozen = (
           params: r.params,
           ...(r.variant ? { variant: r.variant } : {}),
           ...(o.timeoutMs ? { timeoutMs: o.timeoutMs } : {}),
+          bakes: built.bakes,
         },
       )
-    : openChild(built.project, { entryFile: built.entryFile, params: r.params, seed: r.seed, ...o })
+    : openChild(built.project, {
+        entryFile: built.entryFile,
+        params: r.params,
+        seed: r.seed,
+        bakes: built.bakes,
+        ...o,
+      })
 
 /**
  * Opens a job in its host: checks it (verifyJob), then opens the revision's frozen copy with the
