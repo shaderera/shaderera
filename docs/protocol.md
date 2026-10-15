@@ -116,6 +116,7 @@ type Io = {
   image?(path: string): Promise<DecodedImage>             // PNG or JPEG, straight RGBA, 8 or 16 bits
   video?(path: string): Promise<Footage>                  // { width, height, fps, frames, frame(i) }
   cache?(key: string, inputs: string[], make: () => Promise<Uint8Array>): Promise<Uint8Array>
+  bake?(name: string): Promise<Baked>                     // { frames, read(i), image(i) }
 }
 ```
 
@@ -137,9 +138,13 @@ it, before any frame.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and
   runs: `make` runs only when nothing is kept for the key with the input files as they are now (a
   changed input is another entry). Put a version in the key when the making changes.
+- `io.bake(name)` opens a [bake](#bakes)'s frames: `frames` is their count, `read(i)` frame i's
+  bytes as the file has them, `image(i)` the same decoded as `io.image` decodes (PNG, JPEG). The
+  frames were checked against the bake's stamp before the source opened.
 - Project code cannot write files or run programs
-  ([where it runs](determinism.md#where-project-code-runs)), so the cache and the decoder run in
-  the CLI's process: the Node host asks over IPC, the browser host over the runner server.
+  ([where it runs](determinism.md#where-project-code-runs)), so the cache, the decoder and the
+  bake's frames run in the CLI's process: the Node host asks over IPC, the browser host over the
+  runner server.
 
 ## `shaderera.json`
 
@@ -167,6 +172,7 @@ it, before any frame.
 | `stamp` | no | only `true`: [source stamps](#the-stamp) |
 | `variants` | no | named outputs (below) |
 | `preroll`, `timecode`, `textless` | no | for a broadcast delivery ([delivery.md](delivery.md#broadcast-preroll-timecode-textless)) |
+| `bakes` | no | frames made outside the host, by name ([below](#bakes)) |
 | `$schema` | no | editor help |
 
 Any other key is an error:
@@ -194,6 +200,41 @@ and its params over the defaults (`withVariant` in `@shaderera/core/host`); the 
 itself out from that manifest, so a variant is a designed output, never a crop of another.
 Revisions and jobs, which freeze a variant, params and a source for export, live above the
 protocol, in the CLI ([cli.md](cli.md#versions-and-jobs)).
+
+### Bakes
+
+A **bake** is frames a film reads that were made outside the host, by a program the host cannot
+start: a path tracer with a native denoiser that keeps history, a simulation, an offline
+render. The manifest declares how they are made, and from what:
+
+```json
+"bakes": {
+  "beauty": {
+    "command": "python tools/trace.py",
+    "inputs": ["tools/trace.py", "scene/"],
+    "dir": "D:/beauty",
+    "frames": "beauty.####.jpg"
+  }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `command` | what makes the frames, run by `shaderera bake` in the project folder with the person's rights (the same trust as an npm script); a render never runs it |
+| `inputs` | the project files and folders the frames derive from, as a revision lists them: a folder is every file under it except what a revision leaves out (`node_modules`, `out/`, `versions/`); `.` is the whole project |
+| `dir` | where the command writes them: outside the project (relative to it, or an absolute path on another drive), or under `out/`. Anywhere else in the project, the frames would be saved into every revision |
+| `frames` | their names, one run of `#` for the frame number: `beauty.####.jpg` is `beauty.0000.jpg`, `beauty.0001.jpg`… from 0, without a gap |
+
+`shaderera bake <name>` removes the frames an earlier run left (the files `frames` names in
+`dir`), runs the command, and when it exits 0 stamps what it made in
+`versions/bakes/<name>.json`: the inputs' hash, and every frame's size and hash. Every command
+that renders (`check`, `inspect`, `still`, `render`, `review`) checks each bake against its
+stamp first and refuses one that was never made, was declared differently, has an input that
+changed, or has a frame missing or changed, naming the bake and `shaderera bake <name>`. There is
+no fallback to the old frames (decision 0016). Shaderera never knows what the command does, only
+that the frames derive from those inputs. The source reads the frames through `io.bake(name)`;
+the bake's folder is readable that way only, and `io.read` still refuses anything outside the
+project.
 
 ## A composition is a source
 

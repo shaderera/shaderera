@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { stamp } from '../stamp/plugin.ts'
 import type { Project } from './project.ts'
 import { runnerPlugin } from './runner-plugin.ts'
+import type { BakeFrames } from './services.ts'
 
 export const HOST = '127.0.0.1'
 
@@ -31,6 +32,8 @@ export const startRunner = async (
     port: number
     /** Vite's dependency cache; hosts running at once each need their own. */
     cacheDir?: string
+    /** The bakes' frames, checked against their stamps: what io.bake reads. */
+    bakes?: BakeFrames
   },
 ) => {
   const vite = await import('vite')
@@ -50,6 +53,7 @@ export const startRunner = async (
         project.manifest.dom === undefined
           ? undefined
           : resolve(project.root, project.manifest.dom),
+        o.bakes,
       ),
     ],
     optimizeDeps: { exclude: ['comlink', '@shaderera/core'] },

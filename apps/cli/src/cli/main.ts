@@ -14,6 +14,7 @@ Commands:
   assemble --plan dir [--out file]           encode a plan's chunks once, with the sound
   handoff <job> [--verify] [--clean-install]   frozen project + job + REPRODUCE.md in out/handoff/<job>/
   review [--out dir] [--requirements file] [--quick] [--json]   frames, a contact sheet and technical checks
+  bake [name...]                             run a bake's command and stamp the frames it made
   doctor [--json]                            what this machine and project have and lack (ffmpeg, encoders, Chrome, Dawn, GPU)
   mcp                                        serve the CLI as MCP tools over stdio
 
@@ -41,6 +42,7 @@ const commands = [
   'handoff',
   'plan',
   'assemble',
+  'bake',
   'doctor',
   'mcp',
   'save',

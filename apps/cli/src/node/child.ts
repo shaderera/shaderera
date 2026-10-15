@@ -13,7 +13,7 @@ import type { TextRun } from '../review/measure.ts'
 import type { Fonts, Request } from './host.ts'
 import { outside } from './inside.ts'
 import type { Project } from './project.ts'
-import { createServices, type ServiceRequest } from './services.ts'
+import { type BakeFrames, createServices, type ServiceRequest } from './services.ts'
 
 const modules = `${sep}node_modules${sep}`
 
@@ -158,6 +158,8 @@ export const openChild = async (
     timeoutMs?: number
     /** A sequential source's checkpoint spacing in rendering ms; tests force it small. */
     checkpointMs?: number
+    /** The bakes' frames, checked against their stamps (project/bakes.ts): what io.bake reads. */
+    bakes?: BakeFrames
   },
 ): Promise<Child> => {
   const execArgv = o.trusted ? [] : permissionArgs(project.root, packageDirs(project.root))
@@ -169,7 +171,7 @@ export const openChild = async (
     stdio: ['ignore', 2, 2, 'ipc'],
   })
   // What the host asks of this process (the cache, video frames): answered as it comes.
-  const services = createServices(project.root)
+  const services = createServices(project.root, o.bakes)
   child.on('message', (m: { service?: { id: number; request: ServiceRequest } }) => {
     const s = m.service
     if (!s) return

@@ -133,6 +133,13 @@ const ask: Ask = {
         (await service('video-frame', { path, index: String(index) })) as Response
       ).arrayBuffer(),
     ),
+  bakeOpen: async (name) => (await (await service('bake-open', { name }))?.json()) as never,
+  bakeFrame: async (name, index) =>
+    new Uint8Array(
+      await (
+        (await service('bake-frame', { name, index: String(index) })) as Response
+      ).arrayBuffer(),
+    ),
 }
 
 const io: Io = {

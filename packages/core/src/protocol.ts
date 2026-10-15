@@ -88,6 +88,25 @@ export type Manifest = {
    * text, and asks no `copy` of it.
    */
   readonly textless?: true
+  /**
+   * Frames the film reads that were made outside the host (a path tracer with a native denoiser
+   * that keeps history, say), by name. `shaderera bake <name>` runs the bake's command and stamps
+   * what it made; every command that renders refuses a bake whose inputs or frames changed since.
+   * The source reads them through `io.bake` (decision 0016).
+   */
+  readonly bakes?: { readonly [name: string]: Bake }
+}
+
+/** Frames made outside the host: how they are made, from what, and where they are. */
+export type Bake = {
+  /** Run by `shaderera bake` in the project folder, with the person's rights; never by a render. */
+  readonly command: string
+  /** The project files and folders the frames derive from. */
+  readonly inputs: readonly string[]
+  /** The folder the command writes: in the project, or an absolute path anywhere. */
+  readonly dir: string
+  /** How the frames are named in `dir`, `#`s for the frame number: `beauty.####.jpg`, from 0. */
+  readonly frames: string
 }
 
 /** Time before the programme: `seconds` of black, or of the source at negative t. */
@@ -162,6 +181,18 @@ export type Io = {
     inputs: readonly string[],
     make: () => Promise<Uint8Array>,
   ): Promise<Uint8Array>
+  /**
+   * A bake's frames (`manifest.bakes`), as `shaderera bake` stamped them: the host checked them
+   * before the source opened. Frame `index` is the file the bake's `frames` names with that number.
+   */
+  bake?(name: string): Promise<Baked>
+}
+
+/** A bake's frames, opened: the file's bytes, or the image decoded as `image` decodes it. */
+export type Baked = {
+  readonly frames: number
+  read(index: number): Promise<Uint8Array>
+  image(index: number): Promise<DecodedImage>
 }
 
 /** A decoded image: rows from the top, straight RGBA. */

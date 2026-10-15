@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Plugin } from 'vite'
-import { createServices, type ServiceRequest } from './services.ts'
+import { type BakeFrames, createServices, type ServiceRequest } from './services.ts'
 
 export const RUNNER_PATH = '/__shaderera/runner.html'
 const ENTRY = '/__shaderera/entry.js'
@@ -37,6 +37,8 @@ export const runnerPlugin = (
   studioOrigins: readonly string[],
   runnerPort: number,
   domFile?: string,
+  /** The bakes' frames, checked against their stamps: what io.bake reads. */
+  bakes?: BakeFrames,
 ): Plugin => {
   const csp = [
     "default-src 'self'",
@@ -71,7 +73,7 @@ export const runnerPlugin = (
               : 'export default null'
             : undefined,
     configureServer(server) {
-      const services = createServices(server.config.root)
+      const services = createServices(server.config.root, bakes)
       server.httpServer?.once('close', () => services.close())
       server.middlewares.use((req, res, next) => {
         res.setHeader('Content-Security-Policy', csp)
@@ -96,7 +98,11 @@ export const runnerPlugin = (
                     ? { op, path: q('path') }
                     : op === 'video-frame'
                       ? { op, path: q('path'), index: Number(q('index')) }
-                      : undefined
+                      : op === 'bake-open'
+                        ? { op, name: q('name') }
+                        : op === 'bake-frame'
+                          ? { op, name: q('name'), index: Number(q('index')) }
+                          : undefined
             if (!request) {
               res.statusCode = 400
               res.end(`unknown service ${op}`)
