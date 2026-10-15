@@ -1,48 +1,30 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { parseArgs } from 'node:util'
-import type { Json } from '@shaderera/core'
 import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
 import { contactSheet, toPng } from '../review/review.ts'
-import { common, open } from './args.ts'
+import { insideFilm, open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { EXIT, found } from './findings.ts'
 
-/** `key=value`, the value as JSON when it parses and as a string when not. */
-export const parseParam = (kv: string): [string, Json] => {
-  const at = kv.indexOf('=')
-  if (at < 1) throw new Error(`--param needs key=value, not "${kv}".`)
-  const raw = kv.slice(at + 1)
-  try {
-    return [kv.slice(0, at), JSON.parse(raw) as Json]
-  } catch {
-    return [kv.slice(0, at), raw]
-  }
-}
-
 /**
- * The times to render: positionals and `--time`s as given, plus every `every` seconds from 0 when
- * asked. Each must be inside the film.
+ * The times to render: the times given, plus every `every` seconds from 0 when asked. Each must be
+ * inside the film.
  */
 export const stillTimes = (
-  given: readonly string[],
+  given: readonly number[],
   every: number | undefined,
   duration: number,
 ) => {
-  const times = given.map(Number)
-  const bad = given.filter((_, i) => !Number.isFinite(times[i]))
-  if (bad.length > 0) throw new Error(`Not a time in seconds: ${bad.join(', ')}.`)
+  const times = [...given]
   if (every !== undefined) {
     if (!(every > 0)) throw new Error('--every needs seconds above 0.')
     for (let t = 0; t < duration - 1e-9; t += every) times.push(Number(t.toFixed(6)))
   }
   if (times.length === 0)
     throw new Error('Usage: shaderera still <t>... [--every s] [--sheet] [--diff] (seconds)')
-  const outside = times.filter((t) => t < 0 || t >= duration)
-  if (outside.length > 0)
-    throw new Error(`Outside the film (0 to ${duration} s): ${outside.join(', ')}.`)
+  insideFilm(times, duration)
   return times
 }
 
@@ -56,33 +38,25 @@ export const stillTimes = (
  * also writes that part of each still, enlarged `--scale` times by whole pixels: a close look.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const { values: v, positionals } = parseArgs({
-    args: [...argv],
-    allowPositionals: true,
-    options: {
-      ...common,
-      time: { type: 'string', multiple: true },
+  const { values: v, times: given } = parseRendering(
+    argv,
+    {
       every: { type: 'string' },
       sheet: { type: 'boolean' },
       diff: { type: 'boolean' },
-      param: { type: 'string', multiple: true },
       out: { type: 'string' },
       region: { type: 'string' },
       object: { type: 'string' },
       scale: { type: 'string' },
     },
-  })
+    { command: 'still', times: true },
+  )
   if (v.region && v.object) throw new Error('Give --region or --object, not both.')
   const scale = v.scale === undefined ? 1 : Number(v.scale)
-  const given = Object.fromEntries((v.param ?? []).map(parseParam))
-  const { project, child } = await open(v, undefined, given)
+  const { project, child } = await open(v)
   try {
     const { width, height, duration, fps } = project.manifest
-    const times = stillTimes(
-      [...positionals, ...(v.time ?? [])],
-      v.every === undefined ? undefined : Number(v.every),
-      duration,
-    )
+    const times = stillTimes(given, v.every === undefined ? undefined : Number(v.every), duration)
     const variant = typeof v.variant === 'string' ? v.variant : 'main'
     const outDir = v.out ? resolve(v.out) : join(project.root, 'out', 'stills')
     mkdirSync(outDir, { recursive: true })

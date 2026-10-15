@@ -201,7 +201,10 @@ export const effectiveParams = (
     ((manifest.params as { properties?: object } | undefined)?.properties ?? {}) as object,
   )
   const unknown = Object.keys(given).filter((k) => !declared.includes(k))
-  if (unknown.length > 0) throw new Error(`Unknown params: ${unknown.join(', ')}.`)
+  if (unknown.length > 0)
+    throw new Error(
+      `Unknown params: ${unknown.join(', ')}. ${declared.length > 0 ? `shaderera.json declares ${declared.join(', ')}` : 'shaderera.json declares no params'}.`,
+    )
   return { ...paramDefaults(manifest), ...variantParams, ...given }
 }
 
