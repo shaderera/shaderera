@@ -33,6 +33,7 @@
           "look-vignette",
           "motion-keyframes",
           "render-gaussian-splats",
+          "render-gltf-read",
           "render-image-textures",
           "render-three-host",
           "review-av-timeline",
@@ -387,6 +388,13 @@
       "label": "render-gaussian-splats",
       "params": {
         "item": "render-gaussian-splats",
+        "state": "default"
+      }
+    },
+    "render-gltf-read": {
+      "label": "render-gltf-read",
+      "params": {
+        "item": "render-gltf-read",
         "state": "default"
       }
     },
