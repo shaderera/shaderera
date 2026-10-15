@@ -36,6 +36,7 @@ is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `r
 | `look-paper-edges` | component | a print on paper: cut out along any shape with a paper border, or a strip cut straight or torn, with white core and fibre | a collage POC, 2026-10-14 |
 | `look-row-glitch` | component | bands of rows thrown sideways, and a real pixel sort of runs of light, along rows or columns | split from `look-screen-passes` (0.2.0) |
 | `look-screen-passes` | component | the frame in another medium: ascii, halftone, dither, heat, contours, pixels, inverse; ink, paper, cell and palette as parameters | opening film |
+| `look-tonemap` | component | linear light to display-referred colour through Khronos PBR Neutral or AgX, as WGSL functions and a CPU version with the same values | the Wallloom opening film's output shader |
 | `look-vignette` | component | the edges towards black or a colour, in linear light, round or the frame's shape | split from `look-screen-passes` (0.2.0) |
 | `motion-keyframes` | component | values over time with eases (a stateless spring, bezier), paths that flow through points | opening film |
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |
