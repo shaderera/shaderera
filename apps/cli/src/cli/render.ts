@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes, type Sink } from '@shaderera/core'
@@ -78,8 +78,10 @@ export const checkVideoOptions = (o: VideoOptions) => {
 
 /**
  * Exports [from, to] to an mp4 (H.264) or a mov (ProRes) with ffmpeg; returns the file, frame count
- * and seconds, the file as probed and its sidecars. A source that fails exportFrames's determinism
- * check leaves no file. With `workers` > 1 and `more`, frames are spread over that many hosts
+ * and seconds, the file as probed and its sidecars. The file is written as `<out>.partial` and
+ * renamed to `out` only once complete and probed, so `out` holds the previous film or nothing until
+ * then; a render that fails (a source that fails exportFrames's determinism check, a host error,
+ * `signal` aborted) leaves no `.partial` and `out` as it was. With `workers` > 1 and `more`, frames are spread over that many hosts
  * (`child` and ones `more` opens) and written in order; the hosts `more` opened are closed here. A
  * host that composites on the GPU hands ffmpeg yuv420p for H.264 and 16-bit RGBA for ProRes.
  * A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file.
@@ -107,6 +109,8 @@ export const exportVideo = async (
      * they are instead of rendered here. `child` still gives the sound and the captions.
      */
     frames?: { input: Input; count: number; read: () => AsyncIterable<Uint8Array> }
+    /** Stops the render between frames (Ctrl-C): it fails as any other error does. */
+    signal?: AbortSignal
   },
 ): Promise<{
   out: string
@@ -153,6 +157,7 @@ export const exportVideo = async (
     ? resolve(root, o.out)
     : join(root, 'out', `${basename(root)}${extensionOf(codec)}`)
   mkdirSync(dirname(out), { recursive: true })
+  const partial = `${out}.partial`
   // Project files as they are; sound made in code as temporary WAVs.
   const files = clipFiles(root, o.audio === false ? [] : ((await child.audio()) ?? []))
   const workers = manifest.sequential || !o.more ? 1 : Math.max(1, Math.floor(o.workers ?? 1))
@@ -191,7 +196,7 @@ export const exportVideo = async (
       ...(manifest.timecode || preroll.frames
         ? { timecode: fileTimecode(manifest, from, preroll.frames) }
         : {}),
-      out,
+      out: partial,
       quality: o.quality,
       crf: o.crf,
       clips,
@@ -213,21 +218,30 @@ export const exportVideo = async (
       render: async (t) => (await child.render(t, 'final', input)).pixels,
     })
     const { frames } = o.frames
-      ? await encodeFrames(sink, o.frames, o.onFrame)
+      ? await encodeFrames(sink, o.frames, o.onFrame, o.signal)
       : await exportFrames({
           fps: manifest.fps,
           from,
           to,
           // Frames go round the hosts in the order exportFrames asks for them.
-          render: async (t) =>
-            (await (hosts[next++ % hosts.length] as Child).render(t, 'final', input)).pixels,
+          render: async (t) => {
+            const host = hosts[next++ % hosts.length] as Child
+            try {
+              return (await host.render(t, 'final', input)).pixels
+            } catch (error) {
+              throw frameError(error, t, manifest.fps, hosts.length)
+            }
+          },
           inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
           sink,
           onFrame: o.onFrame,
+          signal: o.signal,
           ahead: hosts.length * 2,
         })
-    const probed = probe(out)
+    const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
+    const loudness = clips.length > 0 ? measureLoudness(partial) : null
+    renameSync(partial, out)
     const stems =
       o.stems && clips.length > 0
         ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
@@ -247,7 +261,7 @@ export const exportVideo = async (
       workers: hosts.length,
       encoder,
       bits: input === 'rgba64' ? 16 : 8,
-      loudness: clips.length > 0 ? measureLoudness(out) : null,
+      loudness,
       ...(level ? { gainDb: level.gainDb } : {}),
       probe: probed,
       clock,
@@ -255,7 +269,7 @@ export const exportVideo = async (
       ...(sidecars.length ? { captions: sidecars } : {}),
     }
   } catch (error) {
-    rmSync(out, { force: true })
+    rmSync(partial, { force: true })
     for (const f of sidecars) rmSync(f, { force: true })
     if (o.stems) rmSync(`${base}.stems`, { recursive: true, force: true })
     throw error
@@ -322,6 +336,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
     )
   const { project, child, more } = job ? await openJob(root, job, childOptions(v)) : await open(v)
+  // Ctrl-C stops the render between frames, so it fails like any other: no .partial is left.
+  const stop = new AbortController()
+  const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
+  process.once('SIGINT', interrupt)
+  process.once('SIGTERM', interrupt)
   // The progress line goes to a terminal, or to a reader that asks (--progress);
   // piped into a log, it would be one line per frame.
   const progress = process.stderr.isTTY || v.progress === true
@@ -398,6 +417,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       audio,
       loudness,
       onFrame,
+      signal: stop.signal,
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
     console.log(
@@ -418,6 +438,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     }
     return 0
   } finally {
+    process.off('SIGINT', interrupt)
+    process.off('SIGTERM', interrupt)
     await child.close()
   }
 }
@@ -427,10 +449,12 @@ const encodeFrames = async (
   sink: Sink,
   f: { count: number; read: () => AsyncIterable<Uint8Array> },
   onFrame?: (i: number, n: number) => void,
+  signal?: AbortSignal,
 ): Promise<{ frames: number }> => {
   let frames = 0
   try {
     for await (const pixels of f.read()) {
+      signal?.throwIfAborted()
       await sink.write(pixels)
       onFrame?.(frames, f.count)
       frames++
@@ -442,4 +466,23 @@ const encodeFrames = async (
     throw error
   }
   return { frames }
+}
+
+/** What a GPU says when it cannot go on: a lost or removed device, or memory it could not get. */
+const DEVICE = /device was lost|device removed|DXGI_ERROR|out of memory|WebGPU reported/i
+
+/**
+ * A host's error with the frame it happened at. A device error also names the usual way out:
+ * every host holds its own copy of the film's GPU memory, so fewer hosts need less.
+ */
+export const frameError = (error: unknown, t: number, fps: number, hosts: number): Error => {
+  const message = error instanceof Error ? error.message : String(error)
+  const way = !DEVICE.test(message)
+    ? ''
+    : hosts > 1
+      ? ` ${hosts} hosts shared the GPU, each with its own memory: render with fewer --workers (--workers 1 for one).`
+      : ' The GPU ran out or reset: close other work on it, or make the film need less memory.'
+  return new Error(`Frame ${Math.round(t * fps)} (t ${t} s) failed: ${message}${way}`, {
+    cause: error,
+  })
 }

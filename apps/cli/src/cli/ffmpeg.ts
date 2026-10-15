@@ -344,7 +344,8 @@ export const ffmpegArgs = (o: {
     if (o.timecode) args.push('-timecode', o.timecode)
     // The mov muxer stamps the time of writing: bitexact leaves it out, so the same frames give
     // the same file.
-    args.push('-fflags', '+bitexact', '-t', s(o.to - o.from), o.out)
+    // The container by name: the file may be written as `<out>.partial` (exportVideo).
+    args.push('-fflags', '+bitexact', '-f', 'mov', '-t', s(o.to - o.from), o.out)
     return args
   }
   const sdr: readonly string[] = yuv ? ['-vf', TAGS, ...SDR_BT709.slice(2)] : SDR_BT709
@@ -385,7 +386,7 @@ export const ffmpegArgs = (o: {
   // 48 kHz stereo, as YouTube asks and the WAV handoff is (an mp4 otherwise keeps the files' rate).
   if (o.clips.length > 0) args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2')
   if (o.timecode) args.push('-timecode', o.timecode)
-  args.push('-t', s(o.to - o.from), o.out)
+  args.push('-f', 'mp4', '-t', s(o.to - o.from), o.out)
   return args
 }
 

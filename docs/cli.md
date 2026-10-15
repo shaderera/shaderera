@@ -147,6 +147,13 @@ out/stills/main-sheet.png
 Renders every frame `i / fps` in `[from, to)` at `intent: 'final'`, spread over the workers and
 written in order. What each format is, and what was measured: [delivery.md](delivery.md).
 
+The file is written as `<out>.partial` and renamed to `<out>` only when it is complete: while a
+render runs, `<out>` is the previous film or nothing, never half a film. A render that fails or is
+stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was. A host error fails the render with
+its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
+memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
+The file must hold every frame rendered; one ffmpeg finished short is refused.
+
 | Flag | Default |
 |---|---|
 | `--from <s>`, `--to <s>` | 0, `duration` |
