@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { extname, join, resolve } from 'node:path'
 import type { Pcm, SampledClip, Sink } from '@shaderera/core'
 import { fpsFraction, gainAt, matte } from '@shaderera/core/host'
 
@@ -302,6 +302,8 @@ export const ffmpegArgs = (o: {
   editList?: boolean
   /** The timecode of the file's first frame, written as the container's timecode. */
   timecode?: string
+  /** The muxer (`-f`), when `out`'s own name does not say it: containerOf. */
+  container?: string
 }): string[] => {
   const codec = o.codec ?? 'h264'
   const prores = codec !== 'h264'
@@ -344,8 +346,7 @@ export const ffmpegArgs = (o: {
     if (o.timecode) args.push('-timecode', o.timecode)
     // The mov muxer stamps the time of writing: bitexact leaves it out, so the same frames give
     // the same file.
-    // The container by name: the file may be written as `<out>.partial` (exportVideo).
-    args.push('-fflags', '+bitexact', '-f', 'mov', '-t', s(o.to - o.from), o.out)
+    args.push('-fflags', '+bitexact', ...muxer(o.container), '-t', s(o.to - o.from), o.out)
     return args
   }
   const sdr: readonly string[] = yuv ? ['-vf', TAGS, ...SDR_BT709.slice(2)] : SDR_BT709
@@ -386,8 +387,22 @@ export const ffmpegArgs = (o: {
   // 48 kHz stereo, as YouTube asks and the WAV handoff is (an mp4 otherwise keeps the files' rate).
   if (o.clips.length > 0) args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2')
   if (o.timecode) args.push('-timecode', o.timecode)
-  args.push('-f', 'mp4', '-t', s(o.to - o.from), o.out)
+  args.push(...muxer(o.container), '-t', s(o.to - o.from), o.out)
   return args
+}
+
+const muxer = (container?: string) => (container ? ['-f', container] : [])
+
+/**
+ * The muxer a file name's extension asks for, as ffmpeg would pick it: for a file written under
+ * another name first (`<out>.partial`, exportVideo).
+ */
+export const containerOf = (file: string, codec: Codec = 'h264'): string => {
+  const ext = extname(file).toLowerCase()
+  if (ext === '.mov') return 'mov'
+  if (ext === '.mkv') return 'matroska'
+  if (ext === '.mp4' || ext === '.m4v') return 'mp4'
+  return codec === 'h264' ? 'mp4' : 'mov'
 }
 
 /** A rate such as `15M`, `800k` or `2500000` in bits a second; throws on anything else. */

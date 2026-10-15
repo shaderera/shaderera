@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import type { Child } from '../node/child.ts'
@@ -109,6 +109,16 @@ test('the output holds the previous film until the new one is complete; a failed
     )
     assert.equal(existsSync(partial), false)
     assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+
+    // Finished, but the output cannot be replaced (a folder here; on Windows, a file a player
+    // holds open): the new film is kept as .partial and the error says where it is.
+    const blocked = join(dirname(out), 'blocked.mp4')
+    mkdirSync(join(blocked, 'inside'), { recursive: true })
+    await assert.rejects(
+      exportVideo(project, child, { out: blocked }),
+      /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.partial/,
+    )
+    assert.equal(probe(`${blocked}.partial`).video?.frames, 10)
 
     // Complete: renamed over the previous film.
     await exportVideo(project, child, { out })
