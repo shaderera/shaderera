@@ -58,6 +58,7 @@ What is on the shelf:
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper JSON), the line and word at t;
   - `render-three-host`: three.js on the host's GPU;
   - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
+  - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-regions`: named regions of a photograph (mask, box, centre), from SAM 3.1 or painted masks;
   - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;
   - `text-glyph-points` and `text-glyph-outlines`: text as a point set, or as contours and solids;
