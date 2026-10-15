@@ -302,9 +302,20 @@ percentiles in its box), motion (% static samples) and audio (clips and their co
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
-adapter with every feature and the storage and texture limits (asked in a child process), and more
-than one `webgpu` installed, which crashes a host, and a package plugin the project requires and
-lacks (`requires`, [above](#required-plugins)). Each lack says how to fix it.
+adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
+installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
+[above](#required-plugins)). Each lack says how to fix it.
+
+The limits are the ones films run into, as the Node host's device gets them (it asks for the
+adapter's maximum). They come from the GPU and its backend, not from Shaderera: Dawn on D3D12 caps
+a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
+
+| Limit | What it bounds |
+|---|---|
+| `maxBufferSize` | one buffer, in bytes: a particle pool or a scene's triangles must fit, or be split |
+| `maxStorageBufferBindingSize` | how much of a buffer one storage binding reads, in bytes |
+| `maxTextureDimension2D` | a 2D texture's width and height, in pixels: the frame and every render target |
+| `maxTextureArrayLayers` | the layers of one texture array, such as a stack of baked frames |
 
 ## Plugins
 
