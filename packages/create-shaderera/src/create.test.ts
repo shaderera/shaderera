@@ -70,3 +70,11 @@ test('the empty project imports only the stable entries (docs/api.md), and no lo
   walk(join(from, 'src'))
   assert.deepEqual(wrong, [])
 })
+
+test('the Claude Code plugin has no version, so every change reaches users', () => {
+  // Claude Code caches a plugin by version. With none set it uses the commit, so a skill change
+  // reaches `claude plugin update` without a bump; a fixed version would hold users on old skills.
+  const read = (...p: string[]) => JSON.parse(readFileSync(join(repo, ...p), 'utf8'))
+  assert.equal(read('plugins', 'shaderera', '.claude-plugin', 'plugin.json').version, undefined)
+  assert.equal(read('.claude-plugin', 'marketplace.json').plugins[0].version, undefined)
+})
