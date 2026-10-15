@@ -1,0 +1,11 @@
+{
+  "caption": "Turns light brighter than white into colours a screen can show, through Khronos PBR Neutral or AgX, in your own shader or on the CPU.",
+  "states": [
+    { "id": "all", "label": "All" },
+    { "id": "neutral", "label": "PBR Neutral" },
+    { "id": "agx", "label": "AgX" }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 1.2
+}

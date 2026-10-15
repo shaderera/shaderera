@@ -1,0 +1,22 @@
+{
+  "name": "render-gltf-read",
+  "type": "component",
+  "title": "glTF reader",
+  "description": "glTF 2.0 (.gltf with its .bin, or .glb) read into plain data: each primitive's positions, normals, uvs and indices as typed arrays, its node's world matrix, and its material as the file states it; refuses Draco, meshopt and other required extensions by name; no packages",
+  "category": "Rendering",
+  "tags": [
+    "gltf",
+    "glb",
+    "3d",
+    "models",
+    "meshes",
+    "import",
+    "loader",
+    "typed arrays",
+    "webgpu",
+    "three.js"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/render/gltf.ts"]
+}

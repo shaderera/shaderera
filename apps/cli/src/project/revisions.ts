@@ -195,13 +195,14 @@ const writeAtomic = (file: string, data: Uint8Array | string) => {
 }
 
 /**
- * Saves the working tree as a revision and returns it; an unchanged tree returns the existing
- * revision (logged only when it is not already the head).
+ * Saves the working tree as a revision and returns it; the same files return the revision that
+ * holds them, `existing`, with its own label and note (a new label is only logged, when given or
+ * when it is not already the head).
  */
 export const save = (
   root: string,
   o: { by: By; label?: string; note?: string } = { by: 'person' },
-): Revision => {
+): Revision & { existing: boolean } => {
   const files = scan(root)
   const id = treeId(files)
   const objects = join(store(root), 'objects')
@@ -219,8 +220,9 @@ export const save = (
   }
   const file = join(store(root), 'revisions', `${id}.json`)
   const parent = head(root)
+  const existing = existsSync(file)
   let revision: Revision
-  if (existsSync(file)) revision = readRevision(root, id)
+  if (existing) revision = readRevision(root, id)
   else {
     revision = {
       id,
@@ -234,7 +236,7 @@ export const save = (
     writeAtomic(file, `${JSON.stringify(revision, null, 1)}\n`)
   }
   if (parent !== id || o.label) append(root, { action: 'save', id, by: o.by, label: o.label })
-  return revision
+  return { ...revision, existing }
 }
 
 /** A stored file's contents, checked against its hash. */

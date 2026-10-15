@@ -1,0 +1,10 @@
+{
+ "id": "d4b737b482b394fc",
+ "parent": "db26e405849e9d4d",
+ "created": "2026-10-15T12:56:09.311Z",
+ "by": "cli",
+ "files": {
+  "shaderera.json": "a9d33a915a6f805f410757393ba6adb5de20a2ef482e954b17af09c2a3136a73",
+  "src/composition.ts": "6e3cbccbd4ebdfdf21d06118fcde4085f77d33d4d8cf468f217099950c3a9fc9"
+ }
+}

@@ -27,7 +27,9 @@ user gets it: from packed tarballs, installed with npm in a fresh folder outside
    ```
    Every command must pass. The empty project needs WebGPU, so a GPU adapter.
 4. **Package fields.** Every package.json has the release version and a `repository` field pointing at
-   `https://github.com/shaderera/shaderera`.
+   `https://github.com/shaderera/shaderera`. The Claude Code plugin (`plugins/shaderera`) has no
+   version on purpose: Claude Code then versions it by commit, so skill changes reach users
+   without a release.
 5. **Licences.** Re-run the dependency walk and update [licences.md](licences.md): every bundled
    or vendored dependency and every asset with its licence.
 6. **Publish.** `npm publish --access public` for each tarball (core first, then `shaderera`,

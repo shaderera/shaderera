@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes, type Sink } from '@shaderera/core'
@@ -6,10 +6,12 @@ import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import type { Child, ClockReads } from '../node/child.ts'
+import { outside } from '../node/inside.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
 import { DELIVERY_FLAGS, deliveryOf, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
+import { save } from '../project/revisions.ts'
 import { childOptions, open, parseRendering } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
@@ -17,6 +19,7 @@ import {
   CODECS,
   type Codec,
   clipFiles,
+  containerOf,
   type Encoder,
   ffmpegArgs,
   ffmpegSink,
@@ -31,6 +34,7 @@ import {
   probeLine,
   type Quality,
   requireFfmpeg,
+  requireFrames,
   withGainFiles,
   writeStems,
 } from './ffmpeg.ts'
@@ -77,8 +81,10 @@ export const checkVideoOptions = (o: VideoOptions) => {
 
 /**
  * Exports [from, to] to an mp4 (H.264) or a mov (ProRes) with ffmpeg; returns the file, frame count
- * and seconds, the file as probed and its sidecars. A source that fails exportFrames's determinism
- * check leaves no file. With `workers` > 1 and `more`, frames are spread over that many hosts
+ * and seconds, the file as probed and its sidecars. The file is written as `<out>.partial` and
+ * renamed to `out` only once complete and probed, so `out` holds the previous film or nothing until
+ * then; a render that fails (a source that fails exportFrames's determinism check, a host error,
+ * `signal` aborted) leaves no `.partial` and `out` as it was. With `workers` > 1 and `more`, frames are spread over that many hosts
  * (`child` and ones `more` opens) and written in order; the hosts `more` opened are closed here. A
  * host that composites on the GPU hands ffmpeg yuv420p for H.264 and 16-bit RGBA for ProRes.
  * A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file.
@@ -106,6 +112,10 @@ export const exportVideo = async (
      * they are instead of rendered here. `child` still gives the sound and the captions.
      */
     frames?: { input: Input; count: number; read: () => AsyncIterable<Uint8Array> }
+    /** Stops the render between frames (Ctrl-C): it fails as any other error does. */
+    signal?: AbortSignal
+    /** The revision that made the film, tagged on the file (`shaderera_revision`). */
+    revision: string
   },
 ): Promise<{
   out: string
@@ -151,7 +161,13 @@ export const exportVideo = async (
   const out = o.out
     ? resolve(root, o.out)
     : join(root, 'out', `${basename(root)}${extensionOf(codec)}`)
+  // Anywhere else in the project, the film would be saved into every later revision.
+  if (!outside(root, out) && outside(join(root, 'out'), out))
+    throw new Error(
+      `${out} is in the project but not in out/: render to out/ or outside the project, since every other file in it is saved into each revision.`,
+    )
   mkdirSync(dirname(out), { recursive: true })
+  const partial = `${out}.partial`
   // Project files as they are; sound made in code as temporary WAVs.
   const files = clipFiles(root, o.audio === false ? [] : ((await child.audio()) ?? []))
   const workers = manifest.sequential || !o.more ? 1 : Math.max(1, Math.floor(o.workers ?? 1))
@@ -161,6 +177,9 @@ export const exportVideo = async (
   // Everything that can throw is inside the try, so the hosts opened here are always closed.
   let opened: Child[] = []
   let cleanup = () => {}
+  // The finished film when only its rename failed; stems this render began to write.
+  let finished = false
+  let stemsWritten = false
   try {
     const gains = withGainFiles(files.clips, head, to)
     cleanup = gains.cleanup
@@ -190,7 +209,8 @@ export const exportVideo = async (
       ...(manifest.timecode || preroll.frames
         ? { timecode: fileTimecode(manifest, from, preroll.frames) }
         : {}),
-      out,
+      out: partial,
+      container: containerOf(out, codec),
       quality: o.quality,
       crf: o.crf,
       clips,
@@ -201,6 +221,7 @@ export const exportVideo = async (
       ...(o.maxrate ? { maxrate: o.maxrate } : {}),
       ...(o.editList === false ? { editList: false } : {}),
       ...(level ? { gainDb: level.gainDb } : {}),
+      revision: o.revision,
     })
     let next = 0
     const sink = ffmpegSink(args, input, codec !== 'prores-4444')
@@ -212,23 +233,43 @@ export const exportVideo = async (
       render: async (t) => (await child.render(t, 'final', input)).pixels,
     })
     const { frames } = o.frames
-      ? await encodeFrames(sink, o.frames, o.onFrame)
+      ? await encodeFrames(sink, o.frames, o.onFrame, o.signal)
       : await exportFrames({
           fps: manifest.fps,
           from,
           to,
           // Frames go round the hosts in the order exportFrames asks for them.
-          render: async (t) =>
-            (await (hosts[next++ % hosts.length] as Child).render(t, 'final', input)).pixels,
+          render: async (t) => {
+            const host = hosts[next++ % hosts.length] as Child
+            try {
+              return (await host.render(t, 'final', input)).pixels
+            } catch (error) {
+              throw frameError(error, t, manifest.fps, hosts.length)
+            }
+          },
           inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
           sink,
           onFrame: o.onFrame,
+          signal: o.signal,
           ahead: hosts.length * 2,
         })
-    const stems =
-      o.stems && clips.length > 0
-        ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
-        : undefined
+    const probed = probe(partial)
+    requireFrames(out, probed, preroll.frames + frames)
+    const loudness = clips.length > 0 ? measureLoudness(partial) : null
+    try {
+      renameSync(partial, out)
+    } catch (error) {
+      // Windows refuses to replace a file another program holds open (a player showing the last
+      // film): the new one is finished, so it is kept, never thrown away.
+      finished = true
+      throw new Error(
+        `The film is finished, but ${out} could not be replaced (${(error as NodeJS.ErrnoException).code}): is it open in another program? The new film is ${partial}; close ${out} and rename it.`,
+      )
+    }
+    stemsWritten = o.stems === true && clips.length > 0
+    const stems = stemsWritten
+      ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
+      : undefined
     const clock = await clockOf(hosts)
     const captions = await child.captions()
     if (captions) {
@@ -244,17 +285,18 @@ export const exportVideo = async (
       workers: hosts.length,
       encoder,
       bits: input === 'rgba64' ? 16 : 8,
-      loudness: clips.length > 0 ? measureLoudness(out) : null,
+      loudness,
       ...(level ? { gainDb: level.gainDb } : {}),
-      probe: probe(out),
+      probe: probed,
       clock,
       ...(stems ? { stems } : {}),
       ...(sidecars.length ? { captions: sidecars } : {}),
     }
   } catch (error) {
-    rmSync(out, { force: true })
+    if (!finished) rmSync(partial, { force: true })
     for (const f of sidecars) rmSync(f, { force: true })
-    if (o.stems) rmSync(`${base}.stems`, { recursive: true, force: true })
+    // Only stems this render wrote: the previous film's stay with it.
+    if (stemsWritten) rmSync(`${base}.stems`, { recursive: true, force: true })
     throw error
   } finally {
     await Promise.all(opened.map((h) => h.close()))
@@ -324,7 +366,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     throw new Error(
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
     )
+  // What the output is traced to: the job's revision, or the working tree saved now (the same
+  // files give the same id, so an unchanged project saves nothing new).
+  const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const { project, child, more } = job ? await openJob(root, job, childOptions(v)) : await open(v)
+  // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
+  const stop = new AbortController()
+  const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
   // The progress line goes to a terminal, or to a reader that asks (--progress);
   // piped into a log, it would be one line per frame.
   const progress = process.stderr.isTTY || v.progress === true
@@ -377,6 +425,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         console.log(`audio: ${loudnessLine(done.record.audio.loudness)}`)
       return 0
     }
+    // Only around the video export: a chunk or a png job keeps the default Ctrl-C.
+    process.once('SIGINT', interrupt)
+    process.once('SIGTERM', interrupt)
     const from = job?.output.from ?? num(v.from) ?? 0
     const to = job?.output.to ?? num(v.to) ?? project.manifest.duration
     const ext = extensionOf(video.codec)
@@ -401,12 +452,15 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       audio,
       loudness,
       onFrame,
+      signal: stop.signal,
+      revision,
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
     console.log(
       `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}`,
     )
     console.log(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
+    console.log(`revision: ${revision}`)
     for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) console.log(f)
     if (sound.loudness)
       console.log(
@@ -421,6 +475,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     }
     return 0
   } finally {
+    process.off('SIGINT', interrupt)
+    process.off('SIGTERM', interrupt)
     await child.close()
   }
 }
@@ -430,10 +486,12 @@ const encodeFrames = async (
   sink: Sink,
   f: { count: number; read: () => AsyncIterable<Uint8Array> },
   onFrame?: (i: number, n: number) => void,
+  signal?: AbortSignal,
 ): Promise<{ frames: number }> => {
   let frames = 0
   try {
     for await (const pixels of f.read()) {
+      signal?.throwIfAborted()
       await sink.write(pixels)
       onFrame?.(frames, f.count)
       frames++
@@ -445,4 +503,23 @@ const encodeFrames = async (
     throw error
   }
   return { frames }
+}
+
+/** What a GPU says when it cannot go on: a lost or removed device, or memory it could not get. */
+const DEVICE = /device was lost|device removed|DXGI_ERROR|out of memory|WebGPU reported/i
+
+/**
+ * A host's error with the frame it happened at. A device error also names the usual way out:
+ * every host holds its own copy of the film's GPU memory, so fewer hosts need less.
+ */
+export const frameError = (error: unknown, t: number, fps: number, hosts: number): Error => {
+  const message = error instanceof Error ? error.message : String(error)
+  const way = !DEVICE.test(message)
+    ? ''
+    : hosts > 1
+      ? ` ${hosts} hosts shared the GPU, each with its own memory: render with fewer --workers (--workers 1 for one).`
+      : ' The GPU ran out or reset: close other work on it, or make the film need less memory.'
+  return new Error(`Frame ${Math.round(t * fps)} (t ${t} s) failed: ${message}${way}`, {
+    cause: error,
+  })
 }

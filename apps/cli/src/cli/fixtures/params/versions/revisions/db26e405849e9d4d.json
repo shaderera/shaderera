@@ -1,0 +1,10 @@
+{
+ "id": "db26e405849e9d4d",
+ "parent": null,
+ "created": "2026-10-15T12:53:11.286Z",
+ "by": "cli",
+ "files": {
+  "shaderera.json": "c6a5e4fa44dd2383d154e0f1cf5bbd089a4b95b8b290cc6a19262fc84cf753e1",
+  "src/composition.ts": "6e3cbccbd4ebdfdf21d06118fcde4085f77d33d4d8cf468f217099950c3a9fc9"
+ }
+}

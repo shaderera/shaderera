@@ -256,7 +256,12 @@ export const createServer = (
       case 'export': {
         const out = typeof a.out === 'string' ? inside(root, a.out) : undefined
         if (typeof a.job !== 'string')
-          return exportVideo(opened.project, c, { from: a.from, to: a.to, out })
+          return exportVideo(opened.project, c, {
+            from: a.from,
+            to: a.to,
+            out,
+            revision: save(root, { by: 'agent' }).id,
+          })
         const job = readJob(root, a.job)
         if (job.delivery.format === 'png')
           throw new Error(
@@ -272,6 +277,7 @@ export const createServer = (
             to: job.output.to,
             out: out ?? join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
             quality: job.delivery.quality,
+            revision: job.revision,
           })
         } finally {
           await frozen.child.close()

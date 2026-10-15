@@ -11,6 +11,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     label: typeof v.label === 'string' ? v.label : undefined,
     note: typeof v.note === 'string' ? v.note : undefined,
   })
-  console.log(`${r.id}  ${Object.keys(r.files).length} files${r.label ? `  ${r.label}` : ''}`)
+  // The same files as a revision already saved: that one is the save, and its label stays its own.
+  if (r.existing)
+    console.log(
+      `same files as revision ${r.id}${typeof v.label === 'string' ? '; label added' : '; nothing new to save'}`,
+    )
+  else console.log(`${r.id}  ${Object.keys(r.files).length} files${r.label ? `  ${r.label}` : ''}`)
   return 0
 }
