@@ -296,6 +296,16 @@ test('render-bvh: GPU closest-hit and any-hit match brute force on random rays',
   assert.ok(b.hits > 500 && b.checked - b.hits > 300, `${b.hits} hits of ${b.checked}`)
   // No triangles: every ray misses.
   const none: Mesh = { positions: new Float32Array(0), indices: new Uint32Array(0) }
-  const empty = await compare(none, buildBvh(none.positions, none.indices), raysOf(64, 2), 1)
+  // Rays through the origin, where the empty root's box is: none loops on it.
+  const origin: Ray[] = [
+    { o: [-1, -2, -3], d: [1, 2, 3], tMin: 1e-3, tMax: 1e30 },
+    { o: [0, 0, 5], d: [0, 0, -1], tMin: 1e-3, tMax: 1e30 },
+  ]
+  const empty = await compare(
+    none,
+    buildBvh(none.positions, none.indices),
+    [...raysOf(64, 2), ...origin],
+    1,
+  )
   assert.equal(empty.hits, 0)
 })

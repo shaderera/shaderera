@@ -72,7 +72,8 @@ fn bvhClosest(origin: vec3f, dir: vec3f, tMin: f32, tMax: f32) -> BvhHit {
           hit = BvhHit(h.x, bitcast<u32>(bvhTriangles[i * 3u].w), h.y, h.z);
         }
       }
-    } else {
+    } else if (first > 0u) {
+      // An inner node's children are never node 0: count 0 and first 0 is the empty root.
       var near = first;
       var far = first + 1u;
       var dNear = bvhBox(origin, inv, near, tMin, hit.t);
@@ -120,7 +121,7 @@ fn bvhAny(origin: vec3f, dir: vec3f, tMin: f32, tMax: f32) -> bool {
         let t = bvhTriangle(origin, dir, i).x;
         if (t > tMin && t < tMax) { return true; }
       }
-    } else {
+    } else if (first > 0u) {
       let l = bvhBox(origin, inv, first, tMin, tMax) < BVH_FAR;
       let r = bvhBox(origin, inv, first + 1u, tMin, tMax) < BVH_FAR;
       if (l) { next = first; }
