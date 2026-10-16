@@ -83,14 +83,50 @@ test('review-shots: known cuts and camera moves come back, with the source and a
     shots.map((s) => s.move),
     [['static'], ['push'], ['pan'], ['tilt'], ['pull']],
   )
-  // 115% over the shot is about 15% a second; the pull is the same scale backwards (about −13%).
+  // 115% over the shot's 29 frame steps, measured over 27 of them (27/30 s): about +15.4% a
+  // second; the pull is the same scale backwards (about −13.6%).
   const [still, push, pan, tilt, pull] = shots as [Shot, Shot, Shot, Shot, Shot]
+  const zoom = (to: number) => ((to ** (27 / 29) - 1) * 100) / (27 / 30)
   assert.ok(Math.abs(still.zoom) < 0.3 && Math.hypot(...still.pan) < 0.003, JSON.stringify(still))
-  assert.ok(push.zoom > 13 && push.zoom < 17, `push ${push.zoom}`)
-  assert.ok(pull.zoom < -11 && pull.zoom > -15, `pull ${pull.zoom}`)
-  assert.ok(Math.abs((pan.pan[0] as number) - 0.2) < 0.02, `pan ${pan.pan}`)
-  assert.ok(Math.abs((tilt.pan[1] as number) - 0.15) < 0.02, `tilt ${tilt.pan}`)
+  assert.ok(Math.abs(push.zoom - zoom(1.15)) < 0.3, `push ${push.zoom}`)
+  assert.ok(Math.abs(pull.zoom - zoom(1 / 1.15)) < 0.3, `pull ${pull.zoom}`)
+  assert.ok(Math.abs((pan.pan[0] as number) - 0.2) < 0.005, `pan ${pan.pan}`)
+  assert.ok(Math.abs((tilt.pan[1] as number) - 0.15) < 0.005, `tilt ${tilt.pan}`)
   assert.ok(existsSync(join(project, 'shots', 'known', 'sheet-1.jpg')))
+})
+
+/** One texture for 30 frames, its hue turned for 3, then a cut to another: the two detectors cut
+ * 3 frames apart. */
+const NEAR = `
+import sys, cv2, numpy as np
+rng = np.random.default_rng(2)
+out = cv2.VideoWriter(sys.argv[1], cv2.VideoWriter_fourcc(*'mp4v'), 30, (480, 270))
+def texture(hue):
+    noise = cv2.GaussianBlur(rng.random((270, 480)).astype(np.float32), (0, 0), 3)
+    noise = cv2.normalize(noise, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    return np.dstack([np.full_like(noise, hue), np.full_like(noise, 160), noise])
+a, b = texture(0), texture(120)
+turned = a.copy()
+turned[..., 0] = 40
+for hsv in [a] * 30 + [turned] * 3 + [b] * 30:
+    out.write(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
+out.release()
+`
+
+test('review-shots: two cuts closer than --min-shot are one', { skip }, () => {
+  setUp()
+  const made = spawnSync(python, ['-c', NEAR, 'footage/near.mp4'], {
+    cwd: project,
+    encoding: 'utf8',
+  })
+  assert.equal(made.status, 0, made.stderr)
+  const result = run('footage/near.mp4')
+  assert.equal(result.status, 0, result.stderr)
+  const doc = JSON.parse(readFileSync(join(project, 'shots', 'near', 'shots.json'), 'utf8'))
+  assert.deepEqual(
+    (doc.shots as Shot[]).map((s) => s.start),
+    [0, 1],
+  )
 })
 
 test('review-shots: keeps to the project and to one video per folder', { skip }, () => {

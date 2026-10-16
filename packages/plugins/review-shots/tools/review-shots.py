@@ -55,7 +55,11 @@ manager = SceneManager()
 manager.add_detector(AdaptiveDetector(adaptive_threshold=args.adaptive_threshold, min_scene_len=args.min_shot))
 manager.add_detector(ContentDetector(threshold=args.content_threshold, min_scene_len=args.min_shot))
 frames = manager.detect_scenes(video)
-cuts = sorted({s[0].frame_num for s in manager.get_scene_list()} - {0})
+shortest = max(1, round(args.min_shot * video.frame_rate))
+cuts = []
+for c in sorted({s[0].frame_num for s in manager.get_scene_list()} - {0}):
+    if c - (cuts[-1] if cuts else 0) >= shortest:
+        cuts.append(c)
 bounds = [0] + cuts + [frames]
 middles = {(a + b) // 2 for a, b in zip(bounds, bounds[1:])}
 
@@ -108,7 +112,7 @@ levels, scale, shift = np.array(levels), np.array(scale), np.array(shift)
 shots = []
 for k, (a, b) in enumerate(zip(bounds, bounds[1:])):
     inner = slice(a + 2, b - 1)
-    span = times[b - 1] - times[a + 1] if b - a >= 4 else 0
+    span = times[b - 2] - times[a + 1] if b - a >= 4 else 0
     move = zoom = pan = None
     if span > 0:
         zoom = (float(np.prod(np.clip(scale[inner], 0.9, 1.1))) - 1) * 100 / span
@@ -120,7 +124,7 @@ for k, (a, b) in enumerate(zip(bounds, bounds[1:])):
         move = move or ['static']
         zoom = round(zoom, 2) + 0.0
     black, white, luma, contrast, saturation, la, lb = levels[a:b].mean(axis=0)
-    shots.append({'id': f'shot-{k}', 'start': round(times[a], 3), 'end': round(times[b], 3),
+    shots.append({'id': f'shot-{k + 1}', 'start': round(times[a], 3), 'end': round(times[b], 3),
                   'move': move, 'zoom': zoom, 'pan': pan,
                   'black': round(black, 1), 'white': round(white, 1), 'luma': round(luma, 1),
                   'contrast': round(contrast, 1), 'saturation': round(saturation, 1),
@@ -154,7 +158,7 @@ for p in range(0, len(shots), cols * rows):
         middle = min(thumbs, key=lambda i: abs(i - (bounds[k] + bounds[k + 1]) // 2))
         sheet[y:y + th, x:x + tw] = cv2.resize(thumbs[middle], (tw, th))
         m, s = divmod(shot['start'], 60)
-        label = f"#{k} {int(m)}:{s:04.1f} {shot['end'] - shot['start']:.1f}s {'+'.join(shot['move'] or ['-'])}"
+        label = f"#{k + 1} {int(m)}:{s:04.1f} {shot['end'] - shot['start']:.1f}s {'+'.join(shot['move'] or ['-'])}"
         if {'push', 'pull'} & set(shot['move'] or []):
             label += f" {shot['zoom']:+.1f}%/s"
         cv2.putText(sheet, label, (x + 3, y + th + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (230, 230, 230), 1, cv2.LINE_AA)

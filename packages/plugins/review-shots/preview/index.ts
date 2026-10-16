@@ -85,7 +85,7 @@ const reviewShots: OpenPreview = async (host, stateId) => {
   }
 
   const drawFilm = async (t: number, frame: number) => {
-    const i = Math.min(film.frames - 1, Math.floor(t * film.fps))
+    const i = Math.min(film.frames - 1, Math.round(t * film.fps))
     fimg.data.set(await film.frame(i))
     fctx.putImageData(fimg, 0, 0)
     ctx.drawImage(fc, PANEL.x, PANEL.y, PANEL.width, panelHeight)

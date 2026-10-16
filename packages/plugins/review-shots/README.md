@@ -6,7 +6,7 @@ python tools/review-shots.py footage/ad.mp4 --out shots/ad-v2 --content-threshol
 ```
 
 ```json
-{ "id": "shot-1", "start": 1.0, "end": 2.0, "move": ["push"], "zoom": 14.87, "pan": [0.0001, -0.0001],
+{ "id": "shot-2", "start": 1.0, "end": 2.0, "move": ["push"], "zoom": 15.42, "pan": [0.0001, -0.0001],
   "black": 46.6, "white": 145.0, "luma": 95.7, "contrast": 24.0, "saturation": 167.3, "labA": -21.28, "labB": 36.15 }
 ```
 
@@ -15,7 +15,9 @@ call.
 
 **The data.** `shots/<video>/shots.json` is a `shaderera.analysis/1` artifact (see
 `docs/analysis.md` in the `shaderera` package) of kind `shots`. `source` names the video with its
-bytes and sha256, `tool` the versions, `params` every setting. Each shot, in order:
+bytes and sha256, `tool` the versions, `params` every setting. It is read by people and agents, not
+by a film: nothing checks the hash for you, so when the video changes, measure it again. Each shot,
+in order, numbered from `shot-1`:
 - `start` and `end` in seconds of source time (the decoder's time for each frame); the next
   shot's `start` is a cut;
 - `move` is `["static"]`, or one of `push` and `pull` and one of `pan` and `tilt`
