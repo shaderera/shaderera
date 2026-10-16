@@ -103,7 +103,7 @@ const wordOf = (w: Json): Word[] => {
  * JSON timings: rows of `[start, end, "line"]`; cues `{ start, end?, text, words? }`; Whisper's
  * `{ segments: [{ start, end, text, words: [{ start, end, word }] }] }`; or a speech-to-text
  * transcript's `{ text?, words: [{ start, end, text | word }] }` (Paxa Labs), read as one cue
- * from its first word's start to its last word's end.
+ * from its first word's start to its last word's end (open, like chain, when that word has none).
  */
 export const parseTimedJson = (json: Json): Cue[] => {
   const top = (json ?? {}) as { segments?: Json; words?: Json; text?: Json }
@@ -113,7 +113,8 @@ export const parseTimedJson = (json: Json): Cue[] => {
     const last = words.at(-1)
     if (!first || !last) return []
     const text = str(top.text)?.trim() ?? words.map((w) => w.text).join(' ')
-    return [{ start: first.start, end: last.end, text, words }]
+    const end = last.end > last.start ? last.end : Number.POSITIVE_INFINITY
+    return [{ start: first.start, end, text, words }]
   }
   const rows = Array.isArray(json)
     ? json

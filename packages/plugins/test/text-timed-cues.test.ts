@@ -132,7 +132,7 @@ test('text-timed-cues: a transcript with top-level words (Paxa Labs STT) is one 
   assert.equal(wordAt(paxa, 0.3)?.text, 'คน')
   assert.equal(wordAt(paxa, 0.55)?.text, 'คน')
   assert.equal(wordAt(paxa, 1.3), undefined)
-  assert.equal(parseTimedJson({ words: [{ word: 'a', start: 1 }] })[0]?.text, 'a')
+  assert.equal(wordAt(parseTimedJson({ words: [{ word: 'a', start: 1 }] }), 1)?.text, 'a')
   assert.deepEqual(parseTimedJson({ words: [] }), [])
 })
 
