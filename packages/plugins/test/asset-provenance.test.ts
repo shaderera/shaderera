@@ -213,3 +213,45 @@ test('asset-provenance: flags show in the table, and one credit line per work', 
     rmSync(join(project, `assets/footage/${f}.mp4`))
   }
 })
+
+test('asset-provenance: check names each file without a record, changed, or gone', () => {
+  put('assets/fonts/OFL.txt', 'not a picture, a clip or a sound: never reported')
+  assert.equal(run('check').code, 0)
+
+  put('assets/footage/new.mp4', 'new')
+  put('assets/art/snow.jpg', 'snow, re-cropped')
+  rmSync(join(project, 'assets/footage/wheat.mp4'))
+  const r = run('check')
+  assert.equal(r.code, 1)
+  assert.match(r.out, /assets\/footage\/new\.mp4 has no record/)
+  assert.match(r.out, /assets\/art\/snow\.jpg changed since it was recorded/)
+  assert.match(r.out, /assets\/footage\/wheat\.mp4 is recorded but gone/)
+
+  const json = JSON.parse(run('check', '--json').out)
+  assert.deepEqual({ ok: json.ok, exitCode: json.exitCode }, { ok: false, exitCode: 1 })
+  assert.deepEqual(
+    json.findings.map((f: { code: string; severity: string; file: string }) => [
+      f.code,
+      f.severity,
+      f.file,
+    ]),
+    [
+      ['changed', 'error', 'assets/art/snow.jpg'],
+      ['no-record', 'error', 'assets/footage/new.mp4'],
+      ['no-file', 'error', 'assets/footage/wheat.mp4'],
+    ],
+  )
+})
+
+test('asset-provenance: check reads ./assets as assets, and a refusal under --json is an envelope', () => {
+  const dotted = run('check', '--dir', './assets')
+  assert.equal(dotted.code, 1)
+  assert.doesNotMatch(dotted.out, /snow\.jpg has no record/)
+  put('provenance/assets/broken.jpg.json', '{ "format": ')
+  const r = run('check', '--json')
+  rmSync(join(project, 'provenance/assets/broken.jpg.json'))
+  assert.equal(r.code, 2)
+  const json = JSON.parse(r.out)
+  assert.deepEqual([json.ok, json.exitCode, json.findings[0].code], [false, 2, 'error'])
+  assert.match(json.findings[0].message, /broken\.jpg\.json is not JSON/)
+})

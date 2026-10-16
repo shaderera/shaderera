@@ -6,10 +6,13 @@
 //        --author "Ann Lee" [--title "Wheat field"] [--segment 0,7] [--credit "<line on screen>"]
 //        [--flag ai-generated] [--fetched 2026-10-16]
 //   node tools/provenance.ts credits [--assets ASSETS.md] [--out out/credits.txt]
+//   node tools/provenance.ts check [--dir assets]… [--json]
 //
 // credits writes a table of every record into ASSETS.md, between its markers (added at the end the
 // first time; the rest of the file is left as written), and the credits for the video's
-// description, with a share-alike note when a licence asks for one. A refusal exits 2.
+// description, with a share-alike note when a licence asks for one. check exits 1 and names every
+// picture, clip or sound under the folders that has no record or changed since it was recorded,
+// and every record whose file is gone. A refusal exits 2.
 
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -215,12 +218,87 @@ const credits = (args: string[]) => {
   console.log(`${records.length} records: ${assets}, ${values.out}`)
 }
 
+/** Pictures, footage and sound: the files check expects a record for. */
+const MEDIA =
+  /\.(jpe?g|png|webp|gif|tiff?|avif|bmp|svg|exr|hdr|mp4|mov|webm|mkv|m4v|avi|wav|mp3|m4a|aac|flac|ogg|opus|aiff?)$/i
+
+export type Finding = {
+  code: 'no-record' | 'changed' | 'no-file' | 'error'
+  severity: 'error'
+  message: string
+  file?: string
+}
+
+/** Every media file under the folders without a record, changed since its record, or gone. */
+export const checkRecords = (records: Provenance[], folders: string[]): Finding[] => {
+  const recorded = new Map(records.map((r) => [r.file, r]))
+  const media = folders
+    .map(inProject)
+    .filter((d) => existsSync(d))
+    .flatMap((d) =>
+      readdirSync(d, { recursive: true, encoding: 'utf8' }).map(
+        (f) => `${d}/${f.replaceAll('\\', '/')}`,
+      ),
+    )
+    .filter((f) => MEDIA.test(f))
+  const found: Finding[] = []
+  for (const file of media) {
+    const r = recorded.get(file)
+    if (!r)
+      found.push({ code: 'no-record', severity: 'error', file, message: `${file} has no record` })
+    else if (sha256(readFileSync(file)) !== r.sha256)
+      found.push({
+        code: 'changed',
+        severity: 'error',
+        file,
+        message: `${file} changed since it was recorded: record it again`,
+      })
+  }
+  for (const r of records)
+    if (!existsSync(r.file))
+      found.push({
+        code: 'no-file',
+        severity: 'error',
+        file: r.file,
+        message: `${r.file} is recorded but gone: delete ${recordPath(r.file)}`,
+      })
+  return found.sort((a, b) => byFile({ file: a.file ?? '' }, { file: b.file ?? '' }))
+}
+
+/** check's result: printed as messages, or as `{ ok, exitCode, findings }` with --json. */
+const report = (json: boolean, exitCode: number, findings: Finding[]) => {
+  if (json) console.log(JSON.stringify({ ok: exitCode === 0, exitCode, findings }))
+  else
+    for (const f of findings.length ? findings : [{ message: 'every file has its record' }])
+      (exitCode === 2 ? console.error : console.log)(f.message)
+  process.exitCode = exitCode
+}
+
+const check = (args: string[]) => {
+  const { values } = parseArgs({
+    args,
+    options: {
+      dir: { type: 'string', multiple: true, default: ['assets'] },
+      json: { type: 'boolean', default: false },
+    },
+  })
+  const json = values.json as boolean
+  try {
+    const findings = checkRecords(readRecords(), values.dir as string[])
+    report(json, findings.length ? 1 : 0, findings)
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    report(json, 2, [{ code: 'error', severity: 'error', message }])
+  }
+}
+
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2)
   try {
     if (command === 'record') record(rest)
     else if (command === 'credits') credits(rest)
-    else fail('Usage: node tools/provenance.ts record <file> … | credits')
+    else if (command === 'check') check(rest)
+    else fail('Usage: node tools/provenance.ts record <file> … | credits | check')
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e))
     process.exitCode = 2
