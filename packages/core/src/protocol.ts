@@ -212,6 +212,11 @@ export type Footage = {
   readonly frames: number
   /** Frame `index` (0-based) as straight RGBA bytes, `width × height × 4`. */
   frame(index: number): Promise<Uint8Array>
+  /**
+   * Stops the decoder and frees its buffers: a film with many clips closes each when its shot
+   * ends. A `frame(i)` after it opens the file again and gives the same bytes.
+   */
+  close(): Promise<void>
 }
 
 /** A project's entry exports this, or a `Source` itself. */

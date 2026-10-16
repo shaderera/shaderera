@@ -59,6 +59,8 @@ export default async ({ io }) => {
   const jpg = await io.image('assets/photo.jpg')
   const clip = await io.video('assets/clip.mp4')
   const frames = [await clip.frame(3), await clip.frame(4), await clip.frame(1)]
+  await clip.close()
+  frames.push(await clip.frame(3))
   let made = 0
   const derived = await io.cache('shout v1', ['assets/photo.jpg'], async () => { made++; return new Uint8Array([7, 8, 9]) })
   const tone = new Float32Array(48000).map((_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / 48000))
@@ -124,6 +126,7 @@ test('io.image decodes a 16-bit PNG and a JPEG; io.video gives frame i as ffmpeg
     assert.equal(j.clip.hashes[0], sha(direct(3)), 'frame 3')
     assert.equal(j.clip.hashes[2], sha(direct(1)), 'frame 1, after a jump back')
     assert.notEqual(j.clip.hashes[0], j.clip.hashes[2])
+    assert.equal(j.clip.hashes[3], j.clip.hashes[0], 'frame 3 again, after close')
     assert.deepEqual(j.derived, [7, 8, 9])
   } finally {
     await child.close()

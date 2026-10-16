@@ -10,6 +10,7 @@ export type Ask = {
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
   videoOpen(path: string): Promise<{ width: number; height: number; fps: number; frames: number }>
   videoFrame(path: string, index: number): Promise<Uint8Array>
+  videoClose(path: string): Promise<void>
   bakeOpen(name: string): Promise<{ frames: number }>
   bakeFrame(name: string, index: number): Promise<Uint8Array>
 }
@@ -33,7 +34,11 @@ export const extraIo = (
     },
     video: async (path): Promise<Footage> => {
       const info = await ask.videoOpen(path)
-      return { ...info, frame: (index) => ask.videoFrame(path, index) }
+      return {
+        ...info,
+        frame: (index) => ask.videoFrame(path, index),
+        close: () => ask.videoClose(path),
+      }
     },
     cache: async (key, inputs, make) => {
       // The key, then each input's path and content hash: a changed file is another entry.

@@ -1,0 +1,12 @@
+{
+  "caption": "Pans and zooms across a still: each crop framed on a box with headroom, each move at an even speed.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.2
+}

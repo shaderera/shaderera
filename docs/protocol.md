@@ -114,7 +114,7 @@ type Io = {
   font(path: string, family: string): Promise<void>       // registers a font for the 2D context
   // Both Shaderera hosts provide these (optional for other hosts):
   image?(path: string): Promise<DecodedImage>             // PNG or JPEG, straight RGBA, 8 or 16 bits
-  video?(path: string): Promise<Footage>                  // { width, height, fps, frames, frame(i) }
+  video?(path: string): Promise<Footage>                  // { width, height, fps, frames, frame(i), close() }
   cache?(key: string, inputs: string[], make: () => Promise<Uint8Array>): Promise<Uint8Array>
   bake?(name: string): Promise<Baked>                     // { frames, read(i), image(i) }
 }
@@ -134,7 +134,9 @@ it, before any frame.
   ffmpeg (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over;
   frames read in order stream, a frame before the last one restarts the decoder. Which frame a t
   shows is the film's choice (`fps` is the file's). The same frame is the same bytes in both hosts
-  (tested against ffmpeg's own decode).
+  (tested against ffmpeg's own decode). A clip's decoder lives until the render ends unless
+  `close()` stops it and frees its buffers: a film with many clips closes each when its shot ends.
+  A `frame(i)` after `close()` opens the file again and gives the same bytes.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and
   runs: `make` runs only when nothing is kept for the key with the input files as they are now (a
   changed input is another entry). Put a version in the key when the making changes.

@@ -6,18 +6,16 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { findProject } from './project.ts'
 import { SERVICE_PATH } from './runner-plugin.ts'
-import { freePort, HOST, startRunner } from './runner-server.ts'
+import { HOST, startRunner } from './runner-server.ts'
 
 const tiny = fileURLToPath(new URL('./fixtures/tiny/', import.meta.url))
 
 test('a service request without the runner token is refused', async () => {
   const root = mkdtempSync(join(tmpdir(), 'shaderera-token-'))
   cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
-  const port = await freePort(5300)
-  const runner = await startRunner(await findProject(root), {
+  const { server: runner, port } = await startRunner(await findProject(root), {
     pkgDir: fileURLToPath(new URL('../..', import.meta.url)),
     studioOrigins: [],
-    port,
     cacheDir: join(root, '.shaderera', 'vite'),
   })
   try {

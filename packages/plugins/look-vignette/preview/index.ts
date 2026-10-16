@@ -1,7 +1,8 @@
 // look-vignette: the plain grey test card (previews/src/card.ts) on a mid-grey ground and the
-// plugin's one call over it. In the 'all' state the setting changes every 1.5 s with a hard cut: a
-// soft round falloff, a hard late one, a centre that circles the frame, and towards white; a state
-// holds one. On this square frame the frame-shaped ellipse is the same circle, so it is not shown.
+// plugin's one call over it. In the 'all' state the setting changes every 1.2 s with a hard cut: a
+// soft round falloff, a hard late one, a centre that circles the frame, towards white, and a
+// spotlight (an ellipse of a given size) that circles it; a state holds one. On this square frame
+// the frame-shaped ellipse is the same circle, so it is not shown.
 // The setting is the big word top left; a red cross marks the vignette's centre.
 
 import { CARD, drawCard } from '../../previews/src/card.ts'
@@ -11,7 +12,7 @@ import type { OpenPreview } from '../../previews/src/preview.ts'
 
 type Segment = { id: string; word: string; note: string; params: VignetteParams; orbit?: boolean }
 
-/** The settings in order, a quarter of the loop each; the first follows the last. */
+/** The settings in order, a fifth of the loop each; the first follows the last. */
 const SEGMENTS: Segment[] = [
   {
     id: 'round',
@@ -38,6 +39,13 @@ const SEGMENTS: Segment[] = [
     note: 'towards any colour, here white',
     params: { amount: 0.8, start: 0.25, colour: [1, 1, 1] },
   },
+  {
+    id: 'spotlight',
+    word: 'SPOTLIGHT',
+    note: 'an ellipse of a given size',
+    params: { amount: 0.7, start: 0.55, size: [220, 150] },
+    orbit: true,
+  },
 ]
 
 const lookVignette: OpenPreview = async (host, stateId) => {
@@ -63,10 +71,10 @@ const lookVignette: OpenPreview = async (host, stateId) => {
     const n = Math.floor(t / step) % segments.length
     return { n, segment: segments[n] as Segment }
   }
-  /** The centre at t: the frame's, or circling it, four times a loop (once in its quarter). */
+  /** The centre at t: the frame's, or circling it, five times a loop (once in its fifth). */
   const centreAt = (t: number, orbit?: boolean): [number, number] => {
     if (!orbit) return [width / 2, CARD.y + CARD.size / 2]
-    const a = (t / duration) * Math.PI * 2 * 4
+    const a = (t / duration) * Math.PI * 2 * 5
     return [width / 2 + 260 * Math.cos(a), CARD.y + CARD.size / 2 + 220 * Math.sin(a)]
   }
 
