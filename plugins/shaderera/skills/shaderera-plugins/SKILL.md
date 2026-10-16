@@ -144,7 +144,7 @@ version.
   retired templates).
 - **Categories, for extensions, components and presets:** Audio & Music, Analysis & Tracking,
   Typography, Looks, Procedural & Particles, Transitions, Animation & Camera, Rendering,
-  Layout & Formats.
+  Layout & Formats, Assets & Rights.
 - **Categories, for media:** Music, Sound Effects, Fonts, 3D Models, Images.
 - **requires:** `shaderera` (a range), `extensions` (npm packages, installed and recorded),
   `items` (components, presets or media copied in with it) and `packages` (npm packages the

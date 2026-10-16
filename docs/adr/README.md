@@ -24,5 +24,7 @@ One file per decision, in the order they were made.
 - [0015](0015-sequential-lookback.md): a sequential source may declare its lookback.
 - [0016](0016-bakes.md): bakes, frames made outside the host, declared, stamped and refused
   when stale; and what was decided not to build yet.
+- [0017](0017-outside-media.md): outside media, a provenance record per file and a guide to
+  finding them, not a skill.
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
