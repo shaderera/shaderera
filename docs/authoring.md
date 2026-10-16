@@ -65,6 +65,7 @@ What is on the shelf:
   - `text-glyph-points` and `text-glyph-outlines`: text as a point set, or as contours and solids;
   - `review-av-timeline`: the sound and the picture's change on one timeline;
   - `review-shots`: any video measured shot by shot (cuts, camera move, levels, colour);
+  - `review-picture-reuse`: the shots that show a picture again, a crop or zoom of it counting;
   - `format-placement-specs`: what placements accept, with sources, as requirements.json data.
 - **Looks, motion and sound design** are added only when the person asks: `look-blur`,
   `look-screen-passes`, `look-paper-edges`, `look-row-glitch`, `look-film-grain`,

@@ -1,0 +1,27 @@
+{
+  "name": "review-picture-reuse",
+  "type": "component",
+  "title": "Picture reuse",
+  "description": "The shots of a video that show a picture already seen, a crop, zoom or pan counting as the same picture, as frozen analysis data from review-shots' shots: the groups, returns and cut-ins, and how many distinct pictures. ORB features and a RANSAC homography in OpenCV",
+  "category": "Analysis & Tracking",
+  "tags": [
+    "review",
+    "shots",
+    "repeated pictures",
+    "reuse",
+    "duplicates",
+    "crop",
+    "zoom",
+    "pan",
+    "cut-in",
+    "image matching",
+    "orb",
+    "homography",
+    "reference",
+    "analysis"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "review-shots": "^0.1.0" } },
+  "files": ["tools/review-picture-reuse.py"]
+}
