@@ -15,7 +15,8 @@ its options as parameters, defaults that render well. Once added, a plugin is th
 code, to change freely.
 
 Plugins are named `<category>-<thing>`, so related ones sort together and the name says what it
-is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`, `text`.
+is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`,
+`text`.
 
 | Plugin | Type | What it does | From |
 |---|---|---|---|
