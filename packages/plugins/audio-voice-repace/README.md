@@ -28,7 +28,9 @@ does not transcribe, mix, or lay several files on a timeline.
 - `--keep` takes times, in seconds of the original, inside the pauses to leave as they are: a
   reveal, a title's gap.
 - `--tempo` (1) changes the speed after the pauses are cut: 0.9 is slower. It needs an ffmpeg
-  built with librubberband (`ffmpeg -filters` lists `rubberband`).
+  built with librubberband (`ffmpeg -filters` lists `rubberband`). At tempo 1 the map is exact to
+  the sample; with a tempo, rubberband smears each word's start up to about 25 ms early, under a
+  frame at 25 fps.
 - **The map** is a `shaderera.analysis/1` artifact of kind `time-map` (see `docs/analysis.md` in
   the `shaderera` package): `knots` of `[old seconds, new seconds]`, the recording's path and
   sha256 in `source`, every setting in `params`. A removed stretch of pause is two knots at one

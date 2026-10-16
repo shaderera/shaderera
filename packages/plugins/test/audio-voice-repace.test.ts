@@ -30,6 +30,9 @@ const { cutsOf, repace } = (await from(
   'tools/voice-repace.ts',
 )) as typeof import('../audio-voice-repace/tools/voice-repace.ts')
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
+const rubberband =
+  ffmpeg &&
+  /\brubberband\b/.test(spawnSync('ffmpeg', ['-hide_banner', '-filters']).stdout.toString())
 
 const RATE = 48000
 const LENGTH = 5.2
@@ -132,15 +135,44 @@ test('audio-voice-repace: long unkept pauses lose their middle, and the map says
     () => repace(voice(), 1, RATE, WORDS, { ...OPTIONS, fade: 0.3 }),
     /--fade 0.3 must be/,
   )
+  // A pause starts only when every earlier word has ended: nothing is cut inside a long word.
+  assert.deepEqual(
+    cutsOf(
+      [
+        { start: 0, end: 3, text: 'a' },
+        { start: 1, end: 1.2, text: 'b' },
+        { start: 2.5, end: 2.7, text: 'c' },
+      ],
+      OPTIONS,
+    ),
+    [],
+  )
 })
 
-test('audio-voice-repace: the tool writes the paced audio and a map that refuses a changed recording', {
-  skip: !ffmpeg && 'no ffmpeg',
-}, async () => {
+test('audio-voice-repace: each join crossfades the end of the piece before into the start of the piece after', () => {
+  // Stereo, 1 / -1 up to the middle of the first cut and -1 / 1 after it: each join's fade turns over.
+  const step = Math.round(1.6 * RATE)
+  const pcm = Float32Array.from(
+    { length: 2 * LENGTH * RATE },
+    (_, i) => (Math.floor(i / 2) < step ? 1 : -1) * (i % 2 ? -1 : 1),
+  )
+  const out = repace(pcm, 2, RATE, WORDS, OPTIONS).pcm
+  const join = Math.round(1.25 * RATE)
+  const half = Math.round((OPTIONS.fade * RATE) / 2)
+  const at = (frame: number) => [out[2 * frame], out[2 * frame + 1]]
+  assert.deepEqual(at(join - half - 1), [1, -1], 'before the fade: the piece before')
+  assert.deepEqual(at(join + half), [-1, 1], 'after the fade: the piece after')
+  const [l = 1, r = 1] = at(join)
+  assert.ok(Math.abs(l) < 0.01 && Math.abs(r) < 0.01, `the join is half of each: ${l}, ${r}`)
+  for (let f = join - half; f < join + half; f++)
+    assert.ok((out[2 * f] ?? 0) > (out[2 * f + 2] ?? 0), 'the fade turns over smoothly')
+})
+
+/** The recording and a speech-to-text transcript of it, as Paxa Labs STT writes it, re-paced by the tool. */
+const runTool = (out: string, ...args: string[]) => {
   mkdirSync(join(project, 'audio'), { recursive: true })
   mkdirSync(join(project, 'words'), { recursive: true })
   writeFileSync(join(project, 'audio', 'voice.wav'), wav(voice()))
-  // A speech-to-text transcript, as Paxa Labs STT writes it: read through text-timed-cues.
   writeFileSync(
     join(project, 'words', 'voice.json'),
     JSON.stringify({ text: 'every long pause comes out', words: WORDS }),
@@ -148,10 +180,31 @@ test('audio-voice-repace: the tool writes the paced audio and a map that refuses
   const tool = join(project, 'tools', 'voice-repace.ts')
   const run = spawnSync(
     process.execPath,
-    [tool, 'audio/voice.wav', 'words/voice.json', '--out', 'audio/voice-paced.wav', '--keep', '3'],
+    [tool, 'audio/voice.wav', 'words/voice.json', '--out', out, '--keep', '3', ...args],
     { cwd: project, encoding: 'utf8' },
   )
   assert.equal(run.status, 0, run.stderr)
+}
+/** A WAV file's samples, mono. */
+const decode = (path: string) => {
+  const raw = execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-i',
+    join(project, path),
+    '-f',
+    'f32le',
+    '-ac',
+    '1',
+    'pipe:1',
+  ])
+  return new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength))
+}
+
+test('audio-voice-repace: the tool writes the paced audio and a map that refuses a changed recording', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  runTool('audio/voice-paced.wav')
   const files = new Map<string, Uint8Array>()
   const host = {
     io: {
@@ -164,18 +217,7 @@ test('audio-voice-repace: the tool writes the paced audio and a map that refuses
   assert.equal(map.output.path, 'audio/voice-paced.wav')
   assert.deepEqual(map.knots, KNOTS)
   assert.ok(Math.abs(map.output.seconds - 4.2) < 0.001)
-  const raw = execFileSync('ffmpeg', [
-    '-v',
-    'error',
-    '-i',
-    join(project, 'audio', 'voice-paced.wav'),
-    '-f',
-    'f32le',
-    '-ac',
-    '1',
-    'pipe:1',
-  ])
-  const out = new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength))
+  const out = decode('audio/voice-paced.wav')
   const moved = WORDS.map((w) => pacedTime(map, w.start))
   assert.ok(near(onsets(out), moved, 0.002), `${onsets(out)} vs ${moved}`)
 
@@ -193,4 +235,18 @@ test('audio-voice-repace: the tool writes the paced audio and a map that refuses
     loadTimeMap(host, 'audio/voice-paced.map.json'),
     /not a shaderera\.analysis\/1 time-map/,
   )
+})
+
+test('audio-voice-repace: with --tempo, each word starts where the map puts it, to within rubberband smearing', {
+  skip: !rubberband && 'no ffmpeg with rubberband',
+}, async () => {
+  runTool('audio/voice-slow.wav', '--tempo', '0.8')
+  const host = {
+    io: { read: async (p: string) => new Uint8Array(readFileSync(join(project, p))) },
+  } as unknown as Host
+  const map = await loadTimeMap(host, 'audio/voice-slow.map.json')
+  const moved = WORDS.map((w) => pacedTime(map, w.start))
+  const found = onsets(decode('audio/voice-slow.wav'))
+  // Rubberband spreads each onset about 25 ms early: within a frame at 25 fps.
+  assert.ok(near(found, moved, 0.04), `${found} vs ${moved}`)
 })

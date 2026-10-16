@@ -35,9 +35,12 @@ const audioVoiceRepace: OpenPreview = async (host, stateId) => {
 
   const scale = (R - L) / map.source.seconds
   const x = (s: number) => L + s * scale
-  /** The original time a paced time came from: the map read backwards. */
+  /** The original time a paced time came from: the map read backwards, held at the recording's end. */
   const sourceTime = (t: number) =>
-    pacedTime({ ...map, knots: map.knots.map(([a, b]) => [b, a] as [number, number]) }, t)
+    Math.min(
+      map.source.seconds,
+      pacedTime({ ...map, knots: map.knots.map(([a, b]) => [b, a] as [number, number]) }, t),
+    )
   /** The removed stretches: knot pairs at one new time. */
   const cuts = map.knots.flatMap((k, i) => {
     const next = map.knots[i + 1]

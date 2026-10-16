@@ -26,9 +26,12 @@ const RATE = 48000
 export const cutsOf = (words: readonly Word[], o: Pick<Repace, 'maxPause' | 'keep'>) => {
   const sorted = [...words].sort((a, b) => a.start - b.start)
   const cuts: [number, number][] = []
-  for (let i = 1; i < sorted.length; i++) {
-    const from = (sorted[i - 1] as Word).end
-    const to = (sorted[i] as Word).start
+  // A pause starts when every earlier word has ended: words can overlap, or sit inside another.
+  let end = sorted[0]?.end ?? 0
+  for (const word of sorted.slice(1)) {
+    const from = end
+    const to = word.start
+    end = Math.max(end, word.end)
     const gap = to - from
     if (gap <= o.maxPause || o.keep.some((k) => k >= from && k <= to)) continue
     const mid = (from + to) / 2
@@ -135,6 +138,8 @@ if (import.meta.main) {
     tempo: Number(values.tempo),
     fade: Number(values.fade),
   }
+  if (o.keep.some((k) => !Number.isFinite(k)))
+    fail(`--keep ${values.keep} must be seconds, comma-separated`)
   const words = parseTimedText(
     wordsFile as string,
     readFileSync(wordsFile as string, 'utf8'),
