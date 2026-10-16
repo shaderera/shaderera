@@ -1,5 +1,5 @@
-// Where text may go, and how a lens keeps a shot when the frame turns tall. A variant is relaid
-// for its format, never cropped from another.
+// Where text may go (and which corner is free for a credit), and how a lens keeps a shot when the
+// frame turns tall. A variant is relaid for its format, never cropped from another.
 
 export type Platform = 'none' | 'shorts' | 'reels' | 'tiktok'
 
@@ -48,6 +48,52 @@ export const safeArea = (width: number, height: number, platform: Platform = 'no
     y: top,
     width: width - left - right,
     height: height - top - bottom,
+  }
+}
+
+export type Corner = 'tl' | 'tr' | 'bl' | 'br'
+
+/** Where text sits in a corner: the point it anchors to and the canvas alignment there. */
+export type Anchor = {
+  corner: Corner
+  x: number
+  y: number
+  align: 'left' | 'right'
+  baseline: 'top' | 'bottom'
+}
+
+/**
+ * The corner of a W×H frame farthest from the subject, where an editor puts a credit: where there
+ * is room. The subject is a point [x, y] or a box [x, y, width, height] (its centre counts), in px
+ * on screen. The anchor is that corner of the safe area, aligned so text grows inward. A tie goes
+ * to the first of bl, br, tr, tl.
+ */
+export const freeCorner = (
+  subject: [number, number] | [number, number, number, number],
+  width: number,
+  height: number,
+  platform: Platform = 'none',
+): Anchor => {
+  const [x, y] =
+    subject.length === 4 ? [subject[0] + subject[2] / 2, subject[1] + subject[3] / 2] : subject
+  const corners: [Corner, number, number][] = [
+    ['bl', 0, height],
+    ['br', width, height],
+    ['tr', width, 0],
+    ['tl', 0, 0],
+  ]
+  const [corner] = corners.reduce((far, c) =>
+    Math.hypot(c[1] - x, c[2] - y) > Math.hypot(far[1] - x, far[2] - y) ? c : far,
+  )
+  const a = safeArea(width, height, platform)
+  const right = corner === 'tr' || corner === 'br'
+  const top = corner === 'tl' || corner === 'tr'
+  return {
+    corner,
+    x: right ? a.x + a.width : a.x,
+    y: top ? a.y : a.y + a.height,
+    align: right ? 'right' : 'left',
+    baseline: top ? 'top' : 'bottom',
   }
 }
 

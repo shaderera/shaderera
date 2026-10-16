@@ -2,10 +2,21 @@
   "name": "format-safe-areas",
   "type": "component",
   "title": "Safe areas and the tall-frame lens",
-  "description": "Where text may go in 16:9, 1:1 and 9:16, clear of YouTube Shorts, Reels and TikTok UI; and the lens rule that keeps a 16:9 shot reading in a vertical variant",
+  "description": "Where text may go in 16:9, 1:1 and 9:16, clear of YouTube Shorts, Reels and TikTok UI, and which corner is free for a credit; and the lens rule that keeps a 16:9 shot reading in a vertical variant",
   "category": "Layout & Formats",
-  "tags": ["safe area", "vertical", "9:16", "shorts", "reels", "tiktok", "variants", "fov", "lens"],
-  "version": "0.1.0",
+  "tags": [
+    "safe area",
+    "vertical",
+    "9:16",
+    "shorts",
+    "reels",
+    "tiktok",
+    "variants",
+    "fov",
+    "lens",
+    "credit"
+  ],
+  "version": "0.1.1",
   "licence": "MIT",
   "files": ["src/layout/frame.ts"]
 }

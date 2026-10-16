@@ -42,7 +42,7 @@ const { decoded, fitWidth, glitched, scramble } = (await from(
 const { bandsOf, clockFromAnalysis, clockOf, fitGrid, pulse } = (await from(
   'src/music/beat.ts',
 )) as typeof import('../audio-beat-clock/src/music/beat.ts')
-const { safeArea, widenFov } = (await from(
+const { freeCorner, safeArea, widenFov } = (await from(
   'src/layout/frame.ts',
 )) as typeof import('../format-safe-areas/src/layout/frame.ts')
 const { bezier, glide, hold, path3, progress, settle, track, track3 } = (await from(
@@ -180,6 +180,32 @@ test('format-safe-areas: title-safe margins, platform zones, the tall lens', () 
   assert.equal(widenFov(0.5, 16 / 9), 0.5)
   const opened = widenFov(0.5, 9 / 16)
   assert.ok(opened > 0.5 && opened < widenFov(0.5, 9 / 16, 1))
+})
+
+test('format-safe-areas: the corner farthest from the subject, inside the safe area', () => {
+  const corner = (s: [number, number] | [number, number, number, number]) =>
+    freeCorner(s, 1920, 1080).corner
+  assert.equal(corner([1800, 100]), 'bl')
+  assert.equal(corner([100, 100]), 'br')
+  assert.equal(corner([100, 1000]), 'tr')
+  assert.equal(corner([1800, 1000]), 'tl')
+  assert.equal(corner([600, 200, 800, 400]), 'bl', 'a box counts by its centre')
+  assert.equal(corner([960, 540]), 'bl', 'a tie goes to bl')
+  const a = safeArea(1080, 1920, 'reels')
+  assert.deepEqual(freeCorner([100, 1800], 1080, 1920, 'reels'), {
+    corner: 'tr',
+    x: a.x + a.width,
+    y: a.top,
+    align: 'right',
+    baseline: 'top',
+  })
+  assert.deepEqual(freeCorner([1000, 100], 1080, 1920, 'reels'), {
+    corner: 'bl',
+    x: a.left,
+    y: 1920 - a.bottom,
+    align: 'left',
+    baseline: 'bottom',
+  })
 })
 
 test('text-feature-captions and text-code-wall draw in 16:9 and 9:16', async () => {

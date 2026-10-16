@@ -1,10 +1,15 @@
-Safe areas for text per format and platform, and the lens rule that keeps a 16:9 shot reading in 9:16.
+Safe areas for text per format and platform, the corner free for a credit, and the lens rule that keeps a 16:9 shot reading in 9:16.
 
 ```ts
-import { safeArea, widenFov } from './layout/frame.ts'
+import { freeCorner, safeArea, widenFov } from './layout/frame.ts'
 
 const a = safeArea(W, H, 'reels')          // { x, y, width, height, left, right, top, bottom } in px
 ctx.fillText(title, a.x, a.y + a.height)   // never under the platform's buttons or caption line
+
+const c = freeCorner([sx, sy], W, H, 'reels')   // or a box [x, y, w, h]: the corner farthest from it
+ctx.textAlign = c.align                    // c.corner is 'tl' | 'tr' | 'bl' | 'br'
+ctx.textBaseline = c.baseline
+ctx.fillText(credit, c.x, c.y)             // a source credit where there is room, inside the safe area
 
 const fov = widenFov(Math.PI / 4, W / H)   // the lens for this frame: 16:9 keeps it, 9:16 opens half way
 ```
