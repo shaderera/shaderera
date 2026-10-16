@@ -7,6 +7,7 @@
 #
 # Needs Python 3.10+ with PySceneDetect 0.7+ and OpenCV: pip install "scenedetect>=0.7" numpy (see the README).
 import argparse, glob, hashlib, json, os, sys
+from collections import deque
 from importlib.metadata import version
 
 import cv2
@@ -61,15 +62,40 @@ bounds = [0] + candidates + [frames]
 middles = {(a + b) // 2 for a, b in zip(bounds, bounds[1:])}
 
 # Every frame once, at the measuring width: its time, its levels and colour, the similarity
-# transform (scale, and how far the frame's centre moved) that carries the last frame onto it, the
-# share of the last frame's points that transform carries (none: the picture did not go on), and
-# each shot's middle frame for the sheets.
+# transforms that carry the last frame and the frame HOP back onto it, and each shot's middle frame
+# for the sheets. A move of a fraction of a pixel a frame cannot be told from a label that holds
+# still over it, so the move is read over hops of several frames.
+HOP = 8
 cap = cv2.VideoCapture(args.video)
 W, H = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 w = min(args.width, W)
 h = round(H * w / W)
-times, levels, scale, shift, follows, thumbs = [], [], [], [], [], {}
-prev, points = None, None
+
+
+def fit(a, points, b):
+    """The similarity transform carrying grey a onto grey b, from a's points: its log scale, how far
+    the frame's centre moved (in frame widths) and the share of the points it carries (none: the
+    picture did not go on); None when the points are lost."""
+    if points is None or len(points) < 12:
+        return None
+    moved, found, _ = cv2.calcOpticalFlowPyrLK(a, b, points, None, winSize=(21, 21), maxLevel=3)
+    good = found.ravel() == 1
+    if good.sum() < 10:
+        return None
+    M, inliers = cv2.estimateAffinePartial2D(points[good], moved[good], method=cv2.RANSAC, ransacReprojThreshold=1.0)
+    if M is None:
+        return None
+    centre = M @ np.array([w / 2, h / 2, 1])
+    return (np.log(np.hypot(M[0, 0], M[1, 0])), (centre[0] - w / 2) / w, (centre[1] - h / 2) / w,
+            inliers.sum() / len(points))
+
+
+def usable(m):
+    return m is not None and m[3] >= 1 / 3
+
+
+times, levels, steps, hops, thumbs = [], [], [], [], {}
+recent = deque(maxlen=HOP)  # the last HOP frames' greys and points
 while True:
     ok, frame = cap.read()
     if not ok:
@@ -81,23 +107,11 @@ while True:
     black, white = np.percentile(grey, [2, 98])
     levels.append((black, white, grey.mean(), grey.std(), cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 1].mean(),
                    lab[..., 1].mean() - 128, lab[..., 2].mean() - 128))
-    s, d, follow = 1.0, (0.0, 0.0), 0.0
-    if points is not None and len(points) >= 12:
-        moved, found, _ = cv2.calcOpticalFlowPyrLK(prev, grey, points, None, winSize=(21, 21), maxLevel=3)
-        good = found.ravel() == 1
-        if good.sum() >= 10:
-            M, inliers = cv2.estimateAffinePartial2D(points[good], moved[good], method=cv2.RANSAC, ransacReprojThreshold=1.0)
-            if M is not None:
-                follow = inliers.sum() / len(points)
-                s = float(np.hypot(M[0, 0], M[1, 0]))
-                centre = M @ np.array([w / 2, h / 2, 1])
-                d = ((centre[0] - w / 2) / w, (centre[1] - h / 2) / w)
-    scale.append(s)
-    shift.append(d)
-    follows.append(follow)
+    steps.append(fit(*recent[-1], grey) if recent else None)
+    hops.append(fit(*recent[0], grey) if len(recent) == HOP else None)
     if len(times) - 1 in middles:
         thumbs[len(times) - 1] = small
-    prev, points = grey, cv2.goodFeaturesToTrack(grey, 400, 0.01, 8)
+    recent.append((grey, cv2.goodFeaturesToTrack(grey, 400, 0.01, 8)))
 n = len(times)
 if n == 0:
     sys.exit(f'{args.video}: no frames could be read')
@@ -108,29 +122,29 @@ times.append(times[-1] + step)
 # the shortest shot are one.
 cuts = []
 for c in candidates:
-    c = min(range(max(1, c - 2), min(n, c + 3)), key=lambda i: (follows[i], abs(i - c)))
+    c = min(range(max(1, c - 2), min(n, c + 3)), key=lambda i: (steps[i][3] if steps[i] else 0, abs(i - c)))
     if c - (cuts[-1] if cuts else 0) >= shortest:
         cuts.append(c)
 bounds = [0] + cuts + [n]
-levels, scale, shift = np.array(levels), np.array(scale), np.array(shift)
+levels = np.array(levels)
 
-# Each shot's camera move from the transforms inside it (the two frames after a cut and the one
-# before the next are left out: flow across a cut is noise). Pan is the camera's own direction,
-# against the picture's: x right, y down, in frame widths a second.
+# Each shot's move: the transforms from its first frame to its last, chained back from the last in
+# hops of HOP frames (in single frames where a hop lost the picture, carrying under a third of its
+# points, and over the rest), over the time they span: the move as the viewer sees it, a hold at
+# the end included. A frame the flow lost (a flash, black) is left out, its time too. Pan is the
+# camera's own direction, against the picture's: x right, y down, in frame widths a second.
 shots = []
 for k, (a, b) in enumerate(zip(bounds, bounds[1:])):
-    inner = slice(a + 2, b - 1)
-    span = times[b - 2] - times[a + 1] if b - a >= 4 else 0
     move = zoom = pan = None
+    total, span, j = np.zeros(3), 0.0, b - 1
+    while b - a >= 4 and j > a:
+        m, back = (hops[j], HOP) if j - HOP >= a and usable(hops[j]) else (steps[j], 1)
+        if usable(m):
+            total += m[:3]
+            span += times[j] - times[j - back]
+        j -= back
     if span > 0:
-        # The mean of the frames that move like the rest (within 3 median deviations): a dissolve's
-        # other picture, or a frame the flow lost, is left out.
-        each = np.column_stack([np.log(np.clip(scale[inner], 0.9, 1.1)), -shift[inner]])
-        dev = np.abs(each - np.median(each, axis=0))
-        keep = (dev <= np.maximum(3 * np.median(dev, axis=0), 1e-5)).all(axis=1)
-        mean = each[keep if keep.any() else slice(None)].mean(axis=0)
-        mean *= len(each) / span
-        zoom, px, py = (np.exp(mean[0]) - 1) * 100, mean[1], mean[2]
+        zoom, px, py = (np.exp(total[0] / span) - 1) * 100, -total[1] / span, -total[2] / span
         pan = [round(px, 4) + 0.0, round(py, 4) + 0.0]  # + 0.0: no -0.0
         move = ['push' if zoom > 0 else 'pull'] if abs(zoom) >= args.push else []
         if max(abs(px), abs(py)) >= args.pan:

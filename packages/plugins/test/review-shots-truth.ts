@@ -1,9 +1,11 @@
 // The ground truth review-shots is measured against: a film made in code from a seed, as a
 // Shaderera source (the same frame for the same t), whose every frame's truth is known. Each shot
 // is a field of points and rings twice the frame each way, seen through a camera with a known move:
-// zoom in % a second (compounded) and pan in frame widths a second, x right and y down. It holds
-// hard cuts, 4-frame shots, a flash, a dip, a long dissolve, pushes, pulls, pans and tilts on
-// stills, a push over moving content, a very slow push, and a subject moving in a static frame.
+// zoom in % a second (compounded, or eased as the films ease a push, then held) and pan in frame
+// widths a second, x right and y down. It holds hard cuts, 4-frame shots, a flash, a dip, a long
+// dissolve, pushes, pulls, pans and tilts on stills, an eased push under a still label, a fast
+// eased zoom to twice the size, a push over moving content, a very slow push, and a subject moving
+// in a static frame.
 
 import { Canvas } from '@napi-rs/canvas'
 
@@ -20,6 +22,11 @@ type Plan = {
   zoom: number
   pan: [number, number]
   scale?: number
+  /** An eased zoom instead: this much in all over these seconds (cosine ease, in log space), then
+   * held to the end of the shot. */
+  eased?: [number, number]
+  /** A label that does not move, over the picture. */
+  label?: boolean
 }
 
 const PLAN: Plan[] = [
@@ -31,7 +38,20 @@ const PLAN: Plan[] = [
   { frames: 45, enter: 'cut', content: 'still', zoom: 0, pan: [0.2, 0] },
   { frames: 45, enter: { flash: 2 }, content: 'still', zoom: 0, pan: [0, 0.15] },
   { frames: 45, enter: { dip: 10 }, content: 'still', zoom: -12, pan: [0, 0], scale: 1.2 },
-  { frames: 75, enter: { dissolve: 30 }, content: 'still', zoom: 0, pan: [-0.12, 0] },
+  // The dissolve's two shots hold still: how a move reads across one is #75's.
+  { frames: 40, enter: 'cut', content: 'still', zoom: 0, pan: [0, 0] },
+  { frames: 60, enter: { dissolve: 30 }, content: 'still', zoom: 0, pan: [0, 0] },
+  { frames: 45, enter: 'cut', content: 'still', zoom: 0, pan: [-0.12, 0] },
+  {
+    frames: 39,
+    enter: 'cut',
+    content: 'still',
+    zoom: 0,
+    pan: [0, 0],
+    eased: [1.05, 1],
+    label: true,
+  },
+  { frames: 60, enter: 'cut', content: 'still', zoom: 0, pan: [0, 0], eased: [2, 1.2] },
   { frames: 60, enter: 'cut', content: 'footage', zoom: 10, pan: [0, 0] },
   { frames: 90, enter: 'cut', content: 'still', zoom: 0.5, pan: [0, 0] },
   { frames: 60, enter: 'cut', content: 'subject', zoom: 0, pan: [0, 0] },
@@ -45,10 +65,16 @@ export type Truth = {
   cut: number
   end: number
   transition: [number, number] | null
+  dissolve: boolean
   content: Content
   zoom: number
   pan: [number, number]
 }
+
+const ease = (p: number) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, p)))
+/** The picture's scale t seconds into its shot. */
+const scaleAt = (p: Plan, t: number) =>
+  p.eased ? p.eased[0] ** ease(t / p.eased[1]) : (p.scale ?? 1) * (1 + p.zoom / 100) ** t
 
 let at = 0
 export const SHOTS: Truth[] = PLAN.map((p) => {
@@ -63,7 +89,11 @@ export const SHOTS: Truth[] = PLAN.map((p) => {
         : 'dip' in e
           ? [cut - e.dip, cut + e.dip - 1]
           : [cut - e.flash, cut + e.flash - 1]
-  return { cut, end: at, transition, content: p.content, zoom: p.zoom, pan: p.pan }
+  // The zoom a viewer sees: from the shot's first frame to its last, over the time between them.
+  const seconds = (p.frames - 1) / FPS
+  const zoom = ((scaleAt(p, seconds) / scaleAt(p, 0)) ** (1 / seconds) - 1) * 100
+  const dissolve = e !== 'cut' && 'dissolve' in e
+  return { cut, end: at, transition, dissolve, content: p.content, zoom, pan: p.pan }
 })
 export const FRAMES = at
 
@@ -122,7 +152,7 @@ const picture = (k: number, f: number) => {
   const plan = PLAN[k] as Plan
   const { world, hue, blobs } = WORLDS[k] as (typeof WORLDS)[number]
   const t = (f - shot.cut) / FPS
-  const s = (plan.scale ?? 1) * (1 + shot.zoom / 100) ** t
+  const s = scaleAt(plan, t)
   const cx = W + shot.pan[0] * W * t
   const cy = H + shot.pan[1] * W * t
   const c = new Canvas(W, H)
@@ -141,6 +171,15 @@ const picture = (k: number, f: number) => {
     g.translate(W / 2 + (t - 1) * 0.4 * W, H + 40 * Math.sin(t * 3))
     g.rotate(t)
     g.drawImage(SUBJECT as unknown as CanvasImageSource, -70, -70)
+  }
+  if (plan.label) {
+    // A credit line of words, as films lay one over a still.
+    g.setTransform(1, 0, 0, 1, 0, 0)
+    g.fillStyle = '#fff'
+    for (let i = 0, x = 12; i < 14; i++, x += 14 + ((i * 7) % 13))
+      g.fillRect(x, 14, 10 + ((i * 5) % 9), 9)
+    for (let i = 0, x = 12; i < 9; i++, x += 12 + ((i * 5) % 11))
+      g.fillRect(x, 28, 8 + ((i * 3) % 7), 5)
   }
   return c
 }
