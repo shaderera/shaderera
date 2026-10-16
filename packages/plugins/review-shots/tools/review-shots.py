@@ -103,12 +103,12 @@ if n == 0:
     sys.exit(f'{args.video}: no frames could be read')
 step = float(np.median(np.diff(times))) if n > 1 else 1 / (cap.get(cv2.CAP_PROP_FPS) or 30)
 times.append(times[-1] + step)
-# Each cut found moves to the frame near it where the picture stops going on (the fewest points
-# carried, the nearest on a tie): a flash or a dip is found at its edges. Then two cuts closer than
+# Each cut found moves to the frame within 2 of it where the picture stops going on (the fewest
+# points carried, the nearest on a tie): a flash is found at its edges. Then two cuts closer than
 # the shortest shot are one.
 cuts = []
 for c in candidates:
-    c = min(range(max(1, c - shortest + 1), min(n, c + shortest)), key=lambda i: (follows[i], abs(i - c)))
+    c = min(range(max(1, c - 2), min(n, c + 3)), key=lambda i: (follows[i], abs(i - c)))
     if c - (cuts[-1] if cuts else 0) >= shortest:
         cuts.append(c)
 bounds = [0] + cuts + [n]
