@@ -1,4 +1,5 @@
-import { type FSWatcher, watch } from 'node:fs'
+import { type FSWatcher, statSync, watch } from 'node:fs'
+import { join } from 'node:path'
 import { open } from '../cli/args.ts'
 import type { Child } from './child.ts'
 import type { Project } from './project.ts'
@@ -24,16 +25,31 @@ export const createNodeSession = (
   o: { trusted?: boolean; timeout?: string } = {},
 ): NodeSession => {
   let opened: Promise<Opened> | null = null
+  let since = 0
   const drop = () => {
     opened?.then(({ child }) => child.close()).catch(() => {})
     opened = null
   }
-  const watcher: FSWatcher = watch(root, { recursive: true }, (_, file) => {
-    if (file && !notProject(file)) drop()
+  // On Windows a read reports `change` too, once it moves the access time (NTFS updates it when
+  // the last one is an hour old), so a change counts only when the file was modified since the
+  // child opened. A file that was added, removed or renamed always counts.
+  const edited = (event: string, file: string) => {
+    if (event !== 'change') return true
+    try {
+      return statSync(join(root, file)).mtimeMs >= since
+    } catch {
+      return true
+    }
+  }
+  const watcher: FSWatcher = watch(root, { recursive: true }, (event, file) => {
+    if (file && !notProject(file) && edited(event, file)) drop()
   })
   return {
     open: () => {
-      opened ??= open({ root, trusted: o.trusted, timeout: o.timeout })
+      if (!opened) {
+        since = Date.now()
+        opened = open({ root, trusted: o.trusted, timeout: o.timeout })
+      }
       const current = opened
       current.catch(() => {
         if (opened === current) opened = null
