@@ -98,11 +98,13 @@ export const runnerPlugin = (
                     ? { op, path: q('path') }
                     : op === 'video-frame'
                       ? { op, path: q('path'), index: Number(q('index')) }
-                      : op === 'bake-open'
-                        ? { op, name: q('name') }
-                        : op === 'bake-frame'
-                          ? { op, name: q('name'), index: Number(q('index')) }
-                          : undefined
+                      : op === 'video-close'
+                        ? { op, path: q('path') }
+                        : op === 'bake-open'
+                          ? { op, name: q('name') }
+                          : op === 'bake-frame'
+                            ? { op, name: q('name'), index: Number(q('index')) }
+                            : undefined
             if (!request) {
               res.statusCode = 400
               res.end(`unknown service ${op}`)
@@ -112,7 +114,7 @@ export const runnerPlugin = (
               .handle(request as ServiceRequest)
               .then((result) => {
                 if (result === null) {
-                  res.statusCode = op === 'cache-put' ? 204 : 404
+                  res.statusCode = op === 'cache-put' || op === 'video-close' ? 204 : 404
                   return res.end()
                 }
                 if (result instanceof Uint8Array) {
