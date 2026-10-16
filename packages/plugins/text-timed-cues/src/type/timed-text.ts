@@ -1,7 +1,7 @@
 // Timed text: lyrics, subtitles and word timings, read once in open and asked for by t in render.
 // LRC (with <mm:ss.xx> word times), SRT and WebVTT, and JSON (rows of [start, end, "line"], cues
-// like the ones returned here, or Whisper's segments with words). Times only: how a line looks
-// and moves is the film's code.
+// like the ones returned here, Whisper's segments with words, or a transcript's top-level words).
+// Times only: how a line looks and moves is the film's code.
 
 import type { Host } from '@shaderera/core'
 
@@ -100,15 +100,28 @@ const wordOf = (w: Json): Word[] => {
 }
 
 /**
- * JSON timings: rows of `[start, end, "line"]`; cues `{ start, end?, text, words? }`; or Whisper's
- * `{ segments: [{ start, end, text, words: [{ start, end, word }] }] }`.
+ * JSON timings: rows of `[start, end, "line"]`; cues `{ start, end?, text, words? }`; Whisper's
+ * `{ segments: [{ start, end, text, words: [{ start, end, word }] }] }`; or a speech-to-text
+ * transcript's `{ text?, words: [{ start, end, text | word }] }` (Paxa Labs), read as one cue
+ * from its first word's start to its last word's end.
  */
 export const parseTimedJson = (json: Json): Cue[] => {
+  const top = (json ?? {}) as { segments?: Json; words?: Json; text?: Json }
+  if (!Array.isArray(json) && top.segments === undefined && Array.isArray(top.words)) {
+    const words = top.words.flatMap(wordOf)
+    const first = words[0]
+    const last = words.at(-1)
+    if (!first || !last) return []
+    const text = str(top.text)?.trim() ?? words.map((w) => w.text).join(' ')
+    return [{ start: first.start, end: last.end, text, words }]
+  }
   const rows = Array.isArray(json)
     ? json
     : ((json as { segments?: Json[] } | null)?.segments ?? undefined)
   if (!Array.isArray(rows))
-    throw new Error('Timed text JSON needs an array of rows or cues, or Whisper segments.')
+    throw new Error(
+      'Timed text JSON needs an array of rows or cues, Whisper segments or a words array.',
+    )
   return chain(
     rows.flatMap((r) => {
       if (Array.isArray(r)) {

@@ -111,6 +111,31 @@ test('text-timed-cues: JSON rows and Whisper segments, the word at t', () => {
   assert.throws(() => parseTimedText('a.txt', ''), /\.lrc, \.srt, \.vtt or \.json/)
 })
 
+test('text-timed-cues: a transcript with top-level words (Paxa Labs STT) is one cue', () => {
+  const paxa = parseTimedText(
+    'vo.paxa.json',
+    JSON.stringify({
+      text: 'ทุกคนรู้กันไหม',
+      words: [
+        { text: 'ทุก', start: 0.12, end: 0.24 },
+        { text: 'คน', start: 0.24, end: 0.5 },
+        { text: 'รู้', start: 0.6, end: 0.8 },
+        { text: 'กันไหม', start: 0.8, end: 1.3 },
+      ],
+      subtitles: '1\n00:00:00,120 --> 00:00:01,300\nทุกคนรู้กันไหม\n',
+    }),
+  )
+  assert.deepEqual(
+    paxa.map((c) => [c.start, c.end, c.text, c.words?.length]),
+    [[0.12, 1.3, 'ทุกคนรู้กันไหม', 4]],
+  )
+  assert.equal(wordAt(paxa, 0.3)?.text, 'คน')
+  assert.equal(wordAt(paxa, 0.55)?.text, 'คน')
+  assert.equal(wordAt(paxa, 1.3), undefined)
+  assert.equal(parseTimedJson({ words: [{ word: 'a', start: 1 }] })[0]?.text, 'a')
+  assert.deepEqual(parseTimedJson({ words: [] }), [])
+})
+
 test('text-timed-cues: loadTimedText reads a project file by its extension, trimmed', async () => {
   mkdirSync(join(project, 'lyrics'), { recursive: true })
   writeFileSync(join(project, 'lyrics', 'song.lrc'), '[00:10.00]<00:10.00>drop <00:10.50>now\n')

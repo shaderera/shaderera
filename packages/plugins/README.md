@@ -51,7 +51,7 @@ is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `r
 | `text-glyph-outlines` | component | a font's outlines as contours, fills and extruded solids (opentype.js, earcut): per glyph, deterministic | research for 0.1.0 |
 | `text-glyph-points` | component | text as a point set, for particles that form words | opening film |
 | `text-kinetic` | component | scramble, decode, glitch, fit: Canvas2D text primitives | opening film |
-| `text-timed-cues` | component | lyrics and subtitles read from LRC, SRT, VTT and Whisper JSON; the line and the word at render time | split from `audio-beat-clock`; later in-house films |
+| `text-timed-cues` | component | lyrics and subtitles read from LRC, SRT, VTT and Whisper or STT JSON; the line and the word at render time | split from `audio-beat-clock`; later in-house films |
 
 Stills of any t and a contact sheet come from `npx shaderera still`, not from a plugin.
 

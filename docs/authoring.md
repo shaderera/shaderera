@@ -55,7 +55,7 @@ What is on the shelf:
 - **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
   plumbing again, and says so:
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
-  - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper JSON), the line and word at t;
+  - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
   - `render-three-host`: three.js on the host's GPU;
   - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
