@@ -39,6 +39,7 @@
           "render-image-textures",
           "render-three-host",
           "review-av-timeline",
+          "review-shots",
           "text-code-wall",
           "text-feature-captions",
           "text-glyph-morph",
@@ -439,6 +440,13 @@
       "label": "review-av-timeline",
       "params": {
         "item": "review-av-timeline",
+        "state": "default"
+      }
+    },
+    "review-shots": {
+      "label": "review-shots",
+      "params": {
+        "item": "review-shots",
         "state": "default"
       }
     },
