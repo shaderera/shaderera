@@ -178,6 +178,20 @@ A named area of an image in an analysis artifact: its mask, its box, its centre,
 that holds it (an eye's head).
 _Avoid_: segment, selection, object, matte
 
+**Cut**:
+The first frame on which a new shot shows, in a video an analyser measures.
+_Avoid_: scene change, edit point
+
+**Transition**:
+The frames from a cut until the old shot is gone: a dissolve, a dip or a flash. A hard cut has
+none.
+_Avoid_: effect, wipe (one kind of transition)
+
+**Move**:
+The apparent zoom and pan of the whole frame, as the viewer sees it, whoever made it: an editor's
+push on a still or the camera in a clip. Things moving inside the frame are not a move.
+_Avoid_: camera motion, Ken Burns (one way to make a move)
+
 ### Plugins
 
 **Plugin**:

@@ -1,42 +1,65 @@
-// review-shots, with Python: copied into a project the way `add` lays it out, then run on a video
-// made here with known cuts and known camera moves. Needs a Python with scenedetect and OpenCV
-// (PYTHON names it, else python3, or python on Windows); without one the tests skip and say so.
+// review-shots, with Python: copied into a project the way `add` lays it out, then run on a film
+// made here from a seed whose every frame's truth is known (review-shots-truth.ts), and held to the
+// pass table of issue #49. Needs ffmpeg and a Python with scenedetect and OpenCV (PYTHON names it,
+// else python3, or python on Windows); without them the tests skip and say so.
 
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { exportFrames } from '@shaderera/core'
+import { FPS, FRAMES, H, inspect, render, SHOTS, W } from './review-shots-truth.ts'
 
 const plugins = join(import.meta.dirname, '..')
 const project = join(plugins, 'out', 'review-shots')
+const film = join(plugins, 'out', 'review-shots-truth.mp4')
 const python = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
 const deps = spawnSync(python, ['-c', 'import cv2, numpy, scenedetect'], { encoding: 'utf8' })
+const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const skip =
-  deps.status === 0
-    ? false
-    : `review-shots needs ${python} with scenedetect and OpenCV (pip install "scenedetect>=0.7" numpy), or PYTHON naming one`
+  deps.status !== 0
+    ? `review-shots needs ${python} with scenedetect and OpenCV (pip install "scenedetect>=0.7" numpy), or PYTHON naming one`
+    : ffmpeg
+      ? false
+      : 'review-shots needs ffmpeg on the PATH to make its test film'
 
-/** Five 1 s shots at 30 fps, each its own colour of blurred noise: static, a push to 115%, a pan
- * right at 0.2 frame widths a second, a tilt down at 0.15, and a pull from 115%. */
-const MAKE = `
-import sys, cv2, numpy as np
-W, H, FPS = 480, 270, 30
-SHOTS = [(0, 1, 1, 0, 0), (40, 1, 1.15, 0, 0), (80, 1, 1, 0.2, 0), (120, 1, 1, 0, 0.15), (160, 1.15, 1, 0, 0)]
-rng = np.random.default_rng(1)
-out = cv2.VideoWriter(sys.argv[1], cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H))
-for hue, s0, s1, dx, dy in SHOTS:
-    noise = cv2.GaussianBlur(rng.random((H * 2, W * 2)).astype(np.float32), (0, 0), 3)
-    noise = cv2.normalize(noise, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    texture = cv2.cvtColor(np.dstack([np.full_like(noise, hue), np.full_like(noise, 160), noise]), cv2.COLOR_HSV2BGR)
-    for f in range(FPS):
-        s, cx, cy = s0 * (s1 / s0) ** (f / (FPS - 1)), W + dx * W * f / FPS, H + dy * W * f / FPS
-        out.write(cv2.warpAffine(texture, np.array([[s, 0, W / 2 - s * cx], [0, s, H / 2 - s * cy]]), (W, H)))
-out.release()
-`
+/** The truth film, exported as any Shaderera source is (with its determinism check), once. */
+let made: Promise<unknown> | undefined
+const make = () => {
+  made ??= (async () => {
+    mkdirSync(dirname(film), { recursive: true })
+    const encode = spawn(
+      'ffmpeg',
+      [
+        ...['-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${W}x${H}`],
+        ...['-r', String(FPS), '-i', '-', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '16'],
+        film,
+      ],
+      { stdio: ['pipe', 'ignore', 'inherit'] },
+    )
+    const closed = new Promise<number | null>((r) => encode.on('close', r))
+    await exportFrames({
+      fps: FPS,
+      from: 0,
+      to: FRAMES / FPS,
+      render: async (t) => render(t),
+      inspect: async (t) => inspect(t),
+      sink: {
+        write: (px) => new Promise<void>((r) => encode.stdin.write(px, () => r())),
+        end: async () => {
+          encode.stdin.end()
+          assert.equal(await closed, 0, 'ffmpeg encodes the truth film')
+        },
+      },
+    })
+  })()
+  return made
+}
 
-const setUp = () => {
+const setUp = async () => {
+  await make()
   rmSync(project, { recursive: true, force: true })
   const label = JSON.parse(
     readFileSync(join(plugins, 'review-shots', 'shaderera.item.json'), 'utf8'),
@@ -46,96 +69,92 @@ const setUp = () => {
     cpSync(join(plugins, 'review-shots', f), join(project, f))
   }
   mkdirSync(join(project, 'footage'), { recursive: true })
-  const made = spawnSync(python, ['-c', MAKE, 'footage/known.mp4'], {
-    cwd: project,
-    encoding: 'utf8',
-  })
-  assert.equal(made.status, 0, made.stderr)
+  cpSync(film, join(project, 'footage', 'truth.mp4'))
 }
 const run = (...args: string[]) =>
   spawnSync(python, ['tools/review-shots.py', ...args], { cwd: project, encoding: 'utf8' })
 
-type Shot = { start: number; end: number; move: string[] | null; zoom: number; pan: number[] }
+type Shot = {
+  start: number
+  end: number
+  zoom: number | null
+  pan: [number, number] | null
+  move: string[] | null
+}
 
-test('review-shots: known cuts and camera moves come back, with the source and a contact sheet', {
-  skip,
-}, () => {
-  setUp()
-  const result = run('footage/known.mp4')
+test('review-shots: measured against ground truth, it passes the gate', { skip }, async (t) => {
+  await setUp()
+  const result = run('footage/truth.mp4')
   assert.equal(result.status, 0, result.stderr)
-  const doc = JSON.parse(readFileSync(join(project, 'shots', 'known', 'shots.json'), 'utf8'))
+  const doc = JSON.parse(readFileSync(join(project, 'shots', 'truth', 'shots.json'), 'utf8'))
   assert.equal(doc.format, 'shaderera.analysis/1')
   assert.equal(doc.kind, 'shots')
-  const video = join(project, 'footage', 'known.mp4')
-  assert.equal(doc.source.path, 'footage/known.mp4')
+  const video = join(project, 'footage', 'truth.mp4')
+  assert.equal(doc.source.path, 'footage/truth.mp4')
   assert.equal(doc.source.bytes, statSync(video).size)
   assert.equal(doc.source.sha256, createHash('sha256').update(readFileSync(video)).digest('hex'))
-  assert.equal(doc.source.frames, 150)
-
+  assert.equal(doc.source.frames, FRAMES)
+  assert.ok(existsSync(join(project, 'shots', 'truth', 'sheet-1.jpg')))
   const shots = doc.shots as Shot[]
-  assert.deepEqual(
-    shots.map((s) => s.start),
-    [0, 1, 2, 3, 4],
-    'a cut on every second, to the frame',
+
+  // Cuts: a hard cut within ±1 frame, a transition's anywhere in it ±1, and only one each.
+  const cuts = shots.slice(1).map((s) => Math.round(s.start * FPS))
+  const windows = SHOTS.slice(1).map(
+    (s) =>
+      (s.transition ? [s.transition[0] - 1, s.transition[1] + 1] : [s.cut - 1, s.cut + 1]) as [
+        number,
+        number,
+      ],
   )
-  assert.equal(shots.at(-1)?.end, 5)
+  const inside = (c: number, [a, b]: [number, number]) => c >= a && c <= b
+  const found = windows.map((w) => cuts.filter((c) => inside(c, w)).length)
+  const recall = found.filter((n) => n > 0).length / windows.length
+  const precision = cuts.filter((c) => windows.some((w) => inside(c, w))).length / cuts.length
+  t.diagnostic(`cuts ${cuts.join(' ')}; precision ${precision}, recall ${recall}`)
+  assert.ok(precision >= 0.98 && recall >= 0.98, `cuts ${cuts} against ${JSON.stringify(windows)}`)
   assert.deepEqual(
-    shots.map((s) => s.move),
-    [['static'], ['push'], ['pan'], ['tilt'], ['pull']],
+    found.filter((_, i) => SHOTS[i + 1]?.transition),
+    [1, 1, 1],
+    'the flash, the dip and the dissolve are one cut each',
   )
-  // 115% over the shot's 29 frame steps, measured over 27 of them (27/30 s): about +15.4% a
-  // second; the pull is the same scale backwards (about −13.6%).
-  const [still, push, pan, tilt, pull] = shots as [Shot, Shot, Shot, Shot, Shot]
-  const zoom = (to: number) => ((to ** (27 / 29) - 1) * 100) / (27 / 30)
-  assert.ok(Math.abs(still.zoom) < 0.3 && Math.hypot(...still.pan) < 0.003, JSON.stringify(still))
-  assert.ok(Math.abs(push.zoom - zoom(1.15)) < 0.3, `push ${push.zoom}`)
-  assert.ok(Math.abs(pull.zoom - zoom(1 / 1.15)) < 0.3, `pull ${pull.zoom}`)
-  assert.ok(Math.abs((pan.pan[0] as number) - 0.2) < 0.005, `pan ${pan.pan}`)
-  assert.ok(Math.abs((tilt.pan[1] as number) - 0.15) < 0.005, `tilt ${tilt.pan}`)
-  assert.ok(existsSync(join(project, 'shots', 'known', 'sheet-1.jpg')))
+
+  // Moves, on every shot found long enough to measure (a second or more; on a 4-frame shot a
+  // rate of 0.2 % a second is a fiftieth of a pixel): each against the truth shot holding its middle.
+  let directions = 0
+  let moving = 0
+  for (const s of shots) {
+    const middle = ((s.start + s.end) / 2) * FPS
+    const truth = SHOTS.find((x) => x.cut <= middle && middle < x.end)
+    assert.ok(truth && s.zoom !== null && s.pan !== null)
+    t.diagnostic(
+      `${truth.content} zoom ${truth.zoom} pan ${truth.pan}: ${s.zoom} ${s.pan} ${s.move}`,
+    )
+    if (s.end - s.start < 1) continue
+    assert.ok(Math.abs(s.zoom - truth.zoom) <= 0.2, `zoom ${s.zoom}, made ${truth.zoom}`)
+    const [x, y] = truth.pan
+    if (Math.hypot(x, y) >= 0.005) {
+      moving++
+      const [px, py] = s.pan
+      if (
+        Math.abs(x) > Math.abs(y)
+          ? Math.sign(px) === Math.sign(x) && Math.abs(px) > Math.abs(py)
+          : Math.sign(py) === Math.sign(y) && Math.abs(py) > Math.abs(px)
+      )
+        directions++
+    }
+    if (truth.content === 'subject')
+      assert.deepEqual(s.move, ['static'], 'a subject moving is no move')
+  }
+  assert.ok(moving >= 3 && directions / moving >= 0.95, `${directions} of ${moving} pans right`)
 })
 
-/** One texture for 30 frames, its hue turned for 3, then a cut to another: the two detectors cut
- * 3 frames apart. */
-const NEAR = `
-import sys, cv2, numpy as np
-rng = np.random.default_rng(2)
-out = cv2.VideoWriter(sys.argv[1], cv2.VideoWriter_fourcc(*'mp4v'), 30, (480, 270))
-def texture(hue):
-    noise = cv2.GaussianBlur(rng.random((270, 480)).astype(np.float32), (0, 0), 3)
-    noise = cv2.normalize(noise, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    return np.dstack([np.full_like(noise, hue), np.full_like(noise, 160), noise])
-a, b = texture(0), texture(120)
-turned = a.copy()
-turned[..., 0] = 40
-for hsv in [a] * 30 + [turned] * 3 + [b] * 30:
-    out.write(cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR))
-out.release()
-`
-
-test('review-shots: two cuts closer than --min-shot are one', { skip }, () => {
-  setUp()
-  const made = spawnSync(python, ['-c', NEAR, 'footage/near.mp4'], {
-    cwd: project,
-    encoding: 'utf8',
-  })
-  assert.equal(made.status, 0, made.stderr)
-  const result = run('footage/near.mp4')
-  assert.equal(result.status, 0, result.stderr)
-  const doc = JSON.parse(readFileSync(join(project, 'shots', 'near', 'shots.json'), 'utf8'))
-  assert.deepEqual(
-    (doc.shots as Shot[]).map((s) => s.start),
-    [0, 1],
-  )
-})
-
-test('review-shots: keeps to the project and to one video per folder', { skip }, () => {
-  setUp()
-  cpSync(join(project, 'footage', 'known.mp4'), join(project, 'footage', 'other.mp4'))
-  assert.equal(run('footage/known.mp4', '--out', 'shots/a').status, 0)
+test('review-shots: keeps to the project and to one video per folder', { skip }, async () => {
+  await setUp()
+  cpSync(join(project, 'footage', 'truth.mp4'), join(project, 'footage', 'other.mp4'))
+  assert.equal(run('footage/truth.mp4', '--out', 'shots/a').status, 0)
   const clash = run('footage/other.mp4', '--out', 'shots/a')
   assert.notEqual(clash.status, 0)
-  assert.match(clash.stderr, /shots\/a holds the shots of footage\/known\.mp4/)
+  assert.match(clash.stderr, /shots\/a holds the shots of footage\/truth\.mp4/)
 
   const outside = run(join(plugins, 'review-shots', 'README.md'))
   assert.notEqual(outside.status, 0)

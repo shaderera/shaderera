@@ -2,7 +2,7 @@
   "name": "review-shots",
   "type": "component",
   "title": "Shot review",
-  "description": "Any video measured shot by shot as frozen analysis data: where it cuts, how the camera moves (push, pull, pan, tilt or static, with zoom in % a second), its levels and its colour, with contact sheets to check it by eye. PySceneDetect and OpenCV",
+  "description": "Any video measured shot by shot as frozen analysis data: where it cuts, how the picture moves (zoom in % a second and pan, labelled push, pull, pan, tilt or static), its levels and its colour, with contact sheets; measured against ground truth. PySceneDetect and OpenCV",
   "category": "Analysis & Tracking",
   "tags": [
     "review",

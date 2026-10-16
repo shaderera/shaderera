@@ -3,7 +3,7 @@
 # Run once, apart from rendering.
 #
 #   python tools/review-shots.py footage/ad.mp4                     # shots/ad/shots.json, sheet-1.jpg…
-#   python tools/review-shots.py footage/ad.mp4 --out shots/ad-v2 --content-threshold 27
+#   python tools/review-shots.py footage/ad.mp4 --out shots/ad-v2 --content-threshold 22
 #
 # Needs Python 3.10+ with PySceneDetect 0.7+ and OpenCV: pip install "scenedetect>=0.7" numpy (see the README).
 import argparse, glob, hashlib, json, os, sys
@@ -18,11 +18,11 @@ ap = argparse.ArgumentParser(description='A video measured shot by shot: cuts, c
 ap.add_argument('video')
 ap.add_argument('--out', help='the folder to write (default shots/<video name>)')
 ap.add_argument('--adaptive-threshold', type=float, default=2.5, help="PySceneDetect's adaptive detector: hard cuts")
-ap.add_argument('--content-threshold', type=float, default=22, help="PySceneDetect's content detector: softer cuts")
-ap.add_argument('--min-shot', type=float, default=0.2, help='the shortest shot, in seconds')
+ap.add_argument('--content-threshold', type=float, default=27, help="PySceneDetect's content detector: softer cuts")
+ap.add_argument('--min-shot', type=float, default=0.13, help='the shortest shot, in seconds')
 ap.add_argument('--width', type=int, default=480, help='the width the frames are measured at')
-ap.add_argument('--push', type=float, default=0.6, help='a push or pull scales at least this many %% a second')
-ap.add_argument('--pan', type=float, default=0.012, help='a pan or tilt moves at least this many frame widths a second')
+ap.add_argument('--push', type=float, default=0.3, help='the label push or pull from this many %% a second')
+ap.add_argument('--pan', type=float, default=0.003, help='the label pan or tilt from this many frame widths a second')
 args = ap.parse_args()
 # The analysis names the video by its project path, so it must be inside the project (this folder).
 try:
@@ -48,29 +48,27 @@ def sha256(path):
     return h.hexdigest()
 
 
-# Cuts: the union of the adaptive detector (hard cuts) and the content detector (softer ones), as
-# frame numbers; two cuts closer than the shortest shot are one.
+# Cuts found: the union of the adaptive detector (hard cuts) and the content detector (softer
+# ones), as frame numbers.
 video = open_video(args.video)
 manager = SceneManager()
 manager.add_detector(AdaptiveDetector(adaptive_threshold=args.adaptive_threshold, min_scene_len=args.min_shot))
 manager.add_detector(ContentDetector(threshold=args.content_threshold, min_scene_len=args.min_shot))
 frames = manager.detect_scenes(video)
 shortest = max(1, round(args.min_shot * video.frame_rate))
-cuts = []
-for c in sorted({s[0].frame_num for s in manager.get_scene_list()} - {0}):
-    if c - (cuts[-1] if cuts else 0) >= shortest:
-        cuts.append(c)
-bounds = [0] + cuts + [frames]
+candidates = sorted({s[0].frame_num for s in manager.get_scene_list()} - {0})
+bounds = [0] + candidates + [frames]
 middles = {(a + b) // 2 for a, b in zip(bounds, bounds[1:])}
 
 # Every frame once, at the measuring width: its time, its levels and colour, the similarity
-# transform (scale, and how far the frame's centre moved) that carries the last frame onto it, and
+# transform (scale, and how far the frame's centre moved) that carries the last frame onto it, the
+# share of the last frame's points that transform carries (none: the picture did not go on), and
 # each shot's middle frame for the sheets.
 cap = cv2.VideoCapture(args.video)
 W, H = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 w = min(args.width, W)
 h = round(H * w / W)
-times, levels, scale, shift, thumbs = [], [], [], [], {}
+times, levels, scale, shift, follows, thumbs = [], [], [], [], [], {}
 prev, points = None, None
 while True:
     ok, frame = cap.read()
@@ -83,27 +81,37 @@ while True:
     black, white = np.percentile(grey, [2, 98])
     levels.append((black, white, grey.mean(), grey.std(), cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[..., 1].mean(),
                    lab[..., 1].mean() - 128, lab[..., 2].mean() - 128))
-    s, d = 1.0, (0.0, 0.0)
+    s, d, follow = 1.0, (0.0, 0.0), 0.0
     if points is not None and len(points) >= 12:
         moved, found, _ = cv2.calcOpticalFlowPyrLK(prev, grey, points, None, winSize=(21, 21), maxLevel=3)
         good = found.ravel() == 1
         if good.sum() >= 10:
-            M, _ = cv2.estimateAffinePartial2D(points[good], moved[good], method=cv2.RANSAC, ransacReprojThreshold=1.5)
+            M, inliers = cv2.estimateAffinePartial2D(points[good], moved[good], method=cv2.RANSAC, ransacReprojThreshold=1.0)
             if M is not None:
+                follow = inliers.sum() / len(points)
                 s = float(np.hypot(M[0, 0], M[1, 0]))
                 centre = M @ np.array([w / 2, h / 2, 1])
                 d = ((centre[0] - w / 2) / w, (centre[1] - h / 2) / w)
     scale.append(s)
     shift.append(d)
+    follows.append(follow)
     if len(times) - 1 in middles:
         thumbs[len(times) - 1] = small
-    prev, points = grey, cv2.goodFeaturesToTrack(grey, 200, 0.01, 8)
+    prev, points = grey, cv2.goodFeaturesToTrack(grey, 400, 0.01, 8)
 n = len(times)
 if n == 0:
     sys.exit(f'{args.video}: no frames could be read')
 step = float(np.median(np.diff(times))) if n > 1 else 1 / (cap.get(cv2.CAP_PROP_FPS) or 30)
 times.append(times[-1] + step)
-bounds = [0] + [c for c in cuts if c < n] + [n]
+# Each cut found moves to the frame near it where the picture stops going on (the fewest points
+# carried, the nearest on a tie): a flash or a dip is found at its edges. Then two cuts closer than
+# the shortest shot are one.
+cuts = []
+for c in candidates:
+    c = min(range(max(1, c - shortest + 1), min(n, c + shortest)), key=lambda i: (follows[i], abs(i - c)))
+    if c - (cuts[-1] if cuts else 0) >= shortest:
+        cuts.append(c)
+bounds = [0] + cuts + [n]
 levels, scale, shift = np.array(levels), np.array(scale), np.array(shift)
 
 # Each shot's camera move from the transforms inside it (the two frames after a cut and the one
@@ -115,8 +123,14 @@ for k, (a, b) in enumerate(zip(bounds, bounds[1:])):
     span = times[b - 2] - times[a + 1] if b - a >= 4 else 0
     move = zoom = pan = None
     if span > 0:
-        zoom = (float(np.prod(np.clip(scale[inner], 0.9, 1.1))) - 1) * 100 / span
-        px, py = -shift[inner, 0].sum() / span, -shift[inner, 1].sum() / span
+        # The mean of the frames that move like the rest (within 3 median deviations): a dissolve's
+        # other picture, or a frame the flow lost, is left out.
+        each = np.column_stack([np.log(np.clip(scale[inner], 0.9, 1.1)), -shift[inner]])
+        dev = np.abs(each - np.median(each, axis=0))
+        keep = (dev <= np.maximum(3 * np.median(dev, axis=0), 1e-5)).all(axis=1)
+        mean = each[keep if keep.any() else slice(None)].mean(axis=0)
+        mean *= len(each) / span
+        zoom, px, py = (np.exp(mean[0]) - 1) * 100, mean[1], mean[2]
         pan = [round(px, 4) + 0.0, round(py, 4) + 0.0]  # + 0.0: no -0.0
         move = ['push' if zoom > 0 else 'pull'] if abs(zoom) >= args.push else []
         if max(abs(px), abs(py)) >= args.pan:
@@ -125,7 +139,7 @@ for k, (a, b) in enumerate(zip(bounds, bounds[1:])):
         zoom = round(zoom, 2) + 0.0
     black, white, luma, contrast, saturation, la, lb = levels[a:b].mean(axis=0)
     shots.append({'id': f'shot-{k + 1}', 'start': round(times[a], 3), 'end': round(times[b], 3),
-                  'move': move, 'zoom': zoom, 'pan': pan,
+                  'zoom': zoom, 'pan': pan, 'move': move,
                   'black': round(black, 1), 'white': round(white, 1), 'luma': round(luma, 1),
                   'contrast': round(contrast, 1), 'saturation': round(saturation, 1),
                   'labA': round(la, 2), 'labB': round(lb, 2)})
