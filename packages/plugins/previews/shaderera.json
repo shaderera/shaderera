@@ -35,6 +35,7 @@
           "render-bvh",
           "render-gaussian-splats",
           "render-gltf-read",
+          "render-image-pyramid",
           "render-image-textures",
           "render-three-host",
           "review-av-timeline",
@@ -403,6 +404,13 @@
       "label": "render-gltf-read",
       "params": {
         "item": "render-gltf-read",
+        "state": "default"
+      }
+    },
+    "render-image-pyramid": {
+      "label": "render-image-pyramid",
+      "params": {
+        "item": "render-image-pyramid",
         "state": "default"
       }
     },

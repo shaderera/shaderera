@@ -1,0 +1,12 @@
+{
+  "caption": "Draws any part of a huge picture at any size from a pyramid of its halves, the same pixels every frame.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 2.2
+}
