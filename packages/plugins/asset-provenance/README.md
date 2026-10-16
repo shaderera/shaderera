@@ -5,6 +5,7 @@ node tools/provenance.ts record assets/footage/wheat.mp4 \
   --source https://www.pexels.com/video/golden-wheat-field-36080123/ \
   --licence "Pexels License" --author "Sudheir Kumar" --title "Golden wheat field" --segment 0,7
 node tools/provenance.ts credits     # ASSETS.md (between its markers) and out/credits.txt
+node tools/provenance.ts check       # exit 1: a file without a record, changed, or gone
 ```
 
 Record a file when it arrives, after it is trimmed or converted: the hash is of the file the film
@@ -26,6 +27,12 @@ never reads a record.
 - `out/credits.txt` (`--out`), for the video's description: each credit with its source page,
   once however many files were cut from the same work, then a share-alike note for each
   share-alike licence used (one whose name says so, or a record flagged `share-alike`).
+
+**check** looks at every picture, clip and sound under `assets/` (`--dir`, more than once for
+more folders) and exits 1, naming the file, when one has no record, changed since it was recorded
+(record it again), or is recorded but gone. A record it cannot read exits 2. `--json` prints
+`{ ok, exitCode, findings }`, with the same fields and exit codes as the `shaderera` commands'
+envelope. Run it before a render you deliver; nothing runs it for you.
 
 A file the person supplied or a tool made is recorded too, with that as its source
 (`--source "supplied by the person"`, `--licence "the person's"`), and `--credit ""` keeps it in
