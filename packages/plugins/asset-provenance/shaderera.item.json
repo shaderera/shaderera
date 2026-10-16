@@ -1,0 +1,24 @@
+{
+  "name": "asset-provenance",
+  "type": "component",
+  "title": "Asset provenance",
+  "description": "Where each outside file came from: one record per file with its source page, licence, author, segment and sha256, written into ASSETS.md and the video description's credits, and checked against the files",
+  "category": "Assets & Rights",
+  "tags": [
+    "credits",
+    "licence",
+    "license",
+    "attribution",
+    "creative commons",
+    "share-alike",
+    "stock footage",
+    "public domain",
+    "rights",
+    "sources",
+    "assets"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "shaderera": ">=0.1.0" },
+  "files": ["tools/provenance.ts"]
+}

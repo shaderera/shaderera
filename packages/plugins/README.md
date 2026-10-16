@@ -20,6 +20,7 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 
 | Plugin | Type | What it does | From |
 |---|---|---|---|
+| `asset-provenance` | component | where each outside file came from: a record per file (source, licence, author, segment, sha256), the ASSETS.md table and the description's credits | an in-house explainer film, 2026-10-16 |
 | `audio-beat-clock` | component | measure a song (tempo fitted to its onsets, bars, onsets, bands); a clock, band levels and hits at render time | opening film; tempo fit from later in-house films |
 | `audio-hall-ending` | component | an ending that rings out in a hall and dies to silence (ffmpeg) | opening film |
 | `camera-keyframes` | component | a 3D camera as shots: orbit, dolly, crane, cut, exact framing, lenses in mm, shift, focus; WebGPU or three.js; core's camera contract | opening film, ideas from camera-controls and Cinemachine |
