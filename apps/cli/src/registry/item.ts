@@ -27,6 +27,7 @@ const WORK = [
   'Animation & Camera',
   'Rendering',
   'Layout & Formats',
+  'Assets & Rights',
 ] as const
 
 /**

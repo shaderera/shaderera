@@ -66,7 +66,7 @@ the folder is an error; anything merely unusual is a warning.
 | `type` | yes | `component`, `preset`, `media` or `extension` |
 | `title` | no | a short human name; the `name` when left out |
 | `description` | no, warned | one line; search shows it |
-| `category` | yes | which part of the work it covers. Components, presets and extensions: `Audio & Music`, `Analysis & Tracking`, `Typography`, `Looks`, `Procedural & Particles`, `Transitions`, `Animation & Camera`, `Rendering`, `Layout & Formats`. Media: `Music`, `Sound Effects`, `Fonts`, `3D Models`, `Images`. Another category is a warning, read as a proposal |
+| `category` | yes | which part of the work it covers. Components, presets and extensions: `Audio & Music`, `Analysis & Tracking`, `Typography`, `Looks`, `Procedural & Particles`, `Transitions`, `Animation & Camera`, `Rendering`, `Layout & Formats`, `Assets & Rights`. Media: `Music`, `Sound Effects`, `Fonts`, `3D Models`, `Images`. Another category is a warning, read as a proposal |
 | `tags` | no | free words for search: use, style, technique (`"beat sync"`, `"glitch"`) |
 | `version` | yes | `x.y.z`, see [Versions](#versions) |
 | `licence` | yes | an SPDX id: `MIT`, `OFL-1.1` |
@@ -117,8 +117,8 @@ the project already has, so give files names that will not collide.
 ## Naming
 
 Official plugins are named `<category>-<thing>`, so related ones sort together and the name says
-what it is. The prefixes: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`,
-`render`, `review`, `text`. Examples: `audio-beat-clock`, `format-safe-areas`, `render-three-host`.
+what it is. The prefixes: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`,
+`motion`, `render`, `review`, `text`. Examples: `audio-beat-clock`, `format-safe-areas`, `render-three-host`.
 
 - A published name is permanent. Renaming one breaks every project and link that uses it, so
   choose before the first `publish`.

@@ -192,6 +192,12 @@ The apparent zoom and pan of the whole frame, as the viewer sees it, whoever mad
 push on a still or the camera in a clip. Things moving inside the frame are not a move.
 _Avoid_: camera motion, Ken Burns (one way to make a move)
 
+**Provenance record**:
+Where one file from outside the project came from (`shaderera.provenance/1`): its source page,
+licence, author, the segment used, the credit shown on screen and the file's sha256. Written
+when the file arrives, by the `asset-provenance` plugin; the film never reads it.
+_Avoid_: source (what a project's entry returns), catalog, metadata
+
 ### Plugins
 
 **Plugin**:
