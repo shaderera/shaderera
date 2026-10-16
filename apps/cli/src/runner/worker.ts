@@ -133,6 +133,7 @@ const ask: Ask = {
         (await service('video-frame', { path, index: String(index) })) as Response
       ).arrayBuffer(),
     ),
+  videoClose: async (path) => void (await service('video-close', { path })),
   bakeOpen: async (name) => (await (await service('bake-open', { name }))?.json()) as never,
   bakeFrame: async (name, index) =>
     new Uint8Array(

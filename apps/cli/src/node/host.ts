@@ -56,6 +56,7 @@ const ask: Ask = {
   cachePut: (hash, bytes) => askParent({ op: 'cache-put', hash, bytes }),
   videoOpen: (path) => askParent({ op: 'video-open', path }),
   videoFrame: (path, index) => askParent({ op: 'video-frame', path, index }),
+  videoClose: (path) => askParent({ op: 'video-close', path }),
   bakeOpen: (name) => askParent({ op: 'bake-open', name }),
   bakeFrame: (name, index) => askParent({ op: 'bake-frame', name, index }),
 }

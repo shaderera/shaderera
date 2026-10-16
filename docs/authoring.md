@@ -39,7 +39,7 @@ A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture`
 | three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` plugin does this plumbing (`docs/participants/three.md`) |
 | Canvas2D | both | `io.canvas`; text through `io.font`, loaded in `open` (`docs/participants/canvas.md`) |
 | HTML, CSS, React, GSAP | browser host only | name a `MountDom` module in `shaderera.json` `"dom"`, set `"host": "browser"`, and use `options.dom` as a layer or a texture (`docs/participants/dom.md`) |
-| Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); analysis by a model is decoded once to project files (`docs/analysis.md`) |
+| Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); a film with many clips calls a clip's `close()` when its shot ends, or each decoder holds memory to the end of the render; analysis by a model is decoded once to project files (`docs/analysis.md`) |
 
 ## Plugins
 
@@ -64,12 +64,14 @@ What is on the shelf:
   - `render-bvh`: ray queries against a mesh's triangles on the GPU, closest hit and any hit;
   - `text-glyph-points` and `text-glyph-outlines`: text as a point set, or as contours and solids;
   - `review-av-timeline`: the sound and the picture's change on one timeline;
+  - `review-shots`: any video measured shot by shot (cuts, camera move, levels, colour);
+  - `review-picture-reuse`: the shots that show a picture again, a crop or zoom of it counting;
   - `format-placement-specs`: what placements accept, with sources, as requirements.json data.
 - **Looks, motion and sound design** are added only when the person asks: `look-blur`,
   `look-screen-passes`, `look-paper-edges`, `look-row-glitch`, `look-film-grain`,
   `look-tonemap`, `look-vignette`, `text-kinetic`, `text-feature-captions`, `text-code-wall`,
-  `text-glyph-morph`, `motion-keyframes`, `camera-keyframes`, `camera-shake`, `format-safe-areas`,
-  `format-broadcast-slate`, `audio-hall-ending`, `audio-voice-repace`.
+  `text-glyph-morph`, `motion-keyframes`, `camera-keyframes`, `camera-shake`, `camera-ken-burns`,
+  `format-safe-areas`, `format-broadcast-slate`, `audio-hall-ending`, `audio-voice-repace`.
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 

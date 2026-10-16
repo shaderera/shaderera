@@ -15,6 +15,7 @@
           "audio-beat-clock",
           "audio-hall-ending",
           "audio-voice-repace",
+          "camera-ken-burns",
           "camera-keyframes",
           "camera-shake",
           "font-ibm-plex-mono",
@@ -39,6 +40,8 @@
           "render-image-textures",
           "render-three-host",
           "review-av-timeline",
+          "review-picture-reuse",
+          "review-shots",
           "text-code-wall",
           "text-feature-captions",
           "text-glyph-morph",
@@ -89,6 +92,13 @@
       "label": "audio-voice-repace",
       "params": {
         "item": "audio-voice-repace",
+        "state": "default"
+      }
+    },
+    "camera-ken-burns": {
+      "label": "camera-ken-burns",
+      "params": {
+        "item": "camera-ken-burns",
         "state": "default"
       }
     },
@@ -386,6 +396,13 @@
         "state": "white"
       }
     },
+    "look-vignette.spotlight": {
+      "label": "look-vignette · spotlight",
+      "params": {
+        "item": "look-vignette",
+        "state": "spotlight"
+      }
+    },
     "motion-keyframes": {
       "label": "motion-keyframes",
       "params": {
@@ -432,6 +449,20 @@
       "label": "review-av-timeline",
       "params": {
         "item": "review-av-timeline",
+        "state": "default"
+      }
+    },
+    "review-picture-reuse": {
+      "label": "review-picture-reuse",
+      "params": {
+        "item": "review-picture-reuse",
+        "state": "default"
+      }
+    },
+    "review-shots": {
+      "label": "review-shots",
+      "params": {
+        "item": "review-shots",
         "state": "default"
       }
     },

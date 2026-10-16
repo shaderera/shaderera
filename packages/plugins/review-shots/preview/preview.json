@@ -1,0 +1,12 @@
+{
+  "caption": "Measures any video shot by shot: where it cuts, how the camera moves, its levels and its colour, with contact sheets to check by eye.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.9
+}
