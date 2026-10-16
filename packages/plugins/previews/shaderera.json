@@ -39,6 +39,7 @@
           "render-image-textures",
           "render-three-host",
           "review-av-timeline",
+          "review-picture-reuse",
           "review-shots",
           "text-code-wall",
           "text-feature-captions",
@@ -440,6 +441,13 @@
       "label": "review-av-timeline",
       "params": {
         "item": "review-av-timeline",
+        "state": "default"
+      }
+    },
+    "review-picture-reuse": {
+      "label": "review-picture-reuse",
+      "params": {
+        "item": "review-picture-reuse",
         "state": "default"
       }
     },
