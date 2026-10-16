@@ -2,7 +2,7 @@
   "name": "text-timed-cues",
   "type": "component",
   "title": "Timed cues",
-  "description": "Lyrics, subtitles and word timings read from LRC (with word times), SRT, WebVTT and JSON (rows, cues or Whisper segments with words): the line and the word at t, times only",
+  "description": "Lyrics, subtitles and word timings read from LRC (with word times), SRT, WebVTT and JSON (rows, cues, Whisper segments with words, or a transcript's words array): the line and the word at t, times only",
   "category": "Typography",
   "tags": [
     "lyrics",
@@ -13,11 +13,12 @@
     "vtt",
     "webvtt",
     "whisper",
+    "speech to text",
     "word timing",
     "karaoke",
     "timed text"
   ],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "licence": "MIT",
   "requires": { "shaderera": ">=0.1.0" },
   "files": ["src/type/timed-text.ts"]
