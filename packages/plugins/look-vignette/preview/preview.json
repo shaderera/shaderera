@@ -1,11 +1,12 @@
 {
-  "caption": "Darkens any frame towards its edges, or towards any colour, in linear light: soft or hard, round or the frame's shape, from any centre.",
+  "caption": "Darkens any frame towards its edges, or towards any colour, in linear light: soft or hard, round or a spotlight, from any centre.",
   "states": [
     { "id": "all", "label": "All" },
     { "id": "round", "label": "Round" },
     { "id": "hard", "label": "Hard" },
     { "id": "centre", "label": "Centre" },
-    { "id": "white", "label": "White" }
+    { "id": "white", "label": "White" },
+    { "id": "spotlight", "label": "Spotlight" }
   ],
   "default": "all",
   "audio": false,
