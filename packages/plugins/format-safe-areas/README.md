@@ -1,4 +1,4 @@
-Safe areas for text per format and platform, and the lens rule that keeps a 16:9 shot reading in 9:16.
+Safe areas for text per format and platform, the corner free for a credit, and the lens rule that keeps a 16:9 shot reading in 9:16.
 
 ```ts
 import { freeCorner, safeArea, widenFov } from './layout/frame.ts'

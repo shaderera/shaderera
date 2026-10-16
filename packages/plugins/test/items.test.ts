@@ -189,7 +189,7 @@ test('format-safe-areas: the corner farthest from the subject, inside the safe a
   assert.equal(corner([100, 100]), 'br')
   assert.equal(corner([100, 1000]), 'tr')
   assert.equal(corner([1800, 1000]), 'tl')
-  assert.equal(corner([1200, 0, 600, 400]), 'bl', 'a box counts by its centre')
+  assert.equal(corner([600, 200, 800, 400]), 'bl', 'a box counts by its centre')
   assert.equal(corner([960, 540]), 'bl', 'a tie goes to bl')
   const a = safeArea(1080, 1920, 'reels')
   assert.deepEqual(freeCorner([100, 1800], 1080, 1920, 'reels'), {

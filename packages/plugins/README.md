@@ -29,7 +29,7 @@ is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `r
 | `font-stix-two-text` | media | STIX Two Text, OFL | opening film |
 | `format-broadcast-slate` | component | a clock slate for a broadcast preroll: the spot's details and a countdown, at negative t | research for 0.1.0 |
 | `format-placement-specs` | preset | what Reels ads, YouTube, Amazon CTV, EU and US broadcast loudness and a DOOH screen accept, as requirements.json placements deliver checks the file against; each with its source and the date read | research for 0.1.0 |
-| `format-safe-areas` | component | where text may go per format and platform; the lens rule for tall frames | opening film |
+| `format-safe-areas` | component | where text may go per format and platform, and the corner free for a credit; the lens rule for tall frames | opening film |
 | `image-regions` | component | named regions of a photograph (mask, box, centre, the region that holds each) as analysis data; SAM 3.1 from words, or painted masks | a collage POC, 2026-10-14 |
 | `look-blur` | component | blur one frame, Gaussian, bokeh, directional or radial, by an amount from shapes, a map or depth: a sharp window, tilt-shift, depth of field | research: a poster's sharp window in a blurred world |
 | `look-film-grain` | component | film grain: Gaussian, sized, strongest in the mid-tones, mono or colour | split from `look-screen-passes` (0.2.0) |
