@@ -1,0 +1,12 @@
+{
+  "caption": "Records where each outside file came from, then writes the credits and checks every file against its record.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 4.6
+}

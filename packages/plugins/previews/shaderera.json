@@ -12,8 +12,11 @@
         "title": "Plugin",
         "type": "string",
         "enum": [
+          "asset-provenance",
           "audio-beat-clock",
           "audio-hall-ending",
+          "audio-voice-repace",
+          "camera-ken-burns",
           "camera-keyframes",
           "camera-shake",
           "font-ibm-plex-mono",
@@ -38,6 +41,8 @@
           "render-image-textures",
           "render-three-host",
           "review-av-timeline",
+          "review-picture-reuse",
+          "review-shots",
           "text-code-wall",
           "text-feature-captions",
           "text-glyph-morph",
@@ -56,6 +61,13 @@
     }
   },
   "variants": {
+    "asset-provenance": {
+      "label": "asset-provenance",
+      "params": {
+        "item": "asset-provenance",
+        "state": "default"
+      }
+    },
     "audio-beat-clock": {
       "label": "audio-beat-clock · all",
       "params": {
@@ -81,6 +93,20 @@
       "label": "audio-hall-ending",
       "params": {
         "item": "audio-hall-ending",
+        "state": "default"
+      }
+    },
+    "audio-voice-repace": {
+      "label": "audio-voice-repace",
+      "params": {
+        "item": "audio-voice-repace",
+        "state": "default"
+      }
+    },
+    "camera-ken-burns": {
+      "label": "camera-ken-burns",
+      "params": {
+        "item": "camera-ken-burns",
         "state": "default"
       }
     },
@@ -378,6 +404,13 @@
         "state": "white"
       }
     },
+    "look-vignette.spotlight": {
+      "label": "look-vignette · spotlight",
+      "params": {
+        "item": "look-vignette",
+        "state": "spotlight"
+      }
+    },
     "motion-keyframes": {
       "label": "motion-keyframes",
       "params": {
@@ -424,6 +457,20 @@
       "label": "review-av-timeline",
       "params": {
         "item": "review-av-timeline",
+        "state": "default"
+      }
+    },
+    "review-picture-reuse": {
+      "label": "review-picture-reuse",
+      "params": {
+        "item": "review-picture-reuse",
+        "state": "default"
+      }
+    },
+    "review-shots": {
+      "label": "review-shots",
+      "params": {
+        "item": "review-shots",
         "state": "default"
       }
     },

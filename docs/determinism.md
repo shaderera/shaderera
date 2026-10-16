@@ -78,6 +78,17 @@ the 8 frames round the hosts too, so they must agree with each other, not only w
 Keep one pure `state(t)` or `place(t)` that `render`, `inspect`, `pick` and `camera.get` all
 call, so what is inspected is what was drawn.
 
+### Canvas2D image smoothing is not a cause
+
+`imageSmoothingQuality` picks the filter, so `'low'`, `'medium'` and `'high'` draw different
+pixels, and each draws the same pixels every time. A large picture drawn scaled down at `'high'`
+was suspected of depending on what was drawn before (Skia keeps the mipmaps it builds in a cache
+that large pictures evict), and measured: with `@napi-rs/canvas` 1.0.10 on Windows 11 it does not.
+Pictures up to 8000 px wide, up to 24 of them (more than the cache holds), drawn scaled down into
+1920×1080 as canvases, decoded images and canvases redrawn in between, in shuffled orders, and the
+same drawn by a source under `shaderera check` (40 times, two orders), gave the same pixels every
+time, at every quality.
+
 ## Pure and sequential sources
 
 A source is **pure** unless its manifest says `"sequential": true`. A pure `render(t)` depends

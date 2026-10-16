@@ -1,0 +1,12 @@
+{
+  "caption": "Finds the shots of any video that show a picture already seen, counting a crop, zoom or pan of it as the same picture.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 4.9
+}

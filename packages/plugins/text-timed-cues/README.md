@@ -1,4 +1,4 @@
-Lyrics and subtitles by time: read LRC, SRT, WebVTT or Whisper JSON once, then ask for the line and the word at t.
+Lyrics and subtitles by time: read LRC, SRT, WebVTT, Whisper or STT JSON once, then ask for the line and the word at t.
 
 ```ts
 import { cueAt, loadTimedText, wordAt } from './type/timed-text.ts'
@@ -17,7 +17,9 @@ It gives times only: how a line looks and moves is the film's code.
   `<mm:ss.xx>` before each word, and `[offset:+250]` (ms). A line ends where the next starts.
 - SRT and WebVTT: `start --> end` blocks; tags such as `<i>` are stripped. No styling or positions
   are read.
-- JSON: rows of `[start, end, "line"]`, cues like the ones `cueAt` returns, or Whisper's
-  `segments` with `words` (an aligner's output, for word times).
+- JSON: rows of `[start, end, "line"]`, cues like the ones `cueAt` returns, Whisper's
+  `segments` with `words` (an aligner's output, for word times), or a speech-to-text transcript's
+  top-level `words` of `{ start, end, text }` (Paxa Labs STT). A transcript is one cue, from its
+  first word to its last, with its `text`; `wordAt` gives the words.
 - `parseLrc`, `parseSrt`, `parseTimedJson` and `parseTimedText(path, source)` read text you already
   have; `trimCues(cues, s)` shifts every time by `-s`.

@@ -1,0 +1,20 @@
+{
+  "name": "camera-ken-burns",
+  "type": "component",
+  "title": "Ken Burns",
+  "description": "The crop of a still that a frame shows: framed on a box with headroom, and moved between two framings at an even speed (scale in log space), always inside the picture",
+  "category": "Animation & Camera",
+  "tags": [
+    "ken burns",
+    "pan and zoom",
+    "push in",
+    "crop",
+    "framing",
+    "headroom",
+    "photos",
+    "documentary"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/motion/ken-burns.ts"]
+}

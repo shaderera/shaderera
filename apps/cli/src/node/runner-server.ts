@@ -8,7 +8,7 @@ import type { BakeFrames } from './services.ts'
 export const HOST = '127.0.0.1'
 
 /** The first port at or above `from` that is free on loopback. */
-export const freePort = async (from: number): Promise<number> => {
+const freePort = async (from: number): Promise<number> => {
   for (let port = from; port < from + 100; port++) {
     const free = await new Promise<boolean>((done) => {
       const probe = createNetServer()
@@ -20,22 +20,35 @@ export const freePort = async (from: number): Promise<number> => {
   throw new Error(`No free port from ${from}.`)
 }
 
+type RunnerOptions = {
+  pkgDir: string
+  studioOrigins: readonly string[]
+  /** Vite's dependency cache; hosts running at once each need their own. */
+  cacheDir?: string
+  /** The bakes' frames, checked against their stamps: what io.bake reads. */
+  bakes?: BakeFrames
+}
+
 /**
  * The project's own Vite server, the runner: its page (runner-plugin.ts) under the runner's CSP,
- * framed by the Studio at `studioOrigins`, or opened alone by the browser host.
+ * framed by the Studio at `studioOrigins`, or opened alone by the browser host. It listens on the
+ * first free port from 5300. A port can be taken between the probe and the listen (hosts and
+ * test files started in parallel): the next one then.
  */
-export const startRunner = async (
-  project: Project,
-  o: {
-    pkgDir: string
-    studioOrigins: readonly string[]
-    port: number
-    /** Vite's dependency cache; hosts running at once each need their own. */
-    cacheDir?: string
-    /** The bakes' frames, checked against their stamps: what io.bake reads. */
-    bakes?: BakeFrames
-  },
-) => {
+export const startRunner = async (project: Project, o: RunnerOptions) => {
+  let port = await freePort(5300)
+  for (let tries = 0; ; tries++) {
+    try {
+      return { server: await listen(project, { ...o, port }), port }
+    } catch (error) {
+      // Vite's strictPort throws a plain "Port N is already in use".
+      if (tries >= 20 || !/already in use|EADDRINUSE/.test(String(error))) throw error
+      port = await freePort(port + 1)
+    }
+  }
+}
+
+const listen = async (project: Project, o: RunnerOptions & { port: number }) => {
   const vite = await import('vite')
   const runner = await vite.createServer({
     root: project.root,
