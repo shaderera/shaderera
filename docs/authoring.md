@@ -18,9 +18,10 @@ determinism, the CLI, MCP, delivery, and `participants/` per renderer); the task
    never from a default of the engine.
 3. **Resolve the assets.** Use the real model, images and fonts, with their licences recorded in
    `ASSETS.md` (source, licence, sha256). If the product is missing, say so and stop or design an
-   original object openly. Never present a primitive placeholder as the product. A new project
-   has no font: use the brand's font files from the person, otherwise ask (the order, and how
-   `io.font` loads one, are in `guides/typography.md`).
+   original object openly. Never present a primitive placeholder as the product. Use footage or
+   pictures from outside sources only when the brief or the person asks (`guides/footage.md`).
+   A new project has no font: use the brand's font files from the person, otherwise ask (the
+   order, and how `io.font` loads one, are in `guides/typography.md`).
 4. **Write the direction down** in `DIRECTION.md`, in whatever form the film needs: it guides the
    work, and nothing parses it.
 5. **Look early and often:** `npx shaderera still <t>... --sheet`, or MCP's `render_frame` with
@@ -66,7 +67,8 @@ What is on the shelf:
   - `review-av-timeline`: the sound and the picture's change on one timeline;
   - `review-shots`: any video measured shot by shot (cuts, camera move, levels, colour);
   - `review-picture-reuse`: the shots that show a picture again, a crop or zoom of it counting;
-  - `format-placement-specs`: what placements accept, with sources, as requirements.json data.
+  - `format-placement-specs`: what placements accept, with sources, as requirements.json data;
+  - `asset-provenance`: where each outside file came from, the ASSETS.md table and the credits.
 - **Looks, motion and sound design** are added only when the person asks: `look-blur`,
   `look-screen-passes`, `look-paper-edges`, `look-row-glitch`, `look-film-grain`,
   `look-tonemap`, `look-vignette`, `text-kinetic`, `text-feature-captions`, `text-code-wall`,
