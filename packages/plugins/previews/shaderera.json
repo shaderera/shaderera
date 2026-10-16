@@ -12,6 +12,7 @@
         "title": "Plugin",
         "type": "string",
         "enum": [
+          "asset-provenance",
           "audio-beat-clock",
           "audio-hall-ending",
           "camera-keyframes",
@@ -56,6 +57,13 @@
     }
   },
   "variants": {
+    "asset-provenance": {
+      "label": "asset-provenance",
+      "params": {
+        "item": "asset-provenance",
+        "state": "default"
+      }
+    },
     "audio-beat-clock": {
       "label": "audio-beat-clock · all",
       "params": {
