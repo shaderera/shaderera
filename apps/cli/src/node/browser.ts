@@ -17,7 +17,7 @@ import { alive } from './build.ts'
 import { type Child, TIMEOUT } from './child.ts'
 import type { Project } from './project.ts'
 import { FRAME_PATH, frameUploads, RUNNER_PATH } from './runner-plugin.ts'
-import { freePort, HOST, startRunner } from './runner-server.ts'
+import { HOST, startRunner } from './runner-server.ts'
 import type { BakeFrames } from './services.ts'
 
 export const chromePath = () =>
@@ -143,29 +143,21 @@ export const openBrowserChild = async (
     throw new Error('No Chrome found for the browser host; set CHROME to its executable.')
   const pkgDir = fileURLToPath(new URL('../..', import.meta.url))
   const { profile, release } = claimProfile(project.root)
-  // A free port can be taken between the probe and the listen (hosts started in parallel): the
-  // next one then. Vite's dependency cache lives in the claimed profile: two hosts optimising
-  // into one shared folder at once fail (measured: EPERM on Windows).
-  let port = await freePort(5300)
-  let runner: Awaited<ReturnType<typeof startRunner>> | undefined
-  for (let tries = 0; runner === undefined; tries++) {
-    try {
-      runner = await startRunner(project, {
-        pkgDir,
-        studioOrigins: ["'none'"],
-        port,
-        cacheDir: join(profile, 'vite'),
-        ...(o.bakes ? { bakes: o.bakes } : {}),
-      })
-    } catch (error) {
-      // Vite's strictPort throws a plain "Port N is already in use".
-      if (tries >= 20 || !/already in use|EADDRINUSE/.test(String(error))) {
-        release()
-        throw error
-      }
-      port = await freePort(port + 1)
-    }
+  // Vite's dependency cache lives in the claimed profile: two hosts optimising into one shared
+  // folder at once fail (measured: EPERM on Windows).
+  let started: Awaited<ReturnType<typeof startRunner>>
+  try {
+    started = await startRunner(project, {
+      pkgDir,
+      studioOrigins: ["'none'"],
+      cacheDir: join(profile, 'vite'),
+      ...(o.bakes ? { bakes: o.bakes } : {}),
+    })
+  } catch (error) {
+    release()
+    throw error
   }
+  const { server: runner, port } = started
   rmSync(join(profile, 'DevToolsActivePort'), { force: true })
   const { width, height } = o.size ?? project.manifest
   const flags = [
@@ -193,7 +185,7 @@ export const openBrowserChild = async (
     try {
       release()
     } finally {
-      await runner?.close()
+      await runner.close()
     }
   }
   try {
