@@ -1,6 +1,7 @@
 // look-vignette, headless on Dawn. Checked: amount 0 is the frame; the centre is untouched and a
 // corner goes the amount towards black in linear light; on a wide frame the frame-shaped one
-// reaches top and bottom sooner than a round one; the colour can be white; the centre can move.
+// reaches top and bottom sooner than a round one; the colour can be white; the centre can move; an
+// ellipse of a given size leaves its inside untouched and dims outside it by the amount.
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -11,7 +12,7 @@ const W = 160
 const H = 90
 const toSrgb = (v: number) => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055)
 
-test('look-vignette: amount, shape, colour and centre', async () => {
+test('look-vignette: amount, shape, colour, centre and size', async () => {
   const g = await openFrame(W, H)
   const vignette = createVignette(g.host, { width: W, height: H })
   const white = g.frame(() => grey(255))
@@ -45,6 +46,21 @@ test('look-vignette: amount, shape, colour and centre', async () => {
     vignette.apply(white.texture, { amount: 1, centre: [0, 0], start: 0.2 }),
   )
   assert.ok(g.at(moved, 0, 0) === 255 && g.at(moved, W - 1, H - 1) < 50, 'from a moved centre')
+
+  const spot = await g.read(
+    vignette.apply(white.texture, { amount: 0.5, centre: [40, 45], size: [20, 10], start: 0.5 }),
+  )
+  assert.ok(
+    g.at(spot, 40, 45) === 255 && g.at(spot, 49, 45) === 255 && g.at(spot, 40, 49) === 255,
+    'inside the ellipse is untouched',
+  )
+  const half = toSrgb(0.5) * 255
+  assert.ok(
+    [g.at(spot, 61, 45), g.at(spot, 40, 56), g.at(spot, W - 1, H - 1)].every(
+      (v) => Math.abs(v - half) <= 2,
+    ),
+    'outside the ellipse is dimmed by the amount',
+  )
   vignette.dispose()
   g.done()
 })

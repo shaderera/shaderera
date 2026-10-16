@@ -378,6 +378,13 @@
         "state": "white"
       }
     },
+    "look-vignette.spotlight": {
+      "label": "look-vignette · spotlight",
+      "params": {
+        "item": "look-vignette",
+        "state": "spotlight"
+      }
+    },
     "motion-keyframes": {
       "label": "motion-keyframes",
       "params": {

@@ -1,6 +1,7 @@
 // A vignette over a finished frame, one WebGPU pass: a texture of host.gpu or a Canvas2D canvas in,
 // an opaque texture out. The edges go towards a colour (black by default) in linear light, as a
-// lens darkens them; round, or following the frame's own shape; from any centre.
+// lens darkens them; round, or following the frame's own shape, or round an ellipse of a given
+// size (a spotlight); from any centre.
 
 import type { Host } from '@shaderera/core'
 import { VIGNETTE_WGSL } from './vignette.wgsl.ts'
@@ -8,12 +9,14 @@ import { VIGNETTE_WGSL } from './vignette.wgsl.ts'
 export type VignetteParams = {
   /** How far the corners go towards the colour, 0–1. */
   amount?: number
-  /** Where the falloff starts: 0 at the centre, 1 at the corners. */
+  /** Where the falloff starts: 0 at the centre, 1 at the corners (or at the edge of `size`). */
   start?: number
   /** 1 a circle, 0 an ellipse of the frame's proportions. */
   roundness?: number
   /** The centre in px; the frame's centre when left out. */
   centre?: readonly [number, number]
+  /** The radii in px of an ellipse the falloff ends at, in place of the frame's corners. */
+  size?: readonly [number, number]
   /** The colour the edges go towards, as display values 0–1. */
   colour?: readonly [number, number, number]
 }
@@ -83,6 +86,7 @@ export const createVignette = (host: Host, o: { width: number; height: number })
         texture = upload
       }
       const [cx, cy] = p.centre ?? [o.width / 2, o.height / 2]
+      const [rx, ry] = p.size ?? [0, 0]
       device.queue.writeBuffer(
         uniforms,
         0,
@@ -93,8 +97,8 @@ export const createVignette = (host: Host, o: { width: number; height: number })
           0,
           cx,
           cy,
-          0,
-          0,
+          rx,
+          ry,
           ...(p.colour ?? [0, 0, 0]),
           0,
         ]),
