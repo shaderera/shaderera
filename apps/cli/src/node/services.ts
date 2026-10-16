@@ -15,13 +15,14 @@ export type ServiceRequest =
   | { op: 'cache-put'; hash: string; bytes: Uint8Array }
   | { op: 'video-open'; path: string }
   | { op: 'video-frame'; path: string; index: number }
+  | { op: 'video-close'; path: string }
   | { op: 'bake-open'; name: string }
   | { op: 'bake-frame'; name: string; index: number }
 
 type VideoInfo = { width: number; height: number; fps: number; frames: number }
 
 /** Decodes one file's frames in order with ffmpeg; a frame before the last one read restarts it. */
-const videoReader = (file: string) => {
+export const videoReader = (file: string) => {
   const r = spawnSync(
     'ffprobe',
     [
@@ -123,14 +124,33 @@ const videoReader = (file: string) => {
       waiting = undefined
     }
   }
+  // Ends the decoder and drops what it decoded; the next read starts another.
+  const stop = async () => {
+    const mine = proc
+    proc = undefined
+    chunks = []
+    bytes = 0
+    if (!mine || mine.exitCode !== null || mine.signalCode !== null) return
+    const exited = new Promise((done) => mine.once('exit', done))
+    mine.kill()
+    await exited
+  }
   // One request at a time: they share the decoder.
   let queue: Promise<unknown> = Promise.resolve()
-  const frame = (index: number): Promise<Uint8Array> => {
-    const result = queue.then(() => read(index))
+  const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
+    const result = queue.then(run)
     queue = result.catch(() => {})
     return result
   }
-  return { info, frame, close: () => proc?.kill() }
+  return {
+    info,
+    frame: (index: number) => inTurn(() => read(index)),
+    close: () => inTurn(stop),
+    /** The decoder's process id, while one runs. */
+    get pid() {
+      return proc?.pid
+    },
+  }
 }
 
 /**
@@ -176,6 +196,9 @@ export const createServices = (root: string, bakes: BakeFrames = {}) => {
         return video(r.path).info
       case 'video-frame':
         return video(r.path).frame(r.index)
+      case 'video-close':
+        await videos.get(insideForRead(root, r.path))?.close()
+        return null
       case 'bake-open':
         return { frames: baked(r.name).length }
       case 'bake-frame': {
