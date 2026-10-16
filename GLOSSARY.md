@@ -152,7 +152,14 @@ _Avoid_: archive, bundle
 
 **Plan** and **chunk**:
 A plan splits a job into chunks of whole frames, each rendered anywhere and then assembled into
-one file that equals a single render.
+one file that equals a single render. A plan may take frames outside its changed spans from an
+earlier plan of the same film, made on the same kind of host.
+
+**Changed span**:
+Whole frames that an edit between two revisions may have changed, carried forward by a sequential
+source's lookback (or to the window's end without one). Frames outside every changed span are
+taken to be unchanged and are checked by sampling.
+_Avoid_: changed window (a window is a job's from–to), dirty range, margin
 
 **Bake**:
 Frames a film reads that were made outside the host by a command the manifest declares, from
