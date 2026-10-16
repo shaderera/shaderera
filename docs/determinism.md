@@ -89,10 +89,6 @@ Pictures up to 8000 px wide, up to 24 of them (more than the cache holds), drawn
 same drawn by a source under `shaderera check` (40 times, two orders), gave the same pixels every
 time, at every quality.
 
-What does go wrong is the look: at `'low'`, a picture drawn at less than half its size skips
-source pixels, and a slow push-in shimmers. `render-image-pyramid` draws from halves of the
-picture, each level at most twice the size on screen, so `'low'` reads every pixel.
-
 ## Pure and sequential sources
 
 A source is **pure** unless its manifest says `"sequential": true`. A pure `render(t)` depends
