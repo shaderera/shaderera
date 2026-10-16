@@ -4,8 +4,8 @@
 
 export const VIGNETTE_WGSL = /* wgsl */ `
 struct Vignette {
-  a: vec4f,  // amount 0–1, start (0 centre … 1 corner), roundness 0–1, 0
-  b: vec4f,  // centre x, y (px), ellipse radii x, y (px; 0 for the frame's corners)
+  a: vec4f,  // amount 0–1, start (0 centre … 1 corner), roundness 0–1, 1 if the ellipse is given
+  b: vec4f,  // centre x, y (px), ellipse radii x, y (px)
   c: vec4f,  // colour rgb (display values), 0
 }
 
@@ -40,8 +40,9 @@ fn toSrgb(c: vec3f) -> vec3f {
   let frame = length(q / (size * 0.5)) / 1.4142136;
   let round = length(q) / (0.5 * length(size));
   var d = mix(frame, round, u.a.z);
-  if (u.b.z > 0.0) {
-    d = length(q / u.b.zw);
+  if (u.a.w > 0.0) {
+    // a radius of 0 or less is a closed ellipse: everything dims, as it does as one shrinks to 0
+    d = length(q / max(u.b.zw, vec2f(1e-4)));
   }
   let f = u.a.x * smoothstep(u.a.y, 1.0, d);
   return vec4f(toSrgb(mix(toLinear(c), toLinear(u.c.rgb), f)), 1.0);

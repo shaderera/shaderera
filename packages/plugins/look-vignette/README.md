@@ -18,7 +18,8 @@ return [{ color, alpha: 'opaque' }]
   sides and the short ones together.
 - `centre`: the centre in px, the frame's centre by default.
 - `size`: the radii in px of an ellipse the falloff ends at, in place of the frame's corners;
-  outside it everything is `amount` of the way. `roundness` is then unused.
+  outside it everything is `amount` of the way, and at [0, 0] it is closed. `roundness` is then
+  unused.
 - `colour` (black): what the edges go towards, as display values; white for a faded print.
 
 A spotlight is a vignette with a `size`: the picture dims but for a soft ellipse round a box.
@@ -30,7 +31,7 @@ Move `centre` and `size` with `motion-keyframes` to carry it from spot to spot, 
 const spot = vignette.apply(frame, {
   centre: [x + w / 2, y + h / 2],
   size: [w * 0.75 + 60, h * 0.75 + 60],
-  amount: 0.7,
+  amount: 0.95, // in linear light, so white is left at about a quarter
   start: 0.55,
 })
 ```

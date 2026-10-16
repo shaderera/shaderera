@@ -1,7 +1,8 @@
 // look-vignette, headless on Dawn. Checked: amount 0 is the frame; the centre is untouched and a
 // corner goes the amount towards black in linear light; on a wide frame the frame-shaped one
 // reaches top and bottom sooner than a round one; the colour can be white; the centre can move; an
-// ellipse of a given size leaves its inside untouched and dims outside it by the amount.
+// ellipse of a given size leaves its inside untouched and dims outside it by the amount, and at
+// [0, 0] dims everything.
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -61,6 +62,10 @@ test('look-vignette: amount, shape, colour, centre and size', async () => {
     ),
     'outside the ellipse is dimmed by the amount',
   )
+  const closed = await g.read(
+    vignette.apply(white.texture, { amount: 0.5, centre: [40, 45], size: [0, 0], start: 0.5 }),
+  )
+  assert.ok(Math.abs(g.at(closed, 40, 45) - half) <= 2, 'a closed ellipse dims everything')
   vignette.dispose()
   g.done()
 })

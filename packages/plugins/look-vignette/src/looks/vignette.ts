@@ -15,7 +15,10 @@ export type VignetteParams = {
   roundness?: number
   /** The centre in px; the frame's centre when left out. */
   centre?: readonly [number, number]
-  /** The radii in px of an ellipse the falloff ends at, in place of the frame's corners. */
+  /**
+   * The radii in px of an ellipse the falloff ends at, in place of the frame's corners; at 0 it is
+   * closed and everything dims.
+   */
   size?: readonly [number, number]
   /** The colour the edges go towards, as display values 0–1. */
   colour?: readonly [number, number, number]
@@ -94,7 +97,7 @@ export const createVignette = (host: Host, o: { width: number; height: number })
           p.amount ?? 0.4,
           p.start ?? 0.35,
           p.roundness ?? 1,
-          0,
+          p.size ? 1 : 0,
           cx,
           cy,
           rx,

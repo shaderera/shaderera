@@ -1,7 +1,8 @@
 // look-vignette: the plain grey test card (previews/src/card.ts) on a mid-grey ground and the
 // plugin's one call over it. In the 'all' state the setting changes every 1.2 s with a hard cut: a
 // soft round falloff, a hard late one, a centre that circles the frame, towards white, and a
-// spotlight (an ellipse of a given size) that circles it; a state holds one. On this square frame the frame-shaped ellipse is the same circle, so it is not shown.
+// spotlight (an ellipse of a given size) that circles it; a state holds one. On this square frame
+// the frame-shaped ellipse is the same circle, so it is not shown.
 // The setting is the big word top left; a red cross marks the vignette's centre.
 
 import { CARD, drawCard } from '../../previews/src/card.ts'
