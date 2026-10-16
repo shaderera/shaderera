@@ -1,0 +1,31 @@
+{
+  "name": "review-shots",
+  "type": "component",
+  "title": "Shot review",
+  "description": "Any video measured shot by shot as frozen analysis data: where it cuts, how the camera moves (push, pull, pan, tilt or static, with zoom in % a second), its levels and its colour, with contact sheets to check it by eye. PySceneDetect and OpenCV",
+  "category": "Analysis & Tracking",
+  "tags": [
+    "review",
+    "shots",
+    "cuts",
+    "scene detection",
+    "shot length",
+    "pacing",
+    "camera move",
+    "push in",
+    "pull out",
+    "pan",
+    "tilt",
+    "zoom",
+    "optical flow",
+    "levels",
+    "grade",
+    "colour",
+    "contact sheet",
+    "reference",
+    "analysis"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["tools/review-shots.py"]
+}

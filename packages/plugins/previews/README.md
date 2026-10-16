@@ -42,7 +42,8 @@ own analyser. Fonts come from the OFL font plugins.
 
 ## Render
 
-With ffmpeg (and libwebp) on the PATH:
+With ffmpeg (and libwebp) on the PATH, and for `review-shots` a Python with scenedetect (`PYTHON`
+names it, else `python3`, or `python` on Windows):
 
 ```sh
 node scripts/render.ts                      # every plugin, every state, into ../<plugin>/preview/out/
