@@ -1,6 +1,34 @@
 import assert from 'node:assert/strict'
+import { cpSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { notProject } from './session.ts'
+import { setTimeout as sleep } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
+import { createNodeSession, notProject } from './session.ts'
+
+test('reading a project file keeps the child; editing one reopens it', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'shaderera-session-'))
+  cpSync(fileURLToPath(new URL('../cli/fixtures/mcp/', import.meta.url)), root, {
+    recursive: true,
+    filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
+  })
+  const session = createNodeSession(root)
+  try {
+    const file = join(root, 'src', 'composition.ts')
+    const first = (await session.open()).child
+    // what a read does on Windows once the access time is an hour old (NTFS last access): the
+    // access time moves, the content and the modified time do not
+    utimesSync(file, new Date(), statSync(file).mtime)
+    await sleep(300)
+    assert.equal((await session.open()).child, first, 'a read reopened the source')
+    writeFileSync(file, `${readFileSync(file, 'utf8')}\n`)
+    await sleep(300)
+    assert.notEqual((await session.open()).child, first, 'an edit did not reopen the source')
+  } finally {
+    session.close()
+  }
+})
 
 test('installs, builds, renders and driver logs do not reopen the source; the project does', () => {
   for (const file of [
