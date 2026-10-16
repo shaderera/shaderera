@@ -5,6 +5,7 @@
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -18,8 +19,9 @@ const skip =
     ? false
     : `review-picture-reuse needs ${python} with scenedetect and OpenCV (pip install "scenedetect>=0.7" numpy), or PYTHON naming one`
 
-/** Six 1 s shots at 30 fps of three pictures (shapes on a ground, one hue each) and black:
- * A, B, A cropped and zoomed to 160%, black, C, C cropped to 140%. */
+/** Six 1 s shots at 30 fps of pictures (shapes on a ground, one hue each) and black: A, B, A
+ * cropped and zoomed to 160% in its middle third only with D at its ends, black, C, C cropped to
+ * 140%. Only shot 3's middle frame shows A. */
 const MAKE = `
 import sys, cv2, numpy as np
 W, H, FPS = 480, 270, 30
@@ -36,11 +38,12 @@ def picture(hue):
     return cv2.cvtColor(img, cv2.COLOR_HSV2BGR)
 def crop(p, s, x, y):
     return cv2.warpAffine(p, np.float32([[s, 0, -s * x], [0, s, -s * y]]), (W, H))
-a, b, c = picture(0), picture(60), picture(120)
+a, b, c, d = picture(0), picture(60), picture(120), picture(30)
 out = cv2.VideoWriter(sys.argv[1], cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H))
-for frame in [a, b, crop(a, 1.6, 120, 60), np.zeros_like(a), c, crop(c, 1.4, 40, 70)]:
-    for _ in range(FPS):
-        out.write(frame)
+for shot in [[a], [b], [d, crop(a, 1.6, 120, 60), d], [np.zeros_like(a)], [c], [crop(c, 1.4, 40, 70)]]:
+    for frame in shot:
+        for _ in range(FPS // len(shot)):
+            out.write(frame)
 out.release()
 `
 
@@ -61,10 +64,15 @@ const setUp = () => {
     encoding: 'utf8',
   })
   assert.equal(made.status, 0, made.stderr)
-  const shots = spawnSync(python, ['tools/review-shots.py', 'footage/back.mp4'], {
-    cwd: project,
-    encoding: 'utf8',
-  })
+  // Shots of at least 0.9 s, so shot 3's thirds are one shot.
+  const shots = spawnSync(
+    python,
+    ['tools/review-shots.py', 'footage/back.mp4', '--min-shot', '0.9'],
+    {
+      cwd: project,
+      encoding: 'utf8',
+    },
+  )
   assert.equal(shots.status, 0, shots.stderr)
 }
 const run = (...args: string[]) =>
@@ -75,14 +83,19 @@ test('review-picture-reuse: a picture that comes back cropped is one picture', {
   const result = run('shots/back/shots.json')
   assert.equal(result.status, 0, result.stderr)
   const doc = JSON.parse(readFileSync(join(project, 'shots', 'back', 'picture-reuse.json'), 'utf8'))
-  const shots = JSON.parse(readFileSync(join(project, 'shots', 'back', 'shots.json'), 'utf8'))
+  const shotsFile = readFileSync(join(project, 'shots', 'back', 'shots.json'))
+  const shots = JSON.parse(shotsFile.toString('utf8'))
   assert.equal(doc.format, 'shaderera.analysis/1')
   assert.equal(doc.kind, 'picture-reuse')
   assert.deepEqual(doc.source, {
     path: 'footage/back.mp4',
     bytes: shots.source.bytes,
     sha256: shots.source.sha256,
-    shots: 'shots/back/shots.json',
+    shots: {
+      path: 'shots/back/shots.json',
+      bytes: shotsFile.length,
+      sha256: createHash('sha256').update(shotsFile).digest('hex'),
+    },
   })
   assert.deepEqual(
     (doc.groups as { id: string; shots: { id: string }[] }[]).map((g) => [

@@ -137,7 +137,8 @@ summary = {
 
 result = {'format': 'shaderera.analysis/1', 'kind': 'picture-reuse',
           'source': {'path': source['path'], 'bytes': source['bytes'], 'sha256': source['sha256'],
-                     'shots': os.path.relpath(args.shots).replace('\\', '/')},
+                     'shots': {'path': os.path.relpath(args.shots).replace('\\', '/'),
+                               'bytes': os.path.getsize(args.shots), 'sha256': sha256(args.shots)}},
           'tool': {'script': 'tools/review-picture-reuse.py', 'python': sys.version.split()[0],
                    'opencv': cv2.__version__, 'numpy': np.__version__},
           'params': {'width': args.width, 'features': args.features, 'minFeatures': args.min_features,

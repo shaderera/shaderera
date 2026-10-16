@@ -16,7 +16,8 @@ again.
 **The data.** `picture-reuse.json` is a `shaderera.analysis/1` artifact (see `docs/analysis.md` in
 the `shaderera` package) of kind `picture-reuse`, beside the shots it read (`--out` writes it
 elsewhere). `source` names the video with its bytes and sha256, as the shots have them, and
-`shots` the shots file; `tool` the versions, `params` every setting.
+`shots` the shots file with its own (the groups name shots by id: refuse the file when the shots
+have changed); `tool` the versions, `params` every setting.
 - `groups`: each picture shown by more than one shot, numbered from `picture-1` in order of first
   use, with its shots' ids and starts, in order.
 - `summary`: `shots`; `shotsWithPicture` (a near-flat shot, black or a plain card, has none);
