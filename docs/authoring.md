@@ -69,7 +69,7 @@ What is on the shelf:
   `look-screen-passes`, `look-paper-edges`, `look-row-glitch`, `look-film-grain`,
   `look-tonemap`, `look-vignette`, `text-kinetic`, `text-feature-captions`, `text-code-wall`,
   `text-glyph-morph`, `motion-keyframes`, `camera-keyframes`, `camera-shake`, `format-safe-areas`,
-  `format-broadcast-slate`, `audio-hall-ending`.
+  `format-broadcast-slate`, `audio-hall-ending`, `audio-voice-repace`.
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 

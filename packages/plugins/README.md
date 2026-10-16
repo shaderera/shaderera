@@ -21,6 +21,7 @@ is: `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `r
 |---|---|---|---|
 | `audio-beat-clock` | component | measure a song (tempo fitted to its onsets, bars, onsets, bands); a clock, band levels and hits at render time | opening film; tempo fit from later in-house films |
 | `audio-hall-ending` | component | an ending that rings out in a hall and dies to silence (ffmpeg) | opening film |
+| `audio-voice-repace` | component | re-pace a narration (long pauses between words shortened, named ones kept, tempo with the pitch kept, ffmpeg) and a time map the edit's times follow | an in-house narrated film, its paced voice |
 | `camera-keyframes` | component | a 3D camera as shots: orbit, dolly, crane, cut, exact framing, lenses in mm, shift, focus; WebGPU or three.js; core's camera contract | opening film, ideas from camera-controls and Cinemachine |
 | `camera-shake` | component | breathe, handheld, impact: seeded noise and hit envelopes as formulas of t | ideas from drei CameraShake |
 | `font-ibm-plex-mono` | media | IBM Plex Mono, OFL | opening film |

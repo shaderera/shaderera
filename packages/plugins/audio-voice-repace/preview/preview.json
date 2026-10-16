@@ -1,0 +1,12 @@
+{
+  "caption": "Tightens a narration: long pauses between words are shortened, chosen ones kept, and the edit's times follow.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": true,
+  "poster": 3.0
+}

@@ -1,0 +1,23 @@
+{
+  "name": "audio-voice-repace",
+  "type": "component",
+  "title": "Voice re-pace",
+  "description": "Re-pace a narration: shorten the long pauses between words, keep the ones named, change the tempo with the pitch kept (ffmpeg), and write a time map the edit's times follow",
+  "category": "Audio & Music",
+  "tags": [
+    "narration",
+    "voice over",
+    "voiceover",
+    "pacing",
+    "pauses",
+    "tempo",
+    "rubberband",
+    "time map",
+    "ffmpeg",
+    "audio conform"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "shaderera": ">=0.1.0", "items": { "text-timed-cues": "^0.1.1" } },
+  "files": ["tools/voice-repace.ts", "src/audio/repace.ts"]
+}
