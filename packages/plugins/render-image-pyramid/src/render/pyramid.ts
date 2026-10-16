@@ -53,6 +53,7 @@ export const blit = (
   dw: number,
   dh: number,
 ) => {
+  if (!sw || !sh || !dw || !dh) return // drawImage draws nothing there either
   const ratio = Math.max(Math.abs(sw / dw), Math.abs(sh / dh))
   const i = Math.max(0, Math.min(pic.levels.length - 1, Math.floor(Math.log2(Math.max(1, ratio)))))
   const level = pic.levels[i] as OffscreenCanvas

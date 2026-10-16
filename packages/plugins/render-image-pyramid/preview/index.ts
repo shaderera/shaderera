@@ -1,7 +1,8 @@
 // render-image-pyramid: a 4800² test card made in code (a zone plate under a grid with each
 // cell's coordinates), its pyramid built once, and a square window zooming from the whole card to
 // a 360 px crop and back over the loop, every frame drawn with blit. Beside it, the pyramid's
-// levels down to 150 px, each drawn with blit too, the one the window reads from outlined in red.
+// levels down to 150 px as boxes at 1/30 of their size, the card drawn into each with blit (so from
+// the level near the box's size), the level the window reads from outlined in red.
 
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
@@ -78,7 +79,7 @@ const renderImagePyramid: OpenPreview = async (host, stateId) => {
       house.index()
 
       blit(ctx, pic, s.x, s.y, s.crop, s.crop, VIEW.x, VIEW.y, VIEW.size, VIEW.size)
-      // The levels at one scale, so each is half the one above.
+      // The levels' sizes at one scale, so each box is half the one above.
       let y = LEVELS.y
       pic.levels.forEach((l, i) => {
         const size = l.width * LEVELS.scale

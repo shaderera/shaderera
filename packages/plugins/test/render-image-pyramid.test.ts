@@ -1,7 +1,10 @@
 // render-image-pyramid, headless: copied into a project the way `add` lays it out, pyramids built on
 // @napi-rs/canvas as the Node host builds them. Checked: the halves and where they stop; the level
-// a draw reads; and the same crop drawn twice, with other large pictures drawn in between at 'high'
-// smoothing, gives the same bytes.
+// a draw reads, by the larger of the two axes' ratios, at each axis's own scale; nothing drawn for a
+// zero size; and the same crop drawn twice, with other large pictures drawn in between at 'high'
+// smoothing, gives the same bytes. Skia's cache eviction does not show on @napi-rs/canvas (plain
+// 'high' smoothing passes that last test too), so it checks only that blit is stable; the level
+// tests are what fail without the pyramid.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -90,6 +93,35 @@ test('render-image-pyramid: a draw reads the level at most twice its size, at th
   assert.ok(
     draw((g) => blit(g, p, 50, 50, 300, 225, 0, 0, 400, 300)).equals(
       direct(0, 1, 50, 50, 300, 225),
+    ),
+  )
+  // Squeezed: 900 into 400 across but 2700 into 300 down, 9 times smaller, so the quarter, the last.
+  assert.ok(
+    draw((g) => blit(g, p, 0, 0, 900, 2700, 0, 0, 400, 300)).equals(
+      direct(2, 1 / 4, 0, 0, 900, 2700),
+    ),
+  )
+  // Nothing drawn, and no throw, when a side is 0.
+  const blank = draw(() => {})
+  assert.ok(draw((g) => blit(g, p, 0, 0, 0, 10, 0, 0, 0, 10)).equals(blank))
+  assert.ok(draw((g) => blit(g, p, 0, 0, 10, 0, 0, 0, 10, 0)).equals(blank))
+})
+
+test('render-image-pyramid: an odd-sized picture’s level is read at its own scale on each axis', () => {
+  const p = pyramid(io, noise(4001, 2999, 4))
+  const l = p.levels[1] as OffscreenCanvas // 2001 × 1500
+  const draw = (f: (g: Ctx) => void) => {
+    const c = io.canvas(400, 300)
+    f(c.getContext('2d') as Ctx)
+    return bytes(c)
+  }
+  const [kx, ky] = [l.width / 4001, l.height / 2999]
+  assert.ok(
+    draw((g) => blit(g, p, 1001, 1001, 1000, 1000, 0, 0, 400, 300)).equals(
+      draw((g) => {
+        g.imageSmoothingQuality = 'low'
+        g.drawImage(l, 1001 * kx, 1001 * ky, 1000 * kx, 1000 * ky, 0, 0, 400, 300)
+      }),
     ),
   )
 })

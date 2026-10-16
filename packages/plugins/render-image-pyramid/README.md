@@ -3,7 +3,7 @@ Any part of a large picture drawn at any size in Canvas2D, with the same pixels 
 ```ts
 import { blit, pyramid } from './render/pyramid.ts'
 
-// in open: the picture's halves, once (photo is a canvas, say a decoded 6000 × 4000 PNG)
+// in open: the picture's halves, once (photo is a canvas, say a 6000 × 4000 PNG)
 const pic = pyramid(host.io, photo)                  // { levels, width, height }
 
 // in render(t): drawImage's nine numbers, the source in the picture's own pixels
@@ -20,4 +20,5 @@ pixels that never change.
 
 The picture is level 0, kept and not copied; the halves cost a third more memory again. `blit`
 leaves the context's smoothing at `'low'`; transforms, alpha and composite apply as usual. It
-does not decode images (`io.image`, or `render-image-textures`) and does not blur.
+does not decode images and does not blur: an `io.image` result is put into an `io.canvas` of its
+size with `putImageData` (8 bits) before `pyramid`.
