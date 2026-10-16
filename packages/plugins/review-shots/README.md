@@ -65,7 +65,7 @@ pushes and footage, measured against its edit data) it does worse:
 | Measure | Measured |
 |---|---|
 | Cuts | precision 87 %, recall 74 %: 73 of 74 hard cuts, all on their frame; 3 of 29 dissolves |
-| False cuts | 12, most every 5 frames in fast footage converted to 25 fps |
+| False cuts | 12, half of them every 5 frames in fast footage converted to 25 fps |
 | Zoom rate | 9 of 15 shots within 0.2 % a second; eased pushes on art read 10–50 % low, a map zoom not at all |
 | Pan and tilt direction | 4 of 4 |
 
