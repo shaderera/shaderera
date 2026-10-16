@@ -137,3 +137,79 @@ test('asset-provenance: a record in another format is refused, by name', () => {
     /provenance\/assets\/old\.jpg\.json is shaderera\.provenance\/0, not shaderera\.provenance\/1/,
   )
 })
+
+test('asset-provenance: share-alike from the flag, and no credit line for an empty credit', () => {
+  put('assets/art/mural.jpg', 'mural')
+  put('assets/voice.wav', 'voice')
+  const args = (file: string, ...rest: string[]) =>
+    run('record', file, '--fetched', '2026-10-16', ...rest)
+  assert.equal(
+    args(
+      'assets/art/mural.jpg',
+      ...['--source', 'https://example.org/mural', '--licence', 'Attribution-ShareAlike 4.0'],
+      ...['--author', 'A painter', '--flag', 'share-alike'],
+    ).code,
+    0,
+  )
+  assert.equal(
+    args(
+      'assets/voice.wav',
+      ...['--source', 'supplied by the person', '--licence', "the person's"],
+      ...['--author', 'the person', '--credit', ''],
+    ).code,
+    0,
+  )
+  assert.equal(run('credits').code, 0)
+  const credits = read('out/credits.txt')
+  assert.match(
+    credits,
+    /Share-alike: adaptations in this video of works under Attribution-ShareAlike 4\.0 are shared/,
+  )
+  assert.doesNotMatch(credits, /the person/)
+  assert.match(
+    read('ASSETS.md'),
+    /\| assets\/voice\.wav \| the person \| supplied by the person \|/,
+  )
+  rmSync(join(project, 'provenance/assets/art/mural.jpg.json'))
+  rmSync(join(project, 'provenance/assets/voice.wav.json'))
+  rmSync(join(project, 'assets/art/mural.jpg'))
+  rmSync(join(project, 'assets/voice.wav'))
+})
+
+test('asset-provenance: a record that is not JSON is refused by name, exit 2', () => {
+  put('provenance/assets/broken.jpg.json', '{ "format": ')
+  const r = run('credits')
+  rmSync(join(project, 'provenance/assets/broken.jpg.json'))
+  assert.equal(r.code, 2)
+  assert.match(r.err, /provenance\/assets\/broken\.jpg\.json is not JSON/)
+  assert.doesNotMatch(r.err, /at /)
+})
+
+test('asset-provenance: flags show in the table, and one credit line per work', () => {
+  put('assets/footage/mill.mp4', 'mill')
+  put('assets/footage/oven.mp4', 'oven')
+  const film = ['--source', 'https://example.org/vom-korn-zum-brot', '--licence', 'CC BY 3.0']
+  const by = ['--author', 'LVR', '--title', 'Vom Korn zum Brot', '--fetched', '2026-10-16']
+  assert.equal(
+    run('record', 'assets/footage/mill.mp4', ...film, ...by, '--flag', 'licence-review-pending')
+      .code,
+    0,
+  )
+  assert.equal(run('record', 'assets/footage/oven.mp4', ...film, ...by).code, 0)
+  assert.equal(run('credits').code, 0)
+  assert.match(
+    read('ASSETS.md'),
+    /\| assets\/footage\/mill\.mp4 \| Vom Korn zum Brot, LVR \| <https:\/\/example\.org\/vom-korn-zum-brot> \| CC BY 3\.0 \(licence-review-pending\) \|/,
+  )
+  const lines = read('out/credits.txt').split('\n')
+  assert.equal(
+    lines.filter(
+      (l) => l === 'Vom Korn zum Brot, LVR · CC BY 3.0 · https://example.org/vom-korn-zum-brot',
+    ).length,
+    1,
+  )
+  for (const f of ['mill', 'oven']) {
+    rmSync(join(project, `provenance/assets/footage/${f}.mp4.json`))
+    rmSync(join(project, `assets/footage/${f}.mp4`))
+  }
+})

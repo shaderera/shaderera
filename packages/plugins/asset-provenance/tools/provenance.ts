@@ -9,7 +9,7 @@
 //
 // credits writes a table of every record into ASSETS.md, between its markers (added at the end the
 // first time; the rest of the file is left as written), and the credits for the video's
-// description, with a share-alike note when a licence asks for one.
+// description, with a share-alike note when a licence asks for one. A refusal exits 2.
 
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -30,21 +30,21 @@ export type Provenance = {
   title?: string
   /** Seconds of the source that the file holds, for a trimmed clip. */
   segment?: [number, number]
-  /** The line shown on screen. */
+  /** The line shown on screen; empty for a file that needs no credit (the person's own). */
   credit: string
   /** The day it was fetched, YYYY-MM-DD. */
   fetched: string
-  /** Facts a person should know: `ai-generated`, `overlay-cropped`, … */
+  /** Facts a person should know: `share-alike`, `ai-generated`, `overlay-cropped`, … */
   flags?: string[]
 }
 
+/** A refusal: the command line prints its message and exits 2. */
 const fail = (message: string): never => {
-  console.error(message)
-  process.exit(2)
+  throw new Error(message)
 }
 
 /** A path inside the project, with forward slashes; anything outside it is refused. */
-const inProject = (path: string) => {
+export const inProject = (path: string) => {
   const rel = relative(process.cwd(), resolve(path)).replaceAll('\\', '/')
   if (rel === '' || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
     fail(`${path} is outside this project: run from the project root, with the file inside it`)
@@ -55,6 +55,16 @@ export const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).
 
 /** Where a file's record lives. */
 export const recordPath = (file: string) => `provenance/${file}.json`
+
+export const byFile = (a: { file: string }, b: { file: string }) =>
+  a.file < b.file ? -1 : a.file > b.file ? 1 : 0
+const isPage = (source: string) => /^https?:\/\//.test(source)
+const workOf = (r: { title?: string | undefined; author: string }) =>
+  [r.title, r.author].filter(Boolean).join(', ')
+
+/** Share-alike by its flag, or by a licence that says so ("CC BY-SA 4.0", "…ShareAlike…"). */
+export const shareAlike = (r: Provenance) =>
+  r.flags?.includes('share-alike') === true || /\bSA\b|share-?alike/i.test(r.licence)
 
 const record = (args: string[]) => {
   const { values, positionals } = parseArgs({
@@ -87,17 +97,17 @@ const record = (args: string[]) => {
   }
   const fetched = values.fetched ?? new Date().toISOString().slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fetched)) fail(`--fetched ${fetched} is not YYYY-MM-DD`)
-  const work = [values.title, values.author].filter(Boolean).join(', ')
+  const author = values.author as string
   const rec: Provenance = {
     format: FORMAT,
     file,
     sha256: sha256(readFileSync(file)),
     source: values.source as string,
     licence: values.licence as string,
-    author: values.author as string,
+    author,
     ...(values.title ? { title: values.title } : {}),
     ...(segment ? { segment } : {}),
-    credit: values.credit ?? `${work} · ${values.licence}`,
+    credit: values.credit ?? `${workOf({ title: values.title, author })} · ${values.licence}`,
     fetched,
     ...(values.flag?.length ? { flags: values.flag } : {}),
   }
@@ -108,19 +118,24 @@ const record = (args: string[]) => {
   console.log(`${was ? 'updated' : 'recorded'} ${out}`)
 }
 
-/** Every record under provenance/, by file path. A record in another format is refused. */
+/** Every record under provenance/, by file path. One that is not a record of this format is refused. */
 export const readRecords = (root = 'provenance'): Provenance[] => {
   if (!existsSync(root)) return []
-  const records = readdirSync(root, { recursive: true, encoding: 'utf8' })
+  return readdirSync(root, { recursive: true, encoding: 'utf8' })
     .filter((f) => f.endsWith('.json'))
     .map((f) => {
       const path = `${root}/${f.replaceAll('\\', '/')}`
-      const rec = JSON.parse(readFileSync(path, 'utf8')) as Provenance
-      if (rec.format !== FORMAT)
-        fail(`${path} is ${rec.format ?? 'not a record'}, not ${FORMAT}: record its file again`)
-      return rec
+      let rec: Provenance | undefined
+      try {
+        rec = JSON.parse(readFileSync(path, 'utf8'))
+      } catch {
+        fail(`${path} is not JSON: fix it, or delete it and record its file again`)
+      }
+      if (rec?.format !== FORMAT)
+        fail(`${path} is ${rec?.format ?? 'not a record'}, not ${FORMAT}: record its file again`)
+      return rec as Provenance
     })
-  return records.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0))
+    .sort(byFile)
 }
 
 const BEGIN =
@@ -128,7 +143,6 @@ const BEGIN =
 const END = '<!-- /asset-provenance -->'
 
 const cell = (text: string) => text.replaceAll('|', '\\|').replaceAll('\n', ' ')
-const link = (source: string) => (/^https?:\/\//.test(source) ? `<${source}>` : cell(source))
 const seconds = (s: number) => String(Math.round(s * 100) / 100)
 
 /** The table ASSETS.md carries between its markers. */
@@ -138,9 +152,10 @@ export const assetsBlock = (records: Provenance[]) =>
     '| File | Work | Source | Licence | sha256 |',
     '|---|---|---|---|---|',
     ...records.map((r) => {
-      const work = [r.title, r.author].filter(Boolean).join(', ')
       const seg = r.segment ? ` (source ${seconds(r.segment[0])}–${seconds(r.segment[1])} s)` : ''
-      return `| ${cell(r.file)} | ${cell(work + seg)} | ${link(r.source)} | ${cell(r.licence)} | ${r.sha256} |`
+      const source = isPage(r.source) ? `<${r.source}>` : cell(r.source)
+      const licence = r.flags?.length ? `${r.licence} (${r.flags.join(', ')})` : r.licence
+      return `| ${cell(r.file)} | ${cell(workOf(r) + seg)} | ${source} | ${cell(licence)} | ${r.sha256} |`
     }),
     END,
   ].join('\n')
@@ -164,18 +179,23 @@ export const deed = (licence: string) => {
     : undefined
 }
 
-/** The description's credits: one line a file, then a note for each share-alike licence. */
+/**
+ * The description's credits: one line a work (files cut from the same work share it; none for an
+ * empty credit), then a note for each share-alike licence.
+ */
 export const descriptionCredits = (records: Provenance[]) => {
-  const lines = records.map((r) =>
-    /^https?:\/\//.test(r.source) ? `${r.credit} · ${r.source}` : r.credit,
-  )
-  const shareAlike = [...new Set(records.map((r) => r.licence).filter((l) => /\bSA\b/.test(l)))]
-    .sort()
-    .map((l) => {
-      const url = deed(l)
-      return `Share-alike: adaptations in this video of works under ${l}${url ? ` (${url})` : ''} are shared under the same licence.`
-    })
-  return `${[...lines, ...(shareAlike.length ? ['', ...shareAlike] : [])].join('\n')}\n`
+  const lines = [
+    ...new Set(
+      records
+        .filter((r) => r.credit !== '')
+        .map((r) => (isPage(r.source) ? `${r.credit} · ${r.source}` : r.credit)),
+    ),
+  ]
+  const notes = [...new Set(records.filter(shareAlike).map((r) => r.licence))].sort().map((l) => {
+    const url = deed(l)
+    return `Share-alike: adaptations in this video of works under ${l}${url ? ` (${url})` : ''} are shared under the same licence.`
+  })
+  return `${[...lines, ...(notes.length ? ['', ...notes] : [])].join('\n')}\n`
 }
 
 const credits = (args: string[]) => {
@@ -197,7 +217,12 @@ const credits = (args: string[]) => {
 
 if (import.meta.main) {
   const [command, ...rest] = process.argv.slice(2)
-  if (command === 'record') record(rest)
-  else if (command === 'credits') credits(rest)
-  else fail('Usage: node tools/provenance.ts record <file> … | credits')
+  try {
+    if (command === 'record') record(rest)
+    else if (command === 'credits') credits(rest)
+    else fail('Usage: node tools/provenance.ts record <file> … | credits')
+  } catch (e) {
+    console.error(e instanceof Error ? e.message : String(e))
+    process.exitCode = 2
+  }
 }
