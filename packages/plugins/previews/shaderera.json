@@ -14,6 +14,7 @@
         "enum": [
           "audio-beat-clock",
           "audio-hall-ending",
+          "camera-ken-burns",
           "camera-keyframes",
           "camera-shake",
           "font-ibm-plex-mono",
@@ -81,6 +82,13 @@
       "label": "audio-hall-ending",
       "params": {
         "item": "audio-hall-ending",
+        "state": "default"
+      }
+    },
+    "camera-ken-burns": {
+      "label": "camera-ken-burns",
+      "params": {
+        "item": "camera-ken-burns",
         "state": "default"
       }
     },
