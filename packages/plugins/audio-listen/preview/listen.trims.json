@@ -12,8 +12,13 @@
     "model": {
       "id": "Xenova/larger_clap_general",
       "revision": "d78c3994912c441f0151a5cc44d86f6b7bf4c861",
+      "dtype": "fp32",
       "from": "laion/larger_clap_general",
-      "licence": "Apache-2.0"
+      "licence": "Apache-2.0",
+      "weights": {
+        "onnx/text_model.onnx": "386413c758300d8f2be107b9fefbc049945b1b1b302938b01039af0ad4984595",
+        "onnx/audio_model.onnx": "6192254e7f5c9a921dfd095105216c31ef70f508f910f3b926b7fc373b41f770"
+      }
     },
     "transformers": "4.3.1",
     "ffmpeg": "ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers"
@@ -23,7 +28,55 @@
     "top": 7,
     "kind": "event",
     "win": 2,
-    "not": []
+    "not": [],
+    "most": 150,
+    "background": [
+      "a mechanical keyboard key press",
+      "typing on a keyboard",
+      "a mouse click",
+      "a door knock",
+      "a door slam",
+      "footsteps",
+      "a glass clink",
+      "glass breaking",
+      "a metal clang",
+      "a wooden knock",
+      "a hand clap",
+      "a finger snap",
+      "a whoosh",
+      "wind",
+      "rain",
+      "water pouring",
+      "a splash",
+      "a car engine",
+      "a car horn",
+      "a siren",
+      "a dog barking",
+      "a bird chirping",
+      "a cat meowing",
+      "a person speaking",
+      "a crowd cheering",
+      "laughter",
+      "a cough",
+      "music",
+      "a piano note",
+      "a guitar strum",
+      "a drum hit",
+      "a deep bass drop",
+      "an electronic beep",
+      "a notification chime",
+      "a bell ringing",
+      "a camera shutter",
+      "paper rustling",
+      "a zipper",
+      "a pop",
+      "a cork popping",
+      "an explosion",
+      "a gunshot",
+      "static noise",
+      "a phone vibrating",
+      "silence"
+    ]
   },
   "trims": [
     {

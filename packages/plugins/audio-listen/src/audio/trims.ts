@@ -23,7 +23,7 @@ export type Trim = {
   /** The description that fits the take best: the query itself when `rank` is 1. */
   heardAs: string
   /** `stroke` (from an onset until it has decayed) or `window` (a plain stretch, to crossfade). */
-  kind: string
+  kind: 'stroke' | 'window'
 }
 
 /** What the trims file holds. */

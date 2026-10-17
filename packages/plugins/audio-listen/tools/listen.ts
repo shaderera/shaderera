@@ -21,13 +21,16 @@
 
 import type { Trim } from '../src/audio/trims.ts'
 
-/** The model, pinned to one revision so every run reads the same weights. */
-export const MODEL = {
+/** The model, pinned to one revision and precision so every run reads the same weights. */
+const MODEL = {
   id: 'Xenova/larger_clap_general',
   revision: 'd78c3994912c441f0151a5cc44d86f6b7bf4c861',
+  dtype: 'fp32',
   from: 'laion/larger_clap_general',
   licence: 'Apache-2.0',
 }
+/** The weights loaded, as they lie in the cache: each is stamped with its sha256. */
+const WEIGHTS = ['onnx/text_model.onnx', 'onnx/audio_model.onnx']
 const TRANSFORMERS = '@huggingface/transformers'
 const RATE = 48000
 /** The level envelope's frame and hop, in seconds. */
@@ -94,7 +97,7 @@ export type Embedder = {
 }
 
 /** The level of each 5 ms frame, in dB below full scale. */
-export const envelope = (mono: Float32Array, rate: number) => {
+const envelope = (mono: Float32Array, rate: number) => {
   const n = Math.max(1, Math.round(FRAME * rate))
   return Float32Array.from({ length: Math.ceil(mono.length / n) }, (_, f) => {
     let sum = 0
@@ -137,6 +140,8 @@ export const strokesOf = (mono: Float32Array, rate: number) => {
     if (level <= loudest - 15) fell = true
   }
   const cap = Math.round(2 / FRAME)
+  // A stroke ends before the next one starts, so takes that follow close on can both be picked.
+  const starts = onsets.map((f) => Math.max(0, f * FRAME - 0.005))
   return onsets.map((f, i) => {
     const stop = Math.min(onsets[i + 1] ?? env.length, f + cap, env.length)
     let peak = f
@@ -144,8 +149,12 @@ export const strokesOf = (mono: Float32Array, rate: number) => {
     let end = peak
     while (end < stop - 1 && (env[end] ?? -120) > (env[peak] ?? -120) - 35) end++
     return {
-      start: Math.max(0, f * FRAME - 0.005),
-      end: Math.min(mono.length / rate, (end + 1) * FRAME),
+      start: starts[i] ?? 0,
+      end: Math.min(
+        mono.length / rate,
+        (end + 1) * FRAME,
+        starts[i + 1] ?? Number.POSITIVE_INFINITY,
+      ),
       level: env[peak] ?? -120,
     }
   })
@@ -155,9 +164,12 @@ export const strokesOf = (mono: Float32Array, rate: number) => {
 export const windowsOf = (seconds: number, win: number) => {
   const w = Math.min(win, seconds)
   const out: { start: number; end: number; level: number }[] = []
+  if (!(w > 0)) return out
   for (let s = 0; s + w <= seconds + 1e-9; s += w / 2) out.push({ start: s, end: s + w, level: 0 })
   return out
 }
+
+const r3 = (x: number) => Math.round(x * 1e3) / 1e3
 
 /** The centre of the loudest 5 ms of `mono` between `start` and `end` seconds, to the millisecond. */
 export const peakOf = (mono: Float32Array, rate: number, start: number, end: number) => {
@@ -165,7 +177,7 @@ export const peakOf = (mono: Float32Array, rate: number, start: number, end: num
   const b = Math.min(mono.length, Math.round(end * rate))
   const w = Math.max(1, Math.round(FRAME * rate))
   const hop = Math.max(1, Math.round(0.001 * rate))
-  if (b - a <= w) return Math.round(((a + b) / 2 / rate) * 1e3) / 1e3
+  if (b - a <= w) return r3((a + b) / 2 / rate)
   // Running sums of squares, so each window is two lookups.
   const sums = new Float64Array(b - a + 1)
   for (let i = a; i < b; i++) sums[i - a + 1] = (sums[i - a] ?? 0) + (mono[i] ?? 0) ** 2
@@ -178,12 +190,15 @@ export const peakOf = (mono: Float32Array, rate: number, start: number, end: num
       best = i
     }
   }
-  return Math.round(((best + w / 2) / rate) * 1e3) / 1e3
+  return r3((best + w / 2) / rate)
 }
 
-const r3 = (x: number) => Math.round(x * 1e3) / 1e3
-
-export type Listen = { top: number; kind: 'event' | 'texture'; win: number; not: readonly string[] }
+export type ListenOptions = {
+  top: number
+  kind: 'event' | 'texture'
+  win: number
+  not: readonly string[]
+}
 
 /**
  * The best takes of `mono` for `query`, best first, none overlapping. A take's `cosine` is CLAP's
@@ -194,24 +209,21 @@ export const listen = async (
   mono: Float32Array,
   rate: number,
   query: string,
-  o: Listen,
+  o: ListenOptions,
   embed: Embedder,
   progress: (done: number, of: number) => void = () => {},
 ): Promise<{ trims: Trim[]; candidates: number; scored: number }> => {
   const seconds = mono.length / rate
+  const samples = (c: { start: number; end: number }) =>
+    mono.subarray(Math.round(c.start * rate), Math.round(c.end * rate))
+  const found = o.kind === 'event' ? strokesOf(mono, rate) : windowsOf(seconds, o.win)
   // A near-silent stretch (under -60 dBFS) is never an answer.
-  const sounds = (c: { start: number; end: number }) =>
-    mono
-      .subarray(Math.round(c.start * rate), Math.round(c.end * rate))
-      .some((x) => Math.abs(x) >= 1e-3)
-  const all = (o.kind === 'event' ? strokesOf(mono, rate) : windowsOf(seconds, o.win)).filter(
-    sounds,
-  )
+  const all = found.filter((c) => samples(c).some((x) => Math.abs(x) >= 1e-3))
   if (all.length === 0)
     throw new Error(
-      o.kind === 'event'
-        ? 'no onsets: for a bed or an ambience use --kind texture'
-        : 'shorter than one window',
+      found.length > 0 || o.kind === 'texture'
+        ? 'nothing in it is louder than -60 dBFS'
+        : 'no onsets: for a bed or an ambience use --kind texture',
     )
   const scored = [...all].sort((a, b) => b.level - a.level).slice(0, MOST)
   const texts = [query, ...new Set([...o.not, ...BACKGROUND].filter((t) => t !== query))]
@@ -220,7 +232,7 @@ export const listen = async (
     a.reduce((s, x, i) => s + x * (b[i] ?? 0), 0)
   const takes = []
   for (const [i, c] of scored.entries()) {
-    const a = await embed.audio(mono.subarray(Math.round(c.start * rate), Math.round(c.end * rate)))
+    const a = await embed.audio(samples(c))
     const cos = vectors.map((t) => dot(t, a))
     const own = cos[0] ?? 0
     const rest = cos.slice(1)
@@ -277,28 +289,39 @@ type Transformers = {
 }
 
 /** CLAP on the CPU, from ~/.shaderera/models. */
-const clap = async (): Promise<Embedder & { version: string }> => {
+const clap = async (): Promise<Embedder & { version: string; weights: Record<string, string> }> => {
   const { homedir } = await import('node:os')
   const { join } = await import('node:path')
+  const { createReadStream, existsSync } = await import('node:fs')
+  const { createHash } = await import('node:crypto')
   const t = (await import(TRANSFORMERS)) as Transformers
   t.env.cacheDir = join(homedir(), '.shaderera', 'models')
-  const at = { revision: MODEL.revision }
-  const tokenizer = await t.AutoTokenizer.from_pretrained(MODEL.id, at)
-  const processor = await t.AutoProcessor.from_pretrained(MODEL.id, at)
+  const pinned = { revision: MODEL.revision }
+  const tokenizer = await t.AutoTokenizer.from_pretrained(MODEL.id, pinned)
+  const processor = await t.AutoProcessor.from_pretrained(MODEL.id, pinned)
   const textModel = await t.ClapTextModelWithProjection.from_pretrained(MODEL.id, {
-    ...at,
-    dtype: 'fp32',
+    ...pinned,
+    dtype: MODEL.dtype,
   })
   const audioModel = await t.ClapAudioModelWithProjection.from_pretrained(MODEL.id, {
-    ...at,
-    dtype: 'fp32',
+    ...pinned,
+    dtype: MODEL.dtype,
   })
+  const weights: Record<string, string> = {}
+  for (const file of WEIGHTS) {
+    const path = join(t.env.cacheDir, MODEL.id, MODEL.revision, file)
+    if (!existsSync(path)) throw new Error(`the weights are not at ${path} to stamp`)
+    const hash = createHash('sha256')
+    for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer)
+    weights[file] = hash.digest('hex')
+  }
   const unit = (v: Float32Array) => {
     const n = Math.hypot(...v) || 1
     return Array.from(v, (x) => x / n)
   }
   return {
     version: t.env.version,
+    weights,
     async text(texts) {
       const { text_embeds: e } = await textModel(
         await tokenizer(texts, { padding: true, truncation: true }),
@@ -345,9 +368,9 @@ if (import.meta.main) {
   }
   const path = inProject(audio as string)
   const out = inProject(values.out ?? path.replace(/(\.[^./]*)?$/, '.trims.json'))
-  const o: Listen = {
+  const o: ListenOptions = {
     top: Number(values.top),
-    kind: values.kind as Listen['kind'],
+    kind: values.kind as ListenOptions['kind'],
     win: Number(values.win),
     not: values.not as string[],
   }
@@ -357,11 +380,17 @@ if (import.meta.main) {
     fail(`--kind ${values.kind} must be event or texture`)
   if (!(o.win > 0)) fail(`--win ${values.win} must be seconds over 0`)
 
-  const raw = execFileSync(
-    'ffmpeg',
-    ['-v', 'error', '-i', path, '-f', 'f32le', '-ar', String(RATE), '-ac', '1', 'pipe:1'],
-    { maxBuffer: Number.POSITIVE_INFINITY },
-  )
+  let raw = Buffer.alloc(0)
+  try {
+    raw = execFileSync(
+      'ffmpeg',
+      ['-v', 'error', '-i', path, '-f', 'f32le', '-ar', String(RATE), '-ac', '1', 'pipe:1'],
+      { maxBuffer: Number.POSITIVE_INFINITY, stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+  } catch (e) {
+    const said = String((e as { stderr?: Buffer }).stderr ?? (e as Error).message).trim()
+    fail(`${path}: ffmpeg could not decode it (${said.split('\n').pop()})`)
+  }
   const mono = new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength))
   console.error(`loading ${MODEL.from} (about 780 MB the first time, into ~/.shaderera/models)`)
   const model = await clap().catch((e: Error) =>
@@ -389,11 +418,11 @@ if (import.meta.main) {
     },
     tool: {
       script: 'tools/listen.ts',
-      model: MODEL,
+      model: { ...MODEL, weights: model.weights },
       transformers: model.version,
       ffmpeg: execFileSync('ffmpeg', ['-version']).toString().split('\n')[0]?.trim(),
     },
-    params: { query, ...o },
+    params: { query, ...o, most: MOST, background: BACKGROUND },
     trims: heard.trims,
   }
   mkdirSync(dirname(out), { recursive: true })

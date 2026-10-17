@@ -83,6 +83,25 @@ test("audio-listen: a stroke per onset, and a take's peak is the centre of its l
     windowsOf(3, 1).map((w) => w.start),
     [0, 0.5, 1, 1.5, 2],
   )
+  assert.deepEqual(windowsOf(0, 1), [], 'nothing to cut, and no endless loop')
+})
+
+test('audio-listen: two hits 80 ms apart, the first still ringing, are both takes', async () => {
+  // Each hit falls fast, then rings on 24 dB down: it has not decayed 35 dB when the next comes.
+  const hit = (t: number) =>
+    t < 0
+      ? 0
+      : (0.94 * Math.exp(-t / 0.02) + 0.06 * Math.exp(-t / 0.5)) * Math.sin(2 * Math.PI * 900 * t)
+  const pcm = Float32Array.from(
+    { length: RATE },
+    (_, i) => 0.4 * (hit(i / RATE - 0.2) + hit(i / RATE - 0.28)),
+  )
+  const strokes = strokesOf(pcm, RATE)
+  assert.equal(strokes.length, 2)
+  const [a, b] = strokes as [(typeof strokes)[number], (typeof strokes)[number]]
+  assert.ok(a.end <= b.start, `the first ends ${a.end}, before the second starts ${b.start}`)
+  const heard = await listen(pcm, RATE, 'x', { top: 2, kind: 'event', win: 1, not: [] }, fake('x'))
+  assert.equal(heard.trims.length, 2, 'the picker can take both')
 })
 
 /** A stand-in for CLAP: one axis per description; a 300 Hz take sounds like the query, a 900 Hz one like a mouse click. */
@@ -147,6 +166,16 @@ test('audio-listen: takes come best first, each ranked against the other descrip
       fake('x'),
     ),
     /no onsets: for a bed or an ambience use --kind texture/,
+  )
+  await assert.rejects(
+    listen(
+      new Float32Array(RATE),
+      RATE,
+      'x',
+      { top: 1, kind: 'texture', win: 1, not: [] },
+      fake('x'),
+    ),
+    /nothing in it is louder than -60 dBFS/,
   )
 })
 

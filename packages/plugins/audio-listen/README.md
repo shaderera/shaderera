@@ -11,6 +11,7 @@ import { clipAt, loadTrims } from './audio/trims.ts'
 // in open
 const keys = await loadTrims(host, 'audio/keys.trims.json')  // refuses trims of other bytes
 const takes = keys.trims.filter((k) => k.rank === 1)
+if (takes.length === 0) throw new Error('no take sounds most like a key press: try another recording')
 
 // in audio(): a take per key press, its peak on the press
 return presses.map((t, i) => ({ ...clipAt(keys, takes[i % takes.length], t), group: 'fx' }))
