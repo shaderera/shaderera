@@ -322,6 +322,11 @@ npx shaderera assemble --plan out/spot-v2.plan    # one encode, as usual
   full render of the new job gives.
 - The samples are a check, not a proof: a change between two samples outside every changed span
   is missed. Give `--changed` from the edit (the diff, the cue that moved), not from a guess.
+- Measured on 2026-10-17, on 300 s (7,500 frames at 1080p25) of a finished film with a grade
+  change from 330 to 331 s: a full render on one host took 691 s; `render --reuse` (25 frames
+  rendered, 34 sampled) took 167 s and `assemble` 171 s, 338 s in all, and the file was the same,
+  byte for byte. Each command spent about 100 s opening that film's job, so the saving grows with
+  the frames there are to render, and is small for a short window.
 
 ## Handoff
 

@@ -274,10 +274,10 @@ and compares them with the earlier ones, and refuses a frame that differs, namin
 [delivery.md](delivery.md#re-rendering-only-what-an-edit-changed).
 
 ```
-$ shaderera render --job spot-v2 --reuse out/spot.plan --changed 61.5-63
-chunk 1: 38 frames from 61.48 s in 9.6 s
-/path/to/project/out/spot-v2.plan/plan.json: 38 frames rendered, 6637 reused from /path/to/project/out/spot.plan; 31 reused frames rendered again matched
-then: npx shaderera assemble --plan /path/to/project/out/spot-v2.plan
+$ shaderera render --job b5 --reuse out/a5.plan --changed 330-331
+chunk 1: 25 frames from 330 s in 3.2 s
+/path/to/project/out/b5.plan/plan.json: 25 frames rendered, 7475 reused from /path/to/project/out/a5.plan; 34 reused frames rendered again matched
+then: npx shaderera assemble --plan /path/to/project/out/b5.plan
 ```
 
 ## `handoff`
