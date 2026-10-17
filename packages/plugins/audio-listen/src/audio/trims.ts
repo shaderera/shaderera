@@ -12,8 +12,10 @@ export type Trim = {
   /** Where the clip starts and stops reading, in seconds of the recording. */
   start: number
   end: number
-  /** The loudest moment, in seconds of the recording: the centre of the loudest 5 ms. */
+  /** The loudest moment, in seconds of the recording: the centre of the loudest 5 to 50 ms. */
   peak: number
+  /** How loud that moment is, RMS in dBFS: to match takes that alternate. */
+  level: number
   /** CLAP's similarity of the take to the description, -1 to 1: compare takes of one search. */
   cosine: number
   /** 1 when no other description fits the take better; 3 when two do. */
@@ -62,11 +64,17 @@ export const loadTrims = async (host: Host, path: string): Promise<Trims> => {
 /**
  * The clip that plays `trim` with its peak on `hitPoint`, a time of the film in seconds: it starts
  * earlier by the peak's lead. When that would be before the film starts, the take loses its head
- * instead, and the peak still lands.
+ * instead, and the peak still lands. Its gain fades out over the take's last `fade` seconds (and
+ * in over 5 ms where the head is cut), so a tail cut off while it still rings does not click; a
+ * film that wants its own envelope multiplies or replaces it.
  */
-export const clipAt = (trims: Trims, trim: Trim, hitPoint: number) => {
-  const at = hitPoint - (trim.peak - trim.start)
-  return at >= 0
-    ? { src: trims.source.path, from: trim.start, to: trim.end, at }
-    : { src: trims.source.path, from: trim.start - at, to: trim.end, at: 0 }
+export const clipAt = (trims: Trims, trim: Trim, hitPoint: number, { fade = 0.02 } = {}) => {
+  const lead = trim.peak - trim.start
+  const at = Math.max(0, hitPoint - lead)
+  const from = trim.start + (at - (hitPoint - lead))
+  const end = at + (trim.end - from)
+  const cut = from > trim.start
+  const gain = (t: number) =>
+    Math.max(0, Math.min(1, (end - t) / Math.max(fade, 1e-6), cut ? (t - at) / 0.005 : 1))
+  return { src: trims.source.path, from, to: trim.end, at, gain }
 }

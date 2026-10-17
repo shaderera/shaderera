@@ -1,9 +1,9 @@
 // audio-listen: a 6 s sheet of seven takes made in code (preview/make.ts), heard by CLAP for "a
 // whoosh" with the item's tools/listen.ts. Above, the recording: each take boxed with its rank,
-// white where the description fits it best, its peak a red tick. Below, the film: four hit points,
-// and on each the next whoosh of rank 1, placed by clipAt so its peak lands on the hit, its lead
-// bracketed. The film's clips play; a line joins the playhead to the moment of the recording it
-// plays.
+// the best three by cosine in white, each peak a red tick. Below, the film: five hit points, and on
+// each the next of those three takes, placed by clipAt so its peak lands on the hit, its lead
+// bracketed, the takes matched in level. Each hit flashes on its frame. The film's clips play; a
+// line joins the playhead to the moment of the recording it plays.
 
 import { readWav } from '../../audio-hall-ending/preview/signal.ts'
 import { clipAt, loadTrims } from '../../previews/src/audio/trims.ts'
@@ -14,8 +14,12 @@ import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 const RECORDING = 330
 const FILM = 610
 const HALF = 70
-/** The film's hit points, in seconds. */
-const HITS = [1.2, 2.6, 4.0, 5.2]
+/** The film's hit points, in seconds: spread over the loop, so it never sits in silence long. */
+const HITS = [0.6, 1.9, 3.2, 4.5, 5.4]
+/** The mix up 5 dB, to sit near the other sound previews (about -15 LUFS). */
+const MIX = 10 ** (5 / 20)
+/** How long a hit's flash lasts, in seconds. */
+const FLASH = 0.12
 
 const audioListen: OpenPreview = async (host, stateId) => {
   if (stateId !== 'default') throw new Error(`audio-listen has no state "${stateId}"`)
@@ -25,11 +29,14 @@ const audioListen: OpenPreview = async (host, stateId) => {
   const house = createHouse(host, ctx)
   const trims = await loadTrims(host, 'audio/listen.trims.json')
   const recording = await readWav(host, trims.source.path)
-  const takes = trims.trims.filter((k) => k.rank === 1)
+  const takes = trims.trims.slice(0, 3)
+  const quietest = Math.min(...takes.map((k) => k.level))
   const clips = HITS.map((hit, i) => {
     const take = takes[i % takes.length] as (typeof takes)[number]
-    return { hit, take, ...clipAt(trims, take, hit) }
+    const match = MIX * 10 ** ((quietest - take.level) / 20)
+    return { hit, take, match, ...clipAt(trims, take, hit) }
   })
+  const used = new Set(takes.map((k) => k.id))
   const mono = `"${FONT.mono}"`
 
   const scale = (R - L) / recording.length
@@ -78,18 +85,23 @@ const audioListen: OpenPreview = async (host, stateId) => {
       house.index()
       const now = playing(t)
 
-      // The recording: every take boxed, the ones the description fits best in white.
+      // The recording: every take boxed, the three the film plays in white.
       label('RECORDING · 7 TAKES HEARD BY CLAP', L, RECORDING - HALF - 44)
       wave(RECORDING, 0, recording.length, 0, '#555')
       for (const k of trims.trims) {
-        const best = k.rank === 1
+        const best = used.has(k.id)
         ctx.strokeStyle = best ? '#fff' : '#3a3a3a'
         ctx.lineWidth = best && now?.take.id === k.id ? 3 : 1
         ctx.strokeRect(x(k.start), RECORDING - HALF - 8, x(k.end) - x(k.start), 2 * HALF + 16)
         if (best) wave(RECORDING, k.start, k.end, k.start, '#fff')
         ctx.fillStyle = RED
         ctx.fillRect(x(k.peak) - 1, RECORDING + HALF + 8, 2, 12)
-        label(`RANK ${k.rank}`, x(k.start) + 2, RECORDING - HALF - 16, best ? '#fff' : '#6a6a6a')
+        label(
+          best && k.rank > 1 ? `RANK ${k.rank} · ${k.heardAs.toUpperCase()}` : `RANK ${k.rank}`,
+          x(k.start) + 2,
+          RECORDING - HALF - 16,
+          best ? '#fff' : '#6a6a6a',
+        )
       }
 
       // The film: the hit points, and on each a take placed so its peak lands there.
@@ -99,6 +111,12 @@ const audioListen: OpenPreview = async (host, stateId) => {
       for (const c of clips) {
         const end = c.at + (c.to - c.from)
         wave(FILM, c.from, c.to, c.at, t >= c.at ? '#fff' : '#6a6a6a')
+        // The hit: a red line, and on its frame a flash that fades.
+        const since = t - c.hit
+        if (since >= 0 && since < FLASH) {
+          ctx.fillStyle = `rgba(255,59,31,${0.55 * (1 - since / FLASH)})`
+          ctx.fillRect(x(c.hit) - 14, FILM - HALF - 14, 28, 2 * HALF + 28)
+        }
         ctx.fillStyle = RED
         ctx.fillRect(x(c.hit) - 1, FILM - HALF - 14, 2, 2 * HALF + 28)
         // The lead: from where the clip starts to its hit.
@@ -128,7 +146,7 @@ const audioListen: OpenPreview = async (host, stateId) => {
         t,
         o.frame,
         now ? `${now.take.id.toUpperCase()} → HIT ${now.hit.toFixed(1)} S` : 'BETWEEN HITS',
-        'LAION CLAP · RANK 1 TAKES',
+        'LAION CLAP · BEST 3 TAKES, LEVEL MATCHED',
       )
       return [{ color: canvas }]
     },
@@ -141,7 +159,14 @@ const audioListen: OpenPreview = async (host, stateId) => {
       return { id: 'film', t, take: now?.take.id ?? null, hit: now?.hit ?? null }
     },
     async audio() {
-      return clips.map(({ src, from, to, at }) => ({ src, from, to, at, group: 'fx' }))
+      return clips.map(({ src, from, to, at, gain, match }) => ({
+        src,
+        from,
+        to,
+        at,
+        gain: (s: number) => match * gain(s),
+        group: 'fx',
+      }))
     },
   }
 }

@@ -23,7 +23,7 @@ const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { clipAt, loadTrims } = (await from(
   'src/audio/trims.ts',
 )) as typeof import('../audio-listen/src/audio/trims.ts')
-const { BACKGROUND, listen, peakOf, strokesOf, windowsOf } = (await from(
+const { BACKGROUND, listen, loudestOf, strokesOf, windowsOf } = (await from(
   'tools/listen.ts',
 )) as typeof import('../audio-listen/tools/listen.ts')
 
@@ -47,7 +47,7 @@ const recording = () => {
 }
 const near = (a: number, b: number, within: number) => Math.abs(a - b) <= within
 
-test("audio-listen: a stroke per onset, and a take's peak is the centre of its loudest 5 ms", () => {
+test("audio-listen: a stroke per onset, and a take's peak is the centre of its loudest moment", () => {
   const pcm = recording()
   const strokes = strokesOf(pcm, RATE)
   assert.equal(strokes.length, 3)
@@ -55,10 +55,23 @@ test("audio-listen: a stroke per onset, and a take's peak is the centre of its l
     const k = strokes[i] as (typeof strokes)[number]
     assert.ok(near(k.start, s.at - 0.005, 0.006), `stroke ${i} starts ${k.start}`)
     assert.ok(k.end > s.at + s.rise && k.end <= s.at + s.rise + 0.3, `stroke ${i} ends ${k.end}`)
-    const peak = peakOf(pcm, RATE, k.start, k.end)
-    assert.ok(near(peak, s.at + s.rise, 0.004), `${peak} vs ${s.at + s.rise}`)
+    const { peak, level } = loudestOf(pcm, RATE, k.start, k.end)
+    // A slow swell's smoothed peak sits a few ms before its sharpest sample.
+    assert.ok(near(peak, s.at + s.rise, 0.012), `${peak} vs ${s.at + s.rise}`)
+    // A sine at 0.6 is about -7.4 dBFS RMS at its loudest; the window averages a little of the slope.
+    assert.ok(level < -7 && level > -10, `stroke ${i} level ${level}`)
   }
-  assert.equal(peakOf(pcm, RATE, 1, 1.002), 1.001, 'shorter than the window: its middle')
+  assert.equal(loudestOf(pcm, RATE, 1, 1.002).peak, 1.001, 'shorter than the window: its middle')
+  // On a noisy swell the window widens, so one grain of noise does not move the peak.
+  let grain = 9
+  const whoosh = Float32Array.from({ length: RATE }, (_, i) => {
+    grain = (grain * 16807) % 2147483647
+    const t = i / RATE
+    const env = t < 0.4 ? t / 0.4 : Math.max(0, 1 - (t - 0.4) / 0.4)
+    return 0.5 * env * ((grain / 2147483647) * 2 - 1)
+  })
+  const swellPeak = loudestOf(whoosh, RATE, 0, 0.8).peak
+  assert.ok(near(swellPeak, 0.4, 0.015), `the swell's peak ${swellPeak}`)
   // A noise that fades in over 20 ms is one stroke, not two.
   let seed = 3
   const noise = Float32Array.from({ length: RATE }, (_, i) => {
@@ -143,7 +156,7 @@ test('audio-listen: takes come best first, each ranked against the other descrip
     ],
   )
   const [best] = heard.trims
-  assert.ok(best && near(best.peak, 2.3, 0.004), `the low stroke's peak: ${best?.peak}`)
+  assert.ok(best && near(best.peak, 2.3, 0.012), `the low stroke's peak: ${best?.peak}`)
   assert.ok((best?.z ?? 0) > 0, `the query stands out: z ${best?.z}`)
   assert.ok(BACKGROUND.includes('a mouse click'))
   // Windows overlap; the picked ones never do. A silent recording has nothing to hear.
@@ -182,11 +195,19 @@ test('audio-listen: takes come best first, each ranked against the other descrip
 test('audio-listen: clipAt lands the peak on the hit point, and cuts the head before the film starts', () => {
   const trims = { source: { path: 'audio/whoosh.wav' } } as Parameters<typeof clipAt>[0]
   const whoosh = { start: 1, end: 2, peak: 1.3 } as Parameters<typeof clipAt>[1]
-  assert.deepEqual(clipAt(trims, whoosh, 5), { src: 'audio/whoosh.wav', from: 1, to: 2, at: 4.7 })
+  const { gain, ...clip } = clipAt(trims, whoosh, 5)
+  assert.deepEqual(clip, { src: 'audio/whoosh.wav', from: 1, to: 2, at: 4.7 })
+  // Full through the take, then down to nothing over its last 20 ms.
+  assert.equal(gain(4.7), 1)
+  assert.equal(gain(5.6), 1)
+  assert.ok(near(gain(5.69), 0.5, 1e-9), `half way down the fade: ${gain(5.69)}`)
+  assert.equal(gain(5.7), 0)
   const early = clipAt(trims, whoosh, 0.1)
   assert.equal(early.at, 0)
   assert.ok(near(early.from, 1.2, 1e-9), `the head goes: from ${early.from}`)
   assert.ok(near(early.at + (whoosh.peak - early.from), 0.1, 1e-9), 'the peak still lands')
+  assert.ok(near(early.gain(0.0025), 0.5, 1e-9), 'a cut head fades in over 5 ms')
+  assert.ok(near(clipAt(trims, whoosh, 5, { fade: 0.1 }).gain(5.65), 0.5, 1e-9), 'a longer fade')
 })
 
 test('audio-listen: trims are refused once the recording changes, or when the file is not trims', async () => {

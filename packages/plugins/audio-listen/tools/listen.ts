@@ -171,16 +171,24 @@ export const windowsOf = (seconds: number, win: number) => {
 
 const r3 = (x: number) => Math.round(x * 1e3) / 1e3
 
-/** The centre of the loudest 5 ms of `mono` between `start` and `end` seconds, to the millisecond. */
-export const peakOf = (mono: Float32Array, rate: number, start: number, end: number) => {
+/**
+ * The loudest moment of `mono` between `start` and `end` seconds: `peak`, the centre of the
+ * loudest window, to the millisecond, and `level`, that window's RMS in dBFS. The window is a
+ * twentieth of the take, from 5 to 50 ms: sharp on a click, and on a whoosh the swell the ear
+ * hears rather than one grain of its noise.
+ */
+export const loudestOf = (mono: Float32Array, rate: number, start: number, end: number) => {
   const a = Math.max(0, Math.round(start * rate))
   const b = Math.min(mono.length, Math.round(end * rate))
-  const w = Math.max(1, Math.round(FRAME * rate))
+  const w = Math.max(1, Math.round(Math.min(0.05, Math.max(FRAME, (end - start) / 20)) * rate))
   const hop = Math.max(1, Math.round(0.001 * rate))
-  if (b - a <= w) return r3((a + b) / 2 / rate)
   // Running sums of squares, so each window is two lookups.
   const sums = new Float64Array(b - a + 1)
   for (let i = a; i < b; i++) sums[i - a + 1] = (sums[i - a] ?? 0) + (mono[i] ?? 0) ** 2
+  const db = (energy: number, n: number) =>
+    Math.round(10 * Math.log10(energy / n + 1e-12) * 10) / 10
+  if (b - a <= w)
+    return { peak: r3((a + b) / 2 / rate), level: db(sums[b - a] ?? 0, Math.max(1, b - a)) }
   let best = a
   let loudest = -1
   for (let i = a; i + w <= b; i += hop) {
@@ -190,7 +198,7 @@ export const peakOf = (mono: Float32Array, rate: number, start: number, end: num
       best = i
     }
   }
-  return r3((best + w / 2) / rate)
+  return { peak: r3((best + w / 2) / rate), level: db(loudest, w) }
 }
 
 export type ListenOptions = {
@@ -261,7 +269,7 @@ export const listen = async (
       id: `take-${i + 1}`,
       start: r3(t.start),
       end: r3(t.end),
-      peak: peakOf(mono, rate, t.start, t.end),
+      ...loudestOf(mono, rate, t.start, t.end),
       cosine: r3(t.cosine),
       rank: t.rank,
       z: Math.round(t.z * 100) / 100,
@@ -429,7 +437,7 @@ if (import.meta.main) {
   writeFileSync(out, `${JSON.stringify(doc, null, 2)}\n`)
   for (const t of heard.trims)
     console.log(
-      `${t.id}  ${t.start.toFixed(3)}–${t.end.toFixed(3)} s  peak +${Math.round((t.peak - t.start) * 1e3)} ms  cosine ${t.cosine}  rank ${t.rank}  z ${t.z}${t.rank > 1 ? `  (fits "${t.heardAs}" better)` : ''}`,
+      `${t.id}  ${t.start.toFixed(3)}–${t.end.toFixed(3)} s  peak +${Math.round((t.peak - t.start) * 1e3)} ms  ${t.level} dB  cosine ${t.cosine}  rank ${t.rank}  z ${t.z}${t.rank > 1 ? `  (fits "${t.heardAs}" better)` : ''}`,
     )
   console.log(
     `${out}: ${heard.trims.length} takes of "${query}" from ${heard.scored} of ${heard.candidates} ${o.kind === 'event' ? 'strokes' : 'windows'}`,
