@@ -15,6 +15,9 @@ is what the engine does with sound.
 - Times taken from music come from measuring the exact file that plays: tempo, beats, onsets and
   band energy (the `audio-beat-clock` plugin measures and keys them). Listen to check the tempo: a measured
   BPM can be a ratio of the real one.
+- A sound is in sync when it lands on its hit point, and most sounds are loudest some way into
+  their file: a whoosh, hundreds of ms. Place a clip by its peak, not its start (the
+  `audio-listen` plugin finds takes in a recording with Earshot and measures their peaks).
 - A clip that ends while it still sounds stops dead in the export.
 - Record every track in `ASSETS.md` (source, licence, sha256). Do not download music unless the
   person asks and the licence allows it. For AI-generated music, record the generator and its
