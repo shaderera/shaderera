@@ -286,6 +286,43 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
   `NVIDIA_DRIVER_CAPABILITIES` must include `graphics` (NVIDIA Container Toolkit docs). `webgpu`
   0.6.2 loads on Ubuntu 22.04 and later.
 
+## Re-rendering only what an edit changed
+
+A frame is a function of the revision and `t`, so after a small edit the frames the edit did not
+touch are already rendered, losslessly, in the earlier plan's chunks.
+
+```sh
+npx shaderera job --name spot-v2                  # the edited revision
+npx shaderera render --job spot-v2 --reuse out/spot.plan --changed 61.5-63,140-141.2
+npx shaderera assemble --plan out/spot-v2.plan    # one encode, as usual
+```
+
+- `--changed` takes the changed spans in seconds of the film: where the edit may have changed a
+  frame. Each widens to whole frames, then forward by the source's lookback
+  ([determinism.md](determinism.md#lookback)); for `sequential: true` it reaches the end of the
+  window. There is no margin: a dissolve that reaches outside a span is a frame the samples catch.
+- `render --reuse` writes a plan of the new job (`--plan <dir>`, by default `out/<job>.plan`) that
+  renders each changed span as a chunk on this machine and takes every other frame from the
+  earlier plan, cut out of its FFV1 chunks by frame (lossless). The plan records, for each run of
+  reused frames, the earlier plan, job and chunk, with the chunk's sha256. A plan that reused
+  frames can itself be reused: its frames point to the chunks that were rendered.
+- **The sample check.** Before rendering, it renders the first and last frame of every run of
+  reused frames, and about one more every 10 s spread over them, from the new revision, and
+  compares them byte for byte with the earlier frames. A frame that differs is refused, with its
+  frame, its `t` and the unchanged span it is in, and nothing is written. `--fix` instead renders
+  the frames around it up to the nearest frames that matched (and forward by the lookback), and
+  samples the new boundaries again.
+- It refuses an earlier plan of another format or window (frame size, rate, from–to, the frames
+  as handed over), and one rendered on another kind of host than this one (another GPU or driver
+  may round pixels differently, so every sample would fail), naming both. There is no flag past
+  that.
+- `assemble` reads the plan as any other: it checks that each reused chunk is still the file of
+  the job it names, and builds the sound, captions, stems, preroll and timecode from the new
+  revision for the whole window. With the right `--changed`, the file is byte for byte the one a
+  full render of the new job gives.
+- The samples are a check, not a proof: a change between two samples outside every changed span
+  is missed. Give `--changed` from the edit (the diff, the cue that moved), not from a guess.
+
 ## Handoff
 
 `shaderera handoff <job>` writes `out/handoff/<job>/`: the revision's files as a working tree

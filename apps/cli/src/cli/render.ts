@@ -5,6 +5,7 @@ import { exportFrames, frameTimes, type Sink } from '@shaderera/core'
 import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
+import { renderReusing } from '../deliver/reuse.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
 import type { Project } from '../node/project.ts'
@@ -314,7 +315,10 @@ export const exportVideo = async (
  * render frames at once (defaultWorkers; 1 for a sequential source). --encoder: by default NVENC
  * for a review where this machine has it, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
  * window; the working tree does not matter. A png job writes the finishing handoff into
- * out/<job>/ (frames, audio.wav, delivery.json) instead of an mp4.
+ * out/<job>/ (frames, audio.wav, delivery.json) instead of an mp4. `--job --chunk i [--plan dir]`
+ * renders one chunk of a plan; `--job --reuse <plan> --changed <from>-<to>[,…] [--fix] [--plan dir]`
+ * writes a plan that renders only the changed spans and reuses the earlier plan's other frames
+ * (renderReusing).
  */
 const encoderOf = (value: unknown): Encoder => {
   if (value === 'x264' || value === 'nvenc') return value
@@ -336,6 +340,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       'no-audio': { type: 'boolean' },
       chunk: { type: 'string' },
       plan: { type: 'string' },
+      reuse: { type: 'string' },
+      changed: { type: 'string' },
+      fix: { type: 'boolean' },
       loudness: { type: 'string' },
       ...DELIVERY_FLAGS,
     },
@@ -386,6 +393,35 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       }
     : undefined
   try {
+    if (v.reuse !== undefined || v.changed !== undefined || v.fix !== undefined) {
+      // A plan of the job that renders only the changed spans and reuses an earlier plan's frames.
+      if (!job || typeof v.reuse !== 'string' || typeof v.changed !== 'string')
+        throw new Error(
+          '--reuse renders a job from an earlier plan: shaderera render --job <name> --reuse <plan> --changed <from>-<to>[,…] [--fix].',
+        )
+      if (v.chunk !== undefined) throw new Error('--reuse renders every changed span: no --chunk.')
+      const dir =
+        typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${job.name}.plan`)
+      const r = await renderReusing(child, job, project.manifest, {
+        reuse: v.reuse,
+        changed: v.changed,
+        fix: v.fix === true,
+        dir,
+        onFrame,
+      }).finally(() => progress && process.stderr.write('\n'))
+      const reused = r.plan.chunks.filter((c) => c.reused).reduce((n, c) => n + c.frames, 0)
+      for (const c of r.rendered)
+        console.log(
+          `chunk ${c.index}: ${c.frames} frames from ${Number(c.from.toFixed(4))} s in ${c.seconds.toFixed(1)} s`,
+        )
+      if (r.fixed.length > 0)
+        console.log(`--fix: rendered around frames ${r.fixed.join(', ')}, which differed`)
+      console.log(
+        `${join(dir, 'plan.json')}: ${r.rendered.reduce((n, c) => n + c.frames, 0)} frames rendered, ${reused} reused from ${resolve(v.reuse)}; ${r.samples} reused frames rendered again matched`,
+      )
+      console.log(`then: npx shaderera assemble --plan ${dir}`)
+      return 0
+    }
     if (v.chunk !== undefined) {
       // One chunk of a plan: this machine's share, into the plan's folder.
       if (!job)
