@@ -1,7 +1,7 @@
-// Takes of a recording that Earshot heard as matching a description, read as frozen analysis data
+// Takes of a recording heard as matching a description, read as frozen analysis data
 // (shaderera.analysis/1, kind "sound-trims"): each trim's start and end in seconds of the
 // recording, and its peak, the loudest moment, so a film can land the peak on a hit point.
-// tools/listen.ts writes it; the film reads data and runs no model.
+// tools/listen.ts writes it with CLAP; the film reads data and runs no model.
 
 import type { Host } from '@shaderera/core'
 
@@ -14,14 +14,16 @@ export type Trim = {
   end: number
   /** The loudest moment, in seconds of the recording: the centre of the loudest 5 ms. */
   peak: number
-  /** Earshot's calibrated score: standard deviations above its vocabulary's background. */
+  /** CLAP's similarity of the take to the description, -1 to 1: compare takes of one search. */
+  cosine: number
+  /** 1 when no other description fits the take better; 3 when two do. */
+  rank: number
+  /** How far the description stands above the other descriptions, in their spread. */
   z: number
-  /** Earshot's word for z: `strong`, `plausible`, `weak` or `no match`. */
-  verdict: string
-  /** `stroke` or `event` (onset-based), or `window` (a plain stretch, to crossfade). */
+  /** The description that fits the take best: the query itself when `rank` is 1. */
+  heardAs: string
+  /** `stroke` (from an onset until it has decayed) or `window` (a plain stretch, to crossfade). */
   kind: string
-  /** `head cut` and/or `tail cut` when the take starts or ends inside a sound; empty otherwise. */
-  cut: string
 }
 
 /** What the trims file holds. */
@@ -30,12 +32,10 @@ export type Trims = {
   kind: 'sound-trims'
   /** The recording, as measured. */
   source: { path: string; bytes: number; sha256: string; seconds: number }
-  /** The tool, Earshot's version and ffmpeg: provenance only, nothing here is read to render. */
+  /** The tool, the model and its revision, ffmpeg: provenance only, nothing here is read to render. */
   tool: Record<string, unknown>
   /** The description searched for, and every setting that changed the answer. */
   params: { query: string } & Record<string, unknown>
-  /** Earshot's own sentence about what it heard. */
-  heard: string
   trims: Trim[]
 }
 

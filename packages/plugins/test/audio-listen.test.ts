@@ -1,10 +1,8 @@
 // audio-listen, headless: copied into a project the way `add` lays it out, a recording made here
-// with three known strokes, and Earshot's answer about it played by a stand-in (a saved answer, and
-// a stub `earshot` module run with `python -m`), since Earshot is the person's own install. The
-// trims are read back through a fake host.
+// with three known strokes, heard through a stand-in for CLAP (the real model is a 780 MB download
+// the tool makes on first use), and trims read back through a fake host.
 
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -16,9 +14,7 @@ const project = join(plugins, 'out', 'audio-listen')
 rmSync(project, { recursive: true, force: true })
 const label = JSON.parse(
   readFileSync(join(plugins, 'audio-listen', 'shaderera.item.json'), 'utf8'),
-) as {
-  files: string[]
-}
+) as { files: string[] }
 for (const f of label.files) {
   mkdirSync(dirname(join(project, f)), { recursive: true })
   cpSync(join(plugins, 'audio-listen', f), join(project, f))
@@ -27,19 +23,17 @@ const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { clipAt, loadTrims } = (await from(
   'src/audio/trims.ts',
 )) as typeof import('../audio-listen/src/audio/trims.ts')
-const { peakOf, trimsOf } = (await from(
+const { BACKGROUND, listen, peakOf, strokesOf, windowsOf } = (await from(
   'tools/listen.ts',
 )) as typeof import('../audio-listen/tools/listen.ts')
-const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
-const python = spawnSync('python', ['--version']).status === 0
 
 const RATE = 48000
 const LENGTH = 3
-/** Three strokes: where each starts, and how long it rises to its peak (a click, a tap, a swell). */
+/** Three strokes: where each starts, how long it rises to its peak, and its pitch. */
 const STROKES = [
-  { at: 0.2, rise: 0.003 },
-  { at: 1.1, rise: 0.02 },
-  { at: 2.0, rise: 0.3 },
+  { at: 0.2, rise: 0.003, hz: 900 },
+  { at: 1.1, rise: 0.02, hz: 900 },
+  { at: 2.0, rise: 0.3, hz: 300 },
 ]
 const recording = () => {
   const pcm = new Float32Array(LENGTH * RATE)
@@ -47,193 +41,136 @@ const recording = () => {
     for (let i = Math.round(s.at * RATE); i < Math.round((s.at + s.rise + 0.25) * RATE); i++) {
       const t = i / RATE - s.at
       const env = t < s.rise ? t / s.rise : Math.exp(-(t - s.rise) / 0.04)
-      pcm[i] = 0.6 * env * Math.sin(2 * Math.PI * 900 * t)
+      pcm[i] = 0.6 * env * Math.sin(2 * Math.PI * s.hz * t)
     }
   return pcm
 }
-const wav = (pcm: Float32Array) => {
-  const v = new DataView(new ArrayBuffer(44 + pcm.length * 2))
-  const text = (o: number, s: string) => {
-    for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i))
-  }
-  text(0, 'RIFF')
-  v.setUint32(4, 36 + pcm.length * 2, true)
-  text(8, 'WAVEfmt ')
-  v.setUint32(16, 16, true)
-  v.setUint16(20, 1, true)
-  v.setUint16(22, 1, true)
-  v.setUint32(24, RATE, true)
-  v.setUint32(28, RATE * 2, true)
-  v.setUint16(32, 2, true)
-  v.setUint16(34, 16, true)
-  text(36, 'data')
-  v.setUint32(40, pcm.length * 2, true)
-  for (let i = 0; i < pcm.length; i++)
-    v.setInt16(44 + i * 2, Math.round((pcm[i] ?? 0) * 32767), true)
-  return new Uint8Array(v.buffer)
-}
-/** Earshot's find answer for the recording, in its shape: segments best first, 5 ms before each attack. */
-const answer = (path: string) => ({
-  summary: "Best moments for 'a short tap' in keys.wav: ...",
-  path,
-  query: 'a short tap',
-  query_kind: 'event',
-  duration: LENGTH,
-  segments: [1, 0, 2].map((i, rank) => {
-    const s = STROKES[i] as (typeof STROKES)[number]
-    return {
-      start: s.at - 0.005,
-      end: s.at + s.rise + 0.25,
-      duration: s.rise + 0.255,
-      score: 3 - rank,
-      z: 3 - rank,
-      cosine: 0.3,
-      verdict: rank < 2 ? 'strong' : 'plausible',
-      kind: 'stroke',
-      peak_dbfs: -4.4,
-      head_db: -40,
-      tail_db: -38,
-      cut: rank === 2 ? 'tail cut' : '',
-    }
-  }),
-})
-const host = {
-  io: { read: async (p: string) => new Uint8Array(readFileSync(join(project, p))) },
-} as unknown as Host
-const listen = (args: string[], env: NodeJS.ProcessEnv = {}) =>
-  spawnSync(process.execPath, [join(project, 'tools', 'listen.ts'), ...args], {
-    cwd: project,
-    encoding: 'utf8',
-    env: { ...process.env, ...env },
-  })
+const near = (a: number, b: number, within: number) => Math.abs(a - b) <= within
 
-test("audio-listen: a take's peak is the centre of its loudest 5 ms", () => {
+test("audio-listen: a stroke per onset, and a take's peak is the centre of its loudest 5 ms", () => {
   const pcm = recording()
-  for (const s of STROKES) {
-    const peak = peakOf(pcm, RATE, s.at - 0.005, s.at + s.rise + 0.25)
-    assert.ok(Math.abs(peak - (s.at + s.rise)) <= 0.004, `${peak} vs ${s.at + s.rise}`)
+  const strokes = strokesOf(pcm, RATE)
+  assert.equal(strokes.length, 3)
+  for (const [i, s] of STROKES.entries()) {
+    const k = strokes[i] as (typeof strokes)[number]
+    assert.ok(near(k.start, s.at - 0.005, 0.006), `stroke ${i} starts ${k.start}`)
+    assert.ok(k.end > s.at + s.rise && k.end <= s.at + s.rise + 0.3, `stroke ${i} ends ${k.end}`)
+    const peak = peakOf(pcm, RATE, k.start, k.end)
+    assert.ok(near(peak, s.at + s.rise, 0.004), `${peak} vs ${s.at + s.rise}`)
   }
   assert.equal(peakOf(pcm, RATE, 1, 1.002), 1.001, 'shorter than the window: its middle')
-  const trims = trimsOf(answer('keys.wav'), pcm, RATE)
+  // A noise that fades in over 20 ms is one stroke, not two.
+  let seed = 3
+  const noise = Float32Array.from({ length: RATE }, (_, i) => {
+    seed = (seed * 16807) % 2147483647
+    const t = i / RATE - 0.3
+    return t < 0 || t > 0.4 ? 0 : 0.3 * Math.min(1, t / 0.02) * ((seed / 2147483647) * 2 - 1)
+  })
+  assert.equal(strokesOf(noise, RATE).length, 1)
   assert.deepEqual(
-    trims.map((t) => [t.id, t.verdict, t.cut]),
+    windowsOf(3, 1).map((w) => w.start),
+    [0, 0.5, 1, 1.5, 2],
+  )
+})
+
+/** A stand-in for CLAP: one axis per description; a 300 Hz take sounds like the query, a 900 Hz one like a mouse click. */
+const fake = (query: string) => {
+  let axes: string[] = []
+  const axis = (name: string) => axes.map((a) => (a === name ? 1 : 0))
+  return {
+    async text(texts: readonly string[]) {
+      axes = [...texts]
+      return texts.map(axis)
+    },
+    async audio(clip: Float32Array) {
+      let crossings = 0
+      for (let i = 1; i < clip.length; i++)
+        if ((clip[i - 1] ?? 0) < 0 && (clip[i] ?? 0) >= 0) crossings++
+      const low = crossings / (clip.length / RATE) < 600
+      const v = low ? axis(query) : axis('a mouse click')
+      // Each take also fits the query a little, so their cosines differ.
+      return v.map((x, i) => (i === 0 ? x + 0.1 : x))
+    },
+  }
+}
+
+test('audio-listen: takes come best first, each ranked against the other descriptions', async () => {
+  const pcm = recording()
+  const heard = await listen(
+    pcm,
+    RATE,
+    'a low hum',
+    { top: 2, kind: 'event', win: 2, not: ['a whistle'] },
+    fake('a low hum'),
+  )
+  assert.equal(heard.candidates, 3)
+  assert.deepEqual(
+    heard.trims.map((t) => [t.id, t.kind, t.rank, t.heardAs]),
     [
-      ['take-1', 'strong', ''],
-      ['take-2', 'strong', ''],
-      ['take-3', 'plausible', 'tail cut'],
+      ['take-1', 'stroke', 1, 'a low hum'],
+      ['take-2', 'stroke', 2, 'a mouse click'],
     ],
   )
-  assert.throws(
-    () => trimsOf({ error: 'cannot decode' }, pcm, RATE),
-    /could not answer: cannot decode/,
+  const [best] = heard.trims
+  assert.ok(best && near(best.peak, 2.3, 0.004), `the low stroke's peak: ${best?.peak}`)
+  assert.ok((best?.z ?? 0) > 0, `the query stands out: z ${best?.z}`)
+  assert.ok(BACKGROUND.includes('a mouse click'))
+  // Windows overlap; the picked ones never do. A silent recording has nothing to hear.
+  const windows = await listen(
+    pcm,
+    RATE,
+    'a low hum',
+    { top: 5, kind: 'texture', win: 1, not: [] },
+    fake('a low hum'),
   )
-  assert.throws(() => trimsOf({ summary: 'x' }, pcm, RATE), /not an answer of Earshot's find/)
+  for (const [i, a] of windows.trims.entries())
+    for (const b of windows.trims.slice(i + 1))
+      assert.ok(a.end <= b.start || a.start >= b.end, `${a.id} and ${b.id} overlap`)
+  await assert.rejects(
+    listen(
+      new Float32Array(RATE),
+      RATE,
+      'x',
+      { top: 1, kind: 'event', win: 1, not: [] },
+      fake('x'),
+    ),
+    /no onsets: for a bed or an ambience use --kind texture/,
+  )
 })
 
 test('audio-listen: clipAt lands the peak on the hit point, and cuts the head before the film starts', () => {
-  const trims = {
-    source: { path: 'audio/whoosh.wav' },
-  } as Parameters<typeof clipAt>[0]
+  const trims = { source: { path: 'audio/whoosh.wav' } } as Parameters<typeof clipAt>[0]
   const whoosh = { start: 1, end: 2, peak: 1.3 } as Parameters<typeof clipAt>[1]
   assert.deepEqual(clipAt(trims, whoosh, 5), { src: 'audio/whoosh.wav', from: 1, to: 2, at: 4.7 })
   const early = clipAt(trims, whoosh, 0.1)
   assert.equal(early.at, 0)
-  assert.ok(Math.abs(early.from - 1.2) < 1e-9, `the head goes: from ${early.from}`)
-  assert.ok(Math.abs(early.at + (whoosh.peak - early.from) - 0.1) < 1e-9, 'the peak still lands')
+  assert.ok(near(early.from, 1.2, 1e-9), `the head goes: from ${early.from}`)
+  assert.ok(near(early.at + (whoosh.peak - early.from), 0.1, 1e-9), 'the peak still lands')
 })
 
-test('audio-listen: a saved answer becomes trims stamped to the recording, refused once it changes', {
-  skip: !ffmpeg && 'needs ffmpeg',
-}, async () => {
+test('audio-listen: trims are refused once the recording changes, or when the file is not trims', async () => {
+  const host = {
+    io: { read: async (p: string) => new Uint8Array(readFileSync(join(project, p))) },
+  } as unknown as Host
+  const bytes = new Uint8Array([1, 2, 3])
+  const digest = Buffer.from(await crypto.subtle.digest('SHA-256', bytes)).toString('hex')
   mkdirSync(join(project, 'audio'), { recursive: true })
-  writeFileSync(join(project, 'audio', 'keys.wav'), wav(recording()))
-  writeFileSync(
-    join(project, 'answer.json'),
-    JSON.stringify(answer(join(project, 'audio', 'keys.wav'))),
-  )
-  const run = listen(['audio/keys.wav', '--answer', 'answer.json'])
-  assert.equal(run.status, 0, run.stderr)
-  const trims = await loadTrims(host, 'audio/keys.trims.json')
-  assert.equal(trims.source.path, 'audio/keys.wav')
-  assert.equal(trims.source.seconds, LENGTH)
-  assert.equal(trims.params.query, 'a short tap')
-  assert.equal(trims.tool.answer, 'answer.json')
-  const peaks = [1, 0, 2].map((i) => (STROKES[i]?.at ?? 0) + (STROKES[i]?.rise ?? 0))
-  for (const [i, t] of trims.trims.entries())
-    assert.ok(
-      Math.abs(t.peak - (peaks[i] ?? 0)) <= 0.004,
-      `measured on the decoded file: ${t.peak}`,
-    )
-  // Another answer's file, or another description, is refused.
-  writeFileSync(
-    join(project, 'other.json'),
-    JSON.stringify(answer(join(project, 'audio', 'other.wav'))),
-  )
-  assert.match(
-    listen(['audio/keys.wav', '--answer', 'other.json']).stderr,
-    /answer for .*other\.wav, not audio\/keys\.wav/,
-  )
-  assert.match(
-    listen(['audio/keys.wav', 'a door slam', '--answer', 'answer.json']).stderr,
-    /answers "a short tap", not "a door slam"/,
-  )
-  // The recording changes: the old trims would play the wrong moments.
-  const changed = recording()
-  changed[10] = 0.5
-  writeFileSync(join(project, 'audio', 'keys.wav'), wav(changed))
+  writeFileSync(join(project, 'audio', 'keys.wav'), bytes)
+  const doc = {
+    format: 'shaderera.analysis/1',
+    kind: 'sound-trims',
+    source: { path: 'audio/keys.wav', bytes: 3, sha256: digest, seconds: 1 },
+    tool: {},
+    params: { query: 'a key press' },
+    trims: [],
+  }
+  writeFileSync(join(project, 'audio', 'keys.trims.json'), JSON.stringify(doc))
+  assert.equal((await loadTrims(host, 'audio/keys.trims.json')).params.query, 'a key press')
+  writeFileSync(join(project, 'audio', 'keys.wav'), new Uint8Array([1, 2, 4]))
   await assert.rejects(
     loadTrims(host, 'audio/keys.trims.json'),
     /other bytes than audio\/keys\.wav/,
   )
-})
-
-test('audio-listen: without an answer it runs Earshot with python -m, and says how to get it when that fails', {
-  skip: (!ffmpeg || !python) && 'needs ffmpeg and python',
-}, async () => {
-  mkdirSync(join(project, 'audio'), { recursive: true })
-  writeFileSync(join(project, 'audio', 'keys.wav'), wav(recording()))
-  // A stand-in for Earshot: prints the answer, and the arguments it was given.
-  const stub = join(project, 'stub', 'earshot')
-  mkdirSync(stub, { recursive: true })
-  writeFileSync(join(stub, '__init__.py'), "__version__ = '0.2.0-stub'\n")
-  writeFileSync(
-    join(stub, '__main__.py'),
-    [
-      'import json, sys',
-      `a = json.loads(${JSON.stringify(JSON.stringify(answer('audio/keys.wav')))})`,
-      "a['argv'] = sys.argv[1:]",
-      "open('argv.json', 'w').write(json.dumps(sys.argv[1:]))",
-      'print(json.dumps(a))',
-    ].join('\n'),
-  )
-  const run = listen(
-    ['audio/keys.wav', 'a short tap', '--top', '3', '--kind', 'event', '--out', 'out/keys.json'],
-    {
-      PYTHONPATH: join(project, 'stub'),
-    },
-  )
-  assert.equal(run.status, 0, run.stderr)
-  assert.deepEqual(JSON.parse(readFileSync(join(project, 'argv.json'), 'utf8')), [
-    'find',
-    'audio/keys.wav',
-    'a short tap',
-    '--top',
-    '3',
-    '--kind',
-    'event',
-    '--json',
-  ])
-  const trims = await loadTrims(host, 'out/keys.json')
-  assert.equal(trims.tool.earshot, '0.2.0-stub')
-  assert.deepEqual(trims.params, { query: 'a short tap', top: 3, kind: 'event' })
-  assert.equal(trims.trims.length, 3)
-  // No Earshot where it was pointed: one message naming the three ways to give it.
-  const none = listen(['audio/keys.wav', 'a short tap'], {
-    EARSHOT_PYTHON: join(project, 'no-python'),
-  })
-  assert.equal(none.status, 2)
-  assert.match(
-    none.stderr,
-    /Earshot did not run with .*no-python\. Install it .*--python or EARSHOT_PYTHON.*--answer/,
-  )
+  writeFileSync(join(project, 'audio', 'map.json'), JSON.stringify({ ...doc, kind: 'time-map' }))
+  await assert.rejects(loadTrims(host, 'audio/map.json'), /not a shaderera.analysis\/1 sound-trims/)
 })

@@ -2,7 +2,7 @@
   "name": "audio-listen",
   "type": "component",
   "title": "Listen",
-  "description": "Hear a recording with Earshot and keep the takes that match a description as trims stamped to its bytes, each with its peak, so a clip lands its loudest moment on a hit point",
+  "description": "Hear a recording with CLAP and keep the takes that match a description as trims stamped to its bytes, each with its peak, so a clip lands its loudest moment on a hit point",
   "category": "Audio & Music",
   "tags": [
     "listen",
@@ -11,14 +11,17 @@
     "sfx",
     "takes",
     "trim",
+    "onsets",
     "sync",
     "hit point",
-    "earshot",
     "clap",
     "analysis"
   ],
   "version": "0.1.0",
   "licence": "MIT",
-  "requires": { "shaderera": ">=0.1.0" },
+  "requires": {
+    "shaderera": ">=0.1.0",
+    "packages": { "@huggingface/transformers": "4.3.1" }
+  },
   "files": ["tools/listen.ts", "src/audio/trims.ts"]
 }
