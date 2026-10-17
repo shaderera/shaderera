@@ -15,6 +15,10 @@ is what the engine does with sound.
 - Times taken from music come from measuring the exact file that plays: tempo, beats, onsets and
   band energy (the `audio-beat-clock` plugin measures and keys them). Listen to check the tempo: a measured
   BPM can be a ratio of the real one.
+- A beat grid can also land half a beat off, on the off-beat hats instead of the kicks. Compare
+  the low end with the grid over a few bars (the analysis's `sub` band at the beats and halfway
+  between them): when the kicks fall between the beats, shift the whole grid by half a beat (in
+  `clockFromAnalysis`, `trim` less half of `tempo.period`), then check which beat starts the bar.
 - A sound is in sync when it lands on its hit point, and most sounds are loudest some way into
   their file: a whoosh, hundreds of ms. Place a clip by its peak, not its start (the
   `audio-listen` plugin finds takes in a recording with CLAP and measures their peaks).
@@ -23,4 +27,30 @@ is what the engine does with sound.
   person asks and the licence allows it. For AI-generated music, record the generator and its
   terms.
 
-Check: review's diagnostics list the clips and how much of the film they cover.
+## Sound from outside
+
+For sound effects or music from outside the project, when the brief or the person asks for them.
+Sound made in code is never the lesser choice.
+
+| Source | Good for | Call | Verified |
+|---|---|---|---|
+| Openverse | sound effects (Freesound, 590,000), music (Jamendo, 640,000), field and archive recordings (Wikimedia, 4 million) | `api.openverse.org/v1/audio/?q=<terms>&source=freesound&license_type=commercial` (`source=jamendo` for music, `wikimedia_audio`); each result has `url`, `license`, `license_version`, `creator`, `duration` (ms), `attribution`, `foreign_landing_url` | 2026-10-18 |
+
+- No key is needed. Anonymous use allows 20 calls a minute and 200 a day (the
+  `x-ratelimit-*` headers say how many are left): search for each kind of sound once and choose
+  from the results. `category=sound_effect` returns nothing; choose by `source`.
+- `license_type=commercial` keeps CC0, CC BY, CC BY-SA and public domain. Without it most
+  Jamendo music comes back CC BY-NC-ND: no ads, and no trim (`footage.md`, Licences).
+- A Freesound result's `url` is its high-quality preview, an MP3 (about 170 kbps, 44.1 kHz). The
+  original file is in `alt_files`, behind Freesound's own API and its OAuth sign-in. A Jamendo
+  `url` is a 192 kbps MP3.
+- Check the first bytes of every download: an MP3 starts with `ID3` or `\xFF\xFB`; an HTML page is
+  a refusal, not the file.
+- Record each kept file with the `asset-provenance` plugin, as for footage (`footage.md`,
+  Record): `--source` is `foreign_landing_url`, and `--credit` is `attribution`, as it is.
+
+## Check
+
+Review's diagnostics list the clips and how much of the film they cover. You cannot hear the
+export: end with the times of the cues worth listening to (the hits, the cuts, a duck under a
+voice) for the person to check by ear, and do not say that it sounds right.
