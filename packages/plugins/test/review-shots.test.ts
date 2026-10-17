@@ -1,6 +1,6 @@
 // review-shots, with Python: copied into a project the way `add` lays it out, then run on a film
 // made here from a seed whose every frame's truth is known (review-shots-truth.ts), and held to the
-// pass table of issues #49 and #75. Needs ffmpeg and a Python with scenedetect and OpenCV (PYTHON
+// pass table of issues #49, #75 and #81. Needs ffmpeg and a Python with scenedetect and OpenCV (PYTHON
 // names it, else python3, or python on Windows), and the first time TransNet V2's weights (30 MB,
 // downloaded by the tool); without them the tests skip and say so.
 
@@ -110,9 +110,9 @@ test('review-shots: measured against ground truth, it passes the gate', { skip }
   assert.ok(existsSync(join(project, 'shots', 'truth', 'sheet-1.jpg')))
   const shots = doc.shots as Shot[]
 
-  // Cuts: a hard cut on its frame, a transition's (a flash, a dip, a dissolve) anywhere in it ±1,
-  // and only one each. A card swapped over a picture that goes on is not found (#75): one inside it
-  // counts, none is not a miss, two fail. No cut in fast footage, a fast pull or a spotlight.
+  // Cuts: a hard cut on its frame (a card swapped at once too), a transition's (a flash, a dip, a
+  // dissolve, a card crossfaded over a picture that goes on) anywhere in it ±1, and only one each. No
+  // cut in fast footage, a fast pull, a spotlight or the fade to black at the end.
   const cuts = shots.slice(1).map((s) => Math.round(s.start * FPS))
   const windows = SHOTS.slice(1).map(
     (s) =>
@@ -123,15 +123,13 @@ test('review-shots: measured against ground truth, it passes the gate', { skip }
   )
   const inside = (c: number, [a, b]: [number, number]) => c >= a && c <= b
   const found = windows.map((w) => cuts.filter((c) => inside(c, w)).length)
-  const overlay = (i: number) => SHOTS[i + 1]?.overlay
-  const recall =
-    found.filter((n, i) => n > 0 && !overlay(i)).length / found.filter((_, i) => !overlay(i)).length
+  const recall = found.filter((n) => n > 0).length / found.length
   const precision = cuts.filter((c) => windows.some((w) => inside(c, w))).length / cuts.length
   t.diagnostic(`cuts ${cuts.join(' ')}; precision ${precision}, recall ${recall}`)
   assert.ok(precision >= 0.98 && recall >= 0.98, `cuts ${cuts} against ${JSON.stringify(windows)}`)
   assert.deepEqual(
-    found.filter((_, i) => SHOTS[i + 1]?.transition && !overlay(i)),
-    [1, 1, 1, 1, 1, 1],
+    found.filter((_, i) => SHOTS[i + 1]?.transition),
+    [1, 1, 1, 1, 1, 1, 1, 1, 1],
     'the flash, the dip and each dissolve are one cut each',
   )
   assert.ok(

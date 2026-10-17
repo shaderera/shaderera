@@ -9,7 +9,11 @@
 // (dissolves of 0.4 and 0.8 s, and a card swapped over footage that keeps playing, where 15 % of
 // the frame changes), and the cases that read as false cuts: a fast push over dense footage that
 // drops every sixth frame (footage made at 30 fps shown at 25), a fast eased pull out over a wall of
-// prints, and a push on a dark still while a spotlight closes in under a label.
+// prints, and a push on a dark still while a spotlight closes in under a label. Then cards over a
+// soft, dim picture that keeps playing, as films lay an artwork over footage, where the card is the
+// shot: one crossfaded to the next and one swapped at once (new shots), and one under which the rest
+// goes dark as a spotlight switches on (no new shot); a dissolve between two pictures of low
+// contrast; and a still that fades to black at the end (no new shot).
 
 import { Canvas } from '@napi-rs/canvas'
 
@@ -31,10 +35,18 @@ type Plan = {
   eased?: [number, number]
   /** A label that does not move, over the picture. */
   label?: boolean
-  /** A card (one of two) held still over the picture, 15 % of the frame. */
+  /** A card held still over the picture, 11 to 15 % of the frame (see CARDS). */
   card?: number
   /** The picture goes on from the shot before (its world and its time): only the card changes. */
   continues?: boolean
+  /** The picture soft and dim under its card, as a film lays an artwork over footage. */
+  soft?: boolean
+  /** From this second, a spotlight switches on over the card: the rest goes dark in 0.2 s. */
+  dim?: number
+  /** The picture at this contrast (1 is the world's own), around mid grey. */
+  contrast?: number
+  /** The shot's last frames fade to black over the first number and hold black for the second. */
+  fadeOut?: [number, number]
   /** Made at 36 fps and shown at 30: a frame is dropped every fifth frame. */
   drop?: boolean
   /** Fine dense strokes (a field), or a wall of coloured prints, over the points. */
@@ -107,7 +119,55 @@ const PLAN: Plan[] = [
   },
   { frames: 40, enter: 'cut', content: 'still', zoom: 3.2, pan: [0, 0], label: true, spot: true },
   { frames: 30, enter: 'cut', content: 'still', zoom: 0, pan: [0, 0] },
+  // Cards over a soft picture that keeps playing: each card is a shot, crossfaded or swapped at once.
+  { frames: 45, enter: 'cut', content: 'footage', zoom: 0, pan: [0, 0], card: 2, soft: true },
+  {
+    frames: 45,
+    enter: { dissolve: 10, eased: true },
+    content: 'footage',
+    zoom: 0,
+    pan: [0, 0],
+    card: 3,
+    soft: true,
+    continues: true,
+  },
+  {
+    frames: 45,
+    enter: 'cut',
+    content: 'footage',
+    zoom: 0,
+    pan: [0, 0],
+    card: 4,
+    soft: true,
+    continues: true,
+  },
+  // No cut inside: a spotlight switches on over a card.
+  {
+    frames: 50,
+    enter: 'cut',
+    content: 'footage',
+    zoom: 0,
+    pan: [0, 0],
+    texture: 'prints',
+    card: 5,
+    dim: 0.8,
+  },
+  // A dissolve between two pictures of low contrast.
+  { frames: 40, enter: 'cut', content: 'footage', zoom: 0, pan: [0, 0], contrast: 0.2 },
+  {
+    frames: 45,
+    enter: { dissolve: 10, eased: true },
+    content: 'footage',
+    zoom: 0,
+    pan: [0, 0],
+    contrast: 0.2,
+  },
+  // The end: a still that fades to black and holds black, which is no new shot.
+  { frames: 60, enter: 'cut', content: 'still', zoom: 0, pan: [0, 0], fadeOut: [25, 10] },
 ]
+/** The shots made before #81: the shots after them draw from the seed after the subject and the
+ * first two cards, so the film's first 40 s stay frame for frame as they were. */
+const FIRST = 27
 
 /** Each shot's truth: its cut (the first frame it shows), its transition (the frames from the cut
  * until the old shot is gone; a dip and a flash count from the first frame they change), and its
@@ -117,8 +177,6 @@ export type Truth = {
   end: number
   transition: [number, number] | null
   dissolve: boolean
-  /** Only a card changes over a picture that goes on. */
-  overlay: boolean
   /** A spotlight closes in on a dark picture under a label. */
   spot: boolean
   content: Content
@@ -158,13 +216,11 @@ export const SHOTS: Truth[] = PLAN.map((p) => {
   const zoom = ((scaleAt(p, last) / scaleAt(p, 0)) ** (1 / seconds) - 1) * 100
   const pan: [number, number] = [(p.pan[0] * last) / seconds, (p.pan[1] * last) / seconds]
   const dissolve = e !== 'cut' && 'dissolve' in e
-  const overlay = p.continues === true
   return {
     cut,
     end: at,
     transition,
     dissolve,
-    overlay,
     spot: p.spot === true,
     content: p.content,
     zoom,
@@ -194,7 +250,7 @@ const scatter = (g: CanvasRenderingContext2D, w: number, h: number, n: number, i
 
 /** Each shot's world, a new scatter in its own grade; footage's blobs drift across it, and a
  * subject crosses the subject shot, both in the world's own coordinates. */
-const WORLDS = PLAN.map((p, k) => {
+const makeWorld = (p: Plan, k: number) => {
   const world = new Canvas(W * 2, H * 2)
   const g = world.getContext('2d') as unknown as CanvasRenderingContext2D
   const hue = (k * 137) % 360
@@ -235,7 +291,8 @@ const WORLDS = PLAN.map((p, k) => {
     l: 30 + rand() * 50,
   }))
   return { world, hue, blobs }
-})
+}
+const WORLDS = PLAN.slice(0, FIRST).map(makeWorld)
 const SUBJECT = (() => {
   const c = new Canvas(140, 140)
   const g = c.getContext('2d') as unknown as CanvasRenderingContext2D
@@ -247,22 +304,49 @@ const SUBJECT = (() => {
   scatter(g, 140, 140, 120, '#fff')
   return c
 })()
-/** Two cards, each 15 % of the frame: a light ground and its own marks. */
-const CARD = [180, 108] as const
-const CARDS = ['#e8dcc8', '#c8d8e8'].map((ground, k) => {
-  const c = new Canvas(CARD[0], CARD[1])
+/** A card: a light ground and its own marks, at its place in the frame, with a credit line under
+ * it or not. */
+type Card = { canvas: Canvas; x: number; y: number; credit: boolean }
+const card = (
+  [w, h]: [number, number],
+  ground: string,
+  ink: string,
+  marks: number,
+  [x, y]: [number, number],
+  credit: boolean,
+) => {
+  const c = new Canvas(w, h)
   const g = c.getContext('2d') as unknown as CanvasRenderingContext2D
   g.fillStyle = ground
-  g.fillRect(0, 0, CARD[0], CARD[1])
-  scatter(g, CARD[0], CARD[1], 160, k ? '#235' : '#522')
-  return c
-})
+  g.fillRect(0, 0, w, h)
+  scatter(g, w, h, marks, ink)
+  return { canvas: c, x, y, credit }
+}
+/** Two cards of 15 % of the frame over sharp footage, then four of 11 to 15 % in the middle of a
+ * soft picture, each with its credit, as films show an artwork. */
+const CARDS: Card[] = [
+  card([180, 108], '#e8dcc8', '#522', 160, [W * 0.55, H * 0.45], false),
+  card([180, 108], '#c8d8e8', '#235', 160, [W * 0.55, H * 0.45], false),
+]
+WORLDS.push(...PLAN.slice(FIRST).map((p, k) => makeWorld(p, FIRST + k)))
+CARDS.push(
+  ...(
+    [
+      [110, 176, '#e6d6b8', '#3a2410'],
+      [96, 150, '#dfe6da', '#16261a'],
+      [150, 130, '#e9d8d0', '#3a1420'],
+      [120, 160, '#d8dce8', '#141a3a'],
+    ] as const
+  ).map(([w, h, ground, ink]) =>
+    card([w, h], ground, ink, Math.round((w * h) / 120), [(W - w) / 2, H * 0.42 - h / 2], true),
+  ),
+)
 
 const picture = (k: number, f: number) => {
   const shot = SHOTS[k] as Truth
   const plan = PLAN[k] as Plan
   const base = BASE[k] as number
-  const { world, hue, blobs } = WORLDS[base] as (typeof WORLDS)[number]
+  const { world, hue, blobs } = WORLDS[base] as ReturnType<typeof makeWorld>
   const t = timeOf(plan, f, (SHOTS[base] as Truth).cut)
   const s = scaleAt(plan, t)
   const cx = W + shot.pan[0] * W * t
@@ -270,6 +354,7 @@ const picture = (k: number, f: number) => {
   const c = new Canvas(W, H)
   const g = c.getContext('2d') as unknown as CanvasRenderingContext2D
   g.setTransform(s, 0, 0, s, W / 2 - s * cx, H / 2 - s * cy)
+  if (plan.soft) g.filter = 'blur(5px) brightness(60%)'
   g.drawImage(world as unknown as CanvasImageSource, 0, 0)
   if (shot.content === 'footage') {
     for (const b of blobs) {
@@ -285,6 +370,19 @@ const picture = (k: number, f: number) => {
     g.drawImage(SUBJECT as unknown as CanvasImageSource, -70, -70)
   }
   g.setTransform(1, 0, 0, 1, 0, 0)
+  g.filter = 'none'
+  if (plan.contrast !== undefined) {
+    g.globalAlpha = 1 - plan.contrast
+    g.fillStyle = '#808080'
+    g.fillRect(0, 0, W, H)
+    g.globalAlpha = 1
+  }
+  if (plan.dim !== undefined) {
+    g.globalAlpha = 0.9 * ease((t - plan.dim) / 0.2)
+    g.fillStyle = '#000'
+    g.fillRect(0, 0, W, H)
+    g.globalAlpha = 1
+  }
   if (plan.spot) {
     // A spotlight on a point of the picture, closing in from 0.2 s for 0.4 s while the rest goes
     // dark.
@@ -298,8 +396,21 @@ const picture = (k: number, f: number) => {
     g.fillStyle = light
     g.fillRect(0, 0, W, H)
   }
-  if (plan.card !== undefined)
-    g.drawImage(CARDS[plan.card] as unknown as CanvasImageSource, W * 0.55, H * 0.45)
+  if (plan.card !== undefined) {
+    const c = CARDS[plan.card] as Card
+    g.drawImage(c.canvas as unknown as CanvasImageSource, c.x, c.y)
+    if (c.credit) {
+      // Its credit line, centred under it, in a word pattern of its own.
+      g.fillStyle = '#eee'
+      const n = plan.card
+      const words = Array.from({ length: 4 + n }, (_, i) => 8 + ((i * n * 7) % 13))
+      let x = W / 2 - (words.reduce((a, b) => a + b + 5, 0) - 5) / 2
+      for (const w of words) {
+        g.fillRect(x, c.y + c.canvas.height + 12, w, 6)
+        x += w + 5
+      }
+    }
+  }
   if (plan.label) {
     // A credit line of words, as films lay one over a still.
     g.fillStyle = '#fff'
@@ -343,6 +454,9 @@ export const render = (time: number): Uint8ClampedArray => {
     fill('#000', (f - next.cut + leave.dip + 1) / leave.dip)
   if (next && leave && leave !== 'cut' && 'flash' in leave && f >= next.cut - leave.flash)
     fill('#fff', (f - next.cut + leave.flash + 1) / (leave.flash + 1))
+  const fade = PLAN[k]?.fadeOut
+  if (fade)
+    fill('#000', Math.min(1, Math.max(0, (f - (shot.end - fade[1] - fade[0]) + 1) / fade[0])))
   return g.getImageData(0, 0, W, H).data
 }
 

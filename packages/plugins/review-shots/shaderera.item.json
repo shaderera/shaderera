@@ -2,7 +2,7 @@
   "name": "review-shots",
   "type": "component",
   "title": "Shot review",
-  "description": "Any video measured shot by shot as frozen analysis data: where it cuts (hard cuts, dissolves, dips and flashes), how the picture moves (zoom in % a second and pan, labelled push, pull, pan, tilt or static), its levels and its colour, with contact sheets; measured against ground truth. PySceneDetect, TransNet V2 (run in numpy, weights downloaded once) and OpenCV",
+  "description": "Any video measured shot by shot as frozen analysis data: where it cuts (hard cuts, dissolves, dips and flashes, and a card swapped over a picture that goes on), how the picture moves (zoom in % a second and pan, labelled push, pull, pan, tilt or static), its levels and its colour, with contact sheets; measured against ground truth. PySceneDetect, TransNet V2 (run in numpy, weights downloaded once) and OpenCV",
   "category": "Analysis & Tracking",
   "tags": [
     "review",
@@ -28,7 +28,7 @@
     "reference",
     "analysis"
   ],
-  "version": "0.1.1",
+  "version": "0.1.2",
   "licence": "MIT",
   "files": ["tools/review-shots.py"]
 }
