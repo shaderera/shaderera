@@ -91,7 +91,8 @@ in a Shaderera package or a plugin.
 | `audio-voice-repace` | ffmpeg; `--tempo` needs one built with librubberband (GPL-2.0-or-later) | none |
 
 `review-shots` runs TransNet V2's network in numpy from that checkpoint. It installs neither
-TensorFlow nor PyTorch. The SAM License is not an open-source licence: `image-regions` says so,
+TensorFlow nor PyTorch. The network is ported from TransNet V2's MIT code, so
+`tools/review-shots.py` carries its copyright and permission notice. The SAM License is not an open-source licence: `image-regions` says so,
 and the person accepts it before the weights download.
 
 The media plugins are fonts under SIL OFL 1.1, each with its OFL text beside the font files:
