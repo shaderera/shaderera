@@ -10,9 +10,9 @@ user gets it: from packed tarballs, installed with npm in a fresh folder outside
    pnpm --filter @shaderera/core --filter shaderera --filter create-shaderera \
      pack --pack-destination ../release
    ```
-   Check that `create-shaderera`'s tarball holds `files/project/`, `files/AUTHORING.md`, the eight
+   Check that `create-shaderera`'s tarball holds `files/project/`, `files/AUTHORING.md`, the nine
    `files/guides/*.md`, `files/skills/shaderera/SKILL.md` and
-   `files/skills/shaderera-plugins/SKILL.md`, and that `shaderera`'s holds `guides/` (eight files)
+   `files/skills/shaderera-plugins/SKILL.md`, and that `shaderera`'s holds `guides/` (nine files)
    and `docs/` (the reference, with `participants/` and `plugins.md`).
 3. **A clean folder.** In a folder outside the monorepo:
    ```bash
