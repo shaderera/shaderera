@@ -5,7 +5,11 @@
 // widths a second, x right and y down. It holds hard cuts, 4-frame shots, a flash, a dip, a long
 // dissolve, pushes, pulls, pans and tilts on stills, an eased push under a still label, a fast
 // eased zoom to twice the size, a push over moving content, a very slow push, and a subject moving
-// in a static frame.
+// in a static frame. Then gradual transitions over moving content, eased as the films ease them
+// (dissolves of 0.4 and 0.8 s, and a card swapped over footage that keeps playing, where 15 % of
+// the frame changes), and the cases that read as false cuts: a fast push over dense footage that
+// drops every sixth frame (footage made at 30 fps shown at 25), a fast eased pull out over a wall of
+// prints, and a push on a dark still while a spotlight closes in under a label.
 
 import { Canvas } from '@napi-rs/canvas'
 
@@ -13,7 +17,7 @@ export const FPS = 30
 export const W = 480
 export const H = 270
 
-type Enter = 'cut' | { dissolve: number } | { dip: number } | { flash: number }
+type Enter = 'cut' | { dissolve: number; eased?: boolean } | { dip: number } | { flash: number }
 type Content = 'still' | 'footage' | 'subject'
 type Plan = {
   frames: number
@@ -27,6 +31,16 @@ type Plan = {
   eased?: [number, number]
   /** A label that does not move, over the picture. */
   label?: boolean
+  /** A card (one of two) held still over the picture, 15 % of the frame. */
+  card?: number
+  /** The picture goes on from the shot before (its world and its time): only the card changes. */
+  continues?: boolean
+  /** Made at 36 fps and shown at 30: a frame is dropped every fifth frame. */
+  drop?: boolean
+  /** Fine dense strokes (a field), or a wall of coloured prints, over the points. */
+  texture?: 'field' | 'prints'
+  /** A dark picture, and a spotlight on it that closes in fast and darkens the rest. */
+  spot?: boolean
 }
 
 const PLAN: Plan[] = [
@@ -56,6 +70,43 @@ const PLAN: Plan[] = [
   { frames: 90, enter: 'cut', content: 'still', zoom: 0.5, pan: [0, 0] },
   { frames: 60, enter: 'cut', content: 'subject', zoom: 0, pan: [0, 0] },
   { frames: 30, enter: 'cut', content: 'still', zoom: 0, pan: [0, 0] },
+  // Gradual transitions over moving content, each shot's move at one rate.
+  { frames: 45, enter: 'cut', content: 'footage', zoom: 6, pan: [0, 0] },
+  { frames: 60, enter: { dissolve: 12, eased: true }, content: 'footage', zoom: 0, pan: [0.1, 0] },
+  { frames: 60, enter: { dissolve: 24, eased: true }, content: 'footage', zoom: -5, pan: [0, 0] },
+  { frames: 45, enter: 'cut', content: 'footage', zoom: 0, pan: [0, 0], card: 0 },
+  {
+    frames: 45,
+    enter: { dissolve: 12, eased: true },
+    content: 'footage',
+    zoom: 0,
+    pan: [0, 0],
+    card: 1,
+    continues: true,
+  },
+  { frames: 45, enter: { dissolve: 12, eased: true }, content: 'still', zoom: 4, pan: [0, 0] },
+  // No cut inside any of these.
+  {
+    frames: 60,
+    enter: 'cut',
+    content: 'footage',
+    zoom: 4,
+    pan: [0.05, 0],
+    drop: true,
+    texture: 'field',
+  },
+  {
+    frames: 75,
+    enter: 'cut',
+    content: 'still',
+    zoom: 0,
+    pan: [0, 0],
+    scale: 3.2,
+    eased: [1 / 3.2, 1.6],
+    texture: 'prints',
+  },
+  { frames: 40, enter: 'cut', content: 'still', zoom: 3.2, pan: [0, 0], label: true, spot: true },
+  { frames: 30, enter: 'cut', content: 'still', zoom: 0, pan: [0, 0] },
 ]
 
 /** Each shot's truth: its cut (the first frame it shows), its transition (the frames from the cut
@@ -66,6 +117,10 @@ export type Truth = {
   end: number
   transition: [number, number] | null
   dissolve: boolean
+  /** Only a card changes over a picture that goes on. */
+  overlay: boolean
+  /** A spotlight closes in on a dark picture under a label. */
+  spot: boolean
   content: Content
   zoom: number
   pan: [number, number]
@@ -74,7 +129,15 @@ export type Truth = {
 const ease = (p: number) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, p)))
 /** The picture's scale t seconds into its shot. */
 const scaleAt = (p: Plan, t: number) =>
-  p.eased ? p.eased[0] ** ease(t / p.eased[1]) : (p.scale ?? 1) * (1 + p.zoom / 100) ** t
+  (p.scale ?? 1) * (p.eased ? p.eased[0] ** ease(t / p.eased[1]) : (1 + p.zoom / 100) ** t)
+/** The picture's time: seconds since its shot began (or the shot it goes on from), at 36 fps
+ * where frames are dropped. */
+const timeOf = (p: Plan, f: number, cut: number) =>
+  p.drop ? Math.floor(((f - cut) * 36) / FPS) / 36 : (f - cut) / FPS
+
+/** The shot whose picture each shot shows: its own, or the one it goes on from. */
+const BASE: number[] = []
+for (const [k, p] of PLAN.entries()) BASE.push(p.continues ? (BASE[k - 1] as number) : k)
 
 let at = 0
 export const SHOTS: Truth[] = PLAN.map((p) => {
@@ -91,9 +154,22 @@ export const SHOTS: Truth[] = PLAN.map((p) => {
           : [cut - e.flash, cut + e.flash - 1]
   // The zoom a viewer sees: from the shot's first frame to its last, over the time between them.
   const seconds = (p.frames - 1) / FPS
-  const zoom = ((scaleAt(p, seconds) / scaleAt(p, 0)) ** (1 / seconds) - 1) * 100
+  const last = timeOf(p, at - 1, cut)
+  const zoom = ((scaleAt(p, last) / scaleAt(p, 0)) ** (1 / seconds) - 1) * 100
+  const pan: [number, number] = [(p.pan[0] * last) / seconds, (p.pan[1] * last) / seconds]
   const dissolve = e !== 'cut' && 'dissolve' in e
-  return { cut, end: at, transition, dissolve, content: p.content, zoom, pan: p.pan }
+  const overlay = p.continues === true
+  return {
+    cut,
+    end: at,
+    transition,
+    dissolve,
+    overlay,
+    spot: p.spot === true,
+    content: p.content,
+    zoom,
+    pan,
+  }
 })
 export const FRAMES = at
 
@@ -118,13 +194,38 @@ const scatter = (g: CanvasRenderingContext2D, w: number, h: number, n: number, i
 
 /** Each shot's world, a new scatter in its own grade; footage's blobs drift across it, and a
  * subject crosses the subject shot, both in the world's own coordinates. */
-const WORLDS = PLAN.map((_, k) => {
+const WORLDS = PLAN.map((p, k) => {
   const world = new Canvas(W * 2, H * 2)
   const g = world.getContext('2d') as unknown as CanvasRenderingContext2D
   const hue = (k * 137) % 360
-  g.fillStyle = `hsl(${hue} 30% 12%)`
+  g.fillStyle = `hsl(${hue} 30% ${p.spot ? 5 : 12}%)`
   g.fillRect(0, 0, W * 2, H * 2)
-  scatter(g, W * 2, H * 2, 1400, `hsl(${hue} 60% 75%)`)
+  scatter(g, W * 2, H * 2, 1400, `hsl(${hue} 60% ${p.spot ? 30 : 75}%)`)
+  if (p.texture === 'field')
+    for (let i = 0; i < 9000; i++) {
+      g.strokeStyle = `hsl(${40 + rand() * 20} 60% ${20 + rand() * 60}%)`
+      const x = rand() * W * 2
+      const y = rand() * H * 2
+      g.beginPath()
+      g.moveTo(x, y)
+      g.lineTo(x + (rand() - 0.5) * 8, y - 10 - rand() * 30)
+      g.stroke()
+    }
+  if (p.texture === 'prints')
+    for (let i = 0; i < 1500; i++) {
+      const [x, y, w, h] = [rand() * W * 2, rand() * H * 2, 12 + rand() * 30, 12 + rand() * 30]
+      g.fillStyle = `hsl(${rand() * 360} ${30 + rand() * 50}% ${15 + rand() * 75}%)`
+      g.fillRect(x, y, w, h)
+      for (let j = 0; j < 3; j++) {
+        g.fillStyle = `hsl(${rand() * 360} ${30 + rand() * 50}% ${15 + rand() * 75}%)`
+        g.fillRect(
+          x + rand() * w * 0.7,
+          y + rand() * h * 0.7,
+          2 + rand() * w * 0.3,
+          2 + rand() * h * 0.3,
+        )
+      }
+    }
   const blobs = Array.from({ length: 40 }, () => ({
     x: rand() * W * 2,
     y: rand() * H * 2,
@@ -146,12 +247,23 @@ const SUBJECT = (() => {
   scatter(g, 140, 140, 120, '#fff')
   return c
 })()
+/** Two cards, each 15 % of the frame: a light ground and its own marks. */
+const CARD = [180, 108] as const
+const CARDS = ['#e8dcc8', '#c8d8e8'].map((ground, k) => {
+  const c = new Canvas(CARD[0], CARD[1])
+  const g = c.getContext('2d') as unknown as CanvasRenderingContext2D
+  g.fillStyle = ground
+  g.fillRect(0, 0, CARD[0], CARD[1])
+  scatter(g, CARD[0], CARD[1], 160, k ? '#235' : '#522')
+  return c
+})
 
 const picture = (k: number, f: number) => {
   const shot = SHOTS[k] as Truth
   const plan = PLAN[k] as Plan
-  const { world, hue, blobs } = WORLDS[k] as (typeof WORLDS)[number]
-  const t = (f - shot.cut) / FPS
+  const base = BASE[k] as number
+  const { world, hue, blobs } = WORLDS[base] as (typeof WORLDS)[number]
+  const t = timeOf(plan, f, (SHOTS[base] as Truth).cut)
   const s = scaleAt(plan, t)
   const cx = W + shot.pan[0] * W * t
   const cy = H + shot.pan[1] * W * t
@@ -172,9 +284,24 @@ const picture = (k: number, f: number) => {
     g.rotate(t)
     g.drawImage(SUBJECT as unknown as CanvasImageSource, -70, -70)
   }
+  g.setTransform(1, 0, 0, 1, 0, 0)
+  if (plan.spot) {
+    // A spotlight on a point of the picture, closing in from 0.2 s for 0.4 s while the rest goes
+    // dark.
+    const p = ease((t - 0.2) / 0.4)
+    const x = W / 2 + s * (1.2 * W - cx)
+    const y = H / 2 + s * (0.9 * H - cy)
+    const r = W * (0.9 - 0.75 * p)
+    const light = g.createRadialGradient(x, y, r * 0.5, x, y, r)
+    light.addColorStop(0, 'rgba(0,0,0,0)')
+    light.addColorStop(1, `rgba(0,0,0,${0.92 * p})`)
+    g.fillStyle = light
+    g.fillRect(0, 0, W, H)
+  }
+  if (plan.card !== undefined)
+    g.drawImage(CARDS[plan.card] as unknown as CanvasImageSource, W * 0.55, H * 0.45)
   if (plan.label) {
     // A credit line of words, as films lay one over a still.
-    g.setTransform(1, 0, 0, 1, 0, 0)
     g.fillStyle = '#fff'
     for (let i = 0, x = 12; i < 14; i++, x += 14 + ((i * 7) % 13))
       g.fillRect(x, 14, 10 + ((i * 5) % 9), 9)
@@ -198,7 +325,8 @@ export const render = (time: number): Uint8ClampedArray => {
     enter && enter !== 'cut' && 'dissolve' in enter && f < shot.cut + enter.dissolve
   // While a dissolve runs, the old shot, still moving, under the new one coming in.
   if (dissolving) g.drawImage(picture(k - 1, f) as unknown as CanvasImageSource, 0, 0)
-  g.globalAlpha = dissolving ? (f - shot.cut + 1) / (enter.dissolve + 1) : 1
+  const p = dissolving ? (f - shot.cut + 1) / (enter.dissolve + 1) : 1
+  g.globalAlpha = dissolving && enter.eased ? ease(p) : p
   g.drawImage(picture(k, f) as unknown as CanvasImageSource, 0, 0)
   g.globalAlpha = 1
   const fill = (colour: string, alpha: number) => {

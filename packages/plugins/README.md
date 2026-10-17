@@ -51,7 +51,7 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `render-three-host` | component | three.js WebGPURenderer on host.gpu, deterministic, the frame as a GPU texture layer | product-studio's plumbing (no look) |
 | `review-av-timeline` | component | the sound as pictures and the picture's change per frame on one timeline; picture-to-sound offsets in ms | opening film's review method |
 | `review-picture-reuse` | component | the shots of a video that show a picture already seen, a crop, zoom or pan counting, as analysis data from `review-shots`' shots; ORB and a RANSAC homography in OpenCV | the taste-to-plugins film's no-repeated-pictures check |
-| `review-shots` | component | any video measured shot by shot as analysis data (cuts, camera move, levels, colour), with contact sheets; PySceneDetect and OpenCV | the taste-to-plugins film's reference measurements |
+| `review-shots` | component | any video measured shot by shot as analysis data (cuts, dissolves included, camera move, levels, colour), with contact sheets; PySceneDetect, TransNet V2 (in numpy) and OpenCV | the taste-to-plugins film's reference measurements |
 | `text-code-wall` | component | the project's own source as a scrolling, glitching wall under a claim | opening film |
 | `text-feature-captions` | component | big captions that swap through ASCII noise, in four layouts | opening film |
 | `text-glyph-morph` | component | one glyph outline or word morphing into another, letter by letter or whole: contours resampled and paired, holes grown from points | the font previews' morph, made its own plugin |
