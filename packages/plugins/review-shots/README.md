@@ -50,9 +50,18 @@ or 0.5 or more as one of its frames.
   it: when the picture 3 frames before it carries a third of its points onto the picture 3 frames
   after it, brightness and contrast evened out locally first, it is something laid over the picture
   or lit on it, not a new shot.
+- A part of the picture replaced while the rest goes on, as a card swapped over footage that keeps
+  playing, is a cut too: neither the detectors nor TransNet V2 see it. Each frame is cut into
+  12 × 9 tiles and each tile compared with the frame 8 back, the move between them taken out. A
+  block of tiles (2 × 2 or more, and 8 or more: 7 % of the frame) that changes there while it holds
+  still on either side is a new shot when it dissolves (3 or more of the frames on its way are a
+  blend of the pictures either side) or when it swaps at once, from one frame to the next, where
+  TransNet V2 sees a transition. Text changing over the picture is too thin to make a block, a
+  spotlight lights rather than blends, and a card that pops or slides in is neither.
 - A transition is one cut. Each detector's cut then moves to the frame near it where the picture
   stops going on, so a flash or a dip is one cut, and two cuts closer than `--min-shot` seconds
-  (0.13: a 4-frame shot stays) are one.
+  (0.13: a 4-frame shot stays) are one. Black from a cut to the end of the video is the film
+  ending, not a shot.
 
 So a hard cut is on its frame, and a dissolve's cut is in its middle: the shot before it ends there.
 
@@ -70,14 +79,12 @@ the taste-to-plugins film) run 0.7 % a second, so a push starts at 0.3.
 **Measured against ground truth.** It is made for hard cuts, dissolves, dips and flashes, the
 direction of a pan or tilt and the zoom rate, and finds no cut in fast footage. Not measured
 reliably:
-- a change over a picture that goes on is not a cut: a card swapped over footage that keeps playing
-  (about 15 % of the frame) is not found, nor a dissolve to the same picture under a new title;
-- something laid over the picture or lit on it as fast as a cut can still read as one: a spotlight
-  switching on, a fade to black at the very end;
+- a dissolve to the same picture under a new title is not a cut to it: the picture goes on;
+- a spotlight switching on over a card as fast as a cut can still read as one;
 - a push on a dark picture while a spotlight closes in under a still label reads too slow (0.9 for
   3.2 % a second): the label takes the tracked points once the picture is dim.
 
-The test makes a 40 s film from a seed whose every frame is known:
+The test makes a 51 s film from a seed whose every frame is known:
 - hard cuts, three 4-frame shots, a flash, a dip and a 1 s dissolve between stills;
 - eased dissolves of 0.4 and 0.8 s over moving content, one into a still, and a card swapped over
   footage that keeps playing;
@@ -86,40 +93,48 @@ The test makes a 40 s film from a seed whose every frame is known:
   a subject crossing a still frame;
 - the cases that used to read as cuts: a push over dense footage that drops every sixth frame (as
   footage made at 30 fps shown at 25 does), a fast eased pull out over a wall of prints, and a push
-  on a dark still while a spotlight closes in under a label.
+  on a dark still while a spotlight closes in under a label;
+- cards over a soft picture that keeps playing, as films show an artwork, one crossfaded to the
+  next and one swapped at once; a spotlight switching on over a card; a dissolve between two
+  pictures of low contrast; and a fade to black at the end.
 
 | Measure | Pass | Measured |
 |---|---|---|
-| Cuts | precision and recall ≥ 98 %, a hard cut on its frame | all 25 but the card swap's, none extra; every hard cut on its frame |
-| Flash, dip and dissolves | inside the transition ±1 frame, never two cuts | one cut each, inside; the card swap missed, never two |
-| Zoom rate (shots of 1 s or more) | error ≤ 0.2 % a second | 22 of 23, largest error 0.10 (−37.50 for the fast pull's −37.60); the spotlight push reads 0.90 for 3.20 |
+| Cuts | precision and recall ≥ 98 %, a hard cut on its frame | all 33, none extra; every hard cut on its frame, the card swapped at once too |
+| Flash, dip and dissolves | inside the transition ±1 frame, never two cuts | one cut each, inside, the three cards crossfaded over a picture that goes on and the low-contrast dissolve too |
+| Zoom rate (shots of 1 s or more) | error ≤ 0.2 % a second | 30 of 31, largest error 0.14 (a card's shot, −0.14 for 0); the spotlight push reads 0.90 for 3.20 |
 | Pan and tilt direction | ≥ 95 % | 5 of 5 |
 | Subject moving in a still frame | no move | 0.00 % a second, `static` |
 
 On a real film (a 267 s explainer of hard cuts, 0.4 s eased dissolves, art plates with eased
-pushes and footage, measured against its edit data), before TransNet V2 and with it:
+pushes and footage, measured against its edit data), before TransNet V2, with it, and with the
+replaced blocks and the end:
 
-| Measure | Detectors alone | With TransNet V2 |
-|---|---|---|
-| Hard cuts | 73 of 74, all on their frame | 73 of 74, all on their frame |
-| Dissolves | 3 of 29 | 26 of 29 |
-| False cuts | 12 of 90, 6 in a fast dolly shot, 2 in a fast pull | 2 of 103 (a spotlight on a card, the end fade) |
-| Cuts overall | precision 86.7 %, recall 73.8 % | precision 98.1 %, recall 96.1 % |
-| Zoom rate, each shot with a known zoom cut out alone | 28 of 30 within 0.2 % a second | 29 of 30 |
-| Zoom rate on the film as cut, each shot of 1 s or more against the truth over its frames | 13 of 23 | 22 of 32 |
-| Pan and tilt direction | 4 of 4 | 13 of 13 |
+| Measure | Detectors alone | With TransNet V2 | And blocks, the end |
+|---|---|---|---|
+| Hard cuts | 73 of 74, all on their frame | 73 of 74, all on their frame | 73 of 74, all on their frame |
+| Dissolves | 3 of 29 | 26 of 29 | 28 of 29 |
+| False cuts | 12 of 90, 6 in a fast dolly shot, 2 in a fast pull | 2 of 103 (a spotlight on a card, the end fade) | 1 of 104 (the spotlight on a card) |
+| Cuts overall | precision 86.7 %, recall 73.8 % | precision 98.1 %, recall 96.1 % | precision 99.0 %, recall 98.1 % |
+| Zoom rate, each shot with a known zoom cut out alone | 28 of 30 within 0.2 % a second | 29 of 30 | 29 of 30 |
+| Zoom rate on the film as cut, each shot of 1 s or more against the truth over its frames | 13 of 23 | 22 of 32 | 22 of 32 |
+| Pan and tilt direction | 4 of 4 | 13 of 13 | 13 of 13 |
 
 The settings were chosen on the test film and the first half of the real film; its second half
-(12 dissolves, a fast dolly, a fast pull) reads recall 100 % and precision 97.8 % (before: 73.3 %
-and 78.6 %). The dissolves missed: one TransNet V2 gives 0.09, and two across which the picture
-goes on (a card swapped over footage, the same picture under a title). Cut out alone, the zoom
-miss is the spotlight push above (−0.6 for 3.2). On the film as cut, most misses are shots that
-run on into a missed transition or the end fade, and so read two pictures.
+(12 dissolves, a fast dolly, a fast pull, a map that crossfades inside its zoom, the end fade)
+reads recall 100 % and precision 100 % (detectors alone: 73.3 % and 78.6 %; with TransNet V2:
+100 % and 97.8 %). The two cards crossfaded over footage are found as blocks; the one miss left is
+the dissolve to the same picture under a title, and the one false cut a spotlight switching on
+over a card. The hard cut missed is 7 frames of black after a 2-frame flash. Cut out alone, the
+zoom miss is the spotlight push above (−0.6 for 3.2). On the film as cut, the misses are shots
+that measure frames of a dissolve or a fade (the shot after a dissolve, the fades from and to
+black), the shot that runs on into the title, and the spotlight push.
 
 Run it from the project root, on a video inside the project. It refuses a folder that holds
-another video's shots, and clears the old sheets before it writes. It decodes the video twice and
-runs TransNet V2 in numpy, all on the CPU: on a 10-core i5-14400F the 267 s film above takes 190 s, about
-43 s a minute of video (TransNet V2 is about 20 of them; 23 s a minute without it).
+another video's shots, and clears the old sheets before it writes. It decodes the video twice
+(and reads again the middle frames of shots a block made, for the sheets) and runs TransNet V2 in
+numpy, all on the CPU: on a 10-core i5-14400F the 267 s film above takes 210 s, about 47 s a
+minute of video (TransNet V2 is about 20 of them, the blocks and the reading again about 4).
 
 Needs Python 3.10+ with PySceneDetect 0.7 or later, which brings OpenCV:
 `pip install "scenedetect>=0.7" numpy`.

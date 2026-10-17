@@ -358,8 +358,75 @@ def usable(m):
     return m is not None and m[3] >= 1 / 3
 
 
+# A part of the picture replaced while the rest goes on, as a card swapped over footage that keeps
+# playing, which neither the detectors nor TransNet V2 see. Each frame is cut into 12 x 9 tiles (at
+# 192 x 108) and each tile compared with the frame HOP back, the move between them taken out: a tile
+# steps where it is unlike that frame while each holds still over the HOP frames on its side. A block
+# of stepped tiles (2 x 2 or more and 8 or more: 7 % of the frame) is a new shot when it dissolves:
+# 3 or more of the frames on its way are a blend of the frames either side of it (to 4 % of its
+# change). Or when it swaps at once, from one frame to the next, a still picture either side, where
+# TransNet V2 sees a transition: a card or panel popped in over the picture swaps at once too. Text
+# changing over the picture is too thin to make a block, a spotlight lights rather than blends, and
+# something that pops in or slides in is neither a blend nor still on its way.
+TW, TH, TX, TY = 192, 108, 12, 9
+
+
+def tiles(x):
+    return x.reshape(TY, TH // TY, TX, TW // TX).swapaxes(1, 2).reshape(TY, TX, -1)
+
+
+def ncc(a, b):
+    a, b = a - a.mean(-1, keepdims=True), b - b.mean(-1, keepdims=True)
+    return (a * b).sum(-1) / (np.sqrt((a * a).sum(-1) * (b * b).sum(-1)) + 1e-3)
+
+
+def detail(g):
+    return tiles(np.hypot(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))).mean(-1)
+
+
+def carry(a, b):
+    """The similarity carrying frame a onto frame b at the tiles' size, chained from the hops and
+    steps (where the flow lost the picture, none)."""
+    scale, dx, dy, j = 0.0, 0.0, 0.0, b
+    while j > a:
+        m, back = (hops[j], HOP) if j - HOP >= a and usable(hops[j]) else (steps[j], 1)
+        if usable(m):
+            dx, dy, scale = dx + np.exp(scale) * m[1], dy + np.exp(scale) * m[2], scale + m[0]
+        j -= back
+    s = np.exp(scale)
+    return np.array([[s, 0, (1 - s) * TW / 2 + dx * TW], [0, s, (1 - s) * TH / 2 + dy * TW]], np.float32)
+
+
+def swapped(t, frames):
+    """The cut a block of the picture stepping at frame t makes (frames: t - HOP - 2 to t + 2), and
+    whether it dissolves or swaps at once; None if neither."""
+    step = (same[t] < 0.5) & (same[t - HOP] > 0.8) & (same[t + HOP] > 0.8)
+    if step.sum() < 8:
+        return None
+    count, label, stats, _ = cv2.connectedComponentsWithStats(step.astype(np.uint8), connectivity=4)
+    blocks = [(weight[t][label == j].sum(), j) for j in range(1, count) if stats[j, cv2.CC_STAT_WIDTH] >= 2
+              and stats[j, cv2.CC_STAT_HEIGHT] >= 2 and stats[j, cv2.CC_STAT_AREA] >= 8]
+    if not blocks:
+        return None
+    block = label == max(blocks)[1]
+    px = np.array([tiles(f)[block].ravel() for f in frames])
+    change = px[-1] - px[0]
+    size = (change * change).sum() + 1e-6
+    way = (px - px[0]) @ change / size
+    off = ((px - px[0] - way[:, None] * change) ** 2).sum(1) / size
+    blend = (way >= 0.15) & (way <= 0.85)
+    if (off[blend] < 0.04).sum() >= 3:
+        return t - HOP - 2 + int(np.argmax(way >= 0.5)), 'dissolve'
+    jump = np.nonzero((way[1:] >= 0.85) & (way[:-1] <= 0.15))[0]
+    if len(jump) == 1 and (off < 0.04).all():
+        return t - HOP - 1 + int(jump[0]), 'swap'
+    return None
+
+
 times, levels, steps, hops, thumbs, around_grey = [], [], [], [], {}, {}
 recent = deque(maxlen=HOP)  # the last HOP frames' greys and points
+same, weight, parts = [], [], {}  # each frame's tiles against the frame HOP back; the blocks found
+tiny = deque(maxlen=2 * HOP + 3)  # the last frames at the tiles' size
 while True:
     ok, frame = cap.read()
     if not ok:
@@ -378,17 +445,34 @@ while True:
     if len(times) - 1 in middles:
         thumbs[len(times) - 1] = small
     recent.append((grey, cv2.goodFeaturesToTrack(grey, 400, 0.01, 8)))
+    i = len(times) - 1
+    tile = cv2.resize(grey, (TW, TH), interpolation=cv2.INTER_AREA).astype(np.float32)
+    if i >= HOP:
+        back = cv2.warpAffine(tile, cv2.invertAffineTransform(carry(i - HOP, i)), (TW, TH),
+                              flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+        same.append(ncc(tiles(tiny[-HOP]), tiles(back)))
+        weight.append(np.minimum(detail(tiny[-HOP]), detail(back)))
+    else:
+        same.append(np.ones((TY, TX)))
+        weight.append(np.zeros((TY, TX)))
+    tiny.append(tile)
+    if i >= 3 * HOP:
+        part = swapped(i - HOP, list(tiny)[:-HOP + 2])
+        if part:
+            parts.setdefault(*part)
 n = len(times)
 if n == 0:
     sys.exit(f'{args.video}: no frames could be read')
 step = float(np.median(np.diff(times))) if n > 1 else 1 / (cap.get(cv2.CAP_PROP_FPS) or 30)
 times.append(times[-1] + step)
 # A weak cut stands where the picture stops going on within 2 frames of it (under a third of the
-# points carried), a model's cut where it does not go on across. Each detector's cut moves to the frame within 2 of it where the picture stops
-# going on (the fewest points carried, the nearest on a tie): a flash is found at its edges. Then
-# two cuts closer than the shortest shot are one.
+# points carried), a model's cut where it does not go on across. Each detector's cut moves to the
+# frame within 2 of it where the picture stops going on (the fewest points carried, the nearest on a
+# tie): a flash is found at its edges. A block of the picture replaced is a cut where no other cut
+# is within HOP frames of it. Then two cuts closer than the shortest shot are one, and black from a
+# cut to the video's end (98 % of the frame at most 16 of 255) is the film ending, not a shot.
 carried = lambda i: steps[i][3] if i < n and steps[i] else 0
-cuts = []
+kept = []
 for c in candidates:
     near = range(max(1, c - 2), min(n, c + 3))
     if c in weak and min(map(carried, near), default=0) >= 1 / 3:
@@ -397,10 +481,28 @@ for c in candidates:
         continue
     if c not in gradual:
         c = min(near, key=lambda i: (carried(i), abs(i - c)))
+    kept.append(c)
+for c, how in sorted(parts.items()):
+    seen = how == 'dissolve' or any(r[0] <= c + 1 and r[1] >= c - 3 for r in runs)
+    if seen and all(abs(c - k) > HOP for k in kept):
+        kept.append(c)
+cuts = []
+for c in sorted(kept):
     if c - (cuts[-1] if cuts else 0) >= shortest:
         cuts.append(c)
-bounds = [0] + cuts + [n]
 levels = np.array(levels)
+if cuts and (levels[cuts[-1]:, 1] <= 16).all():
+    cuts.pop()
+bounds = [0] + cuts + [n]
+# A shot a block of the picture made has its middle frame read again, for the sheets.
+missing = {(a + b) // 2 for a, b in zip(bounds, bounds[1:])} - set(thumbs)
+if missing:
+    cap = cv2.VideoCapture(args.video)
+    for i in range(max(missing) + 1):
+        if not cap.grab():
+            break
+        if i in missing:
+            thumbs[i] = cv2.resize(cap.retrieve()[1], (w, h), interpolation=cv2.INTER_AREA)
 
 # Each shot's move: the transforms from its first frame to its last, chained back from the last in
 # hops of HOP frames (in single frames where a hop lost the picture, carrying under a third of its
