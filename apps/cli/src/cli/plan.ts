@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { makePlan } from '../deliver/chunks.ts'
+import { inputOf, makePlan } from '../deliver/chunks.ts'
 import { findProject } from '../node/project.ts'
-import { openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
+import { openJob, readJob } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 
 /**
@@ -27,17 +27,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (!(Number.isInteger(count) && count >= 1))
     throw new Error('--chunks is a whole number from 1.')
   const { child } = await openJob(root, job, childOptions(v))
-  let input: 'yuv420p' | 'rgba' | 'rgba64'
+  let input: ReturnType<typeof inputOf>
   try {
     // The frames every chunk's host must hand over: what the final encoder reads.
-    input =
-      videoOptionsOf(job.delivery).codec === 'h264'
-        ? child.has.yuv
-          ? 'yuv420p'
-          : 'rgba'
-        : child.has.deep
-          ? 'rgba64'
-          : 'rgba'
+    input = inputOf(job, child)
   } finally {
     await child.close()
   }

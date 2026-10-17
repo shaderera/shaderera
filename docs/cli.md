@@ -199,6 +199,7 @@ its files with their job's revision too.
 | `--progress` | off: the progress line goes only to a terminal; on, also to a pipe |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
+| `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:
@@ -263,6 +264,21 @@ Exit 1 when any output fails, after rendering the rest. See [delivery.md](delive
 --chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
 [--mixed-hosts] [--no-audio] [--loudness=LUFS]`: the same file as one `render --job`. See
 [delivery.md](delivery.md#rendering-a-job-on-several-machines).
+
+After a small edit, `shaderera render --job <new> --reuse <earlier plan> --changed <from>-<to>[,…]
+[--fix] [--plan dir]` writes a plan of the new job (by default `out/<new>.plan`) that renders only
+the changed spans, in seconds, and takes every other frame from the earlier plan's chunks; then
+`assemble --plan <dir>` as usual. Before rendering, it renders a sample of the reused frames again
+and compares them with the earlier ones, and refuses a frame that differs, naming it and its span.
+`--fix` renders around such a frame instead. See
+[delivery.md](delivery.md#re-rendering-only-what-an-edit-changed).
+
+```
+$ shaderera render --job b5 --reuse out/a5.plan --changed 330-331
+chunk 1: 25 frames from 330 s in 3.2 s
+/path/to/project/out/b5.plan/plan.json: 25 frames rendered, 7475 reused from /path/to/project/out/a5.plan; 34 reused frames rendered again matched
+then: npx shaderera assemble --plan /path/to/project/out/b5.plan
+```
 
 ## `handoff`
 
