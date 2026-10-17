@@ -12,6 +12,12 @@ A folder with a `shaderera.json` and the film's code. It is the whole film: ther
 file that describes it.
 _Avoid_: scene, template
 
+**Template**:
+On shaderera.com only, a published film whose declared params a viewer may change in the browser.
+Its source is one click away. It is not a kind of project: `shaderera fork` turns it into an
+ordinary one ([0019](docs/adr/0019-templates-on-shaderera-com.md)).
+_Avoid_: starter, preset, treatment
+
 **render(t)**:
 The one function every film has: it takes a time in seconds and returns the frame at that time.
 The same `t` always gives the same frame.

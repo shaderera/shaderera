@@ -28,5 +28,7 @@ One file per decision, in the order they were made.
   finding them, not a skill.
 - [0018](0018-hearing-with-clap.md): hearing with CLAP in Node, and `audio-listen` built
   before a film proved it.
+- [0019](0019-templates-on-shaderera-com.md): templates on shaderera.com, each showing its source,
+  while the engine stays for experts; forking is a command of the one CLI.
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
