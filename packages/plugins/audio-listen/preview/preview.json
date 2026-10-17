@@ -1,0 +1,12 @@
+{
+  "caption": "Finds the takes in a recording that match a description, and places each so its loudest moment lands on the hit.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": true,
+  "poster": 3.2
+}

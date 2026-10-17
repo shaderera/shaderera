@@ -1,0 +1,107 @@
+{
+  "format": "shaderera.analysis/1",
+  "kind": "sound-trims",
+  "source": {
+    "path": "audio/listen.wav",
+    "bytes": 576044,
+    "sha256": "dc9150ea408e0773f05d047f62577c36aec5b2d5ca236ccb7be5ae6d0708e05a",
+    "seconds": 6
+  },
+  "tool": {
+    "script": "tools/listen.ts",
+    "model": {
+      "id": "Xenova/larger_clap_general",
+      "revision": "d78c3994912c441f0151a5cc44d86f6b7bf4c861",
+      "from": "laion/larger_clap_general",
+      "licence": "Apache-2.0"
+    },
+    "transformers": "4.3.1",
+    "ffmpeg": "ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers"
+  },
+  "params": {
+    "query": "a whoosh",
+    "top": 7,
+    "kind": "event",
+    "win": 2,
+    "not": []
+  },
+  "trims": [
+    {
+      "id": "take-1",
+      "start": 3.95,
+      "end": 4.855,
+      "peak": 4.365,
+      "cosine": 0.243,
+      "rank": 1,
+      "z": 2.67,
+      "heardAs": "a whoosh",
+      "kind": "stroke"
+    },
+    {
+      "id": "take-2",
+      "start": 0.25,
+      "end": 0.89,
+      "peak": 0.574,
+      "cosine": 0.239,
+      "rank": 1,
+      "z": 2.45,
+      "heardAs": "a whoosh",
+      "kind": "stroke"
+    },
+    {
+      "id": "take-3",
+      "start": 1.745,
+      "end": 2.27,
+      "peak": 1.965,
+      "cosine": 0.235,
+      "rank": 2,
+      "z": 2.41,
+      "heardAs": "wind",
+      "kind": "stroke"
+    },
+    {
+      "id": "take-4",
+      "start": 5.295,
+      "end": 5.425,
+      "peak": 5.303,
+      "cosine": 0.081,
+      "rank": 8,
+      "z": 0.83,
+      "heardAs": "a drum hit",
+      "kind": "stroke"
+    },
+    {
+      "id": "take-5",
+      "start": 1.295,
+      "end": 1.32,
+      "peak": 1.303,
+      "cosine": 0.075,
+      "rank": 11,
+      "z": 0.27,
+      "heardAs": "a mechanical keyboard key press",
+      "kind": "stroke"
+    },
+    {
+      "id": "take-6",
+      "start": 2.795,
+      "end": 3.055,
+      "peak": 2.808,
+      "cosine": -0.017,
+      "rank": 34,
+      "z": -0.56,
+      "heardAs": "an electronic beep",
+      "kind": "stroke"
+    },
+    {
+      "id": "take-7",
+      "start": 3.395,
+      "end": 3.645,
+      "peak": 3.404,
+      "cosine": -0.09,
+      "rank": 28,
+      "z": -0.32,
+      "heardAs": "a drum hit",
+      "kind": "stroke"
+    }
+  ]
+}

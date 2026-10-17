@@ -107,12 +107,15 @@ export const envelope = (mono: Float32Array, rate: number) => {
 /**
  * One stroke per onset: from 5 ms before the level jumps (12 dB within 50 ms and 6 dB within
  * 10 ms, 20 dB over the recording's floor) until it has decayed 35 dB below its peak, the next
- * onset, or 2 s. The 10 ms jump keeps a sound that fades in from being heard as two.
+ * onset, or 2 s. Inside a stroke, the next onset needs the level to have fallen 15 dB below the
+ * stroke's peak, or to jump 12 dB over it: a swell of noise wobbles, and is still one sound.
  */
 export const strokesOf = (mono: Float32Array, rate: number) => {
   const env = envelope(mono, rate)
   const floor = [...env].sort((a, b) => a - b)[Math.floor(env.length * 0.1)] ?? -120
   const onsets: number[] = []
+  let loudest = Number.NEGATIVE_INFINITY
+  let fell = true
   for (let f = 1; f < env.length; f++) {
     const level = env[f] ?? -120
     let low = level
@@ -123,9 +126,15 @@ export const strokesOf = (mono: Float32Array, rate: number) => {
       level >= floor + 20 &&
       level - low >= 12 &&
       level - recent >= 6 &&
-      (last === undefined || f - last >= 10)
-    )
+      (last === undefined || f - last >= 10) &&
+      (fell || level >= loudest + 12)
+    ) {
       onsets.push(f)
+      loudest = level
+      fell = false
+    }
+    loudest = Math.max(loudest, level)
+    if (level <= loudest - 15) fell = true
   }
   const cap = Math.round(2 / FRAME)
   return onsets.map((f, i) => {

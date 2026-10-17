@@ -15,6 +15,7 @@
           "asset-provenance",
           "audio-beat-clock",
           "audio-hall-ending",
+          "audio-listen",
           "audio-voice-repace",
           "camera-ken-burns",
           "camera-keyframes",
@@ -93,6 +94,13 @@
       "label": "audio-hall-ending",
       "params": {
         "item": "audio-hall-ending",
+        "state": "default"
+      }
+    },
+    "audio-listen": {
+      "label": "audio-listen",
+      "params": {
+        "item": "audio-listen",
         "state": "default"
       }
     },

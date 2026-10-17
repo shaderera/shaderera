@@ -67,6 +67,18 @@ test("audio-listen: a stroke per onset, and a take's peak is the centre of its l
     return t < 0 || t > 0.4 ? 0 : 0.3 * Math.min(1, t / 0.02) * ((seed / 2147483647) * 2 - 1)
   })
   assert.equal(strokesOf(noise, RATE).length, 1)
+  // Nor is a narrow noise that swells for 300 ms, wobbling as it rises (a whoosh).
+  let y1 = 0
+  let y2 = 0
+  const swell = Float32Array.from({ length: RATE }, (_, i) => {
+    seed = (seed * 16807) % 2147483647
+    const t = i / RATE - 0.2
+    const y = 0.02 * ((seed / 2147483647) * 2 - 1) + 1.96 * y1 - 0.98 * y2
+    y2 = y1
+    y1 = y
+    return t < 0 || t > 0.6 ? 0 : 0.05 * Math.min(1, (t / 0.3) ** 2, (0.6 - t) / 0.1) * y
+  })
+  assert.equal(strokesOf(swell, RATE).length, 1)
   assert.deepEqual(
     windowsOf(3, 1).map((w) => w.start),
     [0, 0.5, 1, 1.5, 2],
