@@ -199,6 +199,20 @@ The apparent zoom and pan of the whole frame, as the viewer sees it, whoever mad
 push on a still or the camera in a clip. Things moving inside the frame are not a move.
 _Avoid_: camera motion, Ken Burns (one way to make a move)
 
+**Onset**:
+Where a sound starts, as measured in the file that plays.
+_Avoid_: hit (in `audio-beat-clock`, a strong onset), attack
+
+**Hit point**:
+A time in the film where a sound must land, declared by the film's code. A sound is in sync when
+it lands on its hit point.
+_Avoid_: cue (a timed line of text, in `text-timed-cues`), sync point, hit
+
+**Trim**:
+A stretch of a sound file that a clip plays (its `from` and `to`), as one take.
+_Avoid_: region (an area of an image), slice, segment (the part of a source a provenance record
+names)
+
 **Provenance record**:
 Where one file from outside the project came from (`shaderera.provenance/1`): its source page,
 licence, author, the segment used, the credit shown on screen and the file's sha256. Written
