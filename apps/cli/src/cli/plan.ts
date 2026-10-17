@@ -27,9 +27,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (!(Number.isInteger(count) && count >= 1))
     throw new Error('--chunks is a whole number from 1.')
   const { child } = await openJob(root, job, childOptions(v))
-  // The frames every chunk's host must hand over: what the final encoder reads.
-  const input = inputOf(job, child)
-  await child.close()
+  let input: ReturnType<typeof inputOf>
+  try {
+    // The frames every chunk's host must hand over: what the final encoder reads.
+    input = inputOf(job, child)
+  } finally {
+    await child.close()
+  }
   const plan = makePlan(job, input, count)
   const dir = typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', `${job.name}.plan`)
   mkdirSync(dir, { recursive: true })
