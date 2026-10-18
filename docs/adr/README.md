@@ -30,5 +30,7 @@ One file per decision, in the order they were made.
   before a film proved it.
 - [0019](0019-templates-on-shaderera-com.md): templates on shaderera.com, each showing its source,
   while the engine stays for experts; forking is a command of the one CLI.
+- [0020](0020-films-not-templates.md): films, not templates, on shaderera.com; a forkable film
+  is one shared with its source (amends 0019).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.

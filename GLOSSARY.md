@@ -12,11 +12,10 @@ A folder with a `shaderera.json` and the film's code. It is the whole film: ther
 file that describes it.
 _Avoid_: scene, template
 
-**Template**:
-On shaderera.com only, a published film whose declared params a viewer may change in the browser.
-Its source is one click away. It is not a kind of project: `shaderera fork` turns it into an
-ordinary one ([0019](docs/adr/0019-templates-on-shaderera-com.md)).
-_Avoid_: starter, preset, treatment
+**Forkable film**:
+A film on shaderera.com whose source was shared with it, so its page shows the code and anyone
+can fork it into an ordinary project ([0020](docs/adr/0020-films-not-templates.md)).
+_Avoid_: template, starter, preset, open film
 
 **Share** and **fork**:
 `shaderera share` sends a project's files, as a revision holds them, and its web player to
