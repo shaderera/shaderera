@@ -1,5 +1,7 @@
 # 0019: Templates on shaderera.com, and one CLI to fork
 
+> Amended by [0020](0020-films-not-templates.md): the site lists films, not templates.
+
 2026-10-18. Owner accepted.
 
 **Context.** [0011](0011-experts-and-agents-no-taste-lock.md) made Shaderera for experts and their
