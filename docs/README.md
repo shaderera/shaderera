@@ -23,6 +23,8 @@ These ship in the `shaderera` package, so an installed project reads them in
 - [delivery.md](delivery.md): mp4, ProRes, stems, captions, PNG + WAV, batches, placements,
   broadcast, several machines, handoffs.
 - [analysis.md](analysis.md): footage and sound as frozen data a film reacts to.
+- [player.md](player.md): the web player `share` builds, how a site serves and frames it, and its
+  bridge's messages.
 - [api.md](api.md): what each package exports, and how stable it is.
 - [licences.md](licences.md): what the packages depend on and vendor.
 - Participants, one per technology: [Canvas2D](participants/canvas.md) ·

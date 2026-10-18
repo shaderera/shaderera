@@ -19,9 +19,9 @@ ordinary one ([0019](docs/adr/0019-templates-on-shaderera-com.md)).
 _Avoid_: starter, preset, treatment
 
 **Share** and **fork**:
-`shaderera share` sends a project's files, as a revision holds them, to shaderera.com as a new
-version of a film. `shaderera fork` copies a shared version into a new folder as an ordinary
-project.
+`shaderera share` sends a project's files, as a revision holds them, and its web player to
+shaderera.com as a new version of a film. `shaderera fork` copies a shared version's files into a
+new folder as an ordinary project.
 _Avoid_: publish (a plugin's verb), upload, deploy
 
 **Site**:
@@ -114,6 +114,12 @@ _Avoid_: runtime, engine
 
 **Runner**:
 The browser host's page and server: the project's own Vite, where the source runs in a Worker.
+
+**Web player**:
+The runner built as static files for one film, with what the CLI's process would answer (video
+proxies, bake frames) made ahead. `share` builds it on the sender's machine; a site serves it in a
+sandboxed frame. See docs/player.md.
+_Avoid_: player build (the step, not the thing), bundle
 
 **Execution boundary**:
 What keeps project code away from the tools' own powers (Node's permission model, Chrome's CSP).

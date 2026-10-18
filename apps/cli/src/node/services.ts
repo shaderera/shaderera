@@ -19,10 +19,13 @@ export type ServiceRequest =
   | { op: 'bake-open'; name: string }
   | { op: 'bake-frame'; name: string; index: number }
 
-type VideoInfo = { width: number; height: number; fps: number; frames: number }
+export type VideoInfo = { width: number; height: number; fps: number; frames: number }
 
-/** Decodes one file's frames in order with ffmpeg; a frame before the last one read restarts it. */
-export const videoReader = (file: string) => {
+/**
+ * A video's first stream as `io.video` gives it: width, height, fps, and the frames counted from
+ * its packets (ffprobe).
+ */
+export const probeVideo = (file: string): VideoInfo => {
   const r = spawnSync(
     'ffprobe',
     [
@@ -39,16 +42,22 @@ export const videoReader = (file: string) => {
     ],
     { encoding: 'utf8' },
   )
+  if (r.error) throw new Error(`ffprobe is needed to read ${file}: ${r.error.message}`)
   if (r.status !== 0) throw new Error(`ffprobe cannot read ${file}: ${r.stderr.trim()}`)
   const s = (JSON.parse(r.stdout) as { streams: { [k: string]: string | number }[] }).streams[0]
   if (!s) throw new Error(`${file} has no video stream.`)
   const [n, d] = String(s.r_frame_rate).split('/').map(Number)
-  const info: VideoInfo = {
+  return {
     width: Number(s.width),
     height: Number(s.height),
     fps: d ? (n as number) / d : (n as number),
     frames: Number(s.nb_read_packets),
   }
+}
+
+/** Decodes one file's frames in order with ffmpeg; a frame before the last one read restarts it. */
+export const videoReader = (file: string) => {
+  const info = probeVideo(file)
   const size = info.width * info.height * 4
   let proc: ReturnType<typeof spawn> | undefined
   let next = 0

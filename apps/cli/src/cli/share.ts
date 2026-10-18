@@ -5,6 +5,7 @@ import { createInterface } from 'node:readline/promises'
 import { parseArgs } from 'node:util'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
+import { buildPlayer } from '../player/build.ts'
 import { type Files, hashFile, scan, slash } from '../project/revisions.ts'
 import { EXIT } from './findings.ts'
 import { bytesText, call, readShareNote, readToken, siteOf, writeShareNote } from './site.ts'
@@ -72,7 +73,7 @@ const confirm = async (question: string): Promise<boolean> => {
 
 /**
  * A built player's files, path → sha256: every file under `dir`, links refused. The site plays a
- * version from these; the engine does not build them yet, so `share` sends none.
+ * version from these (player/build.ts, docs/player.md).
  */
 export const playerFiles = (dir: string): Files => {
   const files: Files = {}
@@ -151,10 +152,15 @@ export const send = async (o: {
   }
 }
 
+/** Where `share` builds the player: under `.shaderera/`, which no revision holds. */
+export const playerDir = (root: string): string => join(root, '.shaderera', 'player')
+
 /**
- * `shaderera share [--to <origin>] [--film <id>] [--title <t>] [--yes] [--json]`: sends the project
- * to the site as a new film, or as a new version of the film it shared to before. It prints what
- * it will send and asks first; off a terminal (or with `--json`) it needs `--yes`.
+ * `shaderera share [--to <origin>] [--film <id>] [--title <t>] [--yes] [--json]`: builds the
+ * project's web player, then sends the project and the player to the site as a new film, or as a
+ * new version of the film it shared to before. It prints what it will send and asks first; off a
+ * terminal (or with `--json`) it needs `--yes`. A player that does not build stops it before
+ * anything is sent.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v } = parseArgs({
@@ -169,7 +175,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     },
   })
   const site = siteOf(v.to)
-  const { root } = await findProject(v.root ?? process.cwd())
+  const project = await findProject(v.root ?? process.cwd())
+  const { root } = project
   const token = readToken(site)
   if (!token)
     throw new Error(
@@ -185,8 +192,19 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const say = (line: string) => {
     if (!v.json) console.log(line)
   }
+  // The player is built for this site: only its pages may frame it and get its port.
+  const dir = playerDir(root)
+  const player = await buildPlayer(project, {
+    outDir: dir,
+    files: Object.keys(files),
+    parents: [site],
+  }).catch((e: unknown) => {
+    throw new Error(
+      `The player did not build: ${e instanceof Error ? e.message : String(e)} Nothing was sent.`,
+    )
+  })
   say(
-    `share: ${count} files, ${bytesText(bytes)}, to ${site} as ${film ? `a new version of film ${film}` : `a new film "${title}"${note.forkedFrom ? `, forked from ${note.forkedFrom.slice(0, 12)}` : ''}`} (licence ${licence})`,
+    `share: ${count} files, ${bytesText(bytes)}, and a player of ${player.files.length} files, ${bytesText(player.bytes)}, to ${site} as ${film ? `a new version of film ${film}` : `a new film "${title}"${note.forkedFrom ? `, forked from ${note.forkedFrom.slice(0, 12)}` : ''}`} (licence ${licence})`,
   )
   if (secrets.length > 0) say(`  not sent: ${secrets.join(', ')}`)
   if (!v.yes) {
@@ -213,6 +231,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     title,
     ...(film ? { film } : {}),
     ...(note.forkedFrom ? { forkedFrom: note.forkedFrom } : {}),
+    player: dir,
   })
   if (v.json)
     console.log(
@@ -225,6 +244,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           url,
           files: count,
           bytes,
+          player: { files: player.files.length, bytes: player.bytes },
           uploaded,
           notSent: secrets,
         },

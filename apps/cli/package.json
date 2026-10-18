@@ -43,6 +43,7 @@
     "fast-png": "8.0.0",
     "jpeg-js": "0.4.4",
     "magic-string": "1.4.3",
+    "mediabunny": "1.61.1",
     "minisearch": "7.2.0",
     "oxc-parser": "0.153.0",
     "wgpu-matrix": "3.4.2"
