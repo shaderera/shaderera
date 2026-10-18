@@ -278,6 +278,71 @@ test('motion-keyframes: held, eased, cut', () => {
   assert.equal(progress(5, 4, 6), 0.5)
 })
 
+test('motion-keyframes: object keys carry an id to inspect and move as tuples do', () => {
+  const tuples = track([
+    [0, 0],
+    [2, 10, glide],
+    [3, 20, hold],
+  ])
+  // A literal with an id, as the stamp builds it: `source` first.
+  const k2 = { source: 'src/a.ts:2:5', id: 'k2', at: 2, value: 10, ease: glide }
+  const objects = track([{ id: 'k1', at: 0, value: 0 }, k2, [3, 20, hold]])
+  for (let t = -1; t <= 4; t += 0.05) assert.equal(objects(t), tuples(t))
+  assert.deepEqual(objects.inspect(-1), { id: 'k1', at: 0, index: 0, u: 1 })
+  assert.deepEqual(objects.inspect(1), {
+    id: 'k2',
+    source: 'src/a.ts:2:5',
+    at: 2,
+    index: 1,
+    u: 0.5,
+  })
+  assert.deepEqual(objects.inspect(2.5), { at: 3, index: 2, u: 0.5 })
+  assert.deepEqual(objects.inspect(9), { at: 3, index: 2, u: 1 })
+  const p = track3([
+    { id: 'a', at: 0, value: [0, 0, 0] },
+    { id: 'b', at: 1, value: [2, 4, 6] },
+  ])
+  assert.deepEqual(p(0.5), [1, 2, 3])
+  assert.equal(p.inspect(0.5).id, 'b')
+})
+
+test('text-feature-captions: inspect names the caption showing and its item', () => {
+  const captions = createCaptions({
+    captions: [
+      {
+        id: 'intro',
+        from: 0,
+        to: 2,
+        items: [
+          ['ONE', 'a'],
+          ['TWO', 'b'],
+        ],
+      },
+      { from: 2, to: 3, items: [['THREE', 'c']] },
+    ],
+    fonts: { title: '"Plex Bold"', small: '"Plex"', note: '"Stix Italic"' },
+    swap: 1,
+    layouts: ['edge', 'split'],
+  })
+  assert.deepEqual(captions.inspect(-1), [])
+  assert.deepEqual(captions.inspect(1.25), [
+    {
+      id: 'intro',
+      from: 0,
+      to: 2,
+      item: 1,
+      index: 1,
+      title: 'TWO',
+      note: 'b',
+      layout: 'split',
+      u: 0.25,
+    },
+  ])
+  assert.deepEqual(captions.inspect(2.5), [
+    { from: 2, to: 3, item: 0, index: 2, title: 'THREE', note: 'c', layout: 'edge', u: 0.5 },
+  ])
+})
+
 test('camera-keyframes: the target lands in the middle, right is right, a tall frame opens the lens, the host can take over', async () => {
   const project = (m: Float32Array, p: readonly [number, number, number]) => {
     const v = [0, 1, 2, 3].map(

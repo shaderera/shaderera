@@ -41,7 +41,7 @@ const textFeatureCaptions: OpenPreview = async (host, stateId) => {
   const picture = host.io.canvas(width, PICTURE)
   const pctx = picture.getContext('2d') as OffscreenCanvasRenderingContext2D
   const captions = createCaptions({
-    captions: [{ from: -duration, to: 2 * duration, items: ITEMS }],
+    captions: [{ id: 'features', from: -duration, to: 2 * duration, items: ITEMS }],
     fonts: { title: `"${FONT.monoBold}"`, small: `"${FONT.mono}"`, note: `"${SERIF}"` },
     swap: SWAP,
     layouts,
@@ -78,7 +78,14 @@ const textFeatureCaptions: OpenPreview = async (host, stateId) => {
     inspect(t) {
       const s = state(t)
       const [title, note] = ITEMS[s.index] ?? ['', '']
-      return { id: 'caption', index: s.index, layout: s.layout, title, note }
+      return {
+        id: 'caption',
+        index: s.index,
+        layout: s.layout,
+        title,
+        note,
+        captions: captions.inspect(t),
+      }
     },
   }
 }
