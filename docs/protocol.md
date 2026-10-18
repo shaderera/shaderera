@@ -146,7 +146,8 @@ it, before any frame.
 - Project code cannot write files or run programs
   ([where it runs](determinism.md#where-project-code-runs)), so the cache, the decoder and the
   bake's frames run in the CLI's process: the Node host asks over IPC, the browser host over the
-  runner server.
+  runner server. A [web player](player.md) has no CLI behind it: its worker answers them itself,
+  from a video proxy and the bake's frames built with it, and keeps the cache in memory.
 
 ## `shaderera.json`
 

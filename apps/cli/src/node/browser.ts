@@ -31,7 +31,7 @@ export const chromePath = () =>
 type Message = { id?: number; method?: string; params?: unknown; result?: unknown; error?: unknown }
 
 /** One DevTools session over a WebSocket. */
-const session = async (
+export const session = async (
   url: string,
   closed: Promise<string>,
   timeout: { ms: number; expired: () => void },

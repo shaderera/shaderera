@@ -1,0 +1,15 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 30,
+  "duration": 1,
+  "width": 320,
+  "height": 180,
+  "bakes": {
+    "level": {
+      "command": "node tools/make.mjs",
+      "inputs": ["tools/make.mjs"],
+      "dir": "out/level",
+      "frames": "level.#.bin"
+    }
+  }
+}

@@ -91,8 +91,12 @@ let explore: Matrices | null = null
 /** While an export runs, the source must not reopen with other params. */
 let exporting = false
 
-/** Where the open source's files are served: the project, or a revision's frozen copy. */
-let base = '/'
+/**
+ * Where the open source's files are served: the project, or a revision's frozen copy. A host that
+ * built the runner into its own worker sets the project's (`configureRunner`).
+ */
+let files = '/'
+let base = files
 const url = (path: string): string => `${base}${path.replace(/^\.?\//, '')}`
 
 const read = async (path: string) => {
@@ -120,6 +124,7 @@ const service = async (op: string, query: Record<string, string>, body?: Uint8Ar
   if (!response.ok) throw new Error(await response.text())
   return response
 }
+/** The services' answers: the CLI's process, unless a host configured its own. */
 const ask: Ask = {
   cacheGet: async (hash) => {
     const r = await service('cache-get', { hash })
@@ -141,6 +146,24 @@ const ask: Ask = {
         (await service('bake-frame', { name, index: String(index) })) as Response
       ).arrayBuffer(),
     ),
+}
+
+/**
+ * The runner's host hook. A host that builds the runner into a worker of its own (the web player:
+ * player/worker.ts) calls this once, before the page connects:
+ *
+ * - `files`: where `io.read` finds the project's files, an absolute URL ending in `/`. The runner
+ *   server's root (`/`) otherwise.
+ * - `ask`: what answers `io.video`, `io.cache` and `io.bake` (the `Ask` in io.ts), in place of the
+ *   CLI's process behind the runner server.
+ *
+ * Such a runner opens its own project only, never a saved revision.
+ */
+export const configureRunner = (o: { files: string; ask: Ask }): void => {
+  if (!/^[a-z][a-z0-9+.-]*:.*\/$/i.test(o.files))
+    throw new Error(`configureRunner: files is an absolute URL ending in /, not ${o.files}.`)
+  files = base = o.files
+  Object.assign(ask, o.ask)
 }
 
 const io: Io = {
@@ -387,7 +410,9 @@ const api = {
       if (o.revision !== undefined && !/^[0-9a-f]{16}$/.test(o.revision))
         throw new Error(`Not a revision id: ${o.revision}`)
       source?.dispose?.()
-      base = o.revision ? `/.shaderera/revisions/${o.revision}/` : '/'
+      if (o.revision !== undefined && files !== '/')
+        throw new Error('This runner opens its own project, not a saved revision.')
+      base = o.revision ? `/.shaderera/revisions/${o.revision}/` : files
       const declared = checkManifest(await (await fetch(url('shaderera.json'))).json())
       const variant = withVariant(declared, o.variant)
       manifest = { ...variant.manifest, ...o.size }

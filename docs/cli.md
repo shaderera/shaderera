@@ -417,7 +417,7 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 | Command | What it does |
 |---|---|
 | `login --token <token> [--to origin]` | keeps the token for that site in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
-| `share [--film id] [--title t] [--yes] [--to origin] [--json]` | sends the project as a new film, or as a new version of the film it shared to before |
+| `share [--film id] [--title t] [--yes] [--to origin] [--json]` | builds the project's web player, and sends the project and the player as a new film, or as a new version of the film it shared to before |
 | `fork <film\|url>[@version] [dir] [--to origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
@@ -428,12 +428,16 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 - besides the files, the licence (package.json's `license`), the title of a new film and the
   version of `shaderera` that sent it.
 
-**A version is played from a built player**, which is built on the sender's machine and sent
-with the source. `shaderera` cannot build one yet: until it can, `share` sends the source only,
-and needs a site that accepts a version without a player. A site that does not answers with an
-error, which `share` prints as it is, and no version is made.
+**A version is played from its web player**, which `share` builds on your machine into
+`.shaderera/player/` and sends beside the source as `player` ([player.md](player.md)): the
+runner page and worker with the film bundled, the film's files, an H.264 proxy of each video in
+them (made with ffmpeg) and the bakes' frames. The site stores and serves it and builds nothing.
+Only the site's own pages may frame the player and get its port. A player that does not build (a
+bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the share before
+anything is sent.
 
-Before sending, it prints how many files and bytes it will send, to which site and film, and asks.
+Before sending, it prints how many files and bytes it will send, the player's, to which site and
+film, and asks.
 Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exits 2. Declining
 sends nothing and exits 1. Only the files the site does not already have are uploaded, each one
 checked against its sha256 as it is read.
@@ -449,10 +453,10 @@ checked against its sha256 as it is read.
 
 ```
 $ npx shaderera share
-share: 14 files, 2.1 MB, to https://shaderera.com as a new film "neon-rain" (licence MIT)
+share: 14 files, 2.1 MB, and a player of 31 files, 3.4 MB, to https://shaderera.com as a new film "neon-rain" (licence MIT)
   not sent: .env
 Send? [y/N] y
-shared film k3x9q2mfa7 version 3ff052ac4865: 14 of 14 files were new
+shared film k3x9q2mfa7 version 3ff052ac4865: 31 of 31 files were new
   https://shaderera.com/f/k3x9q2mfa7
 ```
 
@@ -468,7 +472,7 @@ forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 file
 ```
 
 With `--json`, `share`'s result is `site`, `film`, `created`, `version`, `url`, `files`, `bytes`,
-`uploaded` and `notSent`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
+`player` (`{ files, bytes }`), `uploaded` and `notSent`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
 `licence`, `files` and `bytes`.
 
 ## `mcp`

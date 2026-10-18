@@ -9,7 +9,8 @@ project (Windows x64). They walk `dependencies` and installed `optionalDependenc
 package's own `package.json`; on Linux the native bindings are the `linux-x64-gnu` variants of the
 same packages under the same licences. Versions move; re-run the walk before a release.
 
-**No GPL, AGPL, LGPL or unknown licence ships.**
+**No GPL, AGPL, LGPL or unknown licence ships.** One weak-copyleft package does, from 0.1.5:
+Mediabunny (MPL-2.0), below.
 
 ## `@shaderera/core`
 
@@ -44,6 +45,12 @@ Besides `@shaderera/core` 0.1.4 (MIT):
   toidentifier 1.0.1, type-is 2.1.0, unpipe 1.0.0, vary 1.1.2, wgpu-matrix 3.4.2, zod 4.6.7.
 - **BSD-3-Clause:** @webgpu/types 0.1.74, diff 8.0.4, fast-uri 3.1.8, jpeg-js 0.4.4, qs 6.16.1.
 - **Apache-2.0:** comlink 4.4.2.
+- **MPL-2.0**, from 0.1.5: mediabunny 1.61.1 (with `@types/dom-webcodecs` 0.1.13 and
+  `@types/dom-mediacapture-transform` 0.1.12, MIT, types only). It decodes video in a web player's
+  worker ([player.md](player.md)), which bundles it unmodified, its licence notice kept in each
+  of its files. MPL-2.0 is file-level: the rest of the player keeps its own licence. It adds
+  10.9 MB unpacked (290 files) to an install, and about 0.8 MB of the 0.9 MB `assets/worker.js`
+  every player carries (unminified).
 - **ISC:** inherits 2.0.4, isexe 2.0.0, once 1.4.0, setprototypeof 1.2.0, which 2.0.2, wrappy
   1.0.2, zod-to-json-schema 3.25.2.
 - **BSD-2-Clause:** json-schema-typed 8.0.2.

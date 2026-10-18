@@ -16,6 +16,30 @@ const VIRTUAL_TOKEN = '\0shaderera-token'
 
 const slashes = (path: string): string => path.replace(/\\/g, '/')
 
+/**
+ * The modules the runner imports by fixed ids (so Vite never rewrites a variable import() in it):
+ * the project's entry, its DOM (manifest.dom, or none) and the service token's module (`token` is
+ * its code).
+ */
+export const runnerModules = (
+  entryFile: string,
+  domFile: string | undefined,
+  token: string,
+): Pick<Plugin, 'resolveId' | 'load'> => ({
+  resolveId: (id) =>
+    id === ENTRY ? VIRTUAL : id === DOM ? VIRTUAL_DOM : id === TOKEN ? VIRTUAL_TOKEN : undefined,
+  load: (id) =>
+    id === VIRTUAL_TOKEN
+      ? token
+      : id === VIRTUAL
+        ? `export { default } from ${JSON.stringify(slashes(entryFile))}`
+        : id === VIRTUAL_DOM
+          ? domFile
+            ? `export { default } from ${JSON.stringify(slashes(domFile))}`
+            : 'export default null'
+          : undefined,
+})
+
 /** Where the runner worker POSTs a frame for the browser host (`/__shaderera/frame/<key>`). */
 export const FRAME_PATH = '/__shaderera/frame/'
 /** The frames the browser host is waiting for, by key: one body each, then forgotten. */
@@ -59,19 +83,7 @@ export const runnerPlugin = (
 </head><body></body></html>`
   return {
     name: 'shaderera-runner',
-    // The worker imports this fixed id, so Vite never rewrites a variable import() in it.
-    resolveId: (id) =>
-      id === ENTRY ? VIRTUAL : id === DOM ? VIRTUAL_DOM : id === TOKEN ? VIRTUAL_TOKEN : undefined,
-    load: (id) =>
-      id === VIRTUAL_TOKEN
-        ? `export default ${JSON.stringify(token)}`
-        : id === VIRTUAL
-          ? `export { default } from ${JSON.stringify(slashes(entryFile))}`
-          : id === VIRTUAL_DOM
-            ? domFile
-              ? `export { default } from ${JSON.stringify(slashes(domFile))}`
-              : 'export default null'
-            : undefined,
+    ...runnerModules(entryFile, domFile, `export default ${JSON.stringify(token)}`),
     configureServer(server) {
       const services = createServices(server.config.root, bakes)
       server.httpServer?.once('close', () => services.close())
