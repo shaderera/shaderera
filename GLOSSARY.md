@@ -18,6 +18,12 @@ Its source is one click away. It is not a kind of project: `shaderera fork` turn
 ordinary one ([0019](docs/adr/0019-templates-on-shaderera-com.md)).
 _Avoid_: starter, preset, treatment
 
+**Share** and **fork**:
+`shaderera share` sends a project's files, as a revision holds them, to shaderera.com as a new
+version of a film. `shaderera fork` copies a shared version into a new folder as an ordinary
+project.
+_Avoid_: publish (a plugin's verb), upload, deploy
+
 **render(t)**:
 The one function every film has: it takes a time in seconds and returns the frame at that time.
 The same `t` always gives the same frame.

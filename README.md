@@ -171,6 +171,22 @@ for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cl
 All of it is in [docs/plugins.md](docs/plugins.md). To write a plugin, for the official ones or
 for a library of your own, see [docs/plugin-guide.md](docs/plugin-guide.md).
 
+## Share and fork
+
+`share` sends a film to shaderera.com, where it plays in the viewer's browser; `fork` copies a
+shared film into a new folder as an ordinary project:
+
+```bash
+npx shaderera login --token <token>
+npx shaderera share                      # a new film, then new versions of it
+npx shaderera fork https://shaderera.com/f/<film> my-film
+```
+
+They run only when called and send only the project's files, as a revision holds them, never a
+`.env` or `.npmrc`. `share` prints what it will send and asks first (`--yes` off a terminal).
+`--to <origin>` or `SHADERERA_HOST` names another site. All of it is in
+[docs/cli.md](docs/cli.md#shadereracom-login-share-fork).
+
 ## How it works
 
 A source module exports `open`. It gets the manifest and the host's I/O, and returns `render(t)`
@@ -225,6 +241,7 @@ hands ffmpeg the result.
 | `shaderera doctor` | what this machine has and lacks |
 | `shaderera mcp` | the same operations as MCP tools over stdio |
 | `shaderera search` / `info` / `add` / `remove` / `publish` | plugins ([docs/plugins.md](docs/plugins.md)) |
+| `shaderera login` / `share` / `fork` | send a film to shaderera.com, and fork one from there |
 
 Every flag is in [docs/cli.md](docs/cli.md), and the MCP tools are in [docs/mcp.md](docs/mcp.md).
 

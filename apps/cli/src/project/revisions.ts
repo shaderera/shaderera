@@ -114,7 +114,7 @@ export const scan = (
 }
 
 /** A path a revision may name: relative, `/`-separated, no `.`, `..` or empty part, not ignored. */
-const validPath = (path: string) => {
+export const validPath = (path: string) => {
   const parts = path.split('/')
   return (
     !/[\\:\0]/.test(path) &&

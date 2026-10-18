@@ -18,6 +18,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`bake`](#bake) | run a bake's command and stamp the frames it made outside the host |
 | [`doctor`](#doctor) | what this machine and project have and lack |
 | [`search`, `info`, `add`, `remove`, `publish`](#plugins) | find, copy in, remove and publish plugins |
+| [`login`, `share`, `fork`](#shadereracom-login-share-fork) | send a film to shaderera.com, and fork one from there |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
 `shaderera` alone, or `--help` / `-h` anywhere, prints the usage.
@@ -403,6 +404,68 @@ Shaderera's own at `https://shaderera.com/r`. All of it is in [plugins.md](plugi
 `add` never replaces a file the project already has; `--force` replaces only the plugin named. A
 copied plugin's files are the project's own code: to stop using one, delete them.
 
+## shaderera.com: `login`, `share`, `fork`
+
+A film can be shared on shaderera.com, where it plays in the viewer's browser, and anyone can fork
+a shared film into a project of their own. These three commands are the only ones that talk to
+the site. They run only when called: nothing runs in the background, and there is no telemetry.
+
+The site is `--to <origin>`, else `SHADERERA_HOST`, else `https://shaderera.com`. Another site
+serves the same API (`/api/v1`). It is reached over https; plain http only on this machine
+(`localhost`, `127.0.0.1`).
+
+| Command | What it does |
+|---|---|
+| `login --token <token> [--to origin]` | keeps the token for that site in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
+| `share [--film id] [--title t] [--yes] [--to origin] [--json]` | sends the project as a new film, or as a new version of the film it shared to before |
+| `fork <film\|url>[@version] [dir] [--to origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
+
+**What `share` sends** is the project's files as a revision holds them (`save`,
+[above](#versions-and-jobs)), and nothing else:
+- never `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, `node_modules/` or `.git/`
+  anywhere, or a link (symlink, junction);
+- never a secret: `.env`, `.env.*` or `.npmrc`, at any depth (it names the ones it leaves out);
+- besides the files, the licence (package.json's `license`), the title of a new film and the
+  version of `shaderera` that sent it.
+
+Before sending, it prints how many files and bytes it will send, to which site and film, and asks.
+Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exits 2. Declining
+sends nothing and exits 1. Only the files the site does not already have are uploaded, each one
+checked against its sha256 as it is read.
+
+- **The licence** is package.json's `license`: an SPDX id such as `MIT`, or `UNLICENSED` for all
+  rights reserved. A project without one is refused before anything is sent.
+- **The film** a project shares to is noted per site in `.shaderera/share.json`, which is never
+  sent or forked. The first share makes a new film titled `--title`, else package.json's `name`,
+  else the folder's name; later shares make new versions of it. `--film <id>` shares to a film
+  you own, and is noted for next time.
+- **The token** is the one `login` kept for that site. It goes only in the request's
+  `Authorization` header.
+
+```
+$ npx shaderera share
+share: 14 files, 2.1 MB, to https://shaderera.com as a new film "neon-rain" (licence MIT)
+  not sent: .env
+Send? [y/N] y
+shared film k3x9q2mfa7 version 3ff052ac4865: 14 of 14 files were new
+  https://shaderera.com/f/k3x9q2mfa7
+```
+
+**`fork`** takes a film's id, `<id>@<version>` (a version may be the start of one) or the address
+of its page, whose origin is then the site; without a version it takes the latest. It needs no
+token and sends none. Every path is checked as a revision's is, every file against its sha256,
+and nothing is written until all of them match; the folder must be new or empty. The new
+project's first `share` makes a new film, marked as forked from that version.
+
+```
+$ npx shaderera fork https://shaderera.com/f/k3x9q2mfa7 my-rain
+forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 files, 2.1 MB, licence MIT
+```
+
+With `--json`, `share`'s result is `site`, `film`, `created`, `version`, `url`, `files`, `bytes`,
+`uploaded` and `notSent`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
+`licence`, `files` and `bytes`.
+
 ## `mcp`
 
 Serves the operations above as MCP tools over stdio. Accepts `--root`, `--trusted` and
@@ -414,7 +477,7 @@ commands and the MCP server.
 | Code | When |
 |---|---|
 | 0 | the command ran and nothing failed; or it printed the usage |
-| 1 | it ran and found a failure: `check` found a difference; `review` or `deliver` has a failing check; `still --diff` found a frame that depends on history; `handoff --verify` found a different frame; `doctor` is missing something needed |
+| 1 | it ran and found a failure: `check` found a difference; `review` or `deliver` has a failing check; `still --diff` found a frame that depends on history; `handoff --verify` found a different frame; `doctor` is missing something needed; `share` was declined |
 | 2 | it could not run: an unknown command or flag, a missing tool, a project that does not build or open, a shader that does not compile, a render that threw; printed as `shaderera: <message>` |
 
 ## `--json`: one envelope
@@ -445,4 +508,4 @@ Every command but `mcp` takes `--json`: stdout is then one JSON object, the exit
   `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
 - `result`: the command's own JSON (`inspect`, `still`, `review`, `versions`, `doctor`,
-  `search`, `info`); `log`: the lines any other command printed.
+  `search`, `info`, `share`, `fork`); `log`: the lines any other command printed.
