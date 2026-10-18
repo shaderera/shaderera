@@ -13,6 +13,7 @@ runner.html           the page a site frames; it starts assets/bridge.js
 assets/bridge.js      starts the worker and hands the framing page a port to it
 assets/worker.js      the runner worker: the only caller of the film's Source
 assets/chunks/*       the film's entry, its npm dependencies and the engine's shared code
+assets/THIRD-PARTY-NOTICES.txt  the licence notices of every package bundled in assets/
 files/<path>          the film's files, as share sends them, for io.read
 media/<path>.mp4      for each video among them, an H.264 proxy io.video decodes
 media/<path>.json     its width, height, fps and frame count, as io.video reads the original
@@ -148,3 +149,13 @@ does. The Node host asks the same questions over IPC and is not affected.
 unmodified, with its licence notice kept in each of its files; its source is on npm and GitHub.
 The rest of the engine's code in the player is MIT, and the film's own code and dependencies are
 under the film's licence.
+
+The build writes `assets/THIRD-PARTY-NOTICES.txt`, and `runner.html` names it. It holds the
+notices of every package the bundler put in `assets/`: the engine's (`shaderera`,
+`@shaderera/core`), Mediabunny, Comlink, fast-png and the rest of what they import, the bundler's
+runtime helpers (Vite, Rolldown), and the film's own npm dependencies, which are bundled the same
+way and carry the same duty. The film's own code is the author's and is left out. The list comes
+from the modules the bundler included, not from a list kept by hand. For each package, sorted by
+name: its name, version and `license` from its `package.json`, its `LICENSE`, `LICENCE` or
+`NOTICE` files, and the licence headers of its bundled files, which the bundler drops from the
+code. Two builds of one film write the same bytes.

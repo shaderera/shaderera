@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { findPackageJSON } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { shareFiles } from '../cli/share.ts'
 import { findProject } from '../node/project.ts'
 import { probeVideo } from '../node/services.ts'
@@ -82,6 +83,52 @@ test('the stamp runs when shaderera.json sets it, and only then', async () => {
   // Two different films, one worker: a site keeps it once.
   const worker = (b: { outDir: string }) => readFileSync(join(b.outDir, 'assets/worker.js'))
   assert.ok(worker(stamped).equals(worker(plain)))
+})
+
+test('a player carries the licence notices of every package it bundles, the same bytes each build', async () => {
+  const notices = (b: { outDir: string }) =>
+    readFileSync(join(b.outDir, 'assets/THIRD-PARTY-NOTICES.txt'))
+  const project = await plainProject(true)
+  const first = await build(project)
+  const bytes = notices(first)
+  const text = bytes.toString('utf8')
+  const root = (name: string, from = import.meta.url) => {
+    const pkg = findPackageJSON(name, from)
+    assert.ok(pkg, `${name} installed`)
+    return realpathSync(dirname(pkg))
+  }
+  const fastPng = pathToFileURL(join(root('fast-png'), 'package.json')).href
+  const bundled: [string, string, string][] = [
+    ['comlink', root('comlink'), 'Apache-2.0'],
+    ['fast-png', root('fast-png'), 'MIT'],
+    ['fflate', root('fflate', fastPng), 'MIT'],
+    ['iobuffer', root('iobuffer', fastPng), 'MIT'],
+    ['jpeg-js', root('jpeg-js'), 'BSD-3-Clause'],
+    ['mediabunny', root('mediabunny'), 'MPL-2.0'],
+  ]
+  for (const [name, dir, license] of bundled) {
+    const { version } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    assert.ok(text.includes(`\n- ${name} ${version} (${license})\n`), `${name} listed`)
+    assert.ok(text.includes(`\n${name} ${version}\nLicense: ${license}\n`), `${name}'s section`)
+    const licence = readFileSync(join(dir, 'LICENSE'), 'utf8').replace(/\r\n/g, '\n').trimEnd()
+    assert.ok(text.includes(licence), `${name}'s LICENSE text`)
+  }
+  // The licence headers the bundler drops from the code: jpeg-js's encoder is Adobe's.
+  assert.match(text, /Copyright \(c\) 2008, Adobe Systems Incorporated/)
+  // The engine's own packages too; the film's own code is the author's.
+  assert.match(text, /\n- @shaderera\/core \S+ \(MIT\)\n/)
+  assert.match(text, /\n- shaderera \S+ \(MIT\)\n/)
+  assert.ok(!text.includes(project.root.replaceAll('\\', '/')) && !text.includes(project.root))
+  // A reader of the served player finds it from the page.
+  assert.match(
+    readFileSync(join(first.outDir, 'runner.html'), 'utf8'),
+    /assets\/THIRD-PARTY-NOTICES\.txt/,
+  )
+  // Deterministic: built again, or from another folder, it is the same file.
+  const again = notices(await build(project))
+  assert.ok(again.equals(bytes), 'the same bytes built again')
+  const elsewhere = notices(await build(await plainProject(true)))
+  assert.ok(elsewhere.equals(bytes), 'the same bytes built in another folder')
 })
 
 test('footage gets a proxy with the original frames: H.264, yuv420p, no B-frames, a keyframe every 15', {

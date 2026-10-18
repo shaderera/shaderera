@@ -8,6 +8,7 @@
 //   assets/bridge.js      starts the worker, hands the framing page a port to it (bridge.ts)
 //   assets/worker.js      the runner worker: the only caller of the film's Source (worker.ts)
 //   assets/chunks/*       the film's entry, its dependencies and the engine's shared code
+//   assets/THIRD-PARTY-NOTICES.txt  the licence notices of every package it bundles (notices.ts)
 //   files/<path>          the film's files, as a share sends them, for io.read
 //   media/<path>.mp4      for each video among them, an H.264 proxy io.video decodes (media.ts)
 //   media/<path>.json     its width, height, fps and frame count, as io.video reads the original
@@ -31,6 +32,7 @@ import { checkBakes } from '../project/bakes.ts'
 import { slash } from '../project/revisions.ts'
 import { stamp } from '../stamp/plugin.ts'
 import { makeProxy, VIDEO } from './media.ts'
+import { NOTICES_FILE, thirdPartyNotices } from './notices.ts'
 import { DEFAULT_PARENTS, isOrigin, PARENTS_META } from './parents.ts'
 
 export type PlayerOptions = {
@@ -61,7 +63,8 @@ const engineFile = (name: string) => {
 /**
  * The runner's fixed modules for this film, and no service token: nothing in a player asks the
  * runner server. Rolldown marks each module with `//#region <path>`, a path relative to where the
- * build ran: the same film built in another folder would differ, so those lines are dropped.
+ * build ran: the same film built in another folder would differ, so those lines are dropped. Once
+ * bundled, the notices of every package the chunks hold are written beside them (notices.ts).
  */
 const playerPlugin = (project: Project): Plugin => ({
   name: 'shaderera-player',
@@ -72,11 +75,20 @@ const playerPlugin = (project: Project): Plugin => ({
     "throw new Error('A web player has no CLI process behind it.')",
   ),
   renderChunk: (code) => code.replace(/^\/\/#(?:end)?region\b.*\r?\n/gm, ''),
+  generateBundle(_, bundle) {
+    const ids = Object.values(bundle).flatMap((c) => (c.type === 'chunk' ? c.moduleIds : []))
+    this.emitFile({
+      type: 'asset',
+      fileName: NOTICES_FILE,
+      source: thirdPartyNotices(ids, project.root),
+    })
+  },
 })
 
 const page = (parents: readonly string[]) => `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="${PARENTS_META}" content="${parents.join(' ')}">
+<!-- The licence notices of what this player bundles: ${NOTICES_FILE} -->
 <script type="module" src="./assets/bridge.js"></script>
 </head><body></body></html>
 `
