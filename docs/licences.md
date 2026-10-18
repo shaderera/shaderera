@@ -48,7 +48,8 @@ Besides `@shaderera/core` 0.1.4 (MIT):
 - **MPL-2.0**, from 0.1.5: mediabunny 1.61.1 (with `@types/dom-webcodecs` 0.1.13 and
   `@types/dom-mediacapture-transform` 0.1.12, MIT, types only). It decodes video in a web player's
   worker ([player.md](player.md)), which bundles it unmodified, its licence notice kept in each
-  of its files. MPL-2.0 is file-level: the rest of the player keeps its own licence. It adds
+  of its files and in the player's notices file ([below](#the-web-player)). MPL-2.0 is
+  file-level: the rest of the player keeps its own licence. It adds
   10.9 MB unpacked (290 files) to an install, and about 0.8 MB of the 0.9 MB `assets/worker.js`
   every player carries (unminified).
 - **ISC:** inherits 2.0.4, isexe 2.0.0, once 1.4.0, setprototypeof 1.2.0, which 2.0.2, wrappy
@@ -57,6 +58,19 @@ Besides `@shaderera/core` 0.1.4 (MIT):
 
 The agent skills (`shaderera`, `shaderera-plugins`) and the Claude Code plugin are in
 `plugins/shaderera/` in the repository, MIT. `create-shaderera` copies them into every project.
+
+## The web player
+
+A film's web player ([player.md](player.md)) bundles the runner (`shaderera`) and
+`@shaderera/core` (MIT), mediabunny (MPL-2.0), comlink (Apache-2.0), fast-png with iobuffer and
+fflate (MIT), jpeg-js (BSD-3-Clause; its encoder carries Adobe's BSD notice, its decoder an
+Apache-2.0 header), Vite's and Rolldown's runtime helpers (MIT), and the film's own code and npm
+dependencies. The bundler keeps only `/*!` and `@license` comments, which leaves out most of these
+notices, so the build writes them to `assets/THIRD-PARTY-NOTICES.txt`, which `runner.html` names.
+It lists every package the bundler included, read from the bundle, not from a list kept by hand:
+each one's name, version and licence, its licence and notice files, and the licence headers of
+its bundled files. The film's npm dependencies are in it too, since they are bundled the same way
+and carry the same duty; the film's own code is the author's and is not.
 
 ## Development only
 
