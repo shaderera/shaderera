@@ -18,7 +18,8 @@ surface is labelled:
 - **experimental:** usable, may change in any release;
 - **internal:** for Shaderera's own packages only; no promise.
 
-Pinned by tests: `packages/core/src/api.test.ts` lists every export of each entry, and
+Pinned by tests: `packages/core/src/api.test.ts` lists every export of each entry (and
+`apps/cli/src/stamp/plugin.test.ts` those of `shaderera/stamp`), and
 `packages/create-shaderera/src/create.test.ts` fails when the empty project imports anything but a
 stable entry. Adding or removing an export is therefore a visible change.
 
@@ -55,7 +56,18 @@ What both hosts share (`checkManifest`, `withVariant`, `openSource`, `seekable`,
   `shaderera.item.json`) and the files they write: `versions/` (revisions; jobs `job/3`), `out/`
   (`delivery/1`, `deliveries/1`), and the `--json` envelope (`result/1`). A format change refuses
   the old file with a message to recreate it; there are no readers for old formats.
-- **Internal:** every module under `apps/cli/src`. No JavaScript API is exported.
+- **Internal:** every module under `apps/cli/src` but the stamp (below). No other JavaScript API
+  is exported.
+
+## `shaderera/stamp`: experimental
+
+The [source stamp](protocol.md#the-stamp) as a Vite plugin, for another build of a project (a
+player, a site) that should stamp as the CLI does:
+
+| Export | Kind | What it is |
+|---|---|---|
+| `stamp({ root })` | function | the Vite plugin (`shaderera:stamp`, `enforce: 'pre'`); `root` is the project folder |
+| `stampCode(code, file, mapSource?)` | function | stamps one file's code: `{ code, map }`, or `null` when nothing has an `id` |
 
 ## Plugins: experimental
 

@@ -320,10 +320,10 @@ nor the DOM shows text`; when some are, `text-fit` says how many it read (`3 run
 
 ### The stamp
 
-With `"stamp": true`, the Node build and the runner run a Vite plugin
-(`apps/cli/src/stamp/plugin.ts`, `enforce: 'pre'`). In `.ts .tsx .js .jsx .mts` files under the
-project root (not `node_modules` or `.shaderera`), every object literal with a non-computed `id`
-key gets one more enumerable key, inserted right after its `{`:
+With `"stamp": true`, the Node build and the runner run a Vite plugin (`enforce: 'pre'`). In
+`.ts .tsx .js .jsx .mts` files under the project root (not `node_modules` or `.shaderera`), every
+object literal with a non-computed `id` key gets one more enumerable key, inserted right after its
+`{`:
 
 ```ts
 const title = { id: 'title', x: 160 }
@@ -338,6 +338,15 @@ have `source`, are untouched. The Vite plugin returns a hires source map, so sta
 at the original lines. The stamp is opt-in because the extra enumerable key reaches code that
 enumerates or hashes those objects. The CLI does not edit code: an agent follows the stamp to the
 file and edits it.
+
+Another build of the project (a player, a site) runs the same plugin from the package, under its
+public name. Add it only when the manifest sets `stamp`:
+
+```ts
+import { stamp } from 'shaderera/stamp'
+
+const plugins = manifest.stamp === true ? [stamp({ root })] : [] // root: the project folder
+```
 
 ### pick
 
