@@ -70,9 +70,12 @@ The agent skills (`shaderera`, `shaderera-plugins`) and the Claude Code plugin a
 | jpeg-js 0.4.4 (its encoder carries Adobe's BSD notice, its decoder is Apache-2.0) | BSD-3-Clause |
 | Vite's and Rolldown's runtime helpers | MIT |
 
-Mediabunny is about 0.8 MB of the 0.9 MB `assets/worker.js` (unminified). The build keeps
-Mediabunny's notice in each of its files and Comlink's above its code; the other packages'
-notices are not in the player yet.
+Mediabunny is about 0.8 MB of the 0.9 MB `assets/worker.js` (unminified). The bundler keeps
+only `/*!` and `@license` comments, so the build writes `assets/THIRD-PARTY-NOTICES.txt`, which
+`runner.html` names. It holds every bundled package's licence and notice files, plus the licence
+headers the bundler drops, the film's own npm dependencies included. It is read from what the
+bundler included, not from a list kept by hand; the film's own code is the author's and is not in
+it.
 
 **What MPL-2.0 means for a person who shares a film.** MPL-2.0 is a file-level licence: it
 covers Mediabunny's own files and nothing else. The film's code, its dependencies and its files
