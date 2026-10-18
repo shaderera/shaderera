@@ -2,6 +2,8 @@
 // the one before. Everything that moves (a position, a scale, an opacity, a camera) is a track,
 // asked for its value at t. No state, so any t renders the same at any time.
 
+import type { Json } from '@shaderera/core'
+
 export type Ease = (u: number) => number
 
 export const linear: Ease = (u) => u
@@ -63,14 +65,61 @@ export const bezier = (x1: number, y1: number, x2: number, y2: number): Ease => 
 
 /** A key: at time t the value is v, reached from the key before with `ease` (smooth by default). */
 export type Key<T> = readonly [t: number, v: T, ease?: Ease]
+/**
+ * The same key as an object, so it can carry an `id`: `{ id: 'k2', at: 4, value: 1.2, ease: glide }`.
+ * An object with an `id` is what the source stamp marks, and `at` is a time the tools read.
+ */
+export type KeyObject<T> = {
+  readonly id?: string
+  readonly at: number
+  readonly value: T
+  readonly ease?: Ease
+}
+type Fields = { readonly [field: string]: Json }
+
+/** What a track reports to inspect at t: the key it moves into, or rests on. */
+export type KeyState = {
+  /** The key's own fields but its value and ease: `id`, `at`, the stamp's `source`, any other. */
+  [field: string]: Json
+  /** Its place in the keys. */
+  index: number
+  at: number
+  /** How far the move into it has gone, 0 to 1 (not eased); 1 when the track rests on it. */
+  u: number
+}
+
+const isObject = <T>(k: Key<T> | KeyObject<T>): k is KeyObject<T> => !Array.isArray(k)
+/** The keys as tuples; tuples alone are used as given, as before objects were allowed. */
+const asKeys = <T>(given: readonly (Key<T> | KeyObject<T>)[]): readonly Key<T>[] =>
+  given.some(isObject)
+    ? given.map((k): Key<T> => (isObject(k) ? [k.at, k.value, k.ease] : k))
+    : (given as readonly Key<T>[])
 
 export const clamp = (x: number, a = 0, b = 1) => Math.min(b, Math.max(a, x))
 export const lerp = (a: number, b: number, u: number) => a + (b - a) * u
 
-/** A number over time. Keys must be in time order. */
-export const track = (keys: readonly Key<number>[]) => {
-  if (keys.length === 0) throw new Error('a track needs at least one key')
-  return (t: number): number => {
+/** The key a track moves into at t, or rests on, as JSON for inspect. */
+const stateAt = <T>(given: readonly (Key<T> | KeyObject<T>)[]) => {
+  const keys = asKeys(given)
+  const at = (i: number) => (keys[i] as Key<T>)[0]
+  return (t: number): KeyState => {
+    const next = keys.findIndex((k, i) => i > 0 && t < k[0])
+    const i = t <= at(0) ? 0 : next < 0 ? keys.length - 1 : next
+    const u = i === next ? clamp((t - at(i - 1)) / Math.max(at(i) - at(i - 1), 1e-6)) : 1
+    const key = given[i] as Key<T> | KeyObject<T>
+    const own = isObject(key) ? (({ value: _v, ease: _e, ...rest }) => rest as Fields)(key) : {}
+    return { ...own, index: i, at: at(i), u }
+  }
+}
+
+/**
+ * A number over time. Keys must be in time order; a key is a tuple or an object (with an `id`).
+ * `inspect(t)` says which key it moves into at t, for the film's inspect.
+ */
+export const track = (given: readonly (Key<number> | KeyObject<number>)[]) => {
+  if (given.length === 0) throw new Error('a track needs at least one key')
+  const keys = asKeys(given)
+  const value = (t: number): number => {
     const first = keys[0] as Key<number>
     if (t <= first[0]) return first[1]
     for (let i = 1; i < keys.length; i++) {
@@ -80,17 +129,19 @@ export const track = (keys: readonly Key<number>[]) => {
     }
     return (keys[keys.length - 1] as Key<number>)[1]
   }
+  return Object.assign(value, { inspect: stateAt(given) })
 }
 
 export type V3 = readonly [number, number, number]
 
-/** A point over time, each axis its own track with the same keys and eases. */
-export const track3 = (keys: readonly Key<V3>[]) => {
+/** A point over time, each axis its own track with the same keys and eases; `inspect` as `track`. */
+export const track3 = (given: readonly (Key<V3> | KeyObject<V3>)[]) => {
+  const keys = asKeys(given)
   const axis = (i: 0 | 1 | 2) => track(keys.map(([t, v, e]) => [t, v[i], e] as Key<number>))
   const x = axis(0)
   const y = axis(1)
   const z = axis(2)
-  return (t: number): V3 => [x(t), y(t), z(t)]
+  return Object.assign((t: number): V3 => [x(t), y(t), z(t)], { inspect: stateAt(given) })
 }
 
 /**

@@ -3,12 +3,35 @@
 // in one of four compositions on the frame's safe area, with its number huge and hollow behind
 // it. Name what the picture is doing while it does it.
 
+import type { Json } from '@shaderera/core'
 import { type Platform, safeArea } from '../layout/frame.ts'
 import { decoded, fitSize, glitched, hollow } from './kinetic.ts'
 
 type Ctx = OffscreenCanvasRenderingContext2D
 
-export type Caption = { from: number; to: number; items: [title: string, note: string][] }
+/**
+ * A caption: its items shown in turn from `from` to `to`. An `id` names it in inspect (and is what
+ * the source stamp marks).
+ */
+export type Caption = {
+  id?: string
+  from: number
+  to: number
+  items: [title: string, note: string][]
+}
+/** What `inspect(t)` reports for a caption showing at t. */
+export type CaptionState = {
+  /** The caption's own fields but its items: `id`, `from`, `to`, the stamp's `source`, any other. */
+  [field: string]: Json
+  /** The item showing, its place among all the captions' items, and its layout. */
+  item: number
+  index: number
+  title: string
+  note: string
+  layout: Layout
+  /** How far the item's hold has gone, 0 to 1. */
+  u: number
+}
 export type Layout = 'edge' | 'column' | 'spine' | 'split'
 
 export type CaptionOptions = {
@@ -200,10 +223,10 @@ export const createCaptions = (o: CaptionOptions) => {
     }
   }
 
-  /** Draws the caption showing at t, if any, onto ctx (it does not clear it). */
-  return (ctx: Ctx, W: number, H: number, t: number, frame: number) => {
-    o.captions.forEach((cap, ci) => {
-      if (t < cap.from || t >= cap.to) return
+  /** Each caption showing at t, with the item it shows and that item's timing. */
+  const showing = (t: number) =>
+    o.captions.flatMap((cap, ci) => {
+      if (t < cap.from || t >= cap.to) return []
       const n = Math.floor((t - cap.from) / o.swap)
       const j = n % cap.items.length
       const isFirst = n === 0
@@ -211,6 +234,14 @@ export const createCaptions = (o: CaptionOptions) => {
       const single = cap.items.length === 1
       const start = single ? cap.from : cap.from + n * o.swap
       const end = single ? cap.to : Math.min(cap.to, start + o.swap)
+      const i = (first[ci] ?? 0) + j
+      const layout = layouts[i % layouts.length] ?? 'edge'
+      return [{ cap, j, i, isFirst, isLast, single, start, end, layout }]
+    })
+
+  /** Draws the caption showing at t, if any, onto ctx (it does not clear it). */
+  const draw = (ctx: Ctx, W: number, H: number, t: number, frame: number) => {
+    for (const { cap, j, i, isFirst, isLast, single, start, end, layout } of showing(t)) {
       const timing = {
         from: start,
         to: end,
@@ -220,14 +251,12 @@ export const createCaptions = (o: CaptionOptions) => {
         swap: !single && !isFirst,
       }
       const [titleText, noteText] = cap.items[j] ?? ['', '']
-      const i = (first[ci] ?? 0) + j
       const title = decoded(titleText, t, { ...timing, seed: i * 3 })
       const text = decoded(noteText, t, { ...timing, from: start + 0.05, seed: i * 3 + 2 }).text
       const count = decoded(`${String(i + 1).padStart(2, '0')} / ${total}`, t, {
         ...timing,
         seed: i * 3 + 1,
       }).text
-      const layout = layouts[i % layouts.length] ?? 'edge'
       one(
         ctx,
         W,
@@ -241,6 +270,16 @@ export const createCaptions = (o: CaptionOptions) => {
         frame,
         title.settled,
       )
-    })
+    }
   }
+
+  /** The captions showing at t, as JSON for the film's inspect. */
+  const inspect = (t: number): CaptionState[] =>
+    showing(t).map(({ cap, j, i, start, end, layout }) => {
+      const { items, ...own } = cap as Caption & { readonly [field: string]: Json }
+      const [title, note] = items[j] ?? ['', '']
+      return { ...own, item: j, index: i, title, note, layout, u: (t - start) / (end - start) }
+    })
+
+  return Object.assign(draw, { inspect })
 }

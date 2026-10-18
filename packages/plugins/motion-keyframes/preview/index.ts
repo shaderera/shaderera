@@ -14,7 +14,7 @@ import {
   expo,
   glide,
   hold,
-  type Key,
+  type KeyObject,
   settle,
   strike,
   track,
@@ -28,9 +28,10 @@ const GRAPH = { top: 620, bottom: 740 }
 
 type Pose = { at: number; x: number; y: number; size: number; turn: number }
 /** The keys, and the ease each move into a key uses (the first key has none). */
-const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
-  { at: 0, x: 230, y: 420, size: 150, turn: 0 },
+const KEYS: (Pose & { id: string; ease?: Ease; name?: string; note?: string })[] = [
+  { id: 'k1', at: 0, x: 230, y: 420, size: 150, turn: 0 },
   {
+    id: 'k2',
     at: 0.8,
     x: 760,
     y: 250,
@@ -41,6 +42,7 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     note: 'a hit: out fast, then a long settle',
   },
   {
+    id: 'k3',
     at: 1.7,
     x: 860,
     y: 460,
@@ -51,6 +53,7 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     note: 'overshoots the key, then comes back to it',
   },
   {
+    id: 'k4',
     at: 2.6,
     x: 480,
     y: 340,
@@ -61,6 +64,7 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     note: 'a damped spring, as a formula of t',
   },
   {
+    id: 'k5',
     at: 3.4,
     x: 210,
     y: 240,
@@ -71,6 +75,7 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     note: 'still, then fast, then still',
   },
   {
+    id: 'k6',
     at: 4.3,
     x: 590,
     y: 470,
@@ -81,6 +86,7 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     note: 'bezier(0.8, 0, 0.2, 1), as drawn in a curve editor',
   },
   {
+    id: 'k7',
     at: 4.6,
     x: 880,
     y: 270,
@@ -91,6 +97,7 @@ const KEYS: (Pose & { ease?: Ease; name?: string; note?: string })[] = [
     note: 'holds, then cuts to the key',
   },
   {
+    id: 'k8',
     at: 6,
     x: 230,
     y: 420,
@@ -111,15 +118,20 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
   const theme = createHouse(host, ctx)
   const mono = `"${FONT.mono}"`
 
-  // Every property is a track of the plugin; `progress` counts keys, so its fraction is the eased
-  // share of the current move (past 1 where an ease overshoots).
-  const keyed = (pick: (p: Pose) => number) =>
-    track(KEYS.map((k): Key<number> => (k.ease ? [k.at, pick(k), k.ease] : [k.at, pick(k)])))
+  // Every property is a track of the plugin, its keys objects with the pose's id; `progress`
+  // counts keys, so its fraction is the eased share of the current move (past 1 where an ease
+  // overshoots).
+  const keyed = (pick: (p: Pose, i: number) => number) =>
+    track(
+      KEYS.map(
+        (k, i): KeyObject<number> => ({ id: k.id, at: k.at, value: pick(k, i), ease: k.ease }),
+      ),
+    )
   const x = keyed((p) => p.x)
   const y = keyed((p) => p.y)
   const size = keyed((p) => p.size)
   const turn = keyed((p) => p.turn)
-  const progress = track(KEYS.map((k, i): Key<number> => (k.ease ? [k.at, i, k.ease] : [k.at, i])))
+  const progress = keyed((_, i) => i)
   const loop = (t: number) => ((t % duration) + duration) % duration
 
   const pose = (time: number) => {
@@ -309,6 +321,7 @@ const motionKeyframes: OpenPreview = async (host, stateId) => {
       return {
         id: 'square',
         key: p.seg,
+        move: x.inspect(loop(t)),
         ease: KEYS[p.seg]?.name ?? '',
         u: p.u,
         x: p.x,
