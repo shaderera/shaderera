@@ -18,6 +18,7 @@ import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { scan } from '../project/revisions.ts'
 import { parseTarget } from './fork.ts'
+import { send, shareFiles } from './share.ts'
 import { siteOf } from './site.ts'
 
 const sha256 = (b: Buffer | string) => createHash('sha256').update(b).digest('hex')
@@ -29,13 +30,21 @@ const sha256 = (b: Buffer | string) => createHash('sha256').update(b).digest('he
 const fakeSite = async () => {
   const TOKEN = 'tok-secret-123'
   const objects = new Map<string, Buffer>()
-  type Version = { id: string; licence: string; files: Record<string, string>; shaderera: string }
+  type Version = {
+    id: string
+    licence: string
+    files: Record<string, string>
+    player: Record<string, string>
+    shaderera: string
+  }
   const films = new Map<
     string,
     { id: string; title: string; forkedFrom: string | null; versions: Version[] }
   >()
   const requests: { method: string; path: string; auth: string | undefined }[] = []
   const corrupt = new Set<string>()
+  /** Like the app's API: a version needs a built player. */
+  const options = { needsPlayer: false }
   const json = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -89,7 +98,11 @@ const fakeSite = async () => {
           versions: film.versions.map((x) => ({ id: x.id, licence: x.licence })),
         })
       const b = JSON.parse(body.toString()) as Omit<Version, 'id'>
-      const absent = Object.values(b.files).filter((s) => !objects.has(s))
+      if (options.needsPlayer && Object.keys(b.player).length === 0)
+        return json(res, 400, { error: 'A version needs its built player.' })
+      const absent = [...Object.values(b.files), ...Object.values(b.player)].filter(
+        (s) => !objects.has(s),
+      )
       if (absent.length > 0) return json(res, 409, { error: 'Upload first.', missing: absent })
       const id = sha256(
         Object.keys(b.files)
@@ -111,7 +124,7 @@ const fakeSite = async () => {
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   const site = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   after(() => server.close())
-  return { site, TOKEN, films, objects, requests, corrupt }
+  return { site, TOKEN, films, objects, requests, corrupt, options }
 }
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
@@ -121,7 +134,7 @@ const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-site-${name
 const cli = (home: string, cwd: string, ...args: string[]) =>
   new Promise<{ status: number; stdout: string; stderr: string }>((done) => {
     const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home }
-    delete env.SHADERERA_HOST
+    delete env.SHADERERA_SITE
     execFile(process.execPath, [main, ...args], { cwd, env }, (e, stdout, stderr) =>
       done({ status: e ? Number(e.code) : 0, stdout, stderr }),
     )
@@ -149,7 +162,7 @@ test('the site: https, or http on this machine only; a fork names a film, a vers
   assert.equal(siteOf('https://example.com/some/page'), 'https://example.com')
   assert.equal(siteOf('http://127.0.0.1:8787'), 'http://127.0.0.1:8787')
   assert.throws(() => siteOf('http://example.com'), /https/)
-  assert.equal(siteOf(undefined), process.env.SHADERERA_HOST ?? 'https://shaderera.com')
+  assert.equal(siteOf(undefined), process.env.SHADERERA_SITE ?? 'https://shaderera.com')
   assert.deepEqual(parseTarget('2phicdywpg', 'https://a.example'), {
     site: 'https://a.example',
     film: '2phicdywpg',
@@ -287,4 +300,41 @@ test('fork writes nothing when a file does not match its sha256', async () => {
   assert.equal(bad.status, 2)
   assert.match(bad.stderr, /may not: \.\.\/escape\.txt/)
   rmSync(work, { recursive: true, force: true })
+})
+
+test('share sends no player until the engine builds one, and a site that needs one says so', async () => {
+  const s = await fakeSite()
+  const home = temp('home')
+  const root = project()
+  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
+  assert.equal((await cli(home, root, 'share', '--to', s.site, '--yes')).status, 0)
+  assert.deepEqual(s.films.get('film1')?.versions[0]?.player, {})
+
+  s.options.needsPlayer = true
+  const r = await cli(home, root, 'share', '--to', s.site, '--yes')
+  assert.equal(r.status, 2)
+  assert.match(
+    r.stderr,
+    /POST \/films\/film1\/versions on .*: 400 A version needs its built player\./,
+  )
+
+  // A folder of built player files goes up as `player`, beside the source.
+  const player = temp('player')
+  mkdirSync(join(player, 'assets'))
+  writeFileSync(join(player, 'runner.html'), '<!doctype html>')
+  writeFileSync(join(player, 'assets', 'bridge.js'), 'export {}')
+  const sent = await send({
+    site: s.site,
+    token: s.TOKEN,
+    root,
+    files: shareFiles(root).files,
+    licence: 'MIT',
+    title: 'neon-rain',
+    film: 'film1',
+    player,
+  })
+  const version = s.films.get('film1')?.versions.at(-1)
+  assert.equal(version?.id, sent.version)
+  assert.deepEqual(Object.keys(version?.player ?? {}).sort(), ['assets/bridge.js', 'runner.html'])
+  assert.equal(sent.uploaded, 2, 'only the player was new')
 })

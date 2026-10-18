@@ -11,11 +11,11 @@ import { dirname, join } from 'node:path'
 export const DEFAULT_SITE = 'https://shaderera.com'
 
 /**
- * The site's origin: `--to <origin>`, else `SHADERERA_HOST`, else shaderera.com. Plain http only
+ * The site's origin: `--to <origin>`, else `SHADERERA_SITE`, else shaderera.com. Plain http only
  * for this machine, since a token goes with every write.
  */
 export const siteOf = (to?: string): string => {
-  const given = to ?? process.env.SHADERERA_HOST ?? DEFAULT_SITE
+  const given = to ?? process.env.SHADERERA_SITE ?? DEFAULT_SITE
   let url: URL
   try {
     url = new URL(given)

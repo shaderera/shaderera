@@ -26,7 +26,7 @@ Versions and jobs:
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems]   freeze a render job
 
-shaderera.com (or --to <origin>, else SHADERERA_HOST):
+shaderera.com (or --to <origin>, else SHADERERA_SITE):
   login --token <token> [--to origin]        keep the token share sends to that site
   share [--film id] [--title t] [--yes] [--to origin] [--json]   send the project's files as a new film or version
   fork <film|url>[@version] [dir] [--to origin] [--json]          copy a published version into a new folder

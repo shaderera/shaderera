@@ -24,6 +24,11 @@ version of a film. `shaderera fork` copies a shared version into a new folder as
 project.
 _Avoid_: publish (a plugin's verb), upload, deploy
 
+**Site**:
+Where `share` and `fork` send and fetch films: shaderera.com, or another origin serving its API
+(`--to <origin>`, `SHADERERA_SITE`).
+_Avoid_: host (the Node or browser host), server
+
 **render(t)**:
 The one function every film has: it takes a time in seconds and returns the frame at that time.
 The same `t` always gives the same frame.

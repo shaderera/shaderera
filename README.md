@@ -184,7 +184,7 @@ npx shaderera fork https://shaderera.com/f/<film> my-film
 
 They run only when called and send only the project's files, as a revision holds them, never a
 `.env` or `.npmrc`. `share` prints what it will send and asks first (`--yes` off a terminal).
-`--to <origin>` or `SHADERERA_HOST` names another site. All of it is in
+`--to <origin>` or `SHADERERA_SITE` names another site. All of it is in
 [docs/cli.md](docs/cli.md#shadereracom-login-share-fork).
 
 ## How it works

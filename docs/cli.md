@@ -410,7 +410,7 @@ A film can be shared on shaderera.com, where it plays in the viewer's browser, a
 a shared film into a project of their own. These three commands are the only ones that talk to
 the site. They run only when called: nothing runs in the background, and there is no telemetry.
 
-The site is `--to <origin>`, else `SHADERERA_HOST`, else `https://shaderera.com`. Another site
+The site is `--to <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Another site
 serves the same API (`/api/v1`). It is reached over https; plain http only on this machine
 (`localhost`, `127.0.0.1`).
 
@@ -427,6 +427,11 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 - never a secret: `.env`, `.env.*` or `.npmrc`, at any depth (it names the ones it leaves out);
 - besides the files, the licence (package.json's `license`), the title of a new film and the
   version of `shaderera` that sent it.
+
+**A version is played from a built player**, which is built on the sender's machine and sent
+with the source. `shaderera` cannot build one yet: until it can, `share` sends the source only,
+and needs a site that accepts a version without a player. A site that does not answers with an
+error, which `share` prints as it is, and no version is made.
 
 Before sending, it prints how many files and bytes it will send, to which site and film, and asks.
 Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exits 2. Declining
