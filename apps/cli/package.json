@@ -14,6 +14,14 @@
   "bin": {
     "shaderera": "./bin/shaderera.js"
   },
+  "exports": {
+    "./stamp": {
+      "types": "./dist/stamp/plugin.d.ts",
+      "default": "./dist/stamp/plugin.js"
+    },
+    "./package.json": "./package.json",
+    "./*": "./*"
+  },
   "files": [
     "bin",
     "dist",
