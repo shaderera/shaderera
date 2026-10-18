@@ -1,6 +1,7 @@
 # Licences
 
-What the published packages (0.1.4) depend on, and what the official plugins and the test fixtures vendor.
+What the published packages (0.1.5) depend on, what a film's web player bundles, and what the
+official plugins and the test fixtures vendor.
 Every package (`@shaderera/core`, `shaderera`, `create-shaderera`), the official plugins and the
 agent skills are MIT. Each tarball carries its own licence file.
 
@@ -9,8 +10,8 @@ project (Windows x64). They walk `dependencies` and installed `optionalDependenc
 package's own `package.json`; on Linux the native bindings are the `linux-x64-gnu` variants of the
 same packages under the same licences. Versions move; re-run the walk before a release.
 
-**No GPL, AGPL, LGPL or unknown licence ships.** One weak-copyleft package does, from 0.1.5:
-Mediabunny (MPL-2.0), below.
+**No GPL, AGPL, LGPL or unknown licence ships.** One weak-copyleft package does, new in 0.1.5:
+Mediabunny (MPL-2.0), [below](#the-web-player).
 
 ## `@shaderera/core`
 
@@ -21,7 +22,7 @@ Mediabunny (MPL-2.0), below.
 `vite` (^8, MIT) is a peer dependency: the project installs it. `@napi-rs/canvas`'s native
 binding is built on Skia (BSD-3-Clause).
 
-Besides `@shaderera/core` 0.1.4 (MIT):
+Besides `@shaderera/core` 0.1.5 (MIT):
 
 - **MIT:** @hono/node-server 2.1.5, @jridgewell/sourcemap-codec 1.6.0, @modelcontextprotocol/sdk
   1.32.1, @napi-rs/canvas-win32-x64-msvc 1.0.10, @napi-rs/canvas 1.0.10,
@@ -45,12 +46,9 @@ Besides `@shaderera/core` 0.1.4 (MIT):
   toidentifier 1.0.1, type-is 2.1.0, unpipe 1.0.0, vary 1.1.2, wgpu-matrix 3.4.2, zod 4.6.7.
 - **BSD-3-Clause:** @webgpu/types 0.1.74, diff 8.0.4, fast-uri 3.1.8, jpeg-js 0.4.4, qs 6.16.1.
 - **Apache-2.0:** comlink 4.4.2.
-- **MPL-2.0**, from 0.1.5: mediabunny 1.61.1 (with `@types/dom-webcodecs` 0.1.13 and
-  `@types/dom-mediacapture-transform` 0.1.12, MIT, types only). It decodes video in a web player's
-  worker ([player.md](player.md)), which bundles it unmodified, its licence notice kept in each
-  of its files. MPL-2.0 is file-level: the rest of the player keeps its own licence. It adds
-  10.9 MB unpacked (290 files) to an install, and about 0.8 MB of the 0.9 MB `assets/worker.js`
-  every player carries (unminified).
+- **MPL-2.0**, new in 0.1.5: mediabunny 1.61.1 (with `@types/dom-webcodecs` 0.1.13 and
+  `@types/dom-mediacapture-transform` 0.1.12, MIT, types only). It decodes video in a web
+  player's worker ([below](#the-web-player)). It adds 10.9 MB unpacked (290 files) to an install.
 - **ISC:** inherits 2.0.4, isexe 2.0.0, once 1.4.0, setprototypeof 1.2.0, which 2.0.2, wrappy
   1.0.2, zod-to-json-schema 3.25.2.
 - **BSD-2-Clause:** json-schema-typed 8.0.2.
@@ -58,10 +56,37 @@ Besides `@shaderera/core` 0.1.4 (MIT):
 The agent skills (`shaderera`, `shaderera-plugins`) and the Claude Code plugin are in
 `plugins/shaderera/` in the repository, MIT. `create-shaderera` copies them into every project.
 
+## The web player
+
+`share` builds a film's web player on the sender's machine and sends it with the source
+([player.md](player.md)). Its `assets/` bundle, besides the film's own code and npm dependencies:
+
+| What | Licence |
+|---|---|
+| the runner (`shaderera`) and `@shaderera/core` 0.1.5 | MIT |
+| mediabunny 1.61.1, unmodified | MPL-2.0 |
+| comlink 4.4.2 | Apache-2.0 |
+| fast-png 8.0.0, with iobuffer 6.0.1 and fflate 0.8.3 | MIT |
+| jpeg-js 0.4.4 (its encoder carries Adobe's BSD notice, its decoder is Apache-2.0) | BSD-3-Clause |
+| Vite's and Rolldown's runtime helpers | MIT |
+
+Mediabunny is about 0.8 MB of the 0.9 MB `assets/worker.js` (unminified). The build keeps
+Mediabunny's notice in each of its files and Comlink's above its code; the other packages'
+notices are not in the player yet.
+
+**What MPL-2.0 means for a person who shares a film.** MPL-2.0 is a file-level licence: it
+covers Mediabunny's own files and nothing else. The film's code, its dependencies and its files
+are not affected and stay under the licence the person chose (package.json's `license`, which
+`share` sends; `UNLICENSED` is allowed). For an unmodified copy, which the player is, the duties
+are to keep Mediabunny's notices, which the build does, and to say where its source is: on npm
+and [GitHub](https://github.com/Vanilagy/mediabunny). Only a person who changes Mediabunny's own
+files, for example by patching `node_modules/mediabunny`, must make those changed files available
+under MPL-2.0.
+
 ## Development only
 
 Not shipped and not bundled: typescript 6.0.3 (Apache-2.0), @biomejs/biome 2.5.14 (MIT OR
-Apache-2.0), @types/* (MIT), vite 8.3.0 (MIT) as the workspace's build tool.
+Apache-2.0), esbuild 0.28.1 (MIT), @types/* (MIT), vite 8.3.0 (MIT) as the workspace's build tool.
 
 ## Test fixtures
 
@@ -81,7 +106,7 @@ imports (`requires.packages`): `three` 0.186.1 (MIT), `fast-png` 8.0.0 (MIT), `j
 0.35.5 (Apache-2.0) into the project that adds it. `sharp`'s prebuilt binary
 (`@img/sharp-win32-x64` 0.35.5) carries libvips under LGPL-3.0-or-later, as a separate shared
 library. None of Shaderera's packages depends on it. The rest of its tree is MIT, Apache-2.0,
-BSD-3-Clause (protobufjs, global-agent), ISC and `MIT OR CC0-1.0`.
+BSD-3-Clause (protobufjs, global-agent), ISC, 0BSD (tslib) and `MIT OR CC0-1.0`.
 
 ### What the plugins' tools need
 

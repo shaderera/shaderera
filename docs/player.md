@@ -146,5 +146,6 @@ does. The Node host asks the same questions over IPC and is not affected.
 
 `assets/worker.js` bundles [Mediabunny](https://github.com/Vanilagy/mediabunny) (MPL-2.0),
 unmodified, with its licence notice kept in each of its files; its source is on npm and GitHub.
-The rest of the engine's code in the player is MIT, and the film's own code and dependencies are
-under the film's licence.
+MPL-2.0 is file-level, so the film's own code and dependencies stay under the film's licence. The
+engine's code in the player is MIT; what else it bundles, and under which licence, is in
+[licences.md](licences.md#the-web-player).
