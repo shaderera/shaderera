@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import type { Manifest, Sink } from '@shaderera/core'
+import type { Json, Manifest, Sink } from '@shaderera/core'
 import { checkManifest } from '@shaderera/core/host'
+import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import { review } from '../review/review.ts'
-import { open } from './args.ts'
 import { blackFrame, fileTimecode, prerollOf, writePreroll } from './preroll.ts'
 
 const film = (o: Partial<Manifest>): Manifest => ({
@@ -68,45 +66,16 @@ test('preroll, timecode and textless are checked in shaderera.json and its varia
 })
 
 test('a textless variant fails review when text is on screen, and passes without it', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-textless-'))
-  mkdirSync(join(root, 'src'))
-  writeFileSync(
-    join(root, 'shaderera.json'),
-    JSON.stringify({
-      entry: './src/c.ts',
-      fps: 10,
-      duration: 1,
-      width: 32,
-      height: 16,
-      params: { type: 'object', properties: { clean: { type: 'boolean', default: false } } },
-      variants: {
-        forgot: { textless: true },
-        clean: { textless: true, params: { clean: true } },
-      },
-    }),
-  )
-  writeFileSync(
-    join(root, 'src', 'c.ts'),
-    `export default ({ io, params }) => {
-      const canvas = io.canvas(32, 16)
-      return {
-        render: async () => ({ color: canvas }),
-        inspect: async () => (params.clean ? {} : { title: { id: 'title', text: 'Spring sale', box: [2, 2, 20, 8] } }),
-      }
-    }`,
-  )
-  for (const [variant, want] of [
-    ['forgot', 'fail'],
-    ['clean', 'pass'],
-  ] as const) {
-    const { project, child } = await open({ root, variant })
-    try {
-      const r = await review({ project, child, outDir: join(root, 'out', variant), quick: true })
-      const c = r.checks.find((x) => x.id === 'textless')
-      assert.equal(c?.status, want, JSON.stringify(c))
-      if (want === 'fail') assert.deepEqual(c?.where?.[0]?.box, [2, 2, 20, 8])
-    } finally {
-      await child.close()
-    }
+  const title: Json = { title: { id: 'title', text: 'Spring sale', box: [2, 2, 20, 8] } }
+  for (const [state, want] of [
+    [title, 'fail'],
+    [{}, 'pass'],
+  ] as [Json, string][]) {
+    const project = memoryProject({ width: 32, height: 16, textless: true })
+    const child = memoryChild({ size: { width: 32, height: 16 }, inspect: () => state })
+    const r = await review({ project, child, outDir: join(project.root, 'out'), quick: true })
+    const c = r.checks.find((x) => x.id === 'textless')
+    assert.equal(c?.status, want, JSON.stringify(c))
+    if (want === 'fail') assert.deepEqual(c?.where?.[0]?.box, [2, 2, 20, 8])
   }
 })

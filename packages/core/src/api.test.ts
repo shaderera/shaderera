@@ -25,6 +25,7 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'fullDevice',
     'gainAt',
     'gpuCompositor',
+    'layerInfo',
     'matte',
     'openSource',
     'over',

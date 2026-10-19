@@ -1,25 +1,30 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
-import { open } from '../cli/args.ts'
+import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import { readingShort, review, reviewTimes } from './review.ts'
 
-/** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
-const copy = (dir: string) => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-fixture-'))
-  cpSync(fileURLToPath(new URL(dir, import.meta.url)), root, {
-    recursive: true,
-    filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
+/** fixtures/mcp's film in memory: a red box that the camera slides left, inspected and pickable. */
+const film = () => {
+  const project = memoryProject()
+  const child = memoryChild({
+    size: { width: 64, height: 36 },
+    frame: boxFrame(64, 36),
+    inspect: (t) => ({ camera: { id: 'camera', x: t * 10 }, box: { id: 'box', x: 20 - 10 * t } }),
+    pick: (t, x, y) =>
+      x >= 20 - 10 * t && x < 28 - 10 * t && y >= 10 && y < 18 ? { id: 'box' } : null,
+    camera: (t) => ({
+      view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -t * 10, 0, -5, 1],
+      projection: [0.5625, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1.001, -1, 0, 0, -0.1001, 0],
+    }),
   })
-  return root
+  return { project, child }
 }
-const fixture = copy('../cli/fixtures/mcp/')
 
-test('review (quick) on a fixture without shots or text: measured or unknown, never a fake pass', async () => {
-  const { project, child } = await open({ root: fixture })
+test('review (quick) on a film without shots or text: measured or unknown, never a fake pass', async () => {
+  const { project, child } = film()
   const outDir = mkdtempSync(join(tmpdir(), 'review-'))
   try {
     const r = await review({ project, child, outDir, quick: true })
@@ -49,13 +54,15 @@ test('review (quick) on a fixture without shots or text: measured or unknown, ne
     assert.equal(by.alpha?.status, 'unknown')
     for (const c of r.checks) if (c.status === 'pass') assert.ok(c.measured, c.id)
     assert.ok(r.diagnostics.alpha.nonOpaque > 0.9)
+    // No audio(): no audio diagnostics, in every host (node/contract.test.ts).
+    assert.equal(r.diagnostics.audio, null)
   } finally {
     await child.close()
   }
 })
 
 test('review removes frames from an earlier run in its out dir, and nothing else', async () => {
-  const { project, child } = await open({ root: fixture })
+  const { project, child } = film()
   const outDir = mkdtempSync(join(tmpdir(), 'review-'))
   const stale = ['07-0.95s.png', '07-0.95s.thumb.png']
   for (const f of [...stale, 'notes.txt']) writeFileSync(join(outDir, f), '')

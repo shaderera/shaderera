@@ -44,3 +44,9 @@ export const finalOnly = (
     )
   return layers
 }
+
+/** What a host reports of a rendered layer: its `name` and `final`, only those it set. */
+export const layerInfo = ({ name, final }: Layer): { name?: string; final?: boolean } => ({
+  ...(name !== undefined ? { name } : {}),
+  ...(final !== undefined ? { final } : {}),
+})

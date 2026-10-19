@@ -16,6 +16,7 @@ import {
   type GpuOutput,
   gpuCompositor,
   type Locate,
+  layerInfo,
   openSource,
   over,
   type RgbaLayer,
@@ -371,7 +372,7 @@ const handle = async (m: Request): Promise<unknown> => {
             format,
           )
         : cpuComposite(layers, width, height)
-      return { pixels, layers: layers.map(({ name, final }) => ({ name, final })) }
+      return { pixels, layers: layers.map(layerInfo) }
     }
     case 'inspect':
       return s.inspect ? s.inspect(m.t) : null

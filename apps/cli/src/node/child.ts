@@ -114,6 +114,7 @@ export type Child = {
   camera(t: number): Promise<Matrices | null>
   /** Renders through these matrices from now on; `null` gives the camera back to the source. */
   override(matrices: Matrices | null): Promise<void>
+  /** The source's clips, sampled (a function gain as a curve); null without audio(). */
   audio(): Promise<readonly SampledClip[] | null>
   /** The source's captions (start, end, text in composition seconds); null without captions(). */
   captions(): Promise<readonly Caption[] | null>

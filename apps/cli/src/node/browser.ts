@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 import type { Json, SampledClip } from '@shaderera/core'
 import type { TextRun } from '../review/measure.ts'
 import { alive } from './build.ts'
-import { type Child, TIMEOUT } from './child.ts'
+import { type Child, type Rendered, TIMEOUT } from './child.ts'
 import type { Project } from './project.ts'
 import { FRAME_PATH, frameUploads, RUNNER_PATH } from './runner-plugin.ts'
 import { HOST, startRunner } from './runner-server.ts'
@@ -128,6 +128,8 @@ export const openBrowserChild = async (
   project: Project,
   o: {
     params?: { [key: string]: Json }
+    /** The source's `host.seed`; by default the manifest's, or 0. */
+    seed?: number
     variant?: string
     /** A saved revision: its frozen entry and DOM (materialized under .shaderera/revisions/). */
     revision?: string
@@ -268,13 +270,14 @@ export const openBrowserChild = async (
     await cdp.send('Page.navigate', { url: `http://${HOST}:${port}${RUNNER_PATH}` })
     // Vite may reload the page once while it opens (it found dependencies to optimise): open again
     // on the reloaded page rather than fail.
-    let opened: { capabilities: Child['has'] } | undefined
+    // The page's capabilities (runner/worker.ts Capabilities): the Child's and more.
+    let opened: { capabilities: Child['has'] & { audio: boolean } } | undefined
     for (let attempt = 1; opened === undefined; attempt++) {
       await pageReady()
       debug('page ready, opening')
       try {
-        opened = await evaluate<{ capabilities: Child['has'] }>(
-          `window.__shaderera.open(${JSON.stringify({ params: o.params, variant: o.variant, revision: o.revision, size: o.size })})`,
+        opened = await evaluate<NonNullable<typeof opened>>(
+          `window.__shaderera.open(${JSON.stringify({ params: o.params, seed: o.seed, variant: o.variant, revision: o.revision, size: o.size })})`,
         )
       } catch (error) {
         if (
@@ -288,6 +291,16 @@ export const openBrowserChild = async (
     }
     debug('opened')
     timeout.ms = o.timeoutMs ?? TIMEOUT
+    const { capabilities } = opened
+    // The Child's capabilities, as the Node host reports them; the page's own carry more.
+    const has: Child['has'] = {
+      inspect: capabilities.inspect,
+      pick: capabilities.pick,
+      camera: capabilities.camera,
+      sequential: capabilities.sequential,
+      yuv: capabilities.yuv,
+      deep: capabilities.deep,
+    }
     const call = <T>(method: string, ...args: unknown[]) =>
       evaluate<T>(`window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`)
     return {
@@ -296,19 +309,23 @@ export const openBrowserChild = async (
         // one HTTP body, not base64 over the DevTools protocol.
         const key = randomUUID()
         const arrived = new Promise<Buffer>((done) => frameUploads.set(key, done))
+        let layers: Rendered['layers']
         try {
-          await call('send', t, intent, format, `${FRAME_PATH}${key}`)
+          layers = await call<Rendered['layers']>('send', t, intent, format, `${FRAME_PATH}${key}`)
         } finally {
           frameUploads.delete(key)
         }
         const bytes = await arrived
-        return { pixels: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), layers: [] }
+        return { pixels: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), layers }
       },
       inspect: (t) => call('inspect', t),
       pick: (t, x, y) => call('pick', t, x, y),
       camera: (t) => call('camera', t),
       override: (m) => call('override', m),
       audio: async () => {
+        // null without audio(), as in the Node host; the runner's own API gives [] (the web
+        // player's callers expect a list).
+        if (!capabilities.audio) return null
         // Sound made in code came as base64 float32 (worker.ts toBase64Pcm).
         const clips = await call<SampledClip[] | null>('audio')
         return (
@@ -379,7 +396,7 @@ export const openBrowserChild = async (
         cdp.close()
         await close()
       },
-      has: opened.capabilities,
+      has,
       // For checks and diagnosis: an expression evaluated on the runner page.
       evaluate,
     } as Child

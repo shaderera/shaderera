@@ -19,6 +19,7 @@ import {
   type GpuLayer,
   type GpuOutput,
   gpuCompositor,
+  layerInfo,
   openSource,
   over,
   paramDefaults,
@@ -394,6 +395,8 @@ const opened = (): Source => {
 export type OpenOptions = {
   /** Replaces the manifest's defaults (and the variant's): the preview's params, or a job's. */
   params?: { [key: string]: Json }
+  /** The source's `host.seed` (a job's own); by default the manifest's, or 0. */
+  seed?: number
   /** A saved revision, opened from its frozen copy under .shaderera/revisions/: a render job. */
   revision?: string
   /** A variant from shaderera.json, applied to the manifest the source opens with. */
@@ -423,7 +426,7 @@ const api = {
       const host = {
         manifest,
         params: o.params ?? { ...paramDefaults(manifest), ...variant.params },
-        seed: manifest.seed ?? 0,
+        seed: o.seed ?? manifest.seed ?? 0,
         io,
         gpu: await gpuDevice(),
       }
@@ -547,20 +550,21 @@ const api = {
   pixels: (t: number, intent: 'preview' | 'final' = 'final') =>
     enqueue(false, () =>
       authored(async () => {
-        const bytes = await composite(t, intent)
+        const { bytes } = await composite(t, intent)
         return Comlink.transfer(bytes, [bytes.buffer])
       }),
     ),
   /**
    * The frame at t, POSTed to the runner server at `to` (the browser host's way home: one HTTP body
-   * instead of base64 over the DevTools protocol).
+   * instead of base64 over the DevTools protocol). Returns its layers' names, as the Node host does.
    */
   send: (t: number, intent: 'preview' | 'final', format: GpuOutput, to: string) =>
     enqueue(false, () =>
       authored(async () => {
-        const bytes = await composite(t, intent, format)
+        const { bytes, layers } = await composite(t, intent, format)
         const r = await fetch(to, { method: 'POST', body: bytes as Uint8Array<ArrayBuffer> })
         if (!r.ok) throw new Error(`The runner server refused the frame (${r.status}).`)
+        return layers
       }),
     ),
   /** checkDeterminism in the browser host, through the authored camera: two orders, same output. */
@@ -569,7 +573,7 @@ const api = {
       authored(() =>
         checkDeterminism({
           times,
-          render: (t) => composite(t, 'final'),
+          render: async (t) => (await composite(t, 'final')).bytes,
           inspect: opened().inspect
             ? async (t) => (await opened().inspect?.(t)) ?? null
             : undefined,
@@ -595,13 +599,14 @@ const authored = async <T>(run: () => Promise<T>): Promise<T> => {
 
 /**
  * The frame at t as bytes: composited on the GPU (straight RGBA, or yuv420p for an mp4); without
- * WebGPU, drawn bottom to top on one canvas, as the preview does, and read back (RGBA only).
+ * WebGPU, drawn bottom to top on one canvas, as the preview does, and read back (RGBA only). With
+ * its layers' names and `final` (layerInfo).
  */
 const composite = async (
   t: number,
   intent: 'preview' | 'final',
   format: GpuOutput = 'rgba',
-): Promise<Uint8Array | Uint8ClampedArray> => {
+): Promise<{ bytes: Uint8Array | Uint8ClampedArray; layers: ReturnType<typeof layerInfo>[] }> => {
   const { width, height } = manifest
   const dom = await domAt(t)
   try {
@@ -615,12 +620,16 @@ const composite = async (
       }),
     )
     const layers = finalOnly(flattenFrame(frame), intent, t)
+    const info = layers.map(layerInfo)
     const c = await compositorFor()
     if (c)
-      return await c.composite(
-        layers.map((l) => toGpuLayer(l, width, height)),
-        format,
-      )
+      return {
+        bytes: await c.composite(
+          layers.map((l) => toGpuLayer(l, width, height)),
+          format,
+        ),
+        layers: info,
+      }
     if (format !== 'rgba')
       throw new Error(`${format} is made on the GPU: this browser has no WebGPU.`)
     const canvas = new OffscreenCanvas(width, height)
@@ -630,7 +639,7 @@ const composite = async (
       ctx.drawImage(bitmap, 0, 0, width, height)
       bitmap.close()
     }
-    return ctx.getImageData(0, 0, width, height).data
+    return { bytes: ctx.getImageData(0, 0, width, height).data, layers: info }
   } finally {
     dom?.close()
   }
