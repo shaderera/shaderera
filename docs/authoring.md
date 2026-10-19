@@ -18,8 +18,9 @@ determinism, the CLI, MCP, delivery, and `participants/` per renderer); the task
    never from a default of the engine.
 3. **Resolve the assets.** Use the real model, images and fonts, with their licences recorded in
    `ASSETS.md` (source, licence, sha256). If the product is missing, say so and stop or design an
-   original object openly. Never present a primitive placeholder as the product. Use footage or
-   pictures from outside sources only when the brief or the person asks (`guides/footage.md`).
+   original object openly. Never present a primitive placeholder as the product. Use footage,
+   pictures or sounds from outside sources only when the brief or the person asks
+   (`guides/footage.md`, `guides/audio.md`).
    A new project has no font: use the brand's font files from the person, otherwise ask (the
    order, and how `io.font` loads one, are in `guides/typography.md`).
 4. **Write the direction down** in `DIRECTION.md`, in whatever form the film needs: it guides the
