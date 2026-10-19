@@ -168,6 +168,16 @@ _Avoid_: campaign render
 A delivery as PNG frames, a WAV and `delivery.json`, for an editor or a colourist.
 _Avoid_: image sequence export
 
+**Mix**:
+A film's sound: the audio clips it lists inside a job's window, each trimmed, delayed into place
+and scaled by its gain, then summed without normalisation. A clip whose file has no sound is
+silence.
+_Avoid_: soundtrack, audio track
+
+**Stem**:
+The mix of the clips in one `group` (dialogue, music, fx). A film's stems sum to its mix.
+_Avoid_: bus, track
+
 **Handoff**:
 A job frozen with its revision's files and `REPRODUCE.md`, so someone else can render it again.
 _Avoid_: archive, bundle

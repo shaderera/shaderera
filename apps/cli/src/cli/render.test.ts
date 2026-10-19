@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import type { Child } from '../node/child.ts'
 import { open } from './args.ts'
-import { measureLoudness, probe } from './ffmpeg.ts'
+import { probe } from './ffmpeg.ts'
 import { exportVideo, frameError } from './render.ts'
 
 /** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
@@ -177,7 +177,8 @@ test('render saves the revision it renders and tags the file; render --job saves
   assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
 })
 
-test('a clip whose src has no audio stream is silence; a src that cannot be read names its clip', {
+// The mix's rules are tested in mix.test.ts; this proves render reaches them.
+test('render reaches the mix: a src without sound is no error, an unreadable one is named', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
   const main = fileURLToPath(new URL('./main.ts', import.meta.url))
@@ -202,13 +203,10 @@ test('a clip whose src has no audio stream is silence; a src that cannot be read
     return { ...r, out }
   }
 
-  // The tone alone, then the tone and the silent video: the same mix.
-  const tone = render('tone.mp4')
-  assert.equal(tone.status, 0, tone.stderr)
+  // The tone made in code is heard; the video without sound is not, and does not fail.
   const silent = render('silent.mp4', '--param', 'clip=picture.mp4')
   assert.equal(silent.status, 0, silent.stderr)
   assert.equal(probe(silent.out).audio?.codec, 'aac')
-  assert.deepEqual(measureLoudness(silent.out), measureLoudness(tone.out))
 
   const broken = render('broken.mp4', '--param', 'clip=broken.mp4')
   assert.notEqual(broken.status, 0)

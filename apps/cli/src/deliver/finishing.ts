@@ -1,19 +1,10 @@
-import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { exportFrames, type Json } from '@shaderera/core'
 import { fpsFraction, toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
-import {
-  clipFiles,
-  type Loudness,
-  loudnessGain,
-  measureLoudness,
-  requireFfmpeg,
-  wavArgs,
-  withGainFiles,
-  writeStems,
-} from '../cli/ffmpeg.ts'
+import { type Loudness, requireFfmpeg } from '../cli/ffmpeg.ts'
+import { mixWav } from '../cli/mix.ts'
 import { blackFrame, fileTimecode, prerollOf, writePreroll } from '../cli/preroll.ts'
 import type { Child, ClockReads, HostIdentity } from '../node/child.ts'
 import type { Project } from '../node/project.ts'
@@ -95,7 +86,7 @@ export const exportFinishing = async (
     quick?: boolean
     /** `false`: no audio.wav, whatever the source's clips. */
     audio?: boolean
-    /** A loudness to bring the mix to, in LUFS integrated, by one constant gain (loudnessGain). */
+    /** A loudness to bring the mix to, in LUFS integrated, by one constant gain (openMix). */
     loudness?: number
     onFrame?: (i: number, n: number) => void
     /** 16: frames at 16 bits a channel, from the GPU compositor (a host without one refuses). */
@@ -152,48 +143,31 @@ export const exportFinishing = async (
       sink,
       onFrame: o.onFrame,
     })
-    const files = clipFiles(project.root, o.audio === false ? [] : ((await child.audio()) ?? []))
-    const clips = files.clips
-    let audio: DeliveryRecord['audio'] = null
-    if (clips.length > 0) {
-      const gains = withGainFiles(clips, head, to)
-      const level =
-        o.loudness === undefined ? null : loudnessGain(gains.clips, head, to, o.loudness)
-      const wav = join(partial, 'audio.wav')
-      const stems = o.stems
-        ? writeStems({
-            clips: gains.clips,
-            from: head,
-            to,
-            dir: join(partial, 'stems'),
-            ...(level ? { gainDb: level.gainDb } : {}),
-          }).map((file) => slash(relative(partial, file)))
-        : undefined
-      const r = spawnSync(
-        'ffmpeg',
-        wavArgs({
-          from: head,
-          to,
-          out: wav,
-          clips: gains.clips,
-          ...(level ? { gainDb: level.gainDb } : {}),
-        }),
-        { encoding: 'utf8' },
-      )
-      gains.cleanup()
-      if (r.status !== 0) throw new Error(`ffmpeg (audio) failed: ${r.stderr}`)
-      const loudness = measureLoudness(wav)
-      audio = {
-        file: 'audio.wav',
-        format: 'WAV PCM signed 24-bit',
-        sampleRate: 48000,
-        channels: 2,
-        ...(loudness ? { loudness } : {}),
-        ...(level ? { gainDb: Number(level.gainDb.toFixed(3)) } : {}),
-        ...(stems ? { stems } : {}),
-      }
-    }
-    files.cleanup()
+    // The mix's temporary files go even on a throw; a source with nothing heard has no audio.wav.
+    const mixed = mixWav(
+      project.root,
+      o.audio === false ? [] : ((await child.audio()) ?? []),
+      { from: head, to },
+      {
+        out: join(partial, 'audio.wav'),
+        ...(o.stems ? { stems: join(partial, 'stems') } : {}),
+        ...(o.loudness === undefined ? {} : { loudness: o.loudness }),
+      },
+    )
+    const audio: DeliveryRecord['audio'] =
+      mixed.clips.length === 0
+        ? null
+        : {
+            file: 'audio.wav',
+            format: 'WAV PCM signed 24-bit',
+            sampleRate: 48000,
+            channels: 2,
+            ...(mixed.loudness ? { loudness: mixed.loudness } : {}),
+            ...(mixed.gainDb === undefined ? {} : { gainDb: Number(mixed.gainDb.toFixed(3)) }),
+            ...(mixed.stems
+              ? { stems: mixed.stems.map((file) => slash(relative(partial, file))) }
+              : {}),
+          }
     const cues = await child.captions()
     const captions = cues ? ['captions.srt', 'captions.vtt'] : undefined
     if (cues) {
