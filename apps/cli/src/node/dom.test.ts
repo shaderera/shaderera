@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { createJob, openJob } from '../project/jobs.ts'
 import { review } from '../review/review.ts'
 import { openBrowserChild } from './browser.ts'
+import { TIMEOUT } from './child.ts'
 import { findProject } from './project.ts'
 
 /**
@@ -53,7 +54,13 @@ for (const [mode, message] of [
 }
 
 test('a hung source fails the call after timeoutMs and closes Chrome', async () => {
-  const child = await openBrowserChild(project, { params: { mode: 'hang' }, timeoutMs: 3000 })
+  // Only the hung call is timed: opening has the default allowance, so a loaded machine's slow
+  // page cannot fail first (#85).
+  const child = await openBrowserChild(project, {
+    params: { mode: 'hang' },
+    timeoutMs: 3000,
+    openTimeoutMs: TIMEOUT,
+  })
   try {
     await assert.rejects(child.render(0.3, 'final'), /took longer than 3000 ms/)
     await assert.rejects(child.render(0.3, 'final'), /Chrome closed/)
