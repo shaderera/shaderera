@@ -134,6 +134,12 @@ export const openBrowserChild = async (
     /** Overrides the manifest's frame size (review's resized reopen). */
     size?: { width: number; height: number }
     timeoutMs?: number
+    /**
+     * How long each DevTools call may take while the host opens (the page loading, the source's
+     * open); timeoutMs from then on. timeoutMs by default; a test of a hung call raises it, so a
+     * page slow to open under load does not fail first.
+     */
+    openTimeoutMs?: number
     /** The bakes' frames, checked against their stamps: what io.bake reads. */
     bakes?: BakeFrames
   } = {},
@@ -206,10 +212,11 @@ export const openBrowserChild = async (
     }[]
     const page = targets.find((t) => t.type === 'page')
     if (!page) throw new Error('Chrome opened no page.')
-    const cdp = await session(page.webSocketDebuggerUrl, exited, {
-      ms: o.timeoutMs ?? TIMEOUT,
+    const timeout = {
+      ms: o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT,
       expired: () => browser.kill(),
-    })
+    }
+    const cdp = await session(page.webSocketDebuggerUrl, exited, timeout)
     await cdp.send('Runtime.enable')
     await cdp.send('Log.enable')
     await cdp.send('DOM.enable')
@@ -280,6 +287,7 @@ export const openBrowserChild = async (
       }
     }
     debug('opened')
+    timeout.ms = o.timeoutMs ?? TIMEOUT
     const call = <T>(method: string, ...args: unknown[]) =>
       evaluate<T>(`window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`)
     return {
