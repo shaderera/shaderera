@@ -35,5 +35,10 @@ test('insideForRead also reads an installed package linked from a store, and not
     join(root, 'node_modules', 'pkg', 'a.wasm'),
   )
   assert.throws(() => insideForRead(root, 'node_modules/up/secret.txt'), /through a link/)
+  // A read says why it is refused.
+  assert.throws(
+    () => insideForRead(root, '../secret.txt'),
+    /^Error: \.\.\/secret\.txt is outside the project: a film reads only its project's files, so that each revision holds everything it reads: copy the file into the project\.$/,
+  )
   assert.throws(() => inside(root, 'node_modules/pkg/a.wasm'), /through a link/)
 })

@@ -5,7 +5,9 @@ is what the engine does with sound.
 
 - `audio()` returns clips: `{ src, at, from?, to?, gain?, group? }`. A clip is a project file
   placed at `at` seconds of the film; `group` names its stem (`render --stems`). `gain` is a number, or a function of the film's time in seconds: a
-  fade, a duck or any envelope is written as code (`docs/protocol.md`, audio).
+  fade, a duck or any envelope is written as code (`docs/protocol.md`, audio). A src with no
+  audio stream (a video without sound) is silence, left out of the mix; a src that cannot be read
+  fails the render, naming the clip.
 - `render` and `deliver` measure the mix's loudness (EBU R128: integrated LUFS, true peak, range)
   and report it; `delivery.json` records it. `--loudness=-23` brings the mix to a target by one
   constant gain, with no compression or limiting, and reports the true peak it reached. No target
