@@ -701,13 +701,15 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     }
     // Measured, never judged: a loudness target is the placement's, declared where it applies.
     let loudness: Loudness | null = null
-    const files = clipFiles(o.project.root, clips)
+    let cleanup = () => {}
     try {
+      const files = clipFiles(o.project.root, clips)
+      cleanup = files.cleanup
       loudness = mixLoudness(files.clips, 0, duration)
     } catch {
       // No ffmpeg, or a clip it cannot read: the audio check of render and deliver says so.
     } finally {
-      files.cleanup()
+      cleanup()
     }
     audio = { clips: clips.length, coverage: round(covered / duration, 3), loudness }
   }

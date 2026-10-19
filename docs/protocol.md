@@ -399,7 +399,9 @@ async audio() {
 
 `src` is a project file, `at` is where it starts in composition seconds; `from`/`to` trim the file
 and `gain` scales it. The export trims each clip to its window, delays it into place and mixes the
-clips without amix's normalisation.
+clips without amix's normalisation. A `src` with no audio stream (a video without sound) is
+silence: the export leaves it out of the mix, as shaderera.com's player does. A `src` that cannot
+be read fails the export, naming the clip and its `src`.
 
 `gain` is a number, or a function of the composition's time, written like `render(t)`:
 

@@ -696,23 +696,56 @@ export const floatWav = (pcm: Pcm): Uint8Array => {
 }
 
 /**
+ * Whether a file has an audio stream, by ffprobe. Throws naming `clip` (which clip, and its src)
+ * when ffprobe cannot read the file.
+ */
+const hasAudio = (file: string, clip: string): boolean => {
+  const r = spawnSync(
+    'ffprobe',
+    [
+      '-v',
+      'error',
+      '-select_streams',
+      'a',
+      '-show_entries',
+      'stream=index',
+      '-of',
+      'csv=p=0',
+      file,
+    ],
+    { encoding: 'utf8' },
+  )
+  if (r.error) throw new Error(`ffprobe is needed to read ${clip}: ${r.error.message}`)
+  if (r.status !== 0) throw new Error(`${clip} cannot be read: ${r.stderr.trim()}`)
+  return r.stdout.trim() !== ''
+}
+
+/**
  * The clips with a file for each: a project file (`src`), or a temporary float WAV for sound made
- * in code (`pcm`). `cleanup` removes the temporary files.
+ * in code (`pcm`). A src with no audio stream (a video without sound) is silence, left out of the
+ * mix as shaderera.com's mix leaves it; a src that cannot be read throws, naming the clip. `cleanup`
+ * removes the temporary files.
  */
 export const clipFiles = (
   root: string,
   clips: readonly SampledClip[],
 ): { clips: Clip[]; cleanup: () => void } => {
-  let dir: string | undefined
-  const out = clips.map((c, i): Clip => {
-    if (c.src !== undefined && c.pcm === undefined) return { ...c, file: resolve(root, c.src) }
-    if (c.pcm === undefined || c.src !== undefined)
+  // Every src is checked before any temporary file is written.
+  const heard = clips.flatMap((c, i): { c: SampledClip; i: number; file?: string }[] => {
+    if ((c.src === undefined) === (c.pcm === undefined))
       throw new Error(
         `Audio clip ${i} needs a src (a project file) or pcm (samples), and only one.`,
       )
+    if (c.src === undefined) return [{ c, i }]
+    const file = resolve(root, c.src)
+    return hasAudio(file, `Audio clip ${i} (${c.src})`) ? [{ c, i, file }] : []
+  })
+  let dir: string | undefined
+  const out = heard.map(({ c, i, file: src }): Clip => {
+    if (src !== undefined) return { ...c, file: src }
     dir ??= mkdtempSync(join(tmpdir(), 'shaderera-pcm-'))
     const file = join(dir, `${i}.wav`)
-    writeFileSync(file, floatWav(c.pcm))
+    writeFileSync(file, floatWav(c.pcm as Pcm))
     return { ...c, file }
   })
   return { clips: out, cleanup: () => dir && rmSync(dir, { recursive: true, force: true }) }
