@@ -535,6 +535,22 @@ test('telemetry: one notice, off by config or by SHADERERA_TELEMETRY=0', () => {
   setTelemetry(true)
 })
 
+test('telemetry: a config that cannot be read is off, and is never overwritten', () => {
+  const file = join(home, '.shaderera', 'config.json')
+  const broken = '{ "telemetry": false, }\n'
+  mkdirSync(join(home, '.shaderera'), { recursive: true })
+  const was = existsSync(file) ? readFileSync(file, 'utf8') : '{}\n'
+  writeFileSync(file, broken)
+  try {
+    assert.deepEqual(telemetryStatus(), { on: false, by: 'config' })
+    assert.ok(!noticeOnce(() => {}))
+    assert.throws(() => setTelemetry(true), /cannot be read: fix it or delete it/)
+    assert.equal(readFileSync(file, 'utf8'), broken)
+  } finally {
+    writeFileSync(file, was)
+  }
+})
+
 test('shaderera studio --connect pairs with the page, and says so when the id expired', async () => {
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
   // The CLI takes longer than the shared relay's 300 ms to start: a relay of its own.

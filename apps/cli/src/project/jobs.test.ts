@@ -134,6 +134,11 @@ test('a job name never changes meaning: different delivery gets its own job, a t
     replace: true,
   })
   assert.equal(readJob(root, 'approved').id, replaced.id)
+  // `approved.host.json` is approved's host pin, not a job.
+  await assert.rejects(
+    createJob(root, { by: 'cli', revision: review.revision, name: 'approved.host' }),
+    /does not end in \.host/,
+  )
   // Two writers racing for one name: one wins, the other is refused, nothing is half-written.
   const race = await Promise.allSettled(
     (['mp4', 'png'] as const).map((format) =>
