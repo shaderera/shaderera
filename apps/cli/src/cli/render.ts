@@ -10,7 +10,14 @@ import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
-import { DELIVERY_FLAGS, deliveryOf, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
+import {
+  DELIVERY_FLAGS,
+  deliveryOf,
+  openJob,
+  readJob,
+  safeName,
+  videoOptionsOf,
+} from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { save } from '../project/revisions.ts'
 import { childOptions, open, parseRendering } from './args.ts'
@@ -472,7 +479,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           : job
             ? join(root, 'out', `${job.name}${ext}`)
             : typeof v.variant === 'string'
-              ? join(root, 'out', `${basename(root)}-${v.variant}${ext}`)
+              ? join(root, 'out', `${basename(root)}-${safeName(v.variant)}${ext}`)
               : undefined,
       quality: delivery.quality,
       crf: num(v.crf),

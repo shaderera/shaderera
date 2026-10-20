@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { safeName } from '../project/jobs.ts'
 import { outputRequirements, type Requirements, readRequirements } from '../project/requirements.ts'
 import { type Check, review } from '../review/review.ts'
 import { open, parseRendering } from './args.ts'
@@ -59,7 +60,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const outDir =
       typeof v.out === 'string'
         ? resolve(v.out)
-        : join(project.root, 'out', 'review', ...(variant ? [variant] : []))
+        : join(project.root, 'out', 'review', ...(variant ? [safeName(variant)] : []))
     const r = await review({
       project,
       child,

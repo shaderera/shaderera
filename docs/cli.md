@@ -29,6 +29,8 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 - **`--root <dir>`**: where to start looking for `shaderera.json`. Default: the working
   directory. The CLI walks up to the nearest directory that has one, so it works from `src/`.
 - **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused.
+  In the files named after it (`out/<project>-<variant>.mp4`, `out/stills/<variant>-<t>.png`,
+  `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
 - **`--host node|browser`**: overrides the manifest's `host` for this run. A project with `dom`
   cannot be run with `--host node`.
 - **`--trusted`**: run the project without Node's permission model
