@@ -4,7 +4,15 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { NAME } from './item.ts'
 import { parseVersion } from './semver.ts'
-import { folderName, hashDir, type Index, latest, newest, parseSpec, versionDir } from './store.ts'
+import {
+  folderName,
+  hashDir,
+  type Index,
+  newest,
+  parseSpec,
+  versionDir,
+  writeWhole,
+} from './store.ts'
 
 export const isUrl = (registry: string): boolean => /^https?:\/\//i.test(registry)
 
@@ -66,8 +74,8 @@ export const mirror = async (
   let indexText: Buffer
   try {
     indexText = await get(`${base}/index.json`)
-    writeFileSync(join(dir, 'search.json'), await get(`${base}/search.json`))
-    writeFileSync(join(dir, 'index.json'), indexText)
+    writeWhole(join(dir, 'search.json'), await get(`${base}/search.json`))
+    writeWhole(join(dir, 'index.json'), indexText)
   } catch (e) {
     if (!existsSync(join(dir, 'index.json'))) throw e
     console.error(`shaderera: ${(e as Error).message}; using the copy from last time`)
@@ -80,7 +88,8 @@ export const mirror = async (
     const target = versionDir(dir, name, version)
     if (existsSync(target) && hashDir(target) === v.sha256) continue
     if (!v.files) throw new Error(`${name}@${version} at ${base} lists no files; republish it`)
-    const partial = `${target}.partial`
+    // Named by the process: another command mirroring the same version fills its own.
+    const partial = `${target}.${process.pid}.partial`
     rmSync(partial, { recursive: true, force: true })
     for (const f of v.files) {
       if (
@@ -94,7 +103,13 @@ export const mirror = async (
       writeFileSync(path, await get(`${base}/items/${folderName(name)}/${version}/${remote}`))
     }
     rmSync(target, { recursive: true, force: true })
-    renameSync(partial, target)
+    try {
+      renameSync(partial, target)
+    } catch (e) {
+      // Another command placed the same version first.
+      rmSync(partial, { recursive: true, force: true })
+      if (!existsSync(target) || hashDir(target) !== v.sha256) throw e
+    }
   }
   return dir
 }

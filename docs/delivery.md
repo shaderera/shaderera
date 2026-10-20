@@ -172,8 +172,8 @@ A job with `delivery.format: 'png'` renders to `out/<job>/` (`deliver`:
   (`clock`), and the Shaderera and ffmpeg versions.
 - `review/`: the review's frames and contact sheet.
 
-The delivery is built in `<dir>.partial` and moved into place only after the determinism re-check
-passes; any failure (re-check, audio, review) removes it.
+The delivery is built in `<dir>.<pid>.partial` (the process id) and moved into place only after the
+determinism re-check passes; any failure (re-check, audio, review) removes it.
 
 ## Batch
 

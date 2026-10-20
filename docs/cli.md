@@ -169,11 +169,12 @@ out/stills/final-vs-animatic-4.000.png  vs animatic: PSNR 38.41 dB, mean ΔE 0.4
 Renders every frame `i / fps` in `[from, to)` at `intent: 'final'`, spread over the workers and
 written in order. What each format is, and what was measured: [delivery.md](delivery.md).
 
-The file is written as `<out>.partial` and renamed to `<out>` only when it is complete: while a
-render runs, `<out>` is the previous film or nothing, never half a film. A render that fails or is
+The file is written as `<out>.<pid>.partial` (the render's process id, so two renders to one
+`<out>` never share it) and renamed to `<out>` only when it is complete: while a render runs,
+`<out>` is the previous film or nothing, never half a film. A render that fails or is
 stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
-kept as `<out>.partial` and the error says so. A host error fails the render with
+kept as `<out>.<pid>.partial` and the error says so. A host error fails the render with
 its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
 memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
 The file must hold every frame rendered; one ffmpeg finished short is refused.
