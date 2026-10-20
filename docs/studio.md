@@ -250,5 +250,6 @@ sends nothing itself.
   The page holds its events until one of those reports `telemetry`.
 
 `shaderera telemetry off|on|status` keeps the choice in `~/.shaderera/config.json`.
-`SHADERERA_TELEMETRY=0` turns it off whatever that file says. The first `shaderera studio` prints
+`SHADERERA_TELEMETRY=0` turns it off whatever that file says. A config that cannot be read counts
+as off, and is never overwritten: fix it or delete it. The first `shaderera studio` prints
 a notice saying all of this, once, and notes in the same file that it did.

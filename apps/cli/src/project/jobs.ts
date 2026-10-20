@@ -260,6 +260,8 @@ export const createJob = async (
 ): Promise<Job> => {
   if (o.name !== undefined && !/^[\w.-]+$/.test(o.name))
     throw new Error(`A job name is letters, digits, . _ -: ${o.name}`)
+  // `<name>.host.json` is a job's host pin.
+  if (o.name?.endsWith('.host')) throw new Error(`A job name does not end in .host: ${o.name}`)
   const revision = o.revision ?? save(root, { by: o.by, label: o.label }).id
   const declared = manifestAt(root, revision)
   const { manifest, params: variantParams } = withVariant(declared, o.variant)
