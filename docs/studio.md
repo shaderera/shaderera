@@ -180,12 +180,16 @@ asked.
   - `"png"`: one still, at `t` seconds (`0` by default), inside the film.
 - **The project is saved as a revision first**, and a video is tagged with it, as `render` does.
 - **The file stays in the project**, as `out/studio/<project>[-<variant>]-<job>.<mp4|mov|png>`.
+  In the variant's name, anything but letters, digits, `_`, `.` and `-` becomes `_` (`16:9` is
+  `16_9`).
 
 ### `GET /render/<job>/file`
 
 The job's file, streamed for the page to save, with:
 - `Content-Type`: `video/mp4`, `video/quicktime` or `image/png`;
-- `Content-Disposition: attachment; filename="…"`, exposed to the page.
+- `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…`, exposed to the page.
+  `filename` is the name in ASCII, with `_` for anything else; `filename*` is the name itself,
+  percent-encoded UTF-8 (RFC 6266), for a project named in any script.
 
 A job that is not done gets `409`. An unknown one gets `404`.
 
