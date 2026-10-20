@@ -61,7 +61,7 @@ for (const [name, open] of hosts) {
   test(`${name}: straight RGBA at the boundary, byte-exact PNG, mp4 matted over black`, async () => {
     const child = await open()
     try {
-      // A host with a GPU (WebGPU in Chrome here; Dawn in contract.test.ts) exports yuv420p it
+      // A host with a GPU (WebGPU in Chrome here; Dawn in contract.it.ts) exports yuv420p it
       // made itself; the Node host without one hands ffmpeg RGBA.
       assert.equal(!!child.has.yuv, name !== 'node')
       const { pixels } = await child.render(0, 'final')

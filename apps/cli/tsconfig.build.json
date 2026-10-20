@@ -12,5 +12,5 @@
     "src/player",
     "src/studio"
   ],
-  "exclude": ["src/**/*.test.ts", "src/**/fixtures/**"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.it.ts", "src/**/fixtures/**"]
 }

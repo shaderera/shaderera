@@ -276,14 +276,19 @@ pnpm install
 pnpm build
 pnpm lint
 pnpm typecheck
-pnpm test
+pnpm test       # the fast tests, about ten seconds: run them all the time
+pnpm test:all   # the fast and the slow tests: before a pull request
 ```
 
 `pnpm install` warns `Ignored build scripts: esbuild, webgpu` and suggests `pnpm approve-builds`.
 That is expected: the tests pass without approving them (webgpu's script only clears a macOS
-download flag). The full tests need ffmpeg, a GPU and Chrome: the ffmpeg tests skip without
-ffmpeg, but the GPU and browser-host tests fail without a GPU and Chrome (`CHROME` names another
-Chrome).
+download flag).
+
+The fast tests are the `*.test.ts` files. The slow ones, `*.it.ts` (`pnpm test:slow`, which builds
+the CLI first), launch Chrome, Dawn, ffmpeg or the CLI as a child. They need ffmpeg, a GPU and
+Chrome: the ffmpeg tests skip without ffmpeg, but the GPU and browser-host tests fail without a
+GPU and Chrome (`CHROME` names another Chrome). A test that needs none of them goes in a
+`*.test.ts` file.
 
 [CLAUDE.md](CLAUDE.md) is the short guide for agents working on this repository.
 `.claude/skills/` holds third-party engineering skills copied for contributors' agents (ponytail

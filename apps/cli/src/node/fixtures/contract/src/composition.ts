@@ -1,7 +1,7 @@
 import type { AudioClip, Caption, Open } from '@shaderera/core'
 
 /**
- * The contract suite's film (node/contract.test.ts): one layer of bytes whose left half changes
+ * The contract suite's film (node/contract.it.ts): one layer of bytes whose left half changes
  * with t, opaque, and whose right half is straight (200, 120, 40) at alpha 128; inspect, sound
  * from a file and made in code, and captions; inspect reports the seed. With `silent`, it has no audio() and no
  * captions(). The render at 0.7 s throws.

@@ -306,8 +306,9 @@ works offline from the last copy.
 - `add` into a fresh project works, and `check` passes there.
 - No film's numbers; the defaults render well.
 - Every asset is made in code, or has its licence and source.
-- A test in `packages/plugins/test/`; `pnpm --filter @shaderera/plugins test` passes.
+- A test in `packages/plugins/test/` (`<name>.test.ts`, or `<name>.it.ts` when it is slow);
+  `pnpm --filter @shaderera/plugins test:all` passes.
 - `preview/` renders, and you looked at the poster and a contact sheet. `out/` is not committed.
 - A row in `packages/plugins/README.md`, and the plugin listed in `docs/authoring.md` as plumbing
   or as looks and motion.
-- `pnpm test` and `pnpm lint` pass.
+- `pnpm test:all` and `pnpm lint` pass.

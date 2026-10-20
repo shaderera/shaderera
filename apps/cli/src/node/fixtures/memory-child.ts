@@ -1,5 +1,5 @@
 // A third Child adapter, for tests: it runs in this process, with no build, host process or
-// browser. The contract suite (node/contract.test.ts) holds it to what the Node and browser hosts
+// browser. The contract suite (node/contract.it.ts) holds it to what the Node and browser hosts
 // do; tests of logic that only needs a Child (export, finishing, check, review, delivery) use it.
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'

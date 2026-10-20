@@ -9,6 +9,8 @@
   "scripts": {
     "build": "pnpm --filter @shaderera/core --filter shaderera --filter create-shaderera build",
     "test": "pnpm -r --if-present test",
+    "test:slow": "pnpm -r --if-present test:slow",
+    "test:all": "pnpm -r --if-present test:all",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "biome check ."
   },
