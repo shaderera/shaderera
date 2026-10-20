@@ -23,10 +23,11 @@ const openBrowser = (url: string) => {
 }
 
 /**
- * `shaderera studio [--connect <id>] [--site <origin>] [--origin <dev origin>]... [--no-open]`:
- * the local bridge of the studio page on the site (docs/studio.md, decision 0021). Without
- * `--connect` it makes a studio session id and opens `<site>/studio/<id>`; with it, it pairs with
- * the id the page made. It runs until Ctrl-C.
+ * `shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origin <dev origin>]...
+ * [--no-open]`: the local bridge of the studio page on the site (docs/studio.md, decision 0021).
+ * Without `--connect` it makes a studio session id and opens `<site>/studio/<id>`; with it, it
+ * pairs with the id the page made. Share sends films to `--to`, as `shaderera share` does. It runs
+ * until Ctrl-C.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v } = parseArgs({
@@ -34,12 +35,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     options: {
       connect: { type: 'string' },
       site: { type: 'string' },
+      to: { type: 'string' },
       origin: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
       ...common,
     },
   })
   const site = siteOf(v.site)
+  const to = siteOf(v.to)
   for (const origin of v.origin ?? [])
     if (!isOrigin(origin))
       throw new Error(`--origin takes an origin (scheme, host and port), not ${origin}.`)
@@ -52,7 +55,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
 
   const bridge = await startBridge({
     root,
-    site,
+    to,
     origins: [site, ...(v.origin ?? []).filter((o) => o !== site)],
     hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
   })
@@ -64,6 +67,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const page = pageUrl(site, id)
   console.log(`project  ${root}`)
   console.log(`bridge   ${bridge.origin} (for ${site} only)`)
+  if (to !== site) console.log(`share to ${to}`)
   if (v.connect) console.log(`pairing with ${page}`)
   else if (v['no-open']) console.log(`open     ${page}`)
   else {

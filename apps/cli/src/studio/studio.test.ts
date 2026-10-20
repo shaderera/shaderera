@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { request as httpRequest } from 'node:http'
+import { createServer, request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { saveToken } from '../cli/site.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
 import { startRelay } from './fixtures/relay.ts'
@@ -163,7 +164,7 @@ let bridge: Bridge
 let relay: Awaited<ReturnType<typeof startRelay>>
 before(async () => {
   root = fixture()
-  bridge = await startBridge({ root, site: SITE, origins: [SITE, DEV], settleMs: 50 })
+  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
   relay = await startRelay({ ttlMs: 300 })
 })
 after(async () => {
@@ -585,4 +586,61 @@ test('shaderera studio --connect pairs with the page, and says so when the id ex
   assert.equal(await new Promise((done) => late.on('exit', done)), 2)
   assert.match(err, /expired/)
   gone.ws.close()
+})
+
+test("shaderera studio --to: Share sends films there, not to the studio page's site", async () => {
+  // A films site of its own, the only one with a token: it records the calls and refuses them.
+  const seen: { path?: string; auth?: string }[] = []
+  const films = createServer((req, res) => {
+    seen.push({ path: req.url, auth: req.headers.authorization })
+    req.resume()
+    res.writeHead(503, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'the films site, as asked' }))
+  })
+  await new Promise<void>((done) => films.listen(0, '127.0.0.1', done))
+  const address = films.address()
+  const to = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`
+  saveToken(to, 'films-token')
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const pairing = p.pair()
+  const project = fixture()
+  writeFileSync(join(project, 'package.json'), JSON.stringify({ license: 'MIT' }))
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  const cli = spawn(
+    process.execPath,
+    [main, 'studio', '--connect', id, '--site', slow.origin, '--to', to, '--root', project],
+    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+  )
+  let out = ''
+  cli.stdout.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  cli.stderr.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
+  try {
+    const paired = await Promise.race([pairing, exited.then(() => null)])
+    assert.ok(paired, out)
+    const { bridge: got } = paired
+    const r = await call(got.port, {
+      method: 'POST',
+      path: '/share',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${got.secret}` },
+      body: {},
+    })
+    assert.equal(r.status, 500, out)
+    assert.match(jsonOf(r).error, new RegExp(`on ${to}: 503 the films site, as asked`))
+    assert.ok(seen.length > 0, 'the films site was called')
+    assert.ok(seen.every((s) => s.path?.startsWith('/api/v1/') && s.auth === 'Bearer films-token'))
+    assert.match(out, new RegExp(`share to ${to}`))
+  } finally {
+    cli.kill('SIGINT')
+    await exited
+    p.ws.close()
+    await slow.close()
+    films.close()
+  }
 })
