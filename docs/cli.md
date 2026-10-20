@@ -230,7 +230,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `.mcp.json`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, at any depth |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
@@ -426,7 +426,8 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 [above](#versions-and-jobs)), and nothing else:
 - never `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, `node_modules/` or `.git/`
   anywhere, or a link (symlink, junction);
-- never a secret: `.env`, `.env.*` or `.npmrc`, at any depth (it names the ones it leaves out);
+- never a file that holds secrets, which a revision never holds (`save`, above): it names the
+  ones it leaves out;
 - besides the files, the licence (package.json's `license`), the title of a new film and the
   version of `shaderera` that sent it.
 
@@ -446,7 +447,7 @@ render (no ffmpeg, a frame that fails, too large) is left out with a warning, an
 shared without it. `--no-media` renders and sends neither.
 
 Before sending, it prints how many files and bytes it will send, the player's, to which site and
-film, and asks.
+film, the secrets it leaves out, and asks.
 Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exits 2. Declining
 sends nothing and exits 1. Only the files the site does not already have are uploaded, each one
 checked against its sha256 as it is read.

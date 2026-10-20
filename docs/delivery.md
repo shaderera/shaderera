@@ -331,12 +331,15 @@ npx shaderera assemble --plan out/spot-v2.plan    # one encode, as usual
 ## Handoff
 
 `shaderera handoff <job>` writes `out/handoff/<job>/`: the revision's files as a working tree
-(never node_modules, out or other revisions), `versions/` with only that revision's objects, its
+(never node_modules, out, other revisions or the files that hold secrets, which a revision never
+holds: [cli.md](cli.md#versions-and-jobs)), `versions/` with only that revision's objects, its
 record and the job, so `npx shaderera render --job <job>` works there unchanged, and
 `REPRODUCE.md`: the commands (`npm ci` with a package-lock, else `npm install`), the lock file's
 hash, the installed packages the job executes with the sha256 of each, the OS, GPU, Node, ffmpeg
 and Shaderera versions measured at handoff, and the asset hashes with a pointer to ASSETS.md when
-the revision has one.
+the revision has one. The project's `.npmrc` is not in it: a clean install from a private registry
+uses the recipient's own npm config. A job whose revision holds a secret (saved by an older
+Shaderera) is refused: freeze it again with `shaderera job --name <job> --replace`.
 
 **What a job pins.** A job records each installed package its source executes (what the build
 imports, everything those depend on, and `webgpu` when installed) as `name@version` → sha256 of
