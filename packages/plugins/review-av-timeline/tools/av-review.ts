@@ -194,7 +194,9 @@ const nearest = (list: number[], t: number, within = 0.15) => {
 }
 const ms = (s: number) => `${s >= 0 ? '+' : ''}${Math.round(s * 1000)} ms`
 for (const t of moments) {
-  const from = Math.max(0, t - 0.15)
+  // On the frame grid, and sought half a frame early: ffmpeg starts at the first frame at or after
+  // -ss, and four decimals can round a frame's time past it.
+  const from = Math.max(0, Math.ceil((t - 0.15) * fps - 1e-6) / fps)
   const to = Math.min(duration, t + 0.3)
   const tw = 200
   const th = Math.round((tw * video.height) / video.width / 2) * 2
@@ -204,7 +206,7 @@ for (const t of moments) {
       '-v',
       'error',
       '-ss',
-      from.toFixed(4),
+      Math.max(0, from - 0.5 / fps).toFixed(4),
       '-i',
       film,
       '-t',
