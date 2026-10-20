@@ -32,6 +32,8 @@ A spike on workers.dev measured this in Chrome 155 and Edge 155. Pairing went th
    - opened, paired (with the CLI version and OS), edits counted, renders and exports (format, length, time taken), shares and errors;
    - never source, file names, params or frames.
    
+   The counts are stored with PostHog through the site's Worker, with no client SDK and no cookies.
+
    The CLI says so the first time it runs, and `SHADERERA_TELEMETRY=0` (or a config flag) turns it off.
 
 **Consequences.**

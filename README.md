@@ -188,6 +188,10 @@ They run only when called and send only the project's files, as a revision holds
 `--to <origin>` or `SHADERERA_SITE` names another site. All of it is in
 [docs/cli.md](docs/cli.md#shadereracom-login-share-fork).
 
+`npx shaderera studio` opens the studio, a page on shaderera.com that previews, renders and shares
+the project on your machine through a local bridge on 127.0.0.1
+([docs/studio.md](docs/studio.md)).
+
 ## How it works
 
 A source module exports `open`. It gets the manifest and the host's I/O, and returns `render(t)`

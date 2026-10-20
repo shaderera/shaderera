@@ -19,6 +19,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`doctor`](#doctor) | what this machine and project have and lack |
 | [`search`, `info`, `add`, `remove`, `publish`](#plugins) | find, copy in, remove and publish plugins |
 | [`login`, `share`, `fork`](#shadereracom-login-share-fork) | send a film to shaderera.com, and fork one from there |
+| [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
 `shaderera` alone, or `--help` / `-h` anywhere, prints the usage.
@@ -407,8 +408,9 @@ copied plugin's files are the project's own code: to stop using one, delete them
 ## shaderera.com: `login`, `share`, `fork`
 
 A film can be shared on shaderera.com, where it plays in the viewer's browser, and anyone can fork
-a shared film into a project of their own. These three commands are the only ones that talk to
-the site. They run only when called: nothing runs in the background, and there is no telemetry.
+a shared film into a project of their own. These three commands and [`studio`](#studio-telemetry)
+are the only ones that talk to the site. They run only when called: nothing runs in the
+background, and the CLI sends no telemetry.
 
 The site is `--to <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Another site
 serves the same API (`/api/v1`). It is reached over https; plain http only on this machine
@@ -474,6 +476,39 @@ forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 file
 With `--json`, `share`'s result is `site`, `film`, `created`, `version`, `url`, `files`, `bytes`,
 `player` (`{ files, bytes }`), `uploaded` and `notSent`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
 `licence`, `files` and `bytes`.
+
+## `studio`, `telemetry`
+
+| Command | What it does |
+|---|---|
+| `studio [--connect id] [--site origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `telemetry off\|on\|status` | whether the studio page reports usage counts |
+
+`studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
+machine. Without `--connect`, it opens `<site>/studio/<id>` in your browser (`--no-open` prints
+the address instead); with `--connect <id>`, it pairs with the id a studio page made. The site is
+`--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. It also takes `--root`,
+`--host`, `--trusted` and `--timeout`, for the renders the page asks for.
+
+- **The bridge.** It listens on 127.0.0.1 only and answers only the site's origin (and
+  `--origin` ones) with the session's secret, which reaches the page end to end through the site's
+  relay.
+- **What the page does through it.** The page previews the project with its runner, hears its
+  edits, renders into `out/studio/` with the CLI's own hosts, and shares with `share`, as you.
+- **The protocol** is [studio.md](studio.md).
+
+The studio page reports usage counts to shaderera.com, which stores them in PostHog: never code,
+file names, params, frames or titles. The CLI sends nothing itself. `shaderera telemetry off`
+(kept in `~/.shaderera/config.json`) or `SHADERERA_TELEMETRY=0` turns it off. `studio` says so the
+first time it runs.
+
+```
+$ npx shaderera studio
+project  /work/neon-rain
+bridge   http://127.0.0.1:52144 (for https://shaderera.com only)
+opening  https://shaderera.com/studio/k3x9q2
+paired: the studio page drives this project. Ctrl-C stops.
+```
 
 ## `mcp`
 

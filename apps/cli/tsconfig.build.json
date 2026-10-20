@@ -9,7 +9,8 @@
     "src/stamp",
     "src/camera",
     "src/registry",
-    "src/player"
+    "src/player",
+    "src/studio"
   ],
   "exclude": ["src/**/*.test.ts", "src/**/fixtures/**"]
 }

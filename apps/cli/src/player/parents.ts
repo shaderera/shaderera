@@ -3,6 +3,12 @@
 /** The meta in runner.html that lists the origins allowed to frame the player and get its port. */
 export const PARENTS_META = 'shaderera-parents'
 
+/**
+ * The meta in the runner server's page, when the studio frames it (docs/studio.md), that names
+ * where the runner's files are: an absolute URL ending in `/`.
+ */
+export const FILES_META = 'shaderera-files'
+
 /** The origins allowed by default: the site the player is shared to. */
 export const DEFAULT_PARENTS: readonly string[] = ['https://shaderera.com']
 

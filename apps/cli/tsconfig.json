@@ -8,6 +8,7 @@
     "src/stamp",
     "src/camera",
     "src/player",
+    "src/studio",
     "bin"
   ]
 }

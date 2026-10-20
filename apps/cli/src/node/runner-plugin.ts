@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Plugin } from 'vite'
+import { FILES_META, isOrigin, PARENTS_META } from '../player/parents.ts'
 import { type BakeFrames, createServices, type ServiceRequest } from './services.ts'
 
 export const RUNNER_PATH = '/__shaderera/runner.html'
@@ -63,22 +64,36 @@ export const runnerPlugin = (
   domFile?: string,
   /** The bakes' frames, checked against their stamps: what io.bake reads. */
   bakes?: BakeFrames,
+  /**
+   * Framed by a page on another origin (the studio, docs/studio.md): the server's base, a path
+   * that is a secret, outside which every request is refused. The frame is sandboxed, so its
+   * origin is opaque: every file under the base is served to any origin, and the page spells out
+   * the runner's own origin and starts its worker from a data: URL, as the web player does.
+   */
+  base?: string,
 ): Plugin => {
+  const self = base ? `'self' http://127.0.0.1:${runnerPort}` : "'self'"
+  const ancestors = studioOrigins.filter(isOrigin)
   const csp = [
     "default-src 'self'",
-    "script-src 'self' 'wasm-unsafe-eval'",
-    "worker-src 'self' blob:",
-    `connect-src 'self' ws://localhost:${runnerPort} ws://127.0.0.1:${runnerPort}`,
-    "img-src 'self' data: blob:",
-    "font-src 'self' data: blob:",
+    `script-src ${self} 'wasm-unsafe-eval'`,
+    `worker-src ${self} blob:${base ? ' data:' : ''}`,
+    `connect-src ${self} ws://localhost:${runnerPort} ws://127.0.0.1:${runnerPort}`,
+    `img-src ${self} data: blob:`,
+    `font-src ${self} data: blob:`,
     "style-src 'self' 'unsafe-inline'",
-    `frame-ancestors ${studioOrigins.join(' ')}`,
+    `frame-ancestors ${ancestors.length > 0 ? ancestors.join(' ') : "'none'"}`,
   ].join('; ')
   const token = randomUUID()
   const source = join(pkgDir, 'src/runner/bridge.ts')
   const bridge = existsSync(source) ? source : join(pkgDir, 'dist/runner/bridge.js')
   const html = `<!doctype html><html><head><meta charset="utf-8">
-<meta name="shaderera-studio" content="${studioOrigins[0]}">
+<meta name="${PARENTS_META}" content="${ancestors.join(' ')}">${
+    base
+      ? `
+<meta name="${FILES_META}" content="http://127.0.0.1:${runnerPort}${base}">`
+      : ''
+  }
 <script type="module" src="/@fs/${slashes(bridge).replace(/^\//, '')}"></script>
 </head><body></body></html>`
   return {
@@ -89,8 +104,20 @@ export const runnerPlugin = (
       server.httpServer?.once('close', () => services.close())
       server.middlewares.use((req, res, next) => {
         res.setHeader('Content-Security-Policy', csp)
-        if (req.url?.startsWith(SERVICE_PATH)) {
-          const u = new URL(req.url, 'http://runner')
+        // Under a base, the path past it; outside it, nothing (not even Vite's hint naming it).
+        let path = req.url ?? '/'
+        if (base) {
+          if (!path.startsWith(base)) {
+            res.statusCode = 403
+            res.end()
+            return
+          }
+          path = `/${path.slice(base.length)}`
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+        }
+        if (path.startsWith(SERVICE_PATH)) {
+          const u = new URL(path, 'http://runner')
           const op = u.pathname.slice(SERVICE_PATH.length)
           const q = (k: string) => u.searchParams.get(k) ?? ''
           if (q('token') !== token) {
@@ -143,15 +170,15 @@ export const runnerPlugin = (
           })
           return
         }
-        if (req.method === 'POST' && req.url?.startsWith(FRAME_PATH)) {
+        if (req.method === 'POST' && path.startsWith(FRAME_PATH)) {
           // Only a key the host is waiting for is taken; anything else is refused unread.
-          const done = frameUploads.get(req.url.slice(FRAME_PATH.length))
+          const done = frameUploads.get(path.slice(FRAME_PATH.length))
           if (!done) {
             res.statusCode = 404
             res.end()
             return
           }
-          frameUploads.delete(req.url.slice(FRAME_PATH.length))
+          frameUploads.delete(path.slice(FRAME_PATH.length))
           const parts: Buffer[] = []
           req.on('data', (part: Buffer) => parts.push(part))
           req.on('end', () => {
@@ -161,7 +188,7 @@ export const runnerPlugin = (
           })
           return
         }
-        if (req.url?.split('?')[0] !== RUNNER_PATH) return next()
+        if (path.split('?')[0] !== RUNNER_PATH) return next()
         server
           .transformIndexHtml(RUNNER_PATH, html)
           .then((out) => {

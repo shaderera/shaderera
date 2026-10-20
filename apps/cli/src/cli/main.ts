@@ -26,10 +26,12 @@ Versions and jobs:
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems]   freeze a render job
 
-shaderera.com (or --to <origin>, else SHADERERA_SITE):
+shaderera.com (or --to/--site <origin>, else SHADERERA_SITE):
   login --token <token> [--to origin]        keep the token share sends to that site
   share [--film id] [--title t] [--yes] [--to origin] [--json]   send the project's files as a new film or version
   fork <film|url>[@version] [dir] [--to origin] [--json]          copy a published version into a new folder
+  studio [--connect id] [--site origin] [--origin dev-origin]... [--no-open]   the local bridge of the studio page
+  telemetry off|on|status                    whether the studio page counts how the studio is used
 
 ${pluginUsage}
 
@@ -59,6 +61,8 @@ const commands = [
   'login',
   'share',
   'fork',
+  'studio',
+  'telemetry',
   ...PLUGIN,
 ]
 
@@ -74,8 +78,8 @@ const OWN_JSON = new Set([
   'share',
   'fork',
 ])
-/** Commands that own stdout (a protocol): never wrapped. */
-const STREAMS = new Set(['mcp'])
+/** Commands that own stdout (a protocol, or a bridge that runs until Ctrl-C): never wrapped. */
+const STREAMS = new Set(['mcp', 'studio'])
 
 const main = async (argv: readonly string[]): Promise<number> => {
   const [command, ...rest] = argv
