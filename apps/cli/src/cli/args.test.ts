@@ -26,6 +26,7 @@ test('--param and positional times read alike on every command that renders', ()
 
   const check = cli('check', '--times', '2', '--param', 'grey=200')
   assert.equal(check.status, 0, check.stderr)
+  assert.match(check.stdout, /✓ deterministic: 2 timestamps/)
 })
 
 test('an unknown param is refused with the same message on every command', () => {
@@ -38,10 +39,7 @@ test('an unknown param is refused with the same message on every command', () =>
       `${command[0]}: ${r.stderr}`,
     )
   }
-})
-
-test('a render refused before the source opens saves no revision', () => {
-  cli('render', '--param', 'gray=1')
+  // The render, refused before the source opens, saved no revision.
   assert.equal(existsSync(join(root, 'versions')), false)
 })
 

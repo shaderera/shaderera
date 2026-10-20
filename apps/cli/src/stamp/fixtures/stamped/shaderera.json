@@ -1,8 +1,0 @@
-{
-  "entry": "./src/composition.ts",
-  "stamp": true,
-  "fps": 30,
-  "duration": 1,
-  "width": 32,
-  "height": 18
-}

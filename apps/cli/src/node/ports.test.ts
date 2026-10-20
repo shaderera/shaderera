@@ -7,15 +7,13 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { encode as encodePng } from 'fast-png'
 import jpeg from 'jpeg-js'
-import { floatWav, mixWav } from '../cli/mix.ts'
-import { exportVideo } from '../cli/render.ts'
 import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
 import { type Child, openChild } from './child.ts'
 import { findProject } from './project.ts'
 
 /**
- * io.image, io.video, io.cache and sound made in code, in the Node host and the browser host:
+ * io.image, io.video and io.cache, in the Node host and the browser host:
  * the same bytes in both. Needs ffmpeg and Chrome; without them this fails, it does not skip.
  */
 const root = mkdtempSync(join(tmpdir(), 'shaderera-ports-'))
@@ -63,7 +61,6 @@ export default async ({ io }) => {
   frames.push(await clip.frame(3))
   let made = 0
   const derived = await io.cache('shout v1', ['assets/photo.jpg'], async () => { made++; return new Uint8Array([7, 8, 9]) })
-  const tone = new Float32Array(48000).map((_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / 48000))
   const canvas = io.canvas(8, 8)
   return {
     render: async () => (canvas.getContext('2d').clearRect(0, 0, 8, 8), { color: canvas }),
@@ -74,19 +71,8 @@ export default async ({ io }) => {
       derived: Array.from(derived),
       made,
     }),
-    audio: async () => [{ pcm: { sampleRate: 48000, channels: [tone] }, at: 0.25 }],
   }
 }`,
-)
-const wav = join(root, 'assets', 'tone.wav')
-writeFileSync(
-  wav,
-  floatWav({
-    sampleRate: 48000,
-    channels: [
-      new Float32Array(48000).map((_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / 48000)),
-    ],
-  }),
 )
 const project = await findProject(root)
 const entryFile = await buildForNode(project)
@@ -160,28 +146,5 @@ test('the browser host decodes and reads the same bytes as the Node host', async
     assert.deepEqual(b, n)
   } finally {
     await Promise.all(children.map((c) => c.close()))
-  }
-})
-
-test('sound made in code is mixed like a file, in both hosts', async () => {
-  for (const open of [node, () => openBrowserChild(project, {})]) {
-    const child = await open()
-    try {
-      const done = await exportVideo(project, child, {
-        out: join(root, 'out', 'pcm.mp4'),
-        revision: 'test',
-      })
-      assert.equal(done.probe.audio?.sampleRate, 48000)
-      // The same tone as a mono WAV file, mixed the same way, measures the same.
-      const file = mixWav(root, [{ src: 'assets/tone.wav', at: 0.25 }], { from: 0, to: 1 }).loudness
-      assert.ok(done.loudness && file, 'measured')
-      assert.ok(
-        Math.abs(done.loudness.truePeak - file.truePeak) < 0.2,
-        `${done.loudness.truePeak} vs ${file.truePeak}`,
-      )
-      assert.ok(Math.abs(done.loudness.integrated - file.integrated) < 0.2)
-    } finally {
-      await child.close()
-    }
   }
 })

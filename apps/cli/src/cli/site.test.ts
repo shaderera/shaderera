@@ -200,8 +200,9 @@ test('login keeps one token per site and never prints it', async () => {
   })
 })
 
-test('share sends what a revision holds less secrets, only with --yes off a terminal, and remembers the film', async () => {
+test('share sends what a revision holds less secrets and its built player, only with --yes off a terminal, and remembers the film', async () => {
   const s = await fakeSite()
+  s.options.needsPlayer = true
   const home = temp('home')
   const root = project()
 
@@ -217,7 +218,7 @@ test('share sends what a revision holds less secrets, only with --yes off a term
   assert.match(asked.stderr, /needs --yes/)
   assert.equal(s.requests.length, 0, 'nothing is sent before --yes')
 
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--json')
+  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media', '--json')
   assert.equal(r.status, 0, r.stdout)
   const { result } = JSON.parse(r.stdout)
   assert.equal(result.film, 'film1')
@@ -240,9 +241,27 @@ test('share sends what a revision holds less secrets, only with --yes off a term
     assert.equal(q.auth, `Bearer ${s.TOKEN}`, `${q.method} ${q.path} carries the token`)
   assert.doesNotMatch(r.stdout, new RegExp(s.TOKEN))
 
+  // The player, built into .shaderera/player and sent beside the source.
+  assert.ok(sent)
+  const player = playerFiles(playerDir(root))
+  assert.deepEqual(sent.player, player, 'the built player, as built')
+  for (const f of ['runner.html', 'assets/bridge.js', 'assets/worker.js'])
+    assert.ok(sent.player[f], `${f} in the player`)
+  assert.deepEqual(result.player.files, Object.keys(player).length)
+  assert.ok(result.player.bytes > 0)
+  // The film's files ride in the player too, as the source sends them; the player is no source.
+  for (const [p, sha] of Object.entries(sent.files)) assert.equal(sent.player[`files/${p}`], sha)
+  assert.ok(!Object.keys(sent.files).some((p) => p.startsWith('.shaderera/')))
+  for (const sha of Object.values(sent.player)) assert.ok(s.objects.has(sha))
+  // Only this site may frame it.
+  assert.match(
+    readFileSync(join(playerDir(root), 'runner.html'), 'utf8'),
+    new RegExp(`name="shaderera-parents" content="${s.site}"`),
+  )
+
   // Again: the same film; only a changed file is uploaded.
   writeFileSync(join(root, 'notes.txt'), 'a new file')
-  const again = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const again = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')
   assert.equal(again.status, 0, again.stderr)
   assert.match(again.stdout, /shared film film1 version [0-9a-f]{12}: 1 of \d+ files were new/)
   assert.equal(s.films.size, 1)
@@ -265,7 +284,7 @@ test('fork copies a version into a new folder as a project, and its share is a n
   const home = temp('home')
   const root = project()
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  assert.equal((await cli(home, root, 'share', '--to', s.site, '--yes')).status, 0)
+  assert.equal((await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')).status, 0)
   const shared = s.films.get('film1')?.versions[0]
   assert.ok(shared)
 
@@ -287,7 +306,7 @@ test('fork copies a version into a new folder as a project, and its share is a n
   assert.equal(full.status, 2)
   assert.match(full.stderr, /is not empty/)
 
-  const again = await cli(home, dir, 'share', '--to', s.site, '--yes')
+  const again = await cli(home, dir, 'share', '--to', s.site, '--yes', '--no-media')
   assert.equal(again.status, 0, again.stderr)
   assert.match(
     again.stdout,
@@ -302,7 +321,7 @@ test('fork writes nothing when a file does not match its sha256', async () => {
   const home = temp('home')
   const root = project()
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  await cli(home, root, 'share', '--to', s.site, '--yes')
+  await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')
   const shared = s.films.get('film1')?.versions[0]
   s.corrupt.add(shared?.files['shaderera.json'] as string)
   const work = temp('work')
@@ -321,35 +340,6 @@ test('fork writes nothing when a file does not match its sha256', async () => {
   rmSync(work, { recursive: true, force: true })
 })
 
-test('share builds the player into .shaderera/player and sends it beside the source', async () => {
-  const s = await fakeSite()
-  s.options.needsPlayer = true
-  const home = temp('home')
-  const root = project()
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--json')
-  assert.equal(r.status, 0, r.stdout + r.stderr)
-  const { result } = JSON.parse(r.stdout)
-  const version = s.films.get('film1')?.versions[0]
-  assert.ok(version)
-  const player = playerFiles(playerDir(root))
-  assert.deepEqual(version.player, player, 'the built player, as built')
-  for (const f of ['runner.html', 'assets/bridge.js', 'assets/worker.js'])
-    assert.ok(version.player[f], `${f} in the player`)
-  assert.deepEqual(result.player.files, Object.keys(player).length)
-  assert.ok(result.player.bytes > 0)
-  // The film's files ride in the player too, as the source sends them; the player is no source.
-  for (const [p, sha] of Object.entries(version.files))
-    assert.equal(version.player[`files/${p}`], sha)
-  assert.ok(!Object.keys(version.files).some((p) => p.startsWith('.shaderera/')))
-  for (const sha of Object.values(version.player)) assert.ok(s.objects.has(sha))
-  // Only this site may frame it.
-  assert.match(
-    readFileSync(join(playerDir(root), 'runner.html'), 'utf8'),
-    new RegExp(`name="shaderera-parents" content="${s.site}"`),
-  )
-})
-
 test("share sends a film's proxies and bake frames in its player; a player that does not build sends nothing", {
   skip: !ffmpeg && 'needs ffmpeg',
 }, async () => {
@@ -358,7 +348,7 @@ test("share sends a film's proxies and bake frames in its player; a player that 
   const home = temp('home')
   const { root } = await footageProject()
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   assert.match(r.stdout, /share: \d+ files, .*, and a player of \d+ files, .*, to /)
   const player = s.films.get('film1')?.versions[0]?.player ?? {}

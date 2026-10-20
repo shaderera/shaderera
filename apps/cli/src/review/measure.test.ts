@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import type { Json } from '@shaderera/core'
 import {
   blankTimes,
   endHold,
@@ -35,7 +36,7 @@ test('end hold: the trailing span of still frames', () => {
   assert.equal(endHold(times, [0, 9, 9, 9, 9, 9]), 0)
 })
 
-const tree = {
+const tree: Json = {
   shots: [
     { id: 'end', at: 5, label: 'end' },
     { id: 'open', at: 0, label: 'open' },

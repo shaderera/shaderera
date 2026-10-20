@@ -535,44 +535,14 @@ test('telemetry: one notice, off by config or by SHADERERA_TELEMETRY=0', () => {
   setTelemetry(true)
 })
 
-test('shaderera studio --connect pairs with the page, and says so when the id expired', async () => {
+test('shaderera studio --connect says so when the id expired', async () => {
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
-  // The CLI takes longer than the shared relay's 300 ms to start: a relay of its own.
-  const slow = await startRelay()
   const start = (site: string, id: string) =>
     spawn(
       process.execPath,
       [main, 'studio', '--connect', id, '--site', site, '--root', fixture()],
       { env: { ...process.env, HOME: home, USERPROFILE: home } },
     )
-  const id = makeId()
-  const p = page(slow.origin, id)
-  const pairing = p.pair()
-  const cli = start(slow.origin, id)
-  let out = ''
-  cli.stdout.on('data', (d: Buffer) => {
-    out += d.toString()
-  })
-  cli.stderr.on('data', (d: Buffer) => {
-    out += d.toString()
-  })
-  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
-  const paired = await Promise.race([pairing, exited.then(() => null)])
-  assert.ok(paired, out)
-  const { bridge: got, hello } = paired
-  assert.equal(hello.os, process.platform)
-  const info = await call(got.port, {
-    path: '/info',
-    headers: { Origin: slow.origin, Authorization: `Bearer ${got.secret}` },
-  })
-  assert.equal(info.status, 200)
-  for (let i = 0; i < 100 && !/paired/.test(out); i++) await new Promise((r) => setTimeout(r, 50))
-  assert.match(out, /paired/)
-  cli.kill('SIGINT')
-  await exited
-  p.ws.close()
-  await slow.close()
-
   // An id whose page came and went long ago.
   const old = makeId()
   const gone = page(relay.origin, old)
@@ -601,6 +571,7 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
   const address = films.address()
   const to = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`
   saveToken(to, 'films-token')
+  // The CLI takes longer than the shared relay's 300 ms to start: a relay of its own.
   const slow = await startRelay()
   const id = makeId()
   const p = page(slow.origin, id)
@@ -624,7 +595,16 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
   try {
     const paired = await Promise.race([pairing, exited.then(() => null)])
     assert.ok(paired, out)
-    const { bridge: got } = paired
+    // --connect pairs with the page: its bridge answers, and the CLI says so.
+    const { bridge: got, hello } = paired
+    assert.equal(hello.os, process.platform)
+    const info = await call(got.port, {
+      path: '/info',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${got.secret}` },
+    })
+    assert.equal(info.status, 200)
+    for (let i = 0; i < 100 && !/paired/.test(out); i++) await new Promise((r) => setTimeout(r, 50))
+    assert.match(out, /paired/)
     const r = await call(got.port, {
       method: 'POST',
       path: '/share',

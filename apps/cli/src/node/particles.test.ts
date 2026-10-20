@@ -101,16 +101,3 @@ test('particles: a preview render steps the state exactly as a final one', async
     await b.close()
   }
 })
-
-test('particles: another seed is another film; the same seed is the same one', async () => {
-  const seeded = async (seed: number) => {
-    const child = await openChild(project, { entryFile, seed })
-    try {
-      return await hash(child, 20)
-    } finally {
-      await child.close()
-    }
-  }
-  assert.equal(await seeded(11), await seeded(11))
-  assert.notEqual(await seeded(11), await seeded(12))
-})

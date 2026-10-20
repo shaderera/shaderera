@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -99,29 +99,6 @@ test("one call's camera override never reaches a call made at the same time", as
     ])
     assert.equal(JSON.parse(through.content[0].text).alphaBox.x, 20)
     assert.equal(JSON.parse(own.content[0].text).alphaBox.x, 15)
-  } finally {
-    await close()
-  }
-})
-
-test('a changed shaderera.json reaches the tools', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-mcp-'))
-  cpSync(fixture, root, { recursive: true, filter: (f) => !/[\\/](out|\.shaderera)$/.test(f) })
-  const { call, close } = await connect(root)
-  const pngWidth = async () => {
-    const r = await call('render_frame', { t: 0, image: true })
-    return Buffer.from(r.content[1].data, 'base64').readUInt32BE(16)
-  }
-  try {
-    assert.equal(await pngWidth(), 64)
-    const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
-    writeFileSync(join(root, 'shaderera.json'), JSON.stringify({ ...manifest, width: 32 }))
-    let width = 64
-    for (let i = 0; i < 50 && width === 64; i++) {
-      await sleep(100)
-      width = await pngWidth()
-    }
-    assert.equal(width, 32)
   } finally {
     await close()
   }

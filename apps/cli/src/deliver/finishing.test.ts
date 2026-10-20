@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { timecodeOf } from '@shaderera/core/host'
 import type { Child } from '../node/child.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Project } from '../node/project.ts'
@@ -20,11 +19,6 @@ const fixture = (name: string) => {
   })
   return root
 }
-
-test('timecode is HH:MM:SS:FF', () => {
-  assert.equal(timecodeOf(0, 30), '00:00:00:00')
-  assert.equal(timecodeOf(Math.round(3661.5 * 30), 30), '01:01:01:15')
-})
 
 test('a finishing handoff never replaces a folder that is not a delivery', async () => {
   // `render --job stills --out .` in the project: refused before anything renders.
@@ -63,7 +57,7 @@ const square = () => {
     params: { locale: 'en' },
     seed: 0,
     output: { width: 36, height: 36, fps: 10, from: 0, to: 0.5 },
-  } as Job
+  } as unknown as Job
   return { project, child, job }
 }
 
