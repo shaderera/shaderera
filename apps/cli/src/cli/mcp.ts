@@ -185,7 +185,9 @@ export const createServer = (
     if (!c.has.inspect) throw new Error('This source has no inspect(t).')
     return c.inspect(t)
   }
-  // biome-ignore lint/suspicious/noExplicitAny: arguments are checked by the tool's input schema
+  // The low-level Server does not check arguments against a tool's input schema: they come as
+  // the client sent them, and each tool reads what it needs.
+  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
   const call = async (name: string, a: { [k: string]: any }): Promise<unknown> => {
     const opened = await session.open()
     const { root, manifest } = opened.project
