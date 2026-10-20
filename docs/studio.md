@@ -163,7 +163,8 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 
 - **What counts as a change.** A change counts only when it touches the files a revision holds:
   not `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, and not `node_modules/` or
-  `.git/` anywhere. A change that leaves the revision the same sends nothing.
+  `.git/` anywhere, and not a file that holds secrets (`.env`, `.npmrc`, … as `save` lists them in
+  [cli.md](cli.md#versions-and-jobs)). A change that leaves the revision the same sends nothing.
 - **Job states** are `queued`, `running`, `done` and `failed`. `done` and `failed` end a job.
   `progress` runs from 0 to 1.
 
