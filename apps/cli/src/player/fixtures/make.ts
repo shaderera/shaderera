@@ -1,10 +1,10 @@
 // The player tests' film: a copy of fixtures/footage with its clip made by ffmpeg (no media file is
 // kept in the repository) and its bake made and stamped.
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../../fixtures/temp.ts'
 import { findProject } from '../../node/project.ts'
 import { makeBake } from '../../project/bakes.ts'
 
@@ -42,7 +42,7 @@ export const makeClip = (file: string) => {
 }
 
 export const footageProject = async () => {
-  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-player-')), 'film')
+  const root = join(tempDir('player'), 'film')
   cpSync(fileURLToPath(new URL('./footage/', import.meta.url)), root, { recursive: true })
   mkdirSync(join(root, 'assets'))
   makeClip(join(root, 'assets', 'clip.mp4'))

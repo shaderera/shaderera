@@ -1,9 +1,16 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { create, projectDir } from './create.ts'
+
+/** A new empty temp folder, removed after the test that made it. */
+const temp = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'shaderera-create-'))
+  after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }))
+  return dir
+}
 
 const from = projectDir(import.meta.dirname)
 const repo = join(import.meta.dirname, '..', '..', '..')
@@ -23,7 +30,7 @@ const guides = {
 }
 
 test('create copies the empty project as an ordinary project', () => {
-  const target = join(mkdtempSync(join(tmpdir(), 'create-shaderera-')), 'my-film')
+  const target = join(temp(), 'my-film')
   create({ from, target, version: '0.1.0' })
   const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
   assert.equal(pkg.name, 'my-film')
@@ -39,7 +46,7 @@ test('create copies the empty project as an ordinary project', () => {
 })
 
 test('every created project gets the authoring guide, the agent notes, the guides and the skill', () => {
-  const target = join(mkdtempSync(join(tmpdir(), 'create-shaderera-')), 'film')
+  const target = join(temp(), 'film')
   create({ from, target, version: '0.3.0', guides })
   assert.match(readFileSync(join(target, 'CLAUDE.md'), 'utf8'), /@AGENTS.md/)
   assert.match(readFileSync(join(target, 'guides', 'typography.md'), 'utf8'), /^# Typography/)

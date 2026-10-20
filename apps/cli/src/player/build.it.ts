@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { findPackageJSON } from 'node:module'
-import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { shareFiles } from '../cli/share.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { findProject } from '../node/project.ts'
 import { probeVideo } from '../node/services.ts'
 import { buildPlayer } from './build.ts'
 import { ffmpeg, footageProject } from './fixtures/make.ts'
 
-const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-player-${name}-`))
+const temp = (name: string) => tempDir(`player-${name}`)
 
 /** A copy of the CLI's camera fixture: a canvas film, no media, `stamp` set or not. */
 const plainProject = async (stamp: boolean) => {

@@ -1,23 +1,23 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cpSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { cpSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { saveToken } from '../cli/site.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { addressOf, call, nonce, page } from './fixtures/page.ts'
 import { startRelay } from './fixtures/relay.ts'
 import { makeId } from './pairing.ts'
 
 // The user's tokens (share) live in a home of the tests' own.
-const home = mkdtempSync(join(tmpdir(), 'shaderera-home-'))
+const home = tempDir('home')
 process.env.HOME = home
 process.env.USERPROFILE = home
 delete process.env.SHADERERA_TELEMETRY
 
-const fixture = (root = mkdtempSync(join(tmpdir(), 'shaderera-studio-'))) => {
+const fixture = (root = tempDir('studio')) => {
   cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),

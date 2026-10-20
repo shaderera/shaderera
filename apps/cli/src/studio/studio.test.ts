@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
-import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
 import { call, nonce, page } from './fixtures/page.ts'
@@ -25,7 +25,7 @@ import { connectRelay } from './relay.ts'
 import { NOTICE, noticeOnce, setTelemetry, telemetryStatus } from './telemetry.ts'
 
 // The user's config (telemetry) and tokens (share) live in a home of the tests' own.
-const home = mkdtempSync(join(tmpdir(), 'shaderera-home-'))
+const home = tempDir('home')
 process.env.HOME = home
 process.env.USERPROFILE = home
 delete process.env.SHADERERA_TELEMETRY
@@ -34,7 +34,7 @@ const SITE = 'https://shaderera.example'
 const DEV = 'http://localhost:3000'
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
-const fixture = (root = mkdtempSync(join(tmpdir(), 'shaderera-studio-'))) => {
+const fixture = (root = tempDir('studio')) => {
   cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
@@ -94,17 +94,17 @@ const events = (b: Bridge) => {
   }
 }
 
-let root: string
 let bridge: Bridge
 let relay: Awaited<ReturnType<typeof startRelay>>
-before(async () => {
-  root = fixture()
-  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
-  relay = await startRelay({ ttlMs: 300 })
-})
+// Closed before the folder goes: after hooks run in the order they were added.
 after(async () => {
   await bridge.close()
   await relay.close()
+})
+const root = fixture()
+before(async () => {
+  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
+  relay = await startRelay({ ttlMs: 300 })
 })
 
 test('a studio session id is 20 characters of the alphabet', () => {
@@ -457,7 +457,7 @@ test('/render renders on this machine into out/, and /render/<job>/file streams 
 })
 
 test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and the bridge lives on', async () => {
-  const thai = fixture(join(mkdtempSync(join(tmpdir(), 'shaderera-studio-')), 'ภาพยนตร์'))
+  const thai = fixture(join(tempDir('studio'), 'ภาพยนตร์'))
   const manifest = JSON.parse(readFileSync(join(thai, 'shaderera.json'), 'utf8'))
   manifest.variants['16:9'] = { params: { grey: 50 } }
   writeFileSync(join(thai, 'shaderera.json'), JSON.stringify(manifest))

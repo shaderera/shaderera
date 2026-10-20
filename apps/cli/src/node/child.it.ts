@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { buildForNode } from './build.ts'
 import { openChild } from './child.ts'
 import { findProject } from './project.ts'
@@ -11,7 +11,7 @@ import { findProject } from './project.ts'
 const tiny = fileURLToPath(new URL('./fixtures/tiny/', import.meta.url))
 
 test('a hung source fails the call after timeoutMs and closes without a crash', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-hang-'))
+  const root = tempDir('hang')
   cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
   writeFileSync(
     join(root, 'src', 'composition.ts'),

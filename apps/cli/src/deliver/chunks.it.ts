@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
@@ -16,7 +16,7 @@ const sha = (file: string) => createHash('sha256').update(readFileSync(file)).di
 test('chunks rendered apart and assembled give the very file one render gives', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-chunks-'))
+  const root = tempDir('chunks')
   cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
     recursive: true,
   })

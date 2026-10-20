@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import type { Job } from '../project/jobs.ts'
 import { checkChunks, makePlan, type Plan } from './chunks.ts'
 
@@ -26,7 +26,7 @@ test('a plan splits the frames of the window into even chunks of whole frames', 
 })
 
 test('a chunk rendered for another plan is never assembled, even with the same frame count', () => {
-  const dir = join(mkdtempSync(join(tmpdir(), 'shaderera-plan-')), 'plan')
+  const dir = join(tempDir('plan'), 'plan')
   mkdirSync(dir)
   const job = { name: 'j', id: 'abc', output: { width: 8, height: 8, fps: 4, from: 0, to: 1 } }
   // As renderChunk records a chunk: its file, and beside it what it was rendered for.

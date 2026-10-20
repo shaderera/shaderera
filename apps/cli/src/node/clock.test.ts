@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { clockOf, clockWarning } from '../cli/clock.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { buildForNode } from './build.ts'
 import { openChild } from './child.ts'
 import { findProject } from './project.ts'
 
 /** A canvas source whose render reads the clock at frames from 1 s on, and whose open reads it too. */
 const project = async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-clock-'))
+  const root = tempDir('clock')
   mkdirSync(join(root, 'src'))
   writeFileSync(
     join(root, 'shaderera.json'),

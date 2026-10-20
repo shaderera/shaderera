@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import type { Child } from '../node/child.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import { probe } from './ffmpeg.ts'
@@ -12,7 +12,7 @@ import { exportVideo } from './render.ts'
 
 /** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
 const copy = (dir: string) => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-fixture-'))
+  const root = tempDir('fixture')
   cpSync(fileURLToPath(new URL(dir, import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
@@ -26,7 +26,7 @@ test('a piped render reports progress only when asked (a parent process asks); a
 }, () => {
   const main = fileURLToPath(new URL('./main.ts', import.meta.url))
   const root = copy('./fixtures/mcp/')
-  const out = join(mkdtempSync(join(tmpdir(), 'shaderera-render-')), 'film.mp4')
+  const out = join(tempDir('render'), 'film.mp4')
   const render = (...flags: string[]) =>
     spawnSync(process.execPath, [main, 'render', '--root', root, '--out', out, ...flags], {
       encoding: 'utf8',
@@ -46,7 +46,7 @@ test('the output holds the previous film until the new one is complete; a failed
 }, async () => {
   const project = memoryProject()
   const child = memoryChild({ size: { width: 64, height: 36 }, frame: boxFrame(64, 36) })
-  const out = join(mkdtempSync(join(tmpdir(), 'shaderera-partial-')), 'film.mp4')
+  const out = join(tempDir('partial'), 'film.mp4')
   const partial = `${out}.${process.pid}.partial`
   writeFileSync(out, 'the previous film')
   // Another render to the same out, still running in another process: its file is its own.
@@ -152,7 +152,7 @@ test('render reaches the mix: a src without sound is no error, an unreadable one
   ])
   assert.equal(made.status, 0, String(made.stderr))
   writeFileSync(join(root, 'broken.mp4'), 'not a video')
-  const dir = mkdtempSync(join(tmpdir(), 'shaderera-clip-audio-'))
+  const dir = tempDir('clip-audio')
   const render = (name: string, ...flags: string[]) => {
     const out = join(dir, name)
     const r = spawnSync(

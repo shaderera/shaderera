@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { createJob } from '../project/jobs.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
@@ -13,7 +13,7 @@ const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
 test('a handoff renders the same frames from a fresh folder', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-handoff-'))
+  const root = tempDir('handoff')
   cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
     recursive: true,
   })
@@ -44,7 +44,7 @@ test('a handoff renders the same frames from a fresh folder', {
   // The documented command, run in a copy of the handoff, gives the original's frame hashes.
   const original = spawnSync(process.execPath, [main, 'render', '--root', root, '--job', 'h'])
   assert.equal(original.status, 0, String(original.stderr))
-  const copy = mkdtempSync(join(tmpdir(), 'shaderera-handoff-copy-'))
+  const copy = tempDir('handoff-copy')
   cpSync(dir, copy, { recursive: true })
   const again = spawnSync(process.execPath, [main, 'render', '--root', copy, '--job', 'h'])
   assert.equal(again.status, 0, String(again.stderr))
@@ -58,7 +58,7 @@ test('a handoff renders the same frames from a fresh folder', {
 test('a clean-install check installs the lock file in a fresh folder and renders the same frames', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-handoff-clean-'))
+  const root = tempDir('handoff-clean')
   cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
     recursive: true,
   })

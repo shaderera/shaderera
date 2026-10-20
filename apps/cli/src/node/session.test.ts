@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { createNodeSession, notProject } from './session.ts'
 
 test('reading a project file keeps the child; editing one reopens it', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-session-'))
+  const root = tempDir('session')
   cpSync(fileURLToPath(new URL('../cli/fixtures/mcp/', import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
