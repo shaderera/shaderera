@@ -10,7 +10,14 @@ import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
-import { DELIVERY_FLAGS, deliveryOf, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
+import {
+  DELIVERY_FLAGS,
+  deliveryOf,
+  openJob,
+  readJob,
+  safeName,
+  videoOptionsOf,
+} from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { save } from '../project/revisions.ts'
 import { childOptions, open, parseRendering } from './args.ts'
@@ -79,7 +86,7 @@ export const checkVideoOptions = (o: VideoOptions) => {
 
 /**
  * Exports [from, to] to an mp4 (H.264) or a mov (ProRes) with ffmpeg; returns the file, frame count
- * and seconds, the file as probed and its sidecars. The file is written as `<out>.partial` and
+ * and seconds, the file as probed and its sidecars. The file is written as `<out>.<pid>.partial` and
  * renamed to `out` only once complete and probed, so `out` holds the previous film or nothing until
  * then; a render that fails (a source that fails exportFrames's determinism check, a host error,
  * `signal` aborted) leaves no `.partial` and `out` as it was. With `workers` > 1 and `more`, frames are spread over that many hosts
@@ -165,7 +172,8 @@ export const exportVideo = async (
       `${out} is in the project but not in out/: render to out/ or outside the project, since every other file in it is saved into each revision.`,
     )
   mkdirSync(dirname(out), { recursive: true })
-  const partial = `${out}.partial`
+  // Named by the process: two renders to one out never write one file or remove each other's.
+  const partial = `${out}.${process.pid}.partial`
   const clips = o.audio === false ? [] : ((await child.audio()) ?? [])
   // The mix's temporary files go in the finally (or with its own throw).
   const mix = openMix(root, clips, { from: head, to }, { loudness: o.loudness })
@@ -472,7 +480,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           : job
             ? join(root, 'out', `${job.name}${ext}`)
             : typeof v.variant === 'string'
-              ? join(root, 'out', `${basename(root)}-${v.variant}${ext}`)
+              ? join(root, 'out', `${basename(root)}-${safeName(v.variant)}${ext}`)
               : undefined,
       quality: delivery.quality,
       crf: num(v.crf),

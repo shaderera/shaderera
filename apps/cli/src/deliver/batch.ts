@@ -1,7 +1,8 @@
 import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { frameTimes } from '@shaderera/core'
 import type { Loudness, Probe } from '../cli/ffmpeg.ts'
-import { exportVideo, extensionOf } from '../cli/render.ts'
+import { defaultWorkers, exportVideo, extensionOf } from '../cli/render.ts'
 import type { Child } from '../node/child.ts'
 import type { Project } from '../node/project.ts'
 import {
@@ -148,8 +149,11 @@ export const deliverBatch = async (
     trusted?: boolean
     timeoutMs?: number
     onOutput?: (i: number, n: number, job: Job) => void
-    /** Opens a job's host: openJob by default; tests give an in-memory Child. */
-    open?: (job: Job) => Promise<{ project: Project; child: Child }>
+    /**
+     * Opens a job's host, and `more` opens another for a parallel export: openJob by default;
+     * tests give an in-memory Child.
+     */
+    open?: (job: Job) => Promise<{ project: Project; child: Child; more?: () => Promise<Child> }>
   },
 ): Promise<{ dir: string; index: BatchIndex }> => {
   const openOne =
@@ -185,10 +189,10 @@ export const deliverBatch = async (
       }),
       format: { width, height, fps, duration: to - from },
     }
-    let opened: { project: Project; child: Child } | undefined
+    let opened: { project: Project; child: Child; more?: () => Promise<Child> } | undefined
     try {
       opened = await openOne(job)
-      const { project, child } = opened
+      const { project, child, more } = opened
       // A textless variant: no copy is asked of it (outputRequirements).
       if (project.manifest.textless) requirements.copy = []
       let report: Awaited<ReturnType<typeof review>>
@@ -227,6 +231,12 @@ export const deliverBatch = async (
           revision: job.revision,
           audio: o.audio,
           loudness: o.loudness,
+          // As render --job: several hosts (one for a sequential source), closed by exportVideo.
+          workers: defaultWorkers(
+            project.manifest,
+            frameTimes(project.manifest.fps, from, to).length,
+          ),
+          ...(more ? { more } : {}),
         })
         report = await review({ project, child, outDir: join(jobDir, 'review'), requirements })
         if (requirements.placement) {

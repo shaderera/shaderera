@@ -161,7 +161,7 @@ if (hasAudio) {
   for (const t of onsets) ctx.fillRect(x(t), pad + specH, 1, 10)
 }
 const cy = pad + specH + waveH + pad
-const top = Math.max(...change, 1e-6)
+const top = change.reduce((m, v) => Math.max(m, v), 1e-6)
 ctx.strokeStyle = '#9be59b'
 ctx.beginPath()
 for (let f = 1; f < frames; f++) {

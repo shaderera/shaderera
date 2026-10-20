@@ -30,7 +30,8 @@ transformers.js. No Python, no account, nothing leaves the machine.
 - **Takes.** `--kind event` (the default) makes one take per onset, from 5 ms before it until it
   has decayed 35 dB, the next onset or 2 s: hits, clicks, steps. `--kind texture` cuts plain
   windows of `--win` seconds for beds and ambiences; crossfade them. At most the 150 loudest
-  strokes are heard, about a second each; the model loads in about 10 s.
+  takes are heard (strokes by their peak, windows by their RMS), about a second each; the model
+  loads in about 10 s.
 - **Scores.** Takes come best first by `cosine`, CLAP's similarity to your description; compare it
   between takes of one search, not between searches. `rank` is 1 when none of about 45 everyday
   descriptions, nor any you pass with `--not`, fits the take better; otherwise `heardAs` names the

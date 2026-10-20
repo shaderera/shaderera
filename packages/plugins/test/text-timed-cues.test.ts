@@ -51,7 +51,24 @@ test('text-timed-cues: LRC, with repeated lines, word times and an offset', () =
     { start: 6, end: 6.4, text: 'one' },
     { start: 6.4, end: 7.1, text: 'two' },
   ])
-  assert.equal(parseLrc('[offset:+500]\n[00:01.00]late')[0]?.start, 1.5)
+  // A positive offset makes the lyrics sooner.
+  assert.equal(parseLrc('[offset:+500]\n[00:01.00]soon')[0]?.start, 0.5)
+  assert.equal(parseLrc('[offset:-500]\n[00:01.00]late')[0]?.start, 1.5)
+  // A repeated line's words move with its stamp.
+  const repeated = parseLrc('[00:10.00][00:30.00]<00:10.00>la <00:11.00>da')
+  assert.deepEqual(
+    repeated.map((c) => c.words?.map((w) => [w.start, w.end])),
+    [
+      [
+        [10, 11],
+        [11, 30],
+      ],
+      [
+        [30, 31],
+        [31, Number.POSITIVE_INFINITY],
+      ],
+    ],
+  )
   // A last word with no closing time ends with its line.
   assert.equal(parseLrc('[00:01.00]<00:01.00>a <00:01.50>b\n[00:03.00]')[0]?.words?.[1]?.end, 3)
 })

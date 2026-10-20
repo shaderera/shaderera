@@ -102,7 +102,7 @@ export const exportFinishing = async (
     )
   requireFfmpeg()
   const start = performance.now()
-  const partial = `${dir}.partial`
+  const partial = `${dir}.${process.pid}.partial`
   const { width, height, fps } = project.manifest
   const { from, to } = job.output
   // A declared preroll comes first: frames, sound and captions start at `head`.

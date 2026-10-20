@@ -230,6 +230,12 @@ const frozenBuild = async (root: string, revision: string, variant: string | und
 }
 
 /**
+ * A variant's name as a file name: it may hold what a file name cannot (`16:9`, a space, a `/`),
+ * and `..` would leave the folder.
+ */
+export const safeName = (name: string) => name.replace(/[^\w.-]|^\.+$/g, '_')
+
+/**
  * Freezes a job: saves the working tree as a revision unless one is named, resolves the variant
  * and params against that revision's manifest, records the packages it executes, and writes
  * `versions/jobs/<name>.json`. The same inputs under the same name return the job already there;
@@ -254,6 +260,8 @@ export const createJob = async (
 ): Promise<Job> => {
   if (o.name !== undefined && !/^[\w.-]+$/.test(o.name))
     throw new Error(`A job name is letters, digits, . _ -: ${o.name}`)
+  // `<name>.host.json` is a job's host pin.
+  if (o.name?.endsWith('.host')) throw new Error(`A job name does not end in .host: ${o.name}`)
   const revision = o.revision ?? save(root, { by: o.by, label: o.label }).id
   const declared = manifestAt(root, revision)
   const { manifest, params: variantParams } = withVariant(declared, o.variant)
@@ -292,10 +300,7 @@ export const createJob = async (
   const job: Job = {
     shaderera,
     id,
-    // A variant's name may hold what a file name cannot (`16:9`, a space).
-    name:
-      o.name ??
-      `${(o.variant ?? 'main').replace(/[^\w.-]/g, '_')}-${revision.slice(0, 8)}-${id.slice(0, 6)}`,
+    name: o.name ?? `${safeName(o.variant ?? 'main')}-${revision.slice(0, 8)}-${id.slice(0, 6)}`,
     ...(o.label ? { label: o.label } : {}),
     created: new Date().toISOString(),
     by: o.by,
@@ -434,8 +439,20 @@ export const openJob = async (
   try {
     const now = await child.identity()
     const file = pinFile(root, job.name)
-    if (!existsSync(file)) writeFileSync(file, `${JSON.stringify(now, null, 1)}\n`)
-    else {
+    // Linked into place whole, as createJob does: of two first renders one pins, and the other
+    // (or any reader) never sees half a pin.
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+    writeFileSync(tmp, `${JSON.stringify(now, null, 1)}\n`)
+    let pinned = true
+    try {
+      linkSync(tmp, file)
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      pinned = false
+    } finally {
+      rmSync(tmp, { force: true })
+    }
+    if (!pinned) {
       const was = JSON.parse(readFileSync(file, 'utf8')) as { [key: string]: unknown }
       const changes = Object.keys({ ...was, ...now })
         .filter((k) => canonical(was[k]) !== canonical((now as { [key: string]: unknown })[k]))

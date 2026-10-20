@@ -19,24 +19,16 @@ import {
   writeShareNote,
 } from './site.ts'
 
-/** Files a revision holds that are never sent: secrets, at any depth. */
-const SECRET = /^(\.env(\..+)?|\.npmrc)$/
-
 /**
  * What a share sends: the files a revision holds (project/revisions.ts `scan`: no `out/`,
- * `versions/`, `.shaderera/`, `.claude/`, `node_modules/`, `.git/`, links), less secrets.
+ * `versions/`, `.shaderera/`, `.claude/`, `node_modules/`, `.git/`, links or secrets), and the
+ * secrets it leaves out.
  */
 export const shareFiles = (root: string): { files: Files; bytes: number; secrets: string[] } => {
-  const files: Files = {}
   const secrets: string[] = []
+  const files = scan(root, { secrets })
   let bytes = 0
-  for (const [path, sha] of Object.entries(scan(root))) {
-    if (SECRET.test(basename(path))) secrets.push(path)
-    else {
-      files[path] = sha
-      bytes += statSync(join(root, path)).size
-    }
-  }
+  for (const path of Object.keys(files)) bytes += statSync(join(root, path)).size
   return { files, bytes, secrets }
 }
 

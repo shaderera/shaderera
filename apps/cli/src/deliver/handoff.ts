@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { frameTimes } from '@shaderera/core'
 import { type Job, LOCKS, openJob } from '../project/jobs.ts'
-import { readObject, readRevision } from '../project/revisions.ts'
+import { readObject, readRevision, SECRET } from '../project/revisions.ts'
 import { environment } from './environment.ts'
 
 /** The install command for a revision's lock file. */
@@ -29,10 +29,10 @@ const installCommand = (lock: string | undefined): string[] =>
 
 /**
  * A frozen handoff of a job in `out/handoff/<job>/`: the revision's files as the working tree
- * (never node_modules or out), and a `versions/` store holding only that revision and the job, so
- * `shaderera render --job <name>` renders the same thing there. With REPRODUCE.md: the commands,
- * the environment measured now, the lock file's state, the packages the job executes and the
- * assets' hashes.
+ * (never node_modules, out or a secret: project/revisions.ts `SECRET`), and a `versions/` store
+ * holding only that revision and the job, so `shaderera render --job <name>` renders the same
+ * thing there. With REPRODUCE.md: the commands, the environment measured now, the lock file's
+ * state, the packages the job executes and the assets' hashes.
  *
  * `reproducible` says whether a clean install elsewhere can give the job's packages: it needs a
  * lock file and no dependency that only exists here (`workspace:`, `file:`, `link:`). When it is
@@ -44,6 +44,12 @@ export const writeHandoff = (
   dir = join(root, 'out', 'handoff', job.name),
 ) => {
   const revision = readRevision(root, job.revision)
+  // A revision saved before scan left secrets out may still hold one.
+  const secrets = Object.keys(revision.files).filter((p) => SECRET.test(p.split('/').at(-1) ?? ''))
+  if (secrets.length > 0)
+    throw new Error(
+      `Revision ${revision.id} holds ${secrets.join(', ')}, which a handoff never carries: freeze the job again (shaderera job --name ${job.name} --replace), which saves a revision without them.`,
+    )
   rmSync(dir, { recursive: true, force: true })
   const put = (path: string, data: Buffer | string) => {
     mkdirSync(dirname(join(dir, path)), { recursive: true })

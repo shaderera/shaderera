@@ -95,20 +95,48 @@ export const session = async (
 }
 
 /**
+ * Takes `lock` for this process: created only if absent (`wx`), so two hosts starting together
+ * never both hold it; one left by a process that has exited is taken over.
+ */
+const takeLock = (lock: string, retry = true): boolean => {
+  try {
+    writeFileSync(lock, String(process.pid), { flag: 'wx' })
+    return true
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+  }
+  let pid: number
+  try {
+    pid = Number(readFileSync(lock, 'utf8'))
+  } catch {
+    // Released meanwhile.
+    return retry && takeLock(lock, false)
+  }
+  // An empty lock is one being written.
+  if (!(pid > 0) || alive(pid)) return false
+  rmSync(lock, { force: true })
+  return retry && takeLock(lock, false)
+}
+
+/**
  * The Chrome profile for one browser host: the project's own (`.shaderera/chrome`, where Chrome
  * keeps its compiled pipelines), or, while another host holds that one, a throwaway one beside it.
  * Two Chromes on one profile become one: the second hands its page to the first.
  */
-const claimProfile = (root: string): { profile: string; release: () => void } => {
+export const claimProfile = (root: string): { profile: string; release: () => void } => {
   const dir = join(root, '.shaderera')
   mkdirSync(dir, { recursive: true })
   const lock = join(dir, 'chrome.lock')
-  const held = existsSync(lock) && alive(Number(readFileSync(lock, 'utf8')))
-  if (!held) {
-    writeFileSync(lock, String(process.pid))
+  if (takeLock(lock)) {
     const profile = join(dir, 'chrome')
     mkdirSync(profile, { recursive: true })
-    return { profile, release: () => rmSync(lock, { force: true }) }
+    const release = () => {
+      // Only our own: a host that took over a lock it thought stale keeps it.
+      try {
+        if (readFileSync(lock, 'utf8') === String(process.pid)) rmSync(lock, { force: true })
+      } catch {}
+    }
+    return { profile, release }
   }
   const profile = mkdtempSync(join(dir, 'chrome-'))
   const release = () => {

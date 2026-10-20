@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -71,4 +71,27 @@ test('still --compare: each t beside the other variant, with PSNR and mean ΔE, 
   )
   assert.equal(same.result.stills[0].compare.psnr, null)
   assert.equal(same.result.stills[0].compare.deltaE, 0)
+})
+
+test('a variant named what a file name cannot hold (16:9, a/b) still writes into out/stills', () => {
+  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const root = mkdtempSync(join(tmpdir(), 'shaderera-names-'))
+  cpSync(fileURLToPath(new URL('./fixtures/mcp/', import.meta.url)), root, { recursive: true })
+  const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
+  const variants = { '16:9': { duration: 0.5 }, 'a/b': { duration: 0.5 } }
+  writeFileSync(join(root, 'shaderera.json'), JSON.stringify({ ...manifest, variants }))
+  for (const [variant, name] of [
+    ['16:9', '16_9-0.000.png'],
+    ['a/b', 'a_b-0.000.png'],
+  ] as const) {
+    const r = spawnSync(
+      process.execPath,
+      [main, 'still', '0', '--variant', variant, '--root', root, '--json'],
+      { encoding: 'utf8' },
+    )
+    assert.equal(r.status, 0, r.stderr)
+    const file = JSON.parse(r.stdout).result.stills[0].file
+    assert.equal(file, join(root, 'out', 'stills', name))
+    assert.ok(existsSync(file))
+  }
 })
