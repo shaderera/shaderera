@@ -21,6 +21,8 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
 - **`--to <origin>`** is where Share sends films, as `share --to`: `https://shaderera.com` by
   default, else `SHADERERA_SITE`. It is not `--site`: the studio page and the films can be on
   different sites. Your login for it is `shaderera login --token <token> --to <origin>`.
+- **`--parent <origin>`** (repeatable) adds an origin a shared film's player may be framed by,
+  as `share --parent`.
 - **`--origin <origin>`** (repeatable) adds a page origin the bridge answers, for developing the
   page on another origin than the relay's.
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply

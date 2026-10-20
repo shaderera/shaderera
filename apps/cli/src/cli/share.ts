@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
 import { buildPlayer } from '../player/build.ts'
+import { isOrigin } from '../player/parents.ts'
 import { type Files, hashFile, scan, slash } from '../project/revisions.ts'
 import { EXIT } from './findings.ts'
 import { mediaDir, renderMedia } from './media.ts'
@@ -13,6 +14,7 @@ import {
   bytesText,
   call,
   DEFAULT_SITE,
+  parentsOf,
   readShareNote,
   readToken,
   siteOf,
@@ -185,13 +187,16 @@ export class LoginNeeded extends Error {}
  * and the player to the site as a new film, or as a new version of the film it shared to before,
  * with a poster and a loop (renderMedia; `media: false`: none). Null when declined. A player that
  * does not build stops it before anything is sent; a poster or loop that does not render is
- * left out, with a warning (`warn`; none: `say`).
+ * left out, with a warning (`warn`; none: `say`). The player's parents are the site, the ones
+ * the site names (parentsOf) and `parents`.
  */
 export const shareProject = async (o: {
   root: string
   site: string
   film?: string
   title?: string
+  /** More origins that may frame the player (`--parent`), after the site's. */
+  parents?: readonly string[]
   say?: (line: string) => void
   warn?: (line: string) => void
   confirm?: () => Promise<boolean>
@@ -205,6 +210,8 @@ export const shareProject = async (o: {
   files: number
   bytes: number
   player: { files: number; bytes: number }
+  /** The origins the player lists as its parents, the site's first. */
+  parents: string[]
   uploaded: number
   objects: number
   notSent: string[]
@@ -229,12 +236,16 @@ export const shareProject = async (o: {
   const { files, bytes, secrets } = shareFiles(root)
   const count = Object.keys(files).length
 
-  // The player is built for this site: only its pages may frame it and get its port.
+  // The player is built for this site and the pages it names: only they may frame it and get its
+  // port.
+  for (const p of o.parents ?? [])
+    if (!isOrigin(p)) throw new Error(`--parent takes an origin (scheme, host and port), not ${p}.`)
+  const parents = [...new Set([site, ...(await parentsOf(site)), ...(o.parents ?? [])])]
   const dir = playerDir(root)
   const player = await buildPlayer(project, {
     outDir: dir,
     files: Object.keys(files),
-    parents: [site],
+    parents,
   }).catch((e: unknown) => {
     throw new Error(
       `The player did not build: ${e instanceof Error ? e.message : String(e)} Nothing was sent.`,
@@ -243,6 +254,7 @@ export const shareProject = async (o: {
   say(
     `share: ${count} files, ${bytesText(bytes)}, and a player of ${player.files.length} files, ${bytesText(player.bytes)}, to ${site} as ${film ? `a new version of film ${film}` : `a new film "${title}"${note.forkedFrom ? `, forked from ${note.forkedFrom.slice(0, 12)}` : ''}`} (licence ${licence})`,
   )
+  if (parents.length > 1) say(`  the player plays on ${parents.join(', ')}`)
   if (secrets.length > 0) say(`  not sent: ${secrets.join(', ')}`)
   if (o.confirm && !(await o.confirm())) return null
   const media = o.media === false ? { warnings: [] } : await renderMedia(root, mediaDir(root))
@@ -280,6 +292,7 @@ export const shareProject = async (o: {
     files: count,
     bytes,
     player: { files: player.files.length, bytes: player.bytes },
+    parents,
     uploaded: sent.uploaded,
     objects: sent.objects,
     notSent: secrets,
@@ -290,8 +303,8 @@ export const shareProject = async (o: {
 }
 
 /**
- * `shaderera share [--to <origin>] [--film <id>] [--title <t>] [--no-media] [--yes] [--json]`:
- * shareProject. It prints what it will send and asks first; off a terminal (or with `--json`) it
+ * `shaderera share [--to <origin>] [--parent <origin>]... [--film <id>] [--title <t>] [--no-media]
+ * [--yes] [--json]`: shareProject. It prints what it will send and asks first; off a terminal (or with `--json`) it
  * needs `--yes`. It prints the film's page; warnings go to stderr.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
@@ -299,6 +312,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     args: [...argv],
     options: {
       to: { type: 'string' },
+      parent: { type: 'string', multiple: true },
       film: { type: 'string' },
       title: { type: 'string' },
       yes: { type: 'boolean' },
@@ -311,6 +325,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const shared = await shareProject({
     root: v.root ?? process.cwd(),
     site,
+    ...(v.parent ? { parents: v.parent } : {}),
     ...(v.film ? { film: v.film } : {}),
     ...(v.title ? { title: v.title } : {}),
     say: (line) => {

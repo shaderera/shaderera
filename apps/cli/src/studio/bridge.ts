@@ -104,6 +104,8 @@ export const startBridge = async (o: {
   root: string
   /** Where Share sends films: `shaderera studio --to`, as `shaderera share --to`. */
   to: string
+  /** More origins a shared film's player may be framed by: `shaderera studio --parent`. */
+  parents?: readonly string[]
   origins: readonly string[]
   hostFlags?: { host?: unknown; trusted?: unknown; timeout?: unknown }
   /** Debounce for the watcher, in ms. */
@@ -307,6 +309,7 @@ export const startBridge = async (o: {
         const shared = await shareProject({
           root,
           site: o.to,
+          ...(o.parents ? { parents: o.parents } : {}),
           ...(typeof body.title === 'string' && body.title.trim() ? { title: body.title } : {}),
           say: (line) => log('info', line),
           warn: (line) => log('warn', line),

@@ -50,7 +50,7 @@ const fakeSite = async () => {
   const requests: { method: string; path: string; auth: string | undefined }[] = []
   const corrupt = new Set<string>()
   /** Like the app's API: a version needs a built player; its response has the film's `page`. */
-  const options = { needsPlayer: false, page: true }
+  const options = { needsPlayer: false, page: true, parents: null as unknown }
   const json = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -68,6 +68,12 @@ const fakeSite = async () => {
     const obj = /^\/obj\/([0-9a-f]{64})$/.exec(path)
     const filmPath = /^\/films\/([a-z0-9]+)(\/versions)?$/.exec(path)
     const revision = /^\/versions\/([0-9a-f]{64})\/revision$/.exec(path)
+    // The films API's health names its players' parents; an older one has no such field.
+    if (method === 'GET' && path === '/films/health')
+      return json(res, 200, {
+        ok: true,
+        ...(options.parents === null ? {} : { parents: options.parents }),
+      })
     if (method === 'POST' && path === '/uploads/missing') {
       const { hashes } = JSON.parse(body.toString()) as { hashes: string[] }
       return json(res, 200, { missing: hashes.filter((h) => !objects.has(h)) })
@@ -215,7 +221,12 @@ test('share sends what a revision holds less secrets, only with --yes off a term
   assert.match(asked.stdout, /share: \d+ files, .* as a new film "neon-rain" \(licence MIT\)/)
   assert.match(asked.stdout, /not sent: \.env, sub\/\.npmrc/)
   assert.match(asked.stderr, /needs --yes/)
-  assert.equal(s.requests.length, 0, 'nothing is sent before --yes')
+  // Only the parents are read (parentsOf), before the build, and without the token.
+  assert.deepEqual(
+    s.requests.map((q) => `${q.method} ${q.path} ${q.auth ?? 'no token'}`),
+    ['GET /films/health no token'],
+    'nothing is sent before --yes',
+  )
 
   const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--json')
   assert.equal(r.status, 0, r.stdout)
@@ -236,7 +247,7 @@ test('share sends what a revision holds less secrets, only with --yes off a term
     ...[sent?.poster, sent?.loop].filter((x) => x !== undefined),
   ])
   assert.equal(result.uploaded, objects.size)
-  for (const q of s.requests)
+  for (const q of s.requests.filter((q) => q.path !== '/films/health'))
     assert.equal(q.auth, `Bearer ${s.TOKEN}`, `${q.method} ${q.path} carries the token`)
   assert.doesNotMatch(r.stdout, new RegExp(s.TOKEN))
 
@@ -380,7 +391,11 @@ test("share sends a film's proxies and bake frames in its player; a player that 
     failed.stderr,
     /The player did not build: Bake level: level\.1\.bin changed since it was made\. Run shaderera bake level\. Nothing was sent\./,
   )
-  assert.equal(s.requests.length, before, 'nothing was sent')
+  assert.deepEqual(
+    s.requests.slice(before).map((q) => q.path),
+    ['/films/health'],
+    'nothing was sent (the parents were read)',
+  )
 })
 
 test('share renders a poster and a loop, uploads them, sends their shas, and prints the film page', {
@@ -475,4 +490,45 @@ test('share --no-media renders and sends neither; without a page in the response
   assert.ok(!('poster' in version) && !('loop' in version), 'no poster or loop sent')
   assert.ok(!existsSync(mediaDir(root)), 'nothing rendered')
   assert.equal(r.stderr, '')
+})
+
+test("share builds the player for the site, the parents its API names and --parent's; an older API: the site alone", async () => {
+  const s = await fakeSite()
+  const canvas = 'https://canvas.example'
+  // The site twice, a canvas, and an entry that is no origin, which is left out.
+  s.options.parents = [s.site, canvas, 'not an origin', 'https://canvas.example/film/x']
+  const home = temp('home')
+  const root = project()
+  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
+  const parentsMeta = () =>
+    /name="shaderera-parents" content="([^"]*)"/.exec(
+      readFileSync(join(playerDir(root), 'runner.html'), 'utf8'),
+    )?.[1]
+  const r = await cli(
+    home,
+    root,
+    ...['share', '--to', s.site, '--yes', '--no-media', '--json'],
+    ...['--parent', 'https://extra.example', '--parent', canvas],
+  )
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  const want = [s.site, canvas, 'https://extra.example']
+  assert.deepEqual(JSON.parse(r.stdout).result.parents, want)
+  assert.equal(parentsMeta(), want.join(' '))
+  assert.ok(
+    s.requests.some((q) => q.method === 'GET' && q.path === '/films/health' && !q.auth),
+    'the health is asked, without the token',
+  )
+  const said = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')
+  assert.match(said.stdout, new RegExp(`the player plays on ${s.site}, ${canvas}\n`))
+
+  // An API without the field: the site alone, as before.
+  s.options.parents = null
+  const old = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media', '--json')
+  assert.equal(old.status, 0, old.stdout + old.stderr)
+  assert.deepEqual(JSON.parse(old.stdout).result.parents, [s.site])
+  assert.equal(parentsMeta(), s.site)
+
+  const bad = await cli(home, root, 'share', '--to', s.site, '--yes', '--parent', 'canvas.example')
+  assert.equal(bad.status, 2, bad.stdout + bad.stderr)
+  assert.match(bad.stderr, /--parent takes an origin/)
 })

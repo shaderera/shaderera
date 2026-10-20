@@ -23,11 +23,11 @@ const openBrowser = (url: string) => {
 }
 
 /**
- * `shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origin <dev origin>]...
- * [--no-open]`: the local bridge of the studio page on the site (docs/studio.md, decision 0021).
- * Without `--connect` it makes a studio session id and opens `<site>/studio/<id>`; with it, it
- * pairs with the id the page made. Share sends films to `--to`, as `shaderera share` does. It runs
- * until Ctrl-C.
+ * `shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--parent <origin>]...
+ * [--origin <dev origin>]... [--no-open]`: the local bridge of the studio page on the site
+ * (docs/studio.md, decision 0021). Without `--connect` it makes a studio session id and opens
+ * `<site>/studio/<id>`; with it, it pairs with the id the page made. Share sends films to `--to`
+ * (with `--parent`), as `shaderera share` does. It runs until Ctrl-C.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v } = parseArgs({
@@ -36,6 +36,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       connect: { type: 'string' },
       site: { type: 'string' },
       to: { type: 'string' },
+      parent: { type: 'string', multiple: true },
       origin: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
       ...common,
@@ -43,9 +44,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   })
   const site = siteOf(v.site)
   const to = siteOf(v.to)
-  for (const origin of v.origin ?? [])
+  for (const origin of [...(v.origin ?? []), ...(v.parent ?? [])])
     if (!isOrigin(origin))
-      throw new Error(`--origin takes an origin (scheme, host and port), not ${origin}.`)
+      throw new Error(
+        `--origin and --parent take an origin (scheme, host and port), not ${origin}.`,
+      )
   if (v.connect !== undefined && !isId(v.connect))
     throw new Error(
       `Not a studio session id: ${v.connect} (6 letters and digits, from ${site}/studio).`,
@@ -56,6 +59,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const bridge = await startBridge({
     root,
     to,
+    ...(v.parent ? { parents: v.parent } : {}),
     origins: [site, ...(v.origin ?? []).filter((o) => o !== site)],
     hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
   })

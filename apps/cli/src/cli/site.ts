@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { isOrigin } from '../player/parents.ts'
 
 /**
  * What `login`, `share` and `fork` share (decision 0019): which site they talk to, the token for
@@ -102,6 +103,25 @@ export const call = async (
       ? ` Log in: shaderera login --token <token>${site === DEFAULT_SITE ? '' : ` --to ${site}`}`
       : ''
   throw new Error(`${method} ${path} on ${site}: ${r.status} ${message}${login}`)
+}
+
+/**
+ * The origins the site says may frame a shared film's player and get its port, besides the site
+ * itself: its films app and the canvas that shows its films, as `parents` in
+ * `GET /api/v1/films/health`. A site without the field, or that does not answer, gives none, and
+ * the player is built for the site alone; an entry that is not an origin is left out.
+ */
+export const parentsOf = async (site: string): Promise<string[]> => {
+  try {
+    const r = await fetch(`${site}/api/v1/films/health`)
+    if (!r.ok) return []
+    const { parents } = (await r.json()) as { parents?: unknown }
+    return Array.isArray(parents)
+      ? parents.filter((p): p is string => typeof p === 'string' && isOrigin(p))
+      : []
+  } catch {
+    return []
+  }
 }
 
 /** `n` bytes for a person: 1.2 MB, 340 KB, 12 B. */

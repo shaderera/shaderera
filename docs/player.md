@@ -85,7 +85,8 @@ The bridge is the only code that talks across the frame, with `postMessage`.
 
 **Which pages may have the port.** `runner.html` lists the origins allowed to frame the player
 and drive it, in `<meta name="shaderera-parents" content="<origin> <origin>…">`. `share` writes
-the site it sends to; the build's `parents` option takes others, and `https://shaderera.com` is
+the site it sends to, the origins that site names (`parents` in its `GET /api/v1/films/health`)
+and each `--parent`; the build's `parents` option takes others, and `https://shaderera.com` is
 the default. The bridge picks one: the origin `?parent=` names when it is in the list, else the
 first. It posts the port to that origin only, so the browser delivers it only to a parent page
 of that origin. A page of any other origin that frames the player gets nothing (the site's

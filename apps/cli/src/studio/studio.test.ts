@@ -589,11 +589,17 @@ test('shaderera studio --connect pairs with the page, and says so when the id ex
 })
 
 test("shaderera studio --to: Share sends films there, not to the studio page's site", async () => {
-  // A films site of its own, the only one with a token: it records the calls and refuses them.
+  // A films site of its own, the only one with a token: it records the calls and refuses them,
+  // but for its health, which names the canvas as a parent of its players.
   const seen: { path?: string; auth?: string }[] = []
   const films = createServer((req, res) => {
     seen.push({ path: req.url, auth: req.headers.authorization })
     req.resume()
+    if (req.url === '/api/v1/films/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, parents: [to, 'https://canvas.example'] }))
+      return
+    }
     res.writeHead(503, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'the films site, as asked' }))
   })
@@ -610,7 +616,10 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
   const cli = spawn(
     process.execPath,
-    [main, 'studio', '--connect', id, '--site', slow.origin, '--to', to, '--root', project],
+    [
+      ...[main, 'studio', '--connect', id, '--site', slow.origin, '--to', to],
+      ...['--parent', 'https://extra.example', '--root', project],
+    ],
     { env: { ...process.env, HOME: home, USERPROFILE: home } },
   )
   let out = ''
@@ -634,8 +643,21 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
     assert.equal(r.status, 500, out)
     assert.match(jsonOf(r).error, new RegExp(`on ${to}: 503 the films site, as asked`))
     assert.ok(seen.length > 0, 'the films site was called')
-    assert.ok(seen.every((s) => s.path?.startsWith('/api/v1/') && s.auth === 'Bearer films-token'))
+    assert.ok(seen.every((s) => s.path?.startsWith('/api/v1/')))
+    // The token goes with the writes; the health is a read, without it.
+    assert.ok(
+      seen.every(
+        (s) => s.auth === (s.path === '/api/v1/films/health' ? undefined : 'Bearer films-token'),
+      ),
+    )
     assert.match(out, new RegExp(`share to ${to}`))
+    // The player was built for the films site, the parents it names and --parent's.
+    assert.match(
+      readFileSync(join(project, '.shaderera', 'player', 'runner.html'), 'utf8'),
+      new RegExp(
+        `name="shaderera-parents" content="${to} https://canvas.example https://extra.example"`,
+      ),
+    )
   } finally {
     cli.kill('SIGINT')
     await exited

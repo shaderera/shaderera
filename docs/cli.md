@@ -419,7 +419,7 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 | Command | What it does |
 |---|---|
 | `login --token <token> [--to origin]` | keeps the token for that site in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
-| `share [--film id] [--title t] [--no-media] [--yes] [--to origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
+| `share [--film id] [--title t] [--no-media] [--yes] [--to origin] [--parent origin]... [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
 | `fork <film\|url>[@version] [dir] [--to origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
@@ -434,9 +434,12 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 `.shaderera/player/` and sends beside the source as `player` ([player.md](player.md)): the
 runner page and worker with the film bundled, the film's files, an H.264 proxy of each video in
 them (made with ffmpeg) and the bakes' frames. The site stores and serves it and builds nothing.
-Only the site's own pages may frame the player and get its port. A player that does not build (a
-bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the share before
-anything is sent.
+Only the pages the player lists as its parents may frame it and get its port: the site, the
+origins the site names (`parents` in its `GET /api/v1/films/health`, read without the token
+before the build: its films app and the canvas that shows its films) and each
+`--parent <origin>`. A site that names none gets a player for itself alone. A player that does
+not build (a bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the
+share before anything is sent.
 
 **A poster and a loop** go with each version, for the site to show the film by: the main
 variant's frame at the film's middle, a webp at most 1280 px wide and 500 KB; and its first
@@ -493,7 +496,7 @@ when not sent) and `warnings`; `fork`'s is `site`, `dir`, `film`, `title`, `owne
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--to origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--to origin] [--parent origin]... [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
