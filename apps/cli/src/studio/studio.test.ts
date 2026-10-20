@@ -181,7 +181,7 @@ const addressOf = async (out: () => string, site: string, id: string) => {
     const m = /^open +(\S+)$/m.exec(out())
     if (m) {
       const url = new URL(m[1] as string)
-      assert.equal(`${url.origin}${url.pathname}`, `${site}/studio/${id}`)
+      assert.equal(`${url.origin}${url.pathname}${url.search}`, `${site}/studio/${id}?from=web`)
       return { nonce: url.hash.slice(1) }
     }
     await new Promise((r) => setTimeout(r, 25))

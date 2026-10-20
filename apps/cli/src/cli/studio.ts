@@ -66,7 +66,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const id = v.connect ?? makeId()
   // The page pairs only if it holds the nonce, which only the page opened here has.
   const nonce = makeNonce()
-  const page = pageUrl(site, id, nonce)
+  const page = pageUrl(site, id, nonce, v.connect !== undefined)
   console.log(`project  ${root}`)
   console.log(`bridge   ${bridge.origin} (for ${site} only)`)
   if (to !== site) console.log(`share to ${to}`)

@@ -25,9 +25,12 @@ export const isId = (id: string): boolean =>
  */
 export const makeNonce = (): string => toBase64url(crypto.getRandomValues(new Uint8Array(16)))
 
-/** The page a studio session opens: `<site>/studio/<id>`, with `#<nonce>` for the CLI's own. */
-export const pageUrl = (site: string, id: string, nonce?: string): string =>
-  `${site}/studio/${id}${nonce ? `#${nonce}` : ''}`
+/**
+ * The page a studio session opens: `<site>/studio/<id>`, with `#<nonce>` for the CLI's own, and
+ * `?from=web` when the session began on the web (`--connect`), as `/studio`'s own page says.
+ */
+export const pageUrl = (site: string, id: string, nonce?: string, web = false): string =>
+  `${site}/studio/${id}${web ? '?from=web' : ''}${nonce ? `#${nonce}` : ''}`
 
 /** The relay's WebSocket for one side: `wss://<site>/studio/relay/<id>?role=<role>`. */
 export const relayUrl = (site: string, id: string, role: 'cli' | 'page'): string =>

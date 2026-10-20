@@ -15,8 +15,9 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
 - **Without `--connect`**, it makes a studio session id.
 - **With `--connect <id>`**, it takes the id a studio page made. `<site>/studio` makes an id and
   shows the command to give your agent: `npx shaderera@latest studio --connect <id>`.
-- **Either way, it opens `<site>/studio/<id>#<nonce>`** in your default browser, and pairs only
-  with the page that holds that nonce (below). From the web, that is a new tab: the page that
+- **Either way, it opens `<site>/studio/<id>#<nonce>`** in your default browser
+  (`?from=web#<nonce>` with `--connect`, for the page's `opened` count), and pairs only with the
+  page that holds that nonce (below). From the web, that is a new tab: the page that
   showed the command never pairs, and says the studio opened elsewhere once the new tab joins.
   `--no-open` prints the address instead, for you to open; keep it to yourself.
 - **`--site <origin>`** is the site: `https://shaderera.com` by default, else `SHADERERA_SITE`,
@@ -242,7 +243,7 @@ sends nothing itself.
 - **What the page sends.** It POSTs `{session, event, data}` to `<site>/studio/telemetry`, and
   the site stores each count in PostHog with no person profile and no IP; the studio session id is
   its only id. The events:
-  - `opened` (`from: web|cli`);
+  - `opened` (`from: web|cli`): `web` when the session began at `<site>/studio`;
   - `paired` (the CLI's version, OS, `direct|relay`);
   - `edit`: a count of `changed` events;
   - `render`: format, seconds, wall time;
