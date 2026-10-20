@@ -21,7 +21,8 @@ export type TimeMap = {
   knots: [number, number][]
 }
 
-const hex = async (bytes: Uint8Array) => {
+/** The sha256 of the bytes, in hex: how a file names the recording or image it was made from. */
+export const hex = async (bytes: Uint8Array) => {
   const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }

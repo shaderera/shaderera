@@ -89,7 +89,7 @@ under MPL-2.0.
 ## Development only
 
 Not shipped and not bundled: typescript 6.0.3 (Apache-2.0), @biomejs/biome 2.5.14 (MIT OR
-Apache-2.0), esbuild 0.28.1 (MIT), @types/* (MIT), vite 8.3.0 (MIT) as the workspace's build tool.
+Apache-2.0), @types/* (MIT), vite 8.3.0 (MIT) as the workspace's build tool.
 
 ## Test fixtures
 

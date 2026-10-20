@@ -19,7 +19,7 @@
 //         repeat for several
 // --out   the artifact (default: beside the recording, <name>.trims.json)
 
-import type { Trim } from '../src/audio/trims.ts'
+import { hex, type Trim } from '../src/audio/trims.ts'
 
 /** The model, pinned to one revision and precision so every run reads the same weights. */
 const MODEL = {
@@ -277,11 +277,6 @@ export const listen = async (
       kind: o.kind === 'event' ? 'stroke' : 'window',
     })),
   }
-}
-
-const hex = async (bytes: Uint8Array) => {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /** The few parts of transformers.js this tool calls. */
