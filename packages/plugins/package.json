@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "typecheck": "node test/assemble.ts && tsc --noEmit",
-    "test": "node --test \"test/*.test.ts\""
+    "test": "node --test \"test/*.test.ts\"",
+    "test:slow": "node --test \"test/*.it.ts\"",
+    "test:all": "node --test \"test/*.test.ts\" \"test/*.it.ts\""
   },
   "devDependencies": {
     "@napi-rs/canvas": "1.0.10",

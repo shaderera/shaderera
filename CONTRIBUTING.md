@@ -16,8 +16,8 @@ To build and test from a clone, see [Develop](README.md#develop) in the README.
 
 A good pull request:
 - does one thing, and is small enough to read in one sitting;
-- passes `pnpm test` and `pnpm lint` (say in the description which tests could not run on your
-  machine, such as the GPU or browser-host ones);
+- passes `pnpm test:all` and `pnpm lint` (say in the description which slow tests could not run
+  on your machine, such as the GPU or browser-host ones);
 - updates the docs it changes, in the repository's plain style;
 - is contributed under the same [MIT](LICENSE) licence as the code. Opening one says you agree.
 
