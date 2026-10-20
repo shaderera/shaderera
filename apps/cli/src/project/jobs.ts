@@ -16,7 +16,7 @@ import { shadereraVersion } from '../deliver/environment.ts'
 import { buildNode } from '../node/build.ts'
 import type { Child } from '../node/child.ts'
 import { type HostName, hostOf } from '../node/host-of.ts'
-import { hostOpener } from '../node/open-host.ts'
+import { hostOpener, openHosts } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { checkJobBakes, type JobBakes, pinBakes } from './bakes.ts'
 import { installedPackages, type Packages, packageChanges } from './dependencies.ts'
@@ -432,10 +432,15 @@ export const openJob = async (
   root: string,
   job: Job,
   o: { trusted?: boolean; timeoutMs?: number } = {},
-): Promise<{ project: Project; child: Child; more: () => Promise<Child> }> => {
+  extra: (manifest: Manifest) => number = () => 0,
+): Promise<{ project: Project; child: Child; more: () => Promise<Child>; extra: Child[] }> => {
   const built = await verifyJob(root, job)
   const more = await frozenOpener(root, built, job, o)
-  const child = await more()
+  // The extra hosts a run needs open at once with the first (openHosts).
+  const [child, ...others] = (await openHosts(more, 1 + extra(built.project.manifest))) as [
+    Child,
+    ...Child[],
+  ]
   try {
     const now = await child.identity()
     const file = pinFile(root, job.name)
@@ -466,11 +471,11 @@ export const openJob = async (
         ])
     }
   } catch (error) {
-    await child.close()
+    await Promise.all([child, ...others].map((h) => h.close()))
     throw error
   }
   // Another host on the same frozen build, for a parallel export.
-  return { project: built.project, child, more }
+  return { project: built.project, child, more, extra: others }
 }
 
 /** What a delivery asks of a video export (exportVideo's VideoOptions). */

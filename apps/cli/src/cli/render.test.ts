@@ -238,3 +238,34 @@ test('render reaches the mix: a src without sound is no error, an unreadable one
   assert.match(broken.stderr, /Audio clip 1 \(broken\.mp4\) cannot be read: .*broken\.mp4/s)
   assert.equal(existsSync(broken.out), false)
 })
+
+test("a render's hosts open at once: a second worker costs about no more than one open", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const root = copy('./fixtures/mcp/')
+  // An open that takes 2 s, as a film's that decodes its pictures does.
+  const entry = join(root, 'src', 'composition.ts')
+  writeFileSync(
+    entry,
+    readFileSync(entry, 'utf8').replace(
+      'const open: Open = ({ io }) => {',
+      'const open: Open = async ({ io }) => {\n  await new Promise((done) => setTimeout(done, 2000))',
+    ),
+  )
+  const out = join(mkdtempSync(join(tmpdir(), 'shaderera-render-')), 'film.mp4')
+  const seconds = (workers: string) => {
+    const start = performance.now()
+    const r = spawnSync(
+      process.execPath,
+      [main, 'render', '--root', root, '--out', out, '--no-audio', '--workers', workers],
+      { encoding: 'utf8' },
+    )
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(r.stdout.includes(`on ${workers} host(s)`), r.stdout)
+    return (performance.now() - start) / 1000
+  }
+  const one = seconds('1')
+  const two = seconds('2')
+  assert.ok(two - one < 1.2, `two hosts took ${two.toFixed(1)} s, one ${one.toFixed(1)} s`)
+})
