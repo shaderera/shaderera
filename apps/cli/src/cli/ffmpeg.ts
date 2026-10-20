@@ -96,7 +96,9 @@ export const measureLoudness = (file: string): Loudness | null => {
       '-map',
       '0:a:0',
       '-af',
-      'ebur128=peak=true',
+      // framelog=verbose keeps the line it logs every 100 ms out of stderr: past spawnSync's 1 MB
+      // (a film over ten minutes) ffmpeg would be killed and the loudness lost.
+      'ebur128=peak=true:framelog=verbose',
       '-f',
       'null',
       '-',
