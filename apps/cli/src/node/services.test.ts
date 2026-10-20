@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { createServices, videoReader } from './services.ts'
+import { clipDecoders, createServices, videoReader } from './services.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const clip = () => {
@@ -55,5 +55,37 @@ test('a closed clip has no decoder, and its frames after are the same bytes', {
     assert.deepEqual(await v.frame(5), before)
   } finally {
     await v.close()
+  }
+})
+
+test("one decoder serves every host's frames of a clip, and keeps the last few it decoded", {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = clip()
+  const frame = (s: ReturnType<typeof createServices>, index: number) =>
+    s.handle({ op: 'video-frame', path: 'v.mp4', index }) as Promise<Uint8Array>
+  const alone = videoReader(join(root, 'v.mp4'))
+  const a = createServices(root)
+  const b = createServices(root)
+  try {
+    // Two hosts in turn, as a render on two asks: one decoder, the frames one reader gives.
+    assert.deepEqual(await frame(a, 2), await alone.frame(2))
+    assert.deepEqual(await frame(b, 3), await alone.frame(3))
+    const [pid] = clipDecoders()
+    assert.equal(clipDecoders().length, 1)
+    // A little out of order (a re-check's inspect after the next frame): kept, not decoded again.
+    assert.deepEqual(await frame(a, 2), await alone.frame(2))
+    assert.deepEqual(clipDecoders(), [pid])
+    // One host closing the clip leaves it to the other; the last one ends it.
+    await a.handle({ op: 'video-close', path: 'v.mp4' })
+    assert.deepEqual(await frame(b, 4), await alone.frame(4))
+    assert.deepEqual(clipDecoders(), [pid])
+    await b.handle({ op: 'video-close', path: 'v.mp4' })
+    assert.deepEqual(clipDecoders(), [])
+  } finally {
+    a.close()
+    b.close()
+    await alone.close()
   }
 })
