@@ -28,6 +28,16 @@ Where `share` and `fork` send and fetch films: shaderera.com, or another origin 
 (`--to <origin>`, `SHADERERA_SITE`).
 _Avoid_: host (the Node or browser host), server
 
+**Studio**:
+shaderera.com's page for making a film whose project is on the person's own machine. It drives
+their local CLI, and the code stays there until they share the film
+([0021](docs/adr/0021-studio-drives-the-local-cli.md)).
+_Avoid_: editor, IDE, dev server
+
+**Studio session**:
+One pairing of a studio page with a local CLI, named by a one-time id in the page's address.
+_Avoid_: room, connection
+
 **render(t)**:
 The one function every film has: it takes a time in seconds and returns the frame at that time.
 The same `t` always gives the same frame.
