@@ -32,5 +32,7 @@ One file per decision, in the order they were made.
   while the engine stays for experts; forking is a command of the one CLI.
 - [0020](0020-films-not-templates.md): films, not templates, on shaderera.com; a forkable film
   is one shared with its source (amends 0019).
+- [0021](0021-studio-drives-the-local-cli.md): the studio is a page on shaderera.com that drives
+  the person's local CLI; code reaches the site only when they share.
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
