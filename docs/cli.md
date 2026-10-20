@@ -481,14 +481,16 @@ With `--json`, `share`'s result is `site`, `film`, `created`, `version`, `url`, 
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--to origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
 machine. Without `--connect`, it opens `<site>/studio/<id>` in your browser (`--no-open` prints
 the address instead); with `--connect <id>`, it pairs with the id a studio page made. The site is
-`--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. It also takes `--root`,
-`--host`, `--trusted` and `--timeout`, for the renders the page asks for.
+`--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Share sends films to
+`--to <origin>`, as `share --to` and with the same default, which can be another site than the
+page's. It also takes `--root`, `--host`, `--trusted` and `--timeout`, for the renders the page
+asks for.
 
 - **The bridge.** It listens on 127.0.0.1 only and answers only the site's origin (and
   `--origin` ones) with the session's secret, which reaches the page end to end through the site's
