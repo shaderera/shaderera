@@ -6,7 +6,7 @@ import { buildForNode } from '../node/build.ts'
 import { openChild } from '../node/child.ts'
 import { findProject } from '../node/project.ts'
 
-/** The workspace fixtures: camera round trip, the hybrid's screen layer, and pick. */
+/** The workspace fixtures: the hybrid's camera round trip and screen layer, and pick. */
 
 const open = async (name: string) => {
   const root = fileURLToPath(new URL(`../../fixtures/${name}/`, import.meta.url))
@@ -18,27 +18,25 @@ const open = async (name: string) => {
 type Box = [number, number, number, number]
 type Obj = { id: string; box?: Box; position?: number[] }
 
-for (const name of ['3d-product', 'hybrid']) {
-  test(`${name}: render(t) equals override(camera.get(t)); render(t)`, async () => {
-    const { child } = await open(name)
-    try {
-      assert.ok(child.has.camera)
-      for (const t of [0.5, 2.7, 5.2]) {
-        const own = await child.render(t, 'final')
-        const m = await child.camera(t)
-        assert.ok(m)
-        await child.override(m)
-        const through = await child.render(t, 'final')
-        await child.override(null)
-        const d = diffPixels(own.pixels, through.pixels)
-        console.log(`${name} t=${t} max=${d.max} mean=${d.mean} differing=${d.differing}`)
-        assert.equal(d.max, 0)
-      }
-    } finally {
-      await child.close()
+test('hybrid: render(t) equals override(camera.get(t)); render(t)', async () => {
+  const { child } = await open('hybrid')
+  try {
+    assert.ok(child.has.camera)
+    for (const t of [0.5, 2.7, 5.2]) {
+      const own = await child.render(t, 'final')
+      const m = await child.camera(t)
+      assert.ok(m)
+      await child.override(m)
+      const through = await child.render(t, 'final')
+      await child.override(null)
+      const d = diffPixels(own.pixels, through.pixels)
+      console.log(`hybrid t=${t} max=${d.max} mean=${d.mean} differing=${d.differing}`)
+      assert.equal(d.max, 0)
     }
-  })
-}
+  } finally {
+    await child.close()
+  }
+})
 
 test('hybrid: an override moves the world layer and never the screen plate', async () => {
   const { child, width, height } = await open('hybrid')

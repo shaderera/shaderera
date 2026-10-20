@@ -103,7 +103,7 @@ test("a job opens in the manifest's host with its revision's own DOM, not the li
   }
 })
 
-test('the host measures the DOM text: boxes, opacity, and the fonts that drew it (fallbacks named)', async () => {
+test('the host measures the DOM text: boxes, opacity, and the fonts that drew it (fallbacks named); review checks it', async () => {
   const child = await opened('type')
   try {
     const runs = await child.text(0.3)
@@ -123,14 +123,8 @@ test('the host measures the DOM text: boxes, opacity, and the fonts that drew it
       by.mixed?.rendered?.some((f) => !f.custom && f.glyphs > 0),
       JSON.stringify(by.mixed),
     )
-  } finally {
-    await child.close()
-  }
-})
 
-test('review checks DOM text without the source reporting it: copy found, a fallback font fails glyphs', async () => {
-  const child = await opened('type')
-  try {
+    // Review checks it without the source reporting it: copy found, a fallback font fails glyphs.
     const r = await review({
       project,
       child,
@@ -138,14 +132,14 @@ test('review checks DOM text without the source reporting it: copy found, a fall
       requirements: { version: 1, copy: [{ text: 'Open เปิด' }] },
       quick: true,
     })
-    const by = Object.fromEntries(r.checks.map((c) => [c.id, c]))
-    assert.equal(by.copy?.status, 'pass', JSON.stringify(by.copy))
-    assert.equal(by.glyphs?.status, 'fail')
+    const checks = Object.fromEntries(r.checks.map((c) => [c.id, c]))
+    assert.equal(checks.copy?.status, 'pass', JSON.stringify(checks.copy))
+    assert.equal(checks.glyphs?.status, 'fail')
     assert.match(
-      by.glyphs?.detail ?? '',
+      checks.glyphs?.detail ?? '',
       /mixed: drawn partly in .+, which its font-family does not name/,
     )
-    assert.doesNotMatch(by.glyphs?.detail ?? '', /latin:/)
+    assert.doesNotMatch(checks.glyphs?.detail ?? '', /latin:/)
   } finally {
     await child.close()
   }

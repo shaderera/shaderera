@@ -25,7 +25,7 @@ for (const quality of ['review', 'master'] as const) {
   }, async () => {
     const { width, height } = chartFrame()
     const out = join(dir, `${quality}.mp4`)
-    await encode(ffmpegArgs({ width, height, fps: 10, from: 0, to: 1, out, quality, clips: [] }))
+    await encode(ffmpegArgs({ width, height, fps: 10, from: 0, to: 1, out, quality }))
     assert.deepEqual(probeColor(out), {
       space: 'bt709',
       primaries: 'bt709',
