@@ -158,7 +158,7 @@ export const renderChunk = async (
     throw new Error('This plan hands frames over at 16 bits, made on the GPU: this host has none.')
   mkdirSync(dir, { recursive: true })
   const out = join(dir, chunk.file)
-  const partial = `${out}.partial.mkv`
+  const partial = `${out}.${process.pid}.partial.mkv`
   const start = performance.now()
   const args = [
     '-y',

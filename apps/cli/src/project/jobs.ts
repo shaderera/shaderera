@@ -437,8 +437,20 @@ export const openJob = async (
   try {
     const now = await child.identity()
     const file = pinFile(root, job.name)
-    if (!existsSync(file)) writeFileSync(file, `${JSON.stringify(now, null, 1)}\n`)
-    else {
+    // Linked into place whole, as createJob does: of two first renders one pins, and the other
+    // (or any reader) never sees half a pin.
+    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+    writeFileSync(tmp, `${JSON.stringify(now, null, 1)}\n`)
+    let pinned = true
+    try {
+      linkSync(tmp, file)
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      pinned = false
+    } finally {
+      rmSync(tmp, { force: true })
+    }
+    if (!pinned) {
       const was = JSON.parse(readFileSync(file, 'utf8')) as { [key: string]: unknown }
       const changes = Object.keys({ ...was, ...now })
         .filter((k) => canonical(was[k]) !== canonical((now as { [key: string]: unknown })[k]))

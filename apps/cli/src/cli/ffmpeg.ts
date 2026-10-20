@@ -249,7 +249,7 @@ const muxer = (container?: string) => (container ? ['-f', container] : [])
 
 /**
  * The muxer a file name's extension asks for, as ffmpeg would pick it: for a file written under
- * another name first (`<out>.partial`, exportVideo).
+ * another name first (`<out>.<pid>.partial`, exportVideo).
  */
 export const containerOf = (file: string, codec: Codec = 'h264'): string => {
   const ext = extname(file).toLowerCase()

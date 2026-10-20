@@ -93,10 +93,11 @@ const filesOf = (item: Item, dir: string): string[] =>
     ]),
   ].filter((f) => existsSync(join(dir, f)))
 
-/** Writes `file` whole or not at all: a reader never sees half of it. */
-const writeWhole = (file: string, text: string): void => {
-  writeFileSync(`${file}.partial`, text)
-  renameSync(`${file}.partial`, file)
+/** Writes `file` whole or not at all: a reader never sees half of it, nor two writers one file. */
+export const writeWhole = (file: string, text: string | Uint8Array): void => {
+  const partial = `${file}.${process.pid}.partial`
+  writeFileSync(partial, text)
+  renameSync(partial, file)
 }
 
 /**

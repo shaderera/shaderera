@@ -126,5 +126,5 @@ test('a non-deterministic source leaves no partial delivery', {
     /not deterministic/,
   )
   assert.equal(existsSync(dir), false)
-  assert.equal(existsSync(`${dir}.partial`), false)
+  assert.equal(existsSync(`${dir}.${process.pid}.partial`), false)
 })
