@@ -298,6 +298,12 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
   } finally {
     browser.kill()
     await exited
-    rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    // Windows: Chrome's helper processes hold files a moment after it exits (EPERM). A profile
+    // left in the temp folder is only disk; it must not fail the test (as browser.ts's release).
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    } catch (error) {
+      process.stderr.write(`Could not remove ${profile} (${String(error)}); delete it later.\n`)
+    }
   }
 })
