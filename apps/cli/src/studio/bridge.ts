@@ -66,12 +66,9 @@ export type Bridge = {
   secret: string
   /** The bridge's own origin: `http://127.0.0.1:<port>`. */
   origin: string
-  /** The project's revision now (the id `save` would give it). */
-  revision: () => string
   handle: (request: BridgeRequest) => Promise<BridgeReply>
   /** Every event the bridge sends on /events; returns a function that stops listening. */
   onEvent: (listener: (event: StudioEvent) => void) => () => void
-  log: (level: 'info' | 'warn' | 'error', text: string) => void
   close: () => Promise<void>
 }
 
@@ -417,13 +414,11 @@ export const startBridge = async (o: {
     port,
     secret,
     origin: `http://${HOST}:${port}`,
-    revision: () => revision,
     handle,
     onEvent: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    log,
     close: async () => {
       clearInterval(heartbeat)
       clearTimeout(settle)
