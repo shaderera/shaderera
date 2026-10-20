@@ -7,14 +7,10 @@
 //   node tools/regions-from-masks.ts assets/cat.jpg cat=masks/cat.png --out regions/cat
 
 import { decode } from 'fast-png'
+import { hex } from '../src/image/regions.ts'
 
 export type Masked = { label: string; mask: Uint8Array; width: number; height: number }
 export type Written = { json: string; files: { name: string; bytes: Uint8Array }[] }
-
-const hex = async (bytes: Uint8Array) => {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-}
 
 /** A PNG's or a JPEG's size from its header, as stored (EXIF orientation is not applied, as io.image does not). */
 export const imageSize = (bytes: Uint8Array, label = 'image') => {

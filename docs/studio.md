@@ -12,10 +12,14 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
                      [--no-open]
 ```
 
-- **Without `--connect`**, it makes a studio session id and opens `<site>/studio/<id>` in your
-  default browser. `--no-open` prints the address instead.
-- **With `--connect <id>`**, it pairs with the id a studio page made. `<site>/studio` makes an
-  id and shows the command to give your agent: `npx shaderera@latest studio --connect <id>`.
+- **Without `--connect`**, it makes a studio session id.
+- **With `--connect <id>`**, it takes the id a studio page made. `<site>/studio` makes an id and
+  shows the command to give your agent: `npx shaderera@latest studio --connect <id>`.
+- **Either way, it opens `<site>/studio/<id>#<nonce>`** in your default browser
+  (`?from=web#<nonce>` with `--connect`, for the page's `opened` count), and pairs only with the
+  page that holds that nonce (below). From the web, that is a new tab: the page that
+  showed the command never pairs, and says the studio opened elsewhere once the new tab joins.
+  `--no-open` prints the address instead, for you to open; keep it to yourself.
 - **`--site <origin>`** is the site: `https://shaderera.com` by default, else `SHADERERA_SITE`,
   as for `share`. It is https, or plain http on this machine only (`localhost`, `127.0.0.1`).
 - **`--to <origin>`** is where Share sends films, as `share --to`: `https://shaderera.com` by
@@ -26,7 +30,9 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
   to the renders the page asks for.
 
-It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes.
+It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
+rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
+disconnected.
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -40,8 +46,12 @@ Add `--to <origin>` to share to a local films site as well, for example
 
 ## Ids and origins
 
-- **A studio session id** is 6 characters from `abcdefghjkmnpqrstuvwxyz23456789`. The page lives
+- **A studio session id** is 20 characters from `abcdefghjkmnpqrstuvwxyz23456789`. The page lives
   at `<site>/studio/<id>`.
+- **The pairing nonce** is 16 random bytes, base64url, new for each run of the command. The CLI
+  puts it in the address's fragment, `<site>/studio/<id>#<nonce>`, which the browser never sends
+  to a server. The page keeps it in this tab's `sessionStorage` until it pairs, so a reload of a
+  waiting page still pairs, and takes it off the address.
 - **Expiry.** An id expires when no CLI has paired with it within 10 minutes of its first
   connection. Once paired, it is used: no second CLI can pair with it.
 
@@ -53,7 +63,8 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
 1. **The page connects** with `role=page`.
 2. **The CLI connects** with `role=cli`. The relay forwards `{type:"cli-joined"}` to the page.
 3. **The page sends `{type:"page-hello", pub}`**: an ECDH P-256 public key, raw (uncompressed, 65
-   bytes), base64url. It sends it when it connects and again on every `cli-joined`.
+   bytes), base64url. It sends it when it connects and again on every `cli-joined`. A page with no
+   nonce sends nothing and waits.
 4. **The CLI replies `{type:"cli-hello", pub, version, os, telemetry}`** to every `page-hello`.
    - `pub` is its own key, the same for the life of the command.
    - `version` is the CLI's version.
@@ -64,22 +75,41 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
    - `info` = `"shaderera-studio-v0"`.
 
    The result is an AES-256-GCM key.
-6. **The CLI sends `{type:"bridge", iv, box}`.**
+6. **The page proves the nonce: `{type:"page-proof", iv, box}`.**
+   - `box` is the UTF-8 JSON `{"nonce":"<the nonce>"}`, sealed with the session key as below.
+   - The CLI ignores a proof that does not open with the key of the page's last `page-hello`, or
+     holds another nonce. Until a proof matches, it sends no `bridge` and answers no `rpc`.
+7. **The CLI sends `{type:"bridge", iv, box}`.**
    - `iv` is 12 random bytes.
    - `box` is the AES-GCM ciphertext, tag included, of the UTF-8 JSON `{"port":n,"secret":"<32 hex>"}`.
    - Both are base64url. The page also accepts plain base64.
    - The relay sees only ciphertext.
-7. **The page decrypts it and sends `{type:"paired"}`.** The relay marks the id used.
+8. **The page decrypts it and sends `{type:"paired"}`.** The relay marks the id used. It takes
+   `paired` only while a CLI is connected that has sent `bridge`.
 
 **The relay's rules:**
-- It forwards every frame from one side to the other as it is, and stores nothing.
+- It forwards every frame from one side to the other as it is. It stores only when it first saw
+  the id, whether the id is used or ended, and the SHA-256 of each resume token.
 - When a side closes, it sends `{type:"cli-left"}` or `{type:"page-left"}` to the other side.
 - **Close codes.** It closes a socket with:
-  - `4001 expired`: a CLI for an id past its expiry;
-  - `4002 used`: a second CLI, before or after pairing;
-  - `4003 taken`: a page once the id is paired.
+  - `4001 expired`: the sockets on an id no CLI paired with in time;
+  - `4002 used`: a second CLI, before or after pairing, or one with a wrong resume token;
+  - `4003 taken`: a page once the id is paired, without its resume token;
+  - `4004 ended`: a resume token once the session is over.
 - **Before pairing, a second page replaces the first**, so reloading a waiting page works.
-- **After pairing, a reloaded page gets 4003.** The person runs `shaderera studio` again.
+- **Resume tokens.** On `paired`, the relay sends the page and the CLI each
+  `{type:"resume", token}`: 32 random bytes, hex, one for each.
+  - The page keeps its token in this tab's `sessionStorage`, with the bridge's port and secret and
+    the session key. A reload joins with `?role=page&resume=<token>` instead of pairing.
+  - The CLI keeps its token in memory. When the relay drops it (a site deploy, the network: any
+    close but 1000 and 4001–4004), it joins again with `?role=cli&resume=<token>`, after 1, 2, 4,
+    8, 16 and then every 30 s, for as long as it runs. Its keys stay, so the page goes on.
+  - A side with its token replaces that side's socket, if one is still there, and gets
+    `{type:"resumed"}`; a CLI's return sends the page `cli-joined`.
+- **The session ends** when the paired CLI closes with 1000 (Ctrl-C): the relay closes the page
+  with `4004`. A paired CLI that dropped and does not come back within 10 minutes ends it too.
+- **An id that expired or ended is forgotten**: the relay deletes what it stored, so the id then
+  starts as a new one.
 
 ## The bridge
 
@@ -163,7 +193,8 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 
 - **What counts as a change.** A change counts only when it touches the files a revision holds:
   not `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, and not `node_modules/` or
-  `.git/` anywhere. A change that leaves the revision the same sends nothing.
+  `.git/` anywhere, and not a file that holds secrets (`.env`, `.npmrc`, … as `save` lists them in
+  [cli.md](cli.md#versions-and-jobs)). A change that leaves the revision the same sends nothing.
 - **Job states** are `queued`, `running`, `done` and `failed`. `done` and `failed` end a job.
   `progress` runs from 0 to 1.
 
@@ -180,12 +211,16 @@ asked.
   - `"png"`: one still, at `t` seconds (`0` by default), inside the film.
 - **The project is saved as a revision first**, and a video is tagged with it, as `render` does.
 - **The file stays in the project**, as `out/studio/<project>[-<variant>]-<job>.<mp4|mov|png>`.
+  In the variant's name, anything but letters, digits, `_`, `.` and `-` becomes `_` (`16:9` is
+  `16_9`).
 
 ### `GET /render/<job>/file`
 
 The job's file, streamed for the page to save, with:
 - `Content-Type`: `video/mp4`, `video/quicktime` or `image/png`;
-- `Content-Disposition: attachment; filename="…"`, exposed to the page.
+- `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…`, exposed to the page.
+  `filename` is the name in ASCII, with `_` for anything else; `filename*` is the name itself,
+  percent-encoded UTF-8 (RFC 6266), for a project named in any script.
 
 A job that is not done gets `409`. An unknown one gets `404`.
 
@@ -229,7 +264,7 @@ sends nothing itself.
 - **What the page sends.** It POSTs `{session, event, data}` to `<site>/studio/telemetry`, and
   the site stores each count in PostHog with no person profile and no IP; the studio session id is
   its only id. The events:
-  - `opened` (`from: web|cli`);
+  - `opened` (`from: web|cli`): `web` when the session began at `<site>/studio`;
   - `paired` (the CLI's version, OS, `direct|relay`);
   - `edit`: a count of `changed` events;
   - `render`: format, seconds, wall time;
@@ -245,5 +280,6 @@ sends nothing itself.
   The page holds its events until one of those reports `telemetry`.
 
 `shaderera telemetry off|on|status` keeps the choice in `~/.shaderera/config.json`.
-`SHADERERA_TELEMETRY=0` turns it off whatever that file says. The first `shaderera studio` prints
+`SHADERERA_TELEMETRY=0` turns it off whatever that file says. A config that cannot be read counts
+as off, and is never overwritten: fix it or delete it. The first `shaderera studio` prints
 a notice saying all of this, once, and notes in the same file that it did.

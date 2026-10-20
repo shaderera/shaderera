@@ -14,7 +14,8 @@ const word = wordAt(lyrics, t)   // { start, end, text }: the word being sung, w
 It gives times only: how a line looks and moves is the film's code.
 
 - LRC: `[mm:ss.xx] line`, several stamps on a line for a repeated line, enhanced LRC's
-  `<mm:ss.xx>` before each word, and `[offset:+250]` (ms). A line ends where the next starts.
+  `<mm:ss.xx>` before each word, and `[offset:+250]` (ms; a positive offset makes every time
+  sooner). A line ends where the next starts.
 - SRT and WebVTT: `start --> end` blocks; tags such as `<i>` are stripped. No styling or positions
   are read.
 - JSON: rows of `[start, end, "line"]`, cues like the ones `cueAt` returns, Whisper's

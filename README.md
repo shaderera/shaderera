@@ -183,8 +183,8 @@ npx shaderera fork https://shaderera.com/f/<film> my-film
 ```
 
 They run only when called and send only the project's files, as a revision holds them, never a
-`.env` or `.npmrc`, and the film's web player, which `share` builds on your machine
-([docs/player.md](docs/player.md)). `share` prints what it will send and asks first (`--yes` off a terminal).
+file that holds secrets (`.env`, `.npmrc`, `.dev.vars`, keys, …), and the film's web player,
+which `share` builds on your machine ([docs/player.md](docs/player.md)). `share` prints what it will send and asks first (`--yes` off a terminal).
 `--to <origin>` or `SHADERERA_SITE` names another site. All of it is in
 [docs/cli.md](docs/cli.md#shadereracom-login-share-fork).
 

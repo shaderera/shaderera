@@ -115,7 +115,7 @@ test('a revision never stores or writes through a link, so restore cannot reach 
   // An internal link to the project's own folder, which would be a cycle if followed.
   symlinkSync(join(root, 'src'), join(root, 'src', 'again'), 'junction')
   const links: string[] = []
-  assert.deepEqual(Object.keys(scan(root, links)), ['shaderera.json', 'src/a.ts', 'src/b.ts'])
+  assert.deepEqual(Object.keys(scan(root, { links })), ['shaderera.json', 'src/a.ts', 'src/b.ts'])
   assert.deepEqual(links.sort(), ['linked', 'src/again'])
   const one = save(root, { by: 'person' })
   writeFileSync(join(outside, 'marker.txt'), 'changed outside\n')

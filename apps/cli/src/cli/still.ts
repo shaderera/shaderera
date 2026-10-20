@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
+import { safeName } from '../project/jobs.ts'
 import { type Comparison, compareFrames, sideBySide } from '../review/compare.ts'
 import { contactSheet, toPng } from '../review/review.ts'
 import { insideFilm, open, parseRendering } from './args.ts'
@@ -114,7 +115,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const outDir = v.out ? resolve(v.out) : join(project.root, 'out', 'stills')
     mkdirSync(outDir, { recursive: true })
     const last = frameCount(fps, duration) - 1
-    const pair = other ? `${variant}-vs-${v.compare}` : variant
+    const name = safeName(variant)
+    const pair = other ? `${name}-vs-${safeName(v.compare as string)}` : name
     const sheetWidth = other ? width * 2 : width
     const rendered: { t: number; label: string; pixels: Uint8Array }[] = []
     const stills: Still[] = []
@@ -123,7 +125,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       const started = performance.now()
       const { pixels } = await child.render(t, 'final')
       const ms = performance.now() - started
-      const s: Still = { t, file: join(outDir, `${variant}-${t.toFixed(3)}.png`), ms }
+      const s: Still = { t, file: join(outDir, `${name}-${t.toFixed(3)}.png`), ms }
       writeFileSync(s.file, toPng(pixels, width, height))
       const region: Region | undefined = v.region
         ? parseRegion(v.region)
@@ -135,7 +137,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         const r = c.region
         const file = join(
           outDir,
-          `${variant}-${t.toFixed(3)}-${r.x}_${r.y}_${r.width}x${r.height}@${scale}.png`,
+          `${name}-${t.toFixed(3)}-${r.x}_${r.y}_${r.width}x${r.height}@${scale}.png`,
         )
         writeFileSync(file, encodePng(c.pixels, c.width, c.height))
         s.part = { file, region: r, scale }

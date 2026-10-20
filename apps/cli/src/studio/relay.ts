@@ -1,13 +1,24 @@
-// The CLI's side of the relay (docs/studio.md): pairs with the page by ECDH, sends it the bridge's
-// port and secret sealed under the session key, and, when the page cannot reach 127.0.0.1, answers
-// its requests and pushes the bridge's events through the relay, sealed the same way.
+// The CLI's side of the relay (docs/studio.md): pairs with the page by ECDH, and once the page has
+// proved it holds the nonce the CLI opened it with, sends it the bridge's port and secret sealed
+// under the session key; when the page cannot reach 127.0.0.1, it answers its requests and pushes
+// the bridge's events through the relay, sealed the same way. Once paired, it rejoins the relay
+// with the resume token the relay gave it when the relay drops it (a site deploy, the network).
+import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { Bridge, StudioEvent } from './bridge.ts'
 import { CLOSE, keyPair, relayUrl, seal, sessionKey, unseal } from './pairing.ts'
 
 type Message = { type?: string; [key: string]: unknown }
 
-export type RelayEnd = { code: number; reason: string; paired: boolean }
+const sameNonce = (given: string, nonce: string) => {
+  const [a, b] = [Buffer.from(given), Buffer.from(nonce)]
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
+export type RelayEnd = { code: number; paired: boolean }
+
+/** How long the CLI waits before its nth rejoin, in ms: 1, 2, 4, 8, 16, then 30 s. */
+export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000)
 
 /** What a close code means, for the person. */
 export const closeText = (code: number, site: string, id: string): string =>
@@ -17,22 +28,41 @@ export const closeText = (code: number, site: string, id: string): string =>
       ? `Studio session ${id} is already paired with another CLI. Open ${site}/studio for a new one.`
       : code === CLOSE.taken
         ? `Studio session ${id} is already open in another page.`
-        : `The relay on ${site} closed (${code}).`
+        : code === CLOSE.ended
+          ? `Studio session ${id} has ended. Run shaderera studio again for a new one.`
+          : `The relay on ${site} closed (${code}).`
 
 /**
- * Connects to the relay as the CLI for studio session `id` and serves `bridge` through it.
- * `closed` resolves when the relay closes, with its code and whether the page had paired.
+ * Connects to the relay as the CLI for studio session `id` and serves `bridge` through it, to the
+ * page that proves it holds `nonce` only. Once paired, a close that is not one of the relay's own
+ * codes (or 1000) is a drop: it rejoins with its resume token, with backoff (`rejoinDelay`), for
+ * as long as it runs. `closed` resolves when the relay closes for good, with its code and whether
+ * the page had paired. `close` closes with 1000, which ends the session at the relay.
  */
 export const connectRelay = (o: {
   site: string
   id: string
+  /** The nonce in the address the CLI opened (pairing.ts's makeNonce). */
+  nonce: string
   bridge: Pick<Bridge, 'port' | 'secret' | 'handle' | 'onEvent'>
   hello: { version: string; os: string; telemetry: boolean }
   onPaired?: () => void
   onPageLeft?: () => void
-}): { closed: Promise<RelayEnd>; close: () => void } => {
-  const ws = new WebSocket(relayUrl(o.site, o.id, 'cli'))
+  /** The relay dropped the CLI (`false`), or let it back in (`true`). */
+  onRelay?: (back: boolean) => void
+  /** For tests: the delay before the nth rejoin. */
+  delay?: (n: number) => number
+}): { closed: Promise<RelayEnd>; close: () => Promise<void> } => {
+  let ws: WebSocket
+  // The relay's resume token for this CLI, once paired; rejoins so far since the last open.
+  let token: string | undefined
+  let tries = 0
+  let stopped = false
+  let timer: NodeJS.Timeout | undefined
   let mine: Awaited<ReturnType<typeof keyPair>> | undefined
+  // The key of the last page-hello, and the key of the page that proved the nonce: only the second
+  // gets the bridge and has its requests answered.
+  let offered: CryptoKey | undefined
   let key: CryptoKey | undefined
   let paired = false
   let stopEvents: (() => void) | undefined
@@ -47,15 +77,28 @@ export const connectRelay = (o: {
       // One key pair for the CLI's life: a page-hello sent again gives the same key, and a new
       // page's (it reloaded before pairing) a new one.
       mine ??= await keyPair()
-      key = await sessionKey(mine.privateKey, m.pub, o.id)
+      offered = await sessionKey(mine.privateKey, m.pub, o.id)
       send({ type: 'cli-hello', pub: mine.pub, ...o.hello })
-      send({
-        type: 'bridge',
-        ...(await seal(key, { port: o.bridge.port, secret: o.bridge.secret })),
-      })
+    } else if (
+      m.type === 'page-proof' &&
+      offered &&
+      typeof m.iv === 'string' &&
+      typeof m.box === 'string'
+    ) {
+      // The proof opens with the key of the page's hello and holds the nonce: it is the page this
+      // CLI opened. Any other page never gets the bridge.
+      const k = offered
+      const proof = await unseal<{ nonce?: unknown }>(k, { iv: m.iv, box: m.box }).catch(() => null)
+      if (typeof proof?.nonce !== 'string' || !sameNonce(proof.nonce, o.nonce)) return
+      key = k
+      send({ type: 'bridge', ...(await seal(k, { port: o.bridge.port, secret: o.bridge.secret })) })
     } else if (m.type === 'paired') {
       paired = true
       o.onPaired?.()
+    } else if (m.type === 'resume' && typeof m.token === 'string') {
+      token = m.token
+    } else if (m.type === 'resumed') {
+      o.onRelay?.(true)
     } else if (m.type === 'page-left') {
       o.onPageLeft?.()
     } else if (m.type === 'rpc' && key && typeof m.iv === 'string' && typeof m.box === 'string') {
@@ -110,20 +153,52 @@ export const connectRelay = (o: {
     }
   }
 
-  ws.addEventListener('message', (e) => {
-    let m: Message
-    try {
-      m = JSON.parse(String(e.data)) as Message
-    } catch {
-      return
-    }
-    chain = chain.then(() => onMessage(m)).catch(() => {})
-  })
-  const closed = new Promise<RelayEnd>((done) =>
-    ws.addEventListener('close', (e) => {
+  let finish: (end: RelayEnd) => void = () => {}
+  const closed = new Promise<RelayEnd>((done) => {
+    finish = (end) => {
       stopEvents?.()
-      done({ code: e.code, reason: e.reason, paired })
-    }),
-  )
-  return { closed, close: () => ws.close(1000) }
+      done(end)
+    }
+  })
+  const join = () => {
+    const socket = new WebSocket(
+      token ? `${relayUrl(o.site, o.id, 'cli')}&resume=${token}` : relayUrl(o.site, o.id, 'cli'),
+    )
+    ws = socket
+    socket.addEventListener('open', () => {
+      tries = 0
+    })
+    socket.addEventListener('message', (e) => {
+      let m: Message
+      try {
+        m = JSON.parse(String(e.data)) as Message
+      } catch {
+        return
+      }
+      chain = chain.then(() => onMessage(m)).catch(() => {})
+    })
+    socket.addEventListener('close', (e) => {
+      // The relay's own codes (4001–4004) and 1000 are its answer; anything else, once paired, is
+      // a drop, and the CLI comes back with its token. The keys stay: the page goes on.
+      const answer = e.code === 1000 || (e.code >= 4000 && e.code < 5000)
+      if (stopped || answer || !paired || !token) return finish({ code: e.code, paired })
+      if (tries === 0) o.onRelay?.(false)
+      timer = setTimeout(join, (o.delay ?? rejoinDelay)(tries++))
+    })
+  }
+  join()
+  return {
+    closed,
+    close: () => {
+      stopped = true
+      clearTimeout(timer)
+      if (ws.readyState === WebSocket.CLOSED) {
+        finish({ code: 1000, paired })
+        return Promise.resolve()
+      }
+      // 1000 tells the relay the session ended; wait a moment for it to be sent.
+      ws.close(1000)
+      return Promise.race([closed.then(() => {}), new Promise<void>((r) => setTimeout(r, 1000))])
+    },
+  }
 }

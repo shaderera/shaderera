@@ -10,6 +10,7 @@ import {
   ffmpegSink,
   hasEditList,
   matte64,
+  measureLoudness,
   probe,
   requireFrames,
 } from './ffmpeg.ts'
@@ -104,6 +105,22 @@ test('an mp4 written with an edit list is told from one without; its sound is 48
     }
   } finally {
     mix.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('the loudness of a film over ten minutes is measured', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'shaderera-long-'))
+  try {
+    // 13 minutes of a tone, kept small: 8 kHz, 8 bits, mono.
+    const file = join(dir, 'long.wav')
+    const args = ['-v', 'error', '-f', 'lavfi', '-i', 'sine=d=780:sample_rate=8000']
+    spawnSync('ffmpeg', [...args, '-c:a', 'pcm_u8', file])
+    const loudness = measureLoudness(file)
+    assert.ok(loudness && loudness.integrated > -70, JSON.stringify(loudness))
+  } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })

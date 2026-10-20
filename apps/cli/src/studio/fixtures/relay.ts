@@ -2,17 +2,35 @@
 // WebSocket server of its own (RFC 6455, text and close frames only) at
 // /studio/relay/<id>?role=page|cli, with the relay's rules:
 // - an id not paired within `ttlMs` of its first connection is expired: a CLI gets 4001;
-// - once the page sends `paired`, the id is used: a CLI gets 4002 and a page 4003;
+// - once the page sends `paired` (taken only after the CLI there has sent `bridge`), the id is
+//   used: a CLI gets 4002 and a page 4003;
 // - before that, a second CLI gets 4002 too, and a second page replaces the first (a reload);
 // - `cli-joined` goes to the page when a CLI connects; `page-left`/`cli-left` when a side closes;
+// - on `paired`, the CLI gets `{type:"resume", token}`; a CLI that comes back with
+//   `&resume=<token>` replaces the one there and gets `{type:"resumed"}`, until the session ended:
+//   the paired CLI closed with 1000, and the page was closed with 4004;
 // - every other frame goes to the other side as it is.
-import { createHash } from 'node:crypto'
+// `drop(id, role)` cuts a side's socket without a close frame, as a deploy or the network would.
+import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 
-type Peer = { send: (text: string) => void; close: (code: number, reason: string) => void }
-type Session = { created: number; paired: boolean; page?: Peer; cli?: Peer }
+type Peer = {
+  send: (text: string) => void
+  close: (code: number, reason: string) => void
+  destroy: () => void
+}
+type Session = {
+  created: number
+  paired: boolean
+  bridged?: boolean
+  /** The paired CLI's resume token, and whether the session ended. */
+  token?: string
+  ended?: boolean
+  page?: Peer
+  cli?: Peer
+}
 
 const frame = (opcode: number, payload: Buffer): Buffer => {
   const n = payload.length
@@ -31,15 +49,19 @@ const bigLength = (n: number) => {
 }
 
 /** One accepted socket: decodes the client's masked frames, sends the server's. */
-const peer = (socket: Duplex, onText: (text: string) => void, onClose: () => void): Peer => {
+const peer = (
+  socket: Duplex,
+  onText: (text: string) => void,
+  onClose: (code: number) => void,
+): Peer => {
   let buffer = Buffer.alloc(0)
   let parts: Buffer[] = []
   let closed = false
-  const end = () => {
+  const end = (code = 1006) => {
     if (closed) return
     closed = true
     socket.end()
-    onClose()
+    onClose(code)
   }
   socket.on('data', (data: Buffer) => {
     buffer = Buffer.concat([buffer, data])
@@ -65,7 +87,7 @@ const peer = (socket: Duplex, onText: (text: string) => void, onClose: () => voi
       buffer = buffer.subarray(at + 4 + n)
       if (opcode === 8) {
         if (!closed) socket.write(frame(8, payload.subarray(0, 2)))
-        return end()
+        return end(payload.length >= 2 ? payload.readUInt16BE(0) : 1005)
       }
       if (opcode === 9) socket.write(frame(10, payload))
       if (opcode === 1 || opcode === 0) {
@@ -77,8 +99,8 @@ const peer = (socket: Duplex, onText: (text: string) => void, onClose: () => voi
       }
     }
   })
-  socket.on('close', end)
-  socket.on('error', end)
+  socket.on('close', () => end())
+  socket.on('error', () => end())
   return {
     send: (text) => {
       if (!closed) socket.write(frame(1, Buffer.from(text)))
@@ -89,6 +111,7 @@ const peer = (socket: Duplex, onText: (text: string) => void, onClose: () => voi
       socket.write(frame(8, payload))
       setTimeout(end, 50)
     },
+    destroy: () => socket.destroy(),
   }
 }
 
@@ -106,7 +129,7 @@ export const startRelay = async (o: { ttlMs?: number } = {}) => {
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
     const url = new URL(req.url ?? '/', 'http://relay')
-    const match = /^\/studio\/relay\/([a-z2-9]{6})$/.exec(url.pathname)
+    const match = /^\/studio\/relay\/([a-z2-9]{20})$/.exec(url.pathname)
     const role = url.searchParams.get('role')
     if (!match || (role !== 'page' && role !== 'cli')) return socket.destroy()
     const accept = createHash('sha1')
@@ -127,21 +150,47 @@ export const startRelay = async (o: { ttlMs?: number } = {}) => {
       socket,
       (text) => {
         seen.push(text)
-        if (role === 'page' && (JSON.parse(text) as { type?: string }).type === 'paired')
+        const type = (JSON.parse(text) as { type?: string }).type
+        if (role === 'cli' && type === 'bridge') session.bridged = true
+        if (
+          role === 'page' &&
+          type === 'paired' &&
+          session.cli &&
+          session.bridged &&
+          !session.paired
+        ) {
           session.paired = true
+          session.token = randomBytes(32).toString('hex')
+          session.cli.send(JSON.stringify({ type: 'resume', token: session.token }))
+        }
         other()?.send(text)
       },
-      () => {
+      (code) => {
         if (session[role] !== me) return
         delete session[role]
         other()?.send(JSON.stringify({ type: `${role}-left` }))
+        if (role === 'cli' && session.paired && code === 1000) {
+          session.ended = true
+          session.page?.close(4004, 'ended')
+        }
       },
     )
+    const resume = url.searchParams.get('resume')
+    if (role === 'cli' && resume && session.paired) {
+      if (resume !== session.token) return me.close(4002, 'used')
+      if (session.ended) return me.close(4004, 'ended')
+      session.cli?.destroy()
+      session.cli = me
+      me.send(JSON.stringify({ type: 'resumed' }))
+      session.page?.send(JSON.stringify({ type: 'cli-joined' }))
+      return
+    }
     if (role === 'cli' && (session.paired || session.cli)) return me.close(4002, 'used')
     if (role === 'cli' && Date.now() - session.created > ttl) return me.close(4001, 'expired')
     if (role === 'page' && session.paired) return me.close(4003, 'taken')
     session[role]?.close(4000, 'replaced')
     session[role] = me
+    if (role === 'cli') session.bridged = false
     if (role === 'cli') session.page?.send(JSON.stringify({ type: 'cli-joined' }))
   })
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', () => done()))
@@ -150,6 +199,7 @@ export const startRelay = async (o: { ttlMs?: number } = {}) => {
     origin: `http://127.0.0.1:${port}`,
     sessions,
     seen,
+    drop: (id: string, role: 'page' | 'cli') => sessions.get(id)?.[role]?.destroy(),
     close: () =>
       new Promise<void>((done) => {
         for (const socket of sockets) socket.destroy()

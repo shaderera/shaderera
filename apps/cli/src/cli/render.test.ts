@@ -65,8 +65,11 @@ test('the output holds the previous film until the new one is complete; a failed
   const project = memoryProject()
   const child = memoryChild({ size: { width: 64, height: 36 }, frame: boxFrame(64, 36) })
   const out = join(mkdtempSync(join(tmpdir(), 'shaderera-partial-')), 'film.mp4')
-  const partial = `${out}.partial`
+  const partial = `${out}.${process.pid}.partial`
   writeFileSync(out, 'the previous film')
+  // Another render to the same out, still running in another process: its file is its own.
+  const other = `${out}.999999999.partial`
+  writeFileSync(other, 'another render')
   // Interrupted midway (Ctrl-C): the new frames went to .partial, never to the output.
   const stop = new AbortController()
   await assert.rejects(
@@ -99,6 +102,7 @@ test('the output holds the previous film until the new one is complete; a failed
   )
   assert.equal(existsSync(partial), false)
   assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+  assert.equal(readFileSync(other, 'utf8'), 'another render')
 
   // Finished, but the output cannot be replaced (a folder here; on Windows, a file a player
   // holds open): the new film is kept as .partial and the error says where it is.
@@ -106,9 +110,9 @@ test('the output holds the previous film until the new one is complete; a failed
   mkdirSync(join(blocked, 'inside'), { recursive: true })
   await assert.rejects(
     exportVideo(project, child, { out: blocked, revision: 'test' }),
-    /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.partial/,
+    /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.\d+\.partial/,
   )
-  assert.equal(probe(`${blocked}.partial`).video?.frames, 10)
+  assert.equal(probe(`${blocked}.${process.pid}.partial`).video?.frames, 10)
 
   // In the project but not in out/: it would be saved into every later revision.
   await assert.rejects(
