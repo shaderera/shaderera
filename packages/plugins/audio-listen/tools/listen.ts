@@ -160,12 +160,22 @@ export const strokesOf = (mono: Float32Array, rate: number) => {
   })
 }
 
-/** Plain windows of `win` seconds, half overlapping, covering the recording. */
-export const windowsOf = (seconds: number, win: number) => {
+/**
+ * Plain windows of `win` seconds, half overlapping, covering the recording, each with its `level`:
+ * its RMS in dBFS.
+ */
+export const windowsOf = (mono: Float32Array, rate: number, win: number) => {
+  const seconds = mono.length / rate
   const w = Math.min(win, seconds)
   const out: { start: number; end: number; level: number }[] = []
   if (!(w > 0)) return out
-  for (let s = 0; s + w <= seconds + 1e-9; s += w / 2) out.push({ start: s, end: s + w, level: 0 })
+  for (let s = 0; s + w <= seconds + 1e-9; s += w / 2) {
+    const a = Math.round(s * rate)
+    const b = Math.min(mono.length, Math.round((s + w) * rate))
+    let sum = 0
+    for (let i = a; i < b; i++) sum += (mono[i] ?? 0) ** 2
+    out.push({ start: s, end: s + w, level: 10 * Math.log10(sum / Math.max(1, b - a) + 1e-12) })
+  }
   return out
 }
 
@@ -221,10 +231,9 @@ export const listen = async (
   embed: Embedder,
   progress: (done: number, of: number) => void = () => {},
 ): Promise<{ trims: Trim[]; candidates: number; scored: number }> => {
-  const seconds = mono.length / rate
   const samples = (c: { start: number; end: number }) =>
     mono.subarray(Math.round(c.start * rate), Math.round(c.end * rate))
-  const found = o.kind === 'event' ? strokesOf(mono, rate) : windowsOf(seconds, o.win)
+  const found = o.kind === 'event' ? strokesOf(mono, rate) : windowsOf(mono, rate, o.win)
   // A near-silent stretch (under -60 dBFS) is never an answer.
   const all = found.filter((c) => samples(c).some((x) => Math.abs(x) >= 1e-3))
   if (all.length === 0)
