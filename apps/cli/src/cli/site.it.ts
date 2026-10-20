@@ -262,7 +262,7 @@ test('fork copies a version into a new folder as a project, and its share is a n
 
   const work = temp('work')
   const before = s.requests.length
-  const r = await cli(home, work, 'fork', `${s.site}/f/film1`, 'mine', '--json')
+  const r = await cli(home, work, 'fork', `${s.site}/film/film1`, 'mine', '--json')
   assert.equal(r.status, 0, r.stdout)
   const { result } = JSON.parse(r.stdout)
   assert.equal(result.version, shared.id)
@@ -418,7 +418,7 @@ test('a poster or loop that does not render is left out with a warning, and the 
   assert.ok(!existsSync(join(mediaDir(root), 'loop.mp4')))
 })
 
-test('share --no-media renders and sends neither; without a page in the response the url is <site>/f/<film>', async () => {
+test('share --no-media renders and sends neither; without a page in the response the url is shaderera.com/film/<film>', async () => {
   const s = await fakeSite()
   s.options.page = false
   const home = temp('home')
@@ -427,7 +427,7 @@ test('share --no-media renders and sends neither; without a page in the response
   const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media', '--json')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   const { result } = JSON.parse(r.stdout)
-  assert.equal(result.url, `${s.site}/f/film1`)
+  assert.equal(result.url, 'https://shaderera.com/film/film1')
   assert.equal(result.poster, null)
   assert.equal(result.loop, null)
   assert.deepEqual(result.warnings, [])

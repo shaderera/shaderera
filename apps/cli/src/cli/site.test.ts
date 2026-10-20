@@ -12,7 +12,7 @@ test('the site: https, or http on this machine only; a fork names a film, a vers
     site: 'https://a.example',
     film: '2phicdywpg',
   })
-  assert.deepEqual(parseTarget('https://b.example/t/2phicdywpg@ab12'), {
+  assert.deepEqual(parseTarget('https://b.example/film/2phicdywpg@ab12'), {
     site: 'https://b.example',
     film: '2phicdywpg',
     version: 'ab12',
