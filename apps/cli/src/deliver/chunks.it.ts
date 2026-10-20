@@ -21,27 +21,22 @@ test('chunks rendered apart and assembled give the very file one render gives', 
     recursive: true,
   })
   writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1 }))
-  for (const [name, format] of [
-    ['h', 'mp4'],
-    ['p', 'prores-hq'],
-  ]) {
-    assert.equal(cli(root, 'job', '--name', name, '--format', format).status, 0)
-    const ext = format === 'mp4' ? 'mp4' : 'mov'
-    const single = join(root, 'out', `single.${ext}`)
-    const one = cli(root, 'render', '--job', name, '--out', single)
-    assert.equal(one.status, 0, one.stderr)
-    assert.equal(cli(root, 'plan', '--job', name, '--chunks', '3').status, 0)
-    // Out of order, as separate machines would finish.
-    for (const i of ['2', '0', '1'])
-      assert.equal(cli(root, 'render', '--job', name, '--chunk', i).status, 0)
-    const plan = join(root, 'out', `${name}.plan`)
-    const together = join(root, 'out', `together.${ext}`)
-    const a = cli(root, 'assemble', '--plan', plan, '--out', together)
-    assert.equal(a.status, 0, a.stderr)
-    assert.match(a.stdout, /10 frames from 3 chunks/)
-    assert.equal(sha(together), sha(single), `${format}: the same bytes`)
-    // A chunk changed after it was rendered is refused.
-    writeFileSync(join(plan, 'chunk-001.mkv'), 'x')
-    assert.match(cli(root, 'assemble', '--plan', plan).stderr, /chunk-001\.mkv changed/)
-  }
+  // ProRes HQ: reuse.it.ts proves the same for mp4 (plan, 3 chunks, assemble, a full render).
+  assert.equal(cli(root, 'job', '--name', 'p', '--format', 'prores-hq').status, 0)
+  const single = join(root, 'out', 'single.mov')
+  const one = cli(root, 'render', '--job', 'p', '--out', single)
+  assert.equal(one.status, 0, one.stderr)
+  assert.equal(cli(root, 'plan', '--job', 'p', '--chunks', '3').status, 0)
+  // Out of order, as separate machines would finish.
+  for (const i of ['2', '0', '1'])
+    assert.equal(cli(root, 'render', '--job', 'p', '--chunk', i).status, 0)
+  const plan = join(root, 'out', 'p.plan')
+  const together = join(root, 'out', 'together.mov')
+  const a = cli(root, 'assemble', '--plan', plan, '--out', together)
+  assert.equal(a.status, 0, a.stderr)
+  assert.match(a.stdout, /10 frames from 3 chunks/)
+  assert.equal(sha(together), sha(single), 'the same bytes')
+  // A chunk changed after it was rendered is refused.
+  writeFileSync(join(plan, 'chunk-001.mkv'), 'x')
+  assert.match(cli(root, 'assemble', '--plan', plan).stderr, /chunk-001\.mkv changed/)
 })

@@ -186,19 +186,19 @@ test('share sends what a revision holds less secrets, only with --yes off a term
   const home = temp('home')
   const root = project()
 
-  const noToken = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const noToken = await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes')
   assert.equal(noToken.status, 2)
   assert.match(noToken.stderr, /No token for/)
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
 
-  const asked = await cli(home, root, 'share', '--to', s.site)
+  const asked = await cli(home, root, 'share', '--no-media', '--to', s.site)
   assert.equal(asked.status, 2)
   assert.match(asked.stdout, /share: \d+ files, .* as a new film "neon-rain" \(licence MIT\)/)
   assert.match(asked.stdout, /not sent: \.env, sub\/\.npmrc/)
   assert.match(asked.stderr, /needs --yes/)
   assert.equal(s.requests.length, 0, 'nothing is sent before --yes')
 
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--json')
+  const r = await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes', '--json')
   assert.equal(r.status, 0, r.stdout)
   const { result } = JSON.parse(r.stdout)
   assert.equal(result.film, 'film1')
@@ -223,7 +223,7 @@ test('share sends what a revision holds less secrets, only with --yes off a term
 
   // Again: the same film; only a changed file is uploaded.
   writeFileSync(join(root, 'notes.txt'), 'a new file')
-  const again = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const again = await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes')
   assert.equal(again.status, 0, again.stderr)
   assert.match(again.stdout, /shared film film1 version [0-9a-f]{12}: 1 of \d+ files were new/)
   assert.equal(s.films.size, 1)
@@ -235,7 +235,7 @@ test('share refuses a project that declares no licence, before anything is sent'
   const home = temp('home')
   const root = project(null)
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const r = await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes')
   assert.equal(r.status, 2)
   assert.match(r.stderr, /declares no licence/)
   assert.equal(s.requests.length, 0)
@@ -246,7 +246,7 @@ test('fork copies a version into a new folder as a project, and its share is a n
   const home = temp('home')
   const root = project()
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  assert.equal((await cli(home, root, 'share', '--to', s.site, '--yes')).status, 0)
+  assert.equal((await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes')).status, 0)
   const shared = s.films.get('film1')?.versions[0]
   assert.ok(shared)
 
@@ -268,7 +268,7 @@ test('fork copies a version into a new folder as a project, and its share is a n
   assert.equal(full.status, 2)
   assert.match(full.stderr, /is not empty/)
 
-  const again = await cli(home, dir, 'share', '--to', s.site, '--yes')
+  const again = await cli(home, dir, 'share', '--no-media', '--to', s.site, '--yes')
   assert.equal(again.status, 0, again.stderr)
   assert.match(
     again.stdout,
@@ -283,7 +283,7 @@ test('fork writes nothing when a file does not match its sha256', async () => {
   const home = temp('home')
   const root = project()
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  await cli(home, root, 'share', '--to', s.site, '--yes')
+  await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes')
   const shared = s.films.get('film1')?.versions[0]
   s.corrupt.add(shared?.files['shaderera.json'] as string)
   const work = temp('work')
@@ -308,7 +308,7 @@ test('share builds the player into .shaderera/player and sends it beside the sou
   const home = temp('home')
   const root = project()
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--json')
+  const r = await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes', '--json')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   const { result } = JSON.parse(r.stdout)
   const version = s.films.get('film1')?.versions[0]
@@ -339,7 +339,7 @@ test("share sends a film's proxies and bake frames in its player; a player that 
   const home = temp('home')
   const { root } = await footageProject()
   await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const r = await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   assert.match(r.stdout, /share: \d+ files, .*, and a player of \d+ files, .*, to /)
   const player = s.films.get('film1')?.versions[0]?.player ?? {}
@@ -355,7 +355,7 @@ test("share sends a film's proxies and bake frames in its player; a player that 
 
   writeFileSync(join(root, 'out', 'level', 'level.1.bin'), new Uint8Array([9]))
   const before = s.requests.length
-  const failed = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const failed = await cli(home, root, 'share', '--no-media', '--to', s.site, '--yes')
   assert.equal(failed.status, 2)
   assert.match(
     failed.stderr,

@@ -22,9 +22,11 @@ test('a hung source fails the call after timeoutMs and closes without a crash', 
   const project = await findProject(root)
   const child = await openChild(project, {
     entryFile: await buildForNode(project),
-    timeoutMs: 5000,
+    // One allowance for open and the hung call alike (openChild has no openTimeoutMs): enough to
+    // open on a loaded machine, short enough not to wait.
+    timeoutMs: 1500,
   })
-  await assert.rejects(child.render(0, 'final'), /took longer than 5000 ms/)
+  await assert.rejects(child.render(0, 'final'), /took longer than 1500 ms/)
   await child.close()
   await assert.rejects(child.render(0, 'final'), /has exited/)
 })

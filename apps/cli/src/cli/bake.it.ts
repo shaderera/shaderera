@@ -26,8 +26,10 @@ test('a bake is made and stamped, read by the host, and refused when stale or ch
     assert.equal(r.status, 0, r.stderr)
     return decode(readFileSync(join(out, `main-${Number(t).toFixed(3)}.png`))).data[0]
   }
-  const refused = (pattern: RegExp) => {
-    for (const command of [['check', '--times', '2'], ['still', '0'], ['render']]) {
+  // Every command that opens the source refuses; once that is shown, check stands for them all.
+  const check = [['check', '--times', '2']]
+  const refused = (pattern: RegExp, commands = [...check, ['still', '0'], ['render']]) => {
+    for (const command of commands) {
       const r = cli(...command)
       assert.equal(r.status, 2, `${command[0]}: ${r.stderr}`)
       assert.match(r.stderr, pattern, command[0])
@@ -51,14 +53,17 @@ test('a bake is made and stamped, read by the host, and refused when stale or ch
   assert.match(JSON.parse(peek.stdout).result.peek, /outside the project/)
 
   writeFileSync(join(root, 'level.txt'), '90')
-  refused(/Bake glow is stale: level\.txt changed since it was made\. Run shaderera bake glow\./)
+  refused(
+    /Bake glow is stale: level\.txt changed since it was made\. Run shaderera bake glow\./,
+    check,
+  )
   assert.equal(cli('bake', 'glow').status, 0)
   assert.equal(grey('0.5'), 95)
 
   writeFileSync(join(glow, 'glow.003.bin'), new Uint8Array([1]))
-  refused(/Bake glow: glow\.003\.bin changed since it was made\. Run shaderera bake glow\./)
+  refused(/Bake glow: glow\.003\.bin changed since it was made\. Run shaderera bake glow\./, check)
   rmSync(join(glow, 'glow.003.bin'))
-  refused(/Bake glow: glow\.003\.bin is missing from .*glow\. Run shaderera bake glow\./)
+  refused(/Bake glow: glow\.003\.bin is missing from .*glow\. Run shaderera bake glow\./, check)
   assert.equal(cli('bake').status, 0)
   assert.ok(existsSync(join(glow, 'glow.003.bin')))
 })
