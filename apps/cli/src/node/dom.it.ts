@@ -58,11 +58,11 @@ test('a hung source fails the call after timeoutMs and closes Chrome', async () 
   // page cannot fail first (#85).
   const child = await openBrowserChild(project, {
     params: { mode: 'hang' },
-    timeoutMs: 3000,
+    timeoutMs: 500,
     openTimeoutMs: TIMEOUT,
   })
   try {
-    await assert.rejects(child.render(0.3, 'final'), /took longer than 3000 ms/)
+    await assert.rejects(child.render(0.3, 'final'), /took longer than 500 ms/)
     await assert.rejects(child.render(0.3, 'final'), /Chrome closed/)
   } finally {
     await child.close()
