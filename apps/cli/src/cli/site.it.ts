@@ -1,22 +1,13 @@
 import assert from 'node:assert/strict'
 import { execFile, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { ffmpeg, footageProject } from '../player/fixtures/make.ts'
 import { hashFile, scan } from '../project/revisions.ts'
 import { probe } from './ffmpeg.ts'
@@ -139,7 +130,7 @@ const fakeSite = async () => {
 }
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
-const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-site-${name}-`))
+const temp = (name: string) => tempDir(`site-${name}`)
 
 /** Runs the CLI with its own home (where tokens are kept), from `cwd`. */
 const cli = (home: string, cwd: string, ...args: string[]) =>
@@ -318,7 +309,6 @@ test('fork writes nothing when a file does not match its sha256', async () => {
   const bad = await cli(home, work, 'fork', 'film1', '--to', s.site)
   assert.equal(bad.status, 2)
   assert.match(bad.stderr, /may not: \.\.\/escape\.txt/)
-  rmSync(work, { recursive: true, force: true })
 })
 
 test("share sends a film's proxies and bake frames in its player; a player that does not build sends nothing", {

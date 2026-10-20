@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
+import { tempDir } from '../fixtures/temp.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
 const root = fileURLToPath(new URL('./fixtures/params/', import.meta.url))
@@ -18,7 +18,7 @@ test('--param and positional times read alike on every command that renders', ()
   assert.deepEqual(JSON.parse(inspect.stdout).result, { t: 0.5, grey: 200 })
   assert.equal(cli('inspect', '--time', '0.5').stdout.trim(), 't 0.5\ngrey 0')
 
-  const out = mkdtempSync(join(tmpdir(), 'shaderera-args-'))
+  const out = tempDir('args')
   const still = cli('still', '0.5', '--param', 'grey=200', '--out', out)
   assert.equal(still.status, 0, still.stderr)
   const png = decode(readFileSync(join(out, 'main-0.500.png')))

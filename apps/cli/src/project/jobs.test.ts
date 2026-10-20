@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { createJob, JobExists, listJobs, readJob } from './jobs.ts'
 
 const fixture = fileURLToPath(new URL('../cli/fixtures/mcp/', import.meta.url))
 
 /** The MCP fixture (a red box; a 0.5 s `short` variant) with one param, in a fresh folder. */
 const project = () => {
-  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-job-')), 'film')
+  const root = join(tempDir('job'), 'film')
   cpSync(fixture, root, { recursive: true })
   const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
   manifest.params = {

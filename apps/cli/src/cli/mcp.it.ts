@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -9,13 +8,14 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { tempDir } from '../fixtures/temp.ts'
 import { findProject } from '../node/project.ts'
 import { createJob } from '../project/jobs.ts'
 import { createServer } from './mcp.ts'
 
 /** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
 const copy = (dir: string) => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-fixture-'))
+  const root = tempDir('fixture')
   cpSync(fileURLToPath(new URL(dir, import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
@@ -168,7 +168,7 @@ test('MCP tools alone find the planted camera jump in fixtures/camera-debug', as
 })
 
 test('the review tool returns the report, the contact sheet and the frames as images', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mcp-review-'))
+  const root = tempDir('mcp-review')
   cpSync(fixture, root, { recursive: true, filter: (f) => !/[\\/](out|\.shaderera)$/.test(f) })
   const server = createServer(await findProject(root))
   const [a, b] = InMemoryTransport.createLinkedPair()

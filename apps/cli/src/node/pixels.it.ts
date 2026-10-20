@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { exportVideo } from '../cli/render.ts'
 import { encodePng } from '../deliver/png.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
 import { type Child, openChild } from './child.ts'
@@ -71,7 +71,7 @@ for (const [name, open] of hosts) {
       const preview = (await child.render(0, 'preview')).pixels
       assert.deepEqual(preview, pixels, 'preview and final agree on an opaque-free frame')
 
-      const dir = mkdtempSync(join(tmpdir(), 'shaderera-alpha-'))
+      const dir = tempDir('alpha')
       const png = join(dir, 'frame.png')
       writeFileSync(png, encodePng(pixels, width, height))
       assert.deepEqual(new Uint8Array(decode(png)), pixels, 'PNG round trip')
@@ -93,7 +93,7 @@ for (const [name, open] of hosts) {
     try {
       await child.render(0, 'preview')
       await assert.rejects(child.render(0, 'final'), /unfinished layer \(veil: final: false\)/)
-      const out = join(mkdtempSync(join(tmpdir(), 'shaderera-unfinished-')), 'x.mp4')
+      const out = join(tempDir('unfinished'), 'x.mp4')
       await assert.rejects(
         exportVideo(project, child, { out, revision: 'test' }),
         /unfinished layer/,

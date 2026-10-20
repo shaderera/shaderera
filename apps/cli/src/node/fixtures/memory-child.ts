@@ -1,11 +1,9 @@
 // A third Child adapter, for tests: it runs in this process, with no build, host process or
 // browser. The contract suite (node/contract.it.ts) holds it to what the Node and browser hosts
 // do; tests of logic that only needs a Child (export, finishing, check, review, delivery) use it.
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import type { Caption, Json, Layer, Manifest, Matrices, Pick, SampledClip } from '@shaderera/core'
 import { finalOnly, type GpuOutput, yuvFits } from '@shaderera/core/host'
+import { tempDir } from '../../fixtures/temp.ts'
 import type { TextRun } from '../../review/measure.ts'
 import type { Child, ClockReads, HostIdentity, Rendered } from '../child.ts'
 import type { Fonts } from '../host.ts'
@@ -109,7 +107,7 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
  * empty folder as its root, where `out/` and clip files go.
  */
 export const memoryProject = (manifest: Partial<Manifest> = {}): Project => ({
-  root: mkdtempSync(join(tmpdir(), 'shaderera-memory-')),
+  root: tempDir('memory'),
   manifest: {
     entry: './src/composition.ts',
     fps: 10,

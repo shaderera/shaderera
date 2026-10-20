@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
 import { type Child, openChild } from './child.ts'
@@ -15,7 +15,7 @@ import { findProject } from './project.ts'
  */
 // A copy beside a link to the `webgpu` (Dawn) fixtures/particles installs: the Node host loads the
 // project's own.
-const root = join(mkdtempSync(join(tmpdir(), 'shaderera-gpu-loss-')), 'film')
+const root = join(tempDir('gpu-loss'), 'film')
 cpSync(join(import.meta.dirname, 'fixtures', 'gpu-loss'), root, { recursive: true })
 mkdirSync(join(root, 'node_modules'))
 symlinkSync(
