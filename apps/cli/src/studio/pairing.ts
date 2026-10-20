@@ -36,8 +36,8 @@ export const pageUrl = (site: string, id: string, nonce?: string, web = false): 
 export const relayUrl = (site: string, id: string, role: 'cli' | 'page'): string =>
   `${site.replace(/^http/, 'ws')}/studio/relay/${id}?role=${role}`
 
-/** The relay's close codes. */
-export const CLOSE = { expired: 4001, used: 4002, taken: 4003 } as const
+/** The relay's close codes. `ended`: a resume token once the session is over. */
+export const CLOSE = { expired: 4001, used: 4002, taken: 4003, ended: 4004 } as const
 
 /** HKDF's info: names the protocol's version, so a v1 key never opens a v0 box. */
 export const INFO = 'shaderera-studio-v0'

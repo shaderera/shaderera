@@ -30,7 +30,9 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
   to the renders the page asks for.
 
-It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes.
+It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
+rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
+disconnected.
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -86,14 +88,28 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
    `paired` only while a CLI is connected that has sent `bridge`.
 
 **The relay's rules:**
-- It forwards every frame from one side to the other as it is, and stores nothing.
+- It forwards every frame from one side to the other as it is. It stores only when it first saw
+  the id, whether the id is used or ended, and the SHA-256 of each resume token.
 - When a side closes, it sends `{type:"cli-left"}` or `{type:"page-left"}` to the other side.
 - **Close codes.** It closes a socket with:
-  - `4001 expired`: a CLI for an id past its expiry;
-  - `4002 used`: a second CLI, before or after pairing;
-  - `4003 taken`: a page once the id is paired.
+  - `4001 expired`: the sockets on an id no CLI paired with in time;
+  - `4002 used`: a second CLI, before or after pairing, or one with a wrong resume token;
+  - `4003 taken`: a page once the id is paired, without its resume token;
+  - `4004 ended`: a resume token once the session is over.
 - **Before pairing, a second page replaces the first**, so reloading a waiting page works.
-- **After pairing, a reloaded page gets 4003.** The person runs `shaderera studio` again.
+- **Resume tokens.** On `paired`, the relay sends the page and the CLI each
+  `{type:"resume", token}`: 32 random bytes, hex, one for each.
+  - The page keeps its token in this tab's `sessionStorage`, with the bridge's port and secret and
+    the session key. A reload joins with `?role=page&resume=<token>` instead of pairing.
+  - The CLI keeps its token in memory. When the relay drops it (a site deploy, the network: any
+    close but 1000 and 4001–4004), it joins again with `?role=cli&resume=<token>`, after 1, 2, 4,
+    8, 16 and then every 30 s, for as long as it runs. Its keys stay, so the page goes on.
+  - A side with its token replaces that side's socket, if one is still there, and gets
+    `{type:"resumed"}`; a CLI's return sends the page `cli-joined`.
+- **The session ends** when the paired CLI closes with 1000 (Ctrl-C): the relay closes the page
+  with `4004`. A paired CLI that dropped and does not come back within 10 minutes ends it too.
+- **An id that expired or ended is forgotten**: the relay deletes what it stored, so the id then
+  starts as a new one.
 
 ## The bridge
 
