@@ -6,7 +6,8 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import type { Child } from '../node/child.ts'
-import { open } from './args.ts'
+import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
+import { createJob } from '../project/jobs.ts'
 import { probe } from './ffmpeg.ts'
 import { exportVideo, frameError } from './render.ts'
 
@@ -19,23 +20,24 @@ const copy = (dir: string) => {
   })
   return root
 }
-const stateful = copy('./fixtures/stateful/')
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
 test('render refuses a source that is not deterministic and leaves no file', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
-  const { project, child } = await open({ root: stateful })
-  const out = join(stateful, 'out', 'refused.mp4')
-  try {
-    await assert.rejects(
-      exportVideo(project, child, { out, revision: 'test' }),
-      /Not exported: the source is not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
-    )
-    assert.equal(existsSync(out), false)
-  } finally {
-    await child.close()
-  }
+  const project = memoryProject()
+  // Each frame a little brighter than the one before: a revisit gives other pixels.
+  let n = 0
+  const child = memoryChild({
+    size: { width: 64, height: 36 },
+    frame: () => new Uint8Array(64 * 36 * 4).fill(n++ % 256),
+  })
+  const out = join(project.root, 'out', 'refused.mp4')
+  await assert.rejects(
+    exportVideo(project, child, { out, revision: 'test' }),
+    /Not exported: the source is not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
+  )
+  assert.equal(existsSync(out), false)
 })
 
 test('a piped render reports progress only when asked (a parent process asks)', {
@@ -73,67 +75,64 @@ test('a variant renders at its own length', { skip: !ffmpeg && 'no ffmpeg' }, ()
 test('the output holds the previous film until the new one is complete; a failed render leaves it', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
-  const { project, child } = await open({ root: copy('./fixtures/mcp/') })
+  const project = memoryProject()
+  const child = memoryChild({ size: { width: 64, height: 36 }, frame: boxFrame(64, 36) })
   const out = join(mkdtempSync(join(tmpdir(), 'shaderera-partial-')), 'film.mp4')
   const partial = `${out}.partial`
   writeFileSync(out, 'the previous film')
-  try {
-    // Interrupted midway (Ctrl-C): the new frames went to .partial, never to the output.
-    const stop = new AbortController()
-    await assert.rejects(
-      exportVideo(project, child, {
-        out,
-        revision: 'test',
-        signal: stop.signal,
-        onFrame: (i) => {
-          if (i !== 3) return
-          assert.equal(readFileSync(out, 'utf8'), 'the previous film')
-          stop.abort(new Error('Interrupted'))
-        },
-      }),
-      /Interrupted/,
-    )
-    assert.equal(existsSync(partial), false)
-    assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+  // Interrupted midway (Ctrl-C): the new frames went to .partial, never to the output.
+  const stop = new AbortController()
+  await assert.rejects(
+    exportVideo(project, child, {
+      out,
+      revision: 'test',
+      signal: stop.signal,
+      onFrame: (i) => {
+        if (i !== 3) return
+        assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+        stop.abort(new Error('Interrupted'))
+      },
+    }),
+    /Interrupted/,
+  )
+  assert.equal(existsSync(partial), false)
+  assert.equal(readFileSync(out, 'utf8'), 'the previous film')
 
-    // A host whose device is lost at 0.5 s: the render fails with that frame and never writes it.
-    const lost: Child = {
-      ...child,
-      render: (t, ...rest) =>
-        t >= 0.5
-          ? Promise.reject(new Error('The WebGPU device was lost (Device removed)'))
-          : child.render(t, ...rest),
-    }
-    await assert.rejects(
-      exportVideo(project, lost, { out, revision: 'test' }),
-      /^Error: Frame 5 \(t 0\.5 s\) failed: The WebGPU device was lost \(Device removed\)/,
-    )
-    assert.equal(existsSync(partial), false)
-    assert.equal(readFileSync(out, 'utf8'), 'the previous film')
-
-    // Finished, but the output cannot be replaced (a folder here; on Windows, a file a player
-    // holds open): the new film is kept as .partial and the error says where it is.
-    const blocked = join(dirname(out), 'blocked.mp4')
-    mkdirSync(join(blocked, 'inside'), { recursive: true })
-    await assert.rejects(
-      exportVideo(project, child, { out: blocked, revision: 'test' }),
-      /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.partial/,
-    )
-    assert.equal(probe(`${blocked}.partial`).video?.frames, 10)
-
-    // In the project but not in out/: it would be saved into every later revision.
-    await assert.rejects(
-      exportVideo(project, child, { out: join(project.root, 'film.mp4'), revision: 'test' }),
-      /film\.mp4 is in the project but not in out\//,
-    )
-
-    // Complete: renamed over the previous film.
-    await exportVideo(project, child, { out, revision: 'test' })
-    assert.equal(existsSync(partial), false)
-    assert.equal(probe(out).video?.frames, 10)
-  } finally {
-    await child.close()
+  // A host whose device is lost at 0.5 s: the render fails with that frame and never writes it.
+  const lost: Child = {
+    ...child,
+    render: (t, ...rest) =>
+      t >= 0.5
+        ? Promise.reject(new Error('The WebGPU device was lost (Device removed)'))
+        : child.render(t, ...rest),
   }
+  await assert.rejects(
+    exportVideo(project, lost, { out, revision: 'test' }),
+    /^Error: Frame 5 \(t 0\.5 s\) failed: The WebGPU device was lost \(Device removed\)/,
+  )
+  assert.equal(existsSync(partial), false)
+  assert.equal(readFileSync(out, 'utf8'), 'the previous film')
+
+  // Finished, but the output cannot be replaced (a folder here; on Windows, a file a player
+  // holds open): the new film is kept as .partial and the error says where it is.
+  const blocked = join(dirname(out), 'blocked.mp4')
+  mkdirSync(join(blocked, 'inside'), { recursive: true })
+  await assert.rejects(
+    exportVideo(project, child, { out: blocked, revision: 'test' }),
+    /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.partial/,
+  )
+  assert.equal(probe(`${blocked}.partial`).video?.frames, 10)
+
+  // In the project but not in out/: it would be saved into every later revision.
+  await assert.rejects(
+    exportVideo(project, child, { out: join(project.root, 'film.mp4'), revision: 'test' }),
+    /film\.mp4 is in the project but not in out\//,
+  )
+
+  // Complete: renamed over the previous film.
+  await exportVideo(project, child, { out, revision: 'test' })
+  assert.equal(existsSync(partial), false)
+  assert.equal(probe(out).video?.frames, 10)
 })
 
 test('a device error names its frame and, with several hosts, fewer --workers', () => {
@@ -175,6 +174,28 @@ test('render saves the revision it renders and tags the file; render --job saves
   assert.equal(frozen.status, 0, frozen.stderr)
   assert.equal(versions().log.length, saves)
   assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
+})
+
+test('render --job of a png job writes the finishing handoff', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const root = copy('./fixtures/deliver/')
+  const job = await createJob(root, {
+    by: 'cli',
+    variant: 'square',
+    name: 'sq',
+    delivery: { format: 'png' },
+  })
+  const r = spawnSync(process.execPath, [main, 'render', '--root', root, '--job', job.name], {
+    encoding: 'utf8',
+  })
+  assert.equal(r.status, 0, r.stderr)
+  const dir = join(root, 'out', 'sq')
+  const d = JSON.parse(readFileSync(join(dir, 'delivery.json'), 'utf8'))
+  assert.equal(d.frameCount, 5)
+  assert.equal(d.versions.host.host, 'node')
+  assert.ok(existsSync(join(dir, 'audio.wav')))
 })
 
 // The mix's rules are tested in mix.test.ts; this proves render reaches them.

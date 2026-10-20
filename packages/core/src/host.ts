@@ -24,7 +24,7 @@ export {
   seekable,
 } from './sequential.ts'
 export { formatShaderError, type Locate, type ShaderWatch, watchShaders } from './shaders.ts'
-export { finalOnly } from './stack.ts'
+export { finalOnly, layerInfo } from './stack.ts'
 export {
   dropFrame,
   fpsFraction,

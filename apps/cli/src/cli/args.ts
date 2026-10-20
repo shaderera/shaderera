@@ -1,10 +1,10 @@
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util'
 import type { Json } from '@shaderera/core'
 import { withVariant } from '@shaderera/core/host'
-import { openBrowserChild } from '../node/browser.ts'
 import { buildForNode } from '../node/build.ts'
-import { type Child, openChild } from '../node/child.ts'
+import type { Child } from '../node/child.ts'
 import { hostOf } from '../node/host-of.ts'
+import { hostOpener } from '../node/open-host.ts'
 import { findProject, type Project } from '../node/project.ts'
 import { checkBakes } from '../project/bakes.ts'
 import { effectiveParams } from '../project/jobs.ts'
@@ -120,32 +120,21 @@ export const open = async (
     (Array.isArray(flags.param) ? (flags.param as string[]) : []).map(parseParam),
   )
   const params = effectiveParams(manifest, variantParams, given)
-  const project = { ...found, manifest: size ? { ...manifest, ...size } : manifest }
   const bakes = checkBakes(found.root, found.manifest)
-  if (hostOf(manifest, flags.host) === 'browser') {
-    const more = () =>
-      openBrowserChild(found, {
-        params,
-        ...(name ? { variant: name } : {}),
-        ...(size ? { size } : {}),
-        timeoutMs: childOptions(flags).timeoutMs,
-        bakes,
-      })
-    return { project, child: await more(), more }
-  }
-  const entryFile = await buildForNode(project)
-  // Another host on the same build: a parallel export opens several.
-  const more = () =>
-    openChild(project, {
-      entryFile,
-      params,
-      bakes,
-      ...childOptions(flags),
-    })
+  const variant = { ...found, manifest }
+  const more = await hostOpener(hostOf(manifest, flags.host), variant, {
+    params,
+    ...(name ? { variant: name } : {}),
+    ...(size ? { size } : {}),
+    bakes,
+    ...childOptions(flags),
+    build: async () => ({ project: variant, entryFile: await buildForNode(variant) }),
+  })
+  const project = { ...found, manifest: size ? { ...manifest, ...size } : manifest }
   return { project, child: await more(), more }
 }
 
-/** `--trusted` and `--timeout <s>` as openChild's options. */
+/** `--trusted` and `--timeout <s>` as the host's options. */
 export const childOptions = (flags: { trusted?: unknown; timeout?: unknown }) => ({
   trusted: flags.trusted === true,
   timeoutMs: typeof flags.timeout === 'string' ? Number(flags.timeout) * 1000 : undefined,

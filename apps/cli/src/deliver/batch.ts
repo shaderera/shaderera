@@ -2,6 +2,8 @@ import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import type { Loudness, Probe } from '../cli/ffmpeg.ts'
 import { exportVideo, extensionOf } from '../cli/render.ts'
+import type { Child } from '../node/child.ts'
+import type { Project } from '../node/project.ts'
 import {
   createJob,
   type Delivery,
@@ -146,8 +148,12 @@ export const deliverBatch = async (
     trusted?: boolean
     timeoutMs?: number
     onOutput?: (i: number, n: number, job: Job) => void
+    /** Opens a job's host: openJob by default; tests give an in-memory Child. */
+    open?: (job: Job) => Promise<{ project: Project; child: Child }>
   },
 ): Promise<{ dir: string; index: BatchIndex }> => {
+  const openOne =
+    o.open ?? ((job: Job) => openJob(root, job, { trusted: o.trusted, timeoutMs: o.timeoutMs }))
   const dir = join(root, 'out', 'deliveries', o.batch)
   mkdirSync(dir, { recursive: true })
   const base = readRequirements(root)
@@ -179,9 +185,9 @@ export const deliverBatch = async (
       }),
       format: { width, height, fps, duration: to - from },
     }
-    let opened: Awaited<ReturnType<typeof openJob>> | undefined
+    let opened: { project: Project; child: Child } | undefined
     try {
-      opened = await openJob(root, job, { trusted: o.trusted, timeoutMs: o.timeoutMs })
+      opened = await openOne(job)
       const { project, child } = opened
       // A textless variant: no copy is asked of it (outputRequirements).
       if (project.manifest.textless) requirements.copy = []

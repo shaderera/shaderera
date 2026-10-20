@@ -13,10 +13,10 @@ import { basename, join } from 'node:path'
 import { frameTimes, type Json, type Manifest } from '@shaderera/core'
 import { checkManifest, paramDefaults, withVariant } from '@shaderera/core/host'
 import { shadereraVersion } from '../deliver/environment.ts'
-import { openBrowserChild } from '../node/browser.ts'
 import { buildNode } from '../node/build.ts'
-import { type Child, openChild } from '../node/child.ts'
+import type { Child } from '../node/child.ts'
 import { type HostName, hostOf } from '../node/host-of.ts'
+import { hostOpener } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { checkJobBakes, type JobBakes, pinBakes } from './bakes.ts'
 import { installedPackages, type Packages, packageChanges } from './dependencies.ts'
@@ -390,34 +390,29 @@ export const verifyJob = async (root: string, job: Job) => {
 }
 
 /**
- * Opens a built revision in a host: Node opens the frozen copy's build; the browser host serves
- * the live project's runner and opens the revision's frozen entry and DOM from there.
+ * An opener for a built revision in a host (hostOpener): Node opens the frozen copy's build; the
+ * browser host serves the live project's runner and opens the revision's frozen entry and DOM from
+ * there. Both get the job's params and seed.
  */
-const openFrozen = (
+const frozenOpener = (
   root: string,
   built: Awaited<ReturnType<typeof verifyJob>>,
-  host: HostName,
-  r: { revision: string; variant?: string; params: { [key: string]: Json }; seed: number },
+  job: Job,
   o: { trusted?: boolean; timeoutMs?: number },
-): Promise<Child> =>
-  host === 'browser'
-    ? openBrowserChild(
-        { root, manifest: built.project.manifest },
-        {
-          revision: r.revision,
-          params: r.params,
-          ...(r.variant ? { variant: r.variant } : {}),
-          ...(o.timeoutMs ? { timeoutMs: o.timeoutMs } : {}),
-          bakes: built.bakes,
-        },
-      )
-    : openChild(built.project, {
-        entryFile: built.entryFile,
-        params: r.params,
-        seed: r.seed,
-        bakes: built.bakes,
-        ...o,
-      })
+): Promise<() => Promise<Child>> =>
+  hostOpener(
+    job.host,
+    { root, manifest: built.project.manifest },
+    {
+      revision: job.revision,
+      ...(job.variant ? { variant: job.variant } : {}),
+      params: job.params,
+      seed: job.seed,
+      bakes: built.bakes,
+      ...o,
+      build: async () => built,
+    },
+  )
 
 /**
  * Opens a job in its host: checks it (verifyJob), then opens the revision's frozen copy with the
@@ -434,7 +429,8 @@ export const openJob = async (
   o: { trusted?: boolean; timeoutMs?: number } = {},
 ): Promise<{ project: Project; child: Child; more: () => Promise<Child> }> => {
   const built = await verifyJob(root, job)
-  const child = await openFrozen(root, built, job.host, job, o)
+  const more = await frozenOpener(root, built, job, o)
+  const child = await more()
   try {
     const now = await child.identity()
     const file = pinFile(root, job.name)
@@ -457,7 +453,7 @@ export const openJob = async (
     throw error
   }
   // Another host on the same frozen build, for a parallel export.
-  return { project: built.project, child, more: () => openFrozen(root, built, job.host, job, o) }
+  return { project: built.project, child, more }
 }
 
 /** What a delivery asks of a video export (exportVideo's VideoOptions). */

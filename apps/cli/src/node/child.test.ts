@@ -60,10 +60,7 @@ test('the child renders deterministically and cannot write or spawn', async () =
   try {
     const a = await child.render(0.5, 'final')
     assert.equal(a.pixels.length, 64 * 36 * 4)
-    assert.deepEqual(
-      a.layers,
-      [{ name: 'back' }, { name: 'square' }].map((l) => ({ ...l, final: undefined })),
-    )
+    assert.deepEqual(a.layers, [{ name: 'back' }, { name: 'square' }])
     assert.equal(await sha256(a.pixels), await sha256((await child.render(0.5, 'final')).pixels))
     assert.deepEqual(await child.inspect(0), {
       back: { red: 0, source: 'src/composition.ts:10:7' },
