@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   cpSync,
@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs'
 import { createServer } from 'node:http'
@@ -17,8 +18,10 @@ import { join } from 'node:path'
 import { after, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { ffmpeg, footageProject } from '../player/fixtures/make.ts'
-import { scan } from '../project/revisions.ts'
+import { hashFile, scan } from '../project/revisions.ts'
+import { probe } from './ffmpeg.ts'
 import { parseTarget } from './fork.ts'
+import { LOOP, mediaDir, POSTER } from './media.ts'
 import { playerDir, playerFiles } from './share.ts'
 import { siteOf } from './site.ts'
 
@@ -37,6 +40,8 @@ const fakeSite = async () => {
     files: Record<string, string>
     player: Record<string, string>
     shaderera: string
+    poster?: string
+    loop?: string
   }
   const films = new Map<
     string,
@@ -44,8 +49,8 @@ const fakeSite = async () => {
   >()
   const requests: { method: string; path: string; auth: string | undefined }[] = []
   const corrupt = new Set<string>()
-  /** Like the app's API: a version needs a built player. */
-  const options = { needsPlayer: false }
+  /** Like the app's API: a version needs a built player; its response has the film's `page`. */
+  const options = { needsPlayer: false, page: true }
   const json = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -101,9 +106,11 @@ const fakeSite = async () => {
       const b = JSON.parse(body.toString()) as Omit<Version, 'id'>
       if (options.needsPlayer && Object.keys(b.player).length === 0)
         return json(res, 400, { error: 'A version needs its built player.' })
-      const absent = [...Object.values(b.files), ...Object.values(b.player)].filter(
-        (s) => !objects.has(s),
-      )
+      const absent = [
+        ...Object.values(b.files),
+        ...Object.values(b.player),
+        ...[b.poster, b.loop].filter((x) => x !== undefined),
+      ].filter((s) => !objects.has(s))
       if (absent.length > 0) return json(res, 409, { error: 'Upload first.', missing: absent })
       const id = sha256(
         Object.keys(b.files)
@@ -112,7 +119,12 @@ const fakeSite = async () => {
           .join('\n'),
       )
       film.versions.push({ id, ...b })
-      return json(res, 201, { version: id, url: `${site}/f/${film.id}` })
+      // As the films API answers: `url` is the version's runner, `page` the canvas with the film.
+      return json(res, 201, {
+        version: id,
+        url: `${site}/v/${id}/runner.html`,
+        ...(options.page ? { page: `${site}/film/${film.id}` } : {}),
+      })
     }
     if (revision) {
       for (const f of films.values())
@@ -217,8 +229,12 @@ test('share sends what a revision holds less secrets, only with --yes off a term
   delete expected['sub/.npmrc']
   assert.deepEqual(sent?.files, expected, "a revision's files, less secrets")
   assert.ok(Object.keys(expected).includes('shaderera.json'))
-  // Every object once: the source's, and the player's (whose files/ are the same objects).
-  const objects = new Set([...Object.values(expected), ...Object.values(sent?.player ?? {})])
+  // Every object once: the source's, the player's (whose files/ are the same objects), the media.
+  const objects = new Set([
+    ...Object.values(expected),
+    ...Object.values(sent?.player ?? {}),
+    ...[sent?.poster, sent?.loop].filter((x) => x !== undefined),
+  ])
   assert.equal(result.uploaded, objects.size)
   for (const q of s.requests)
     assert.equal(q.auth, `Bearer ${s.TOKEN}`, `${q.method} ${q.path} carries the token`)
@@ -365,4 +381,98 @@ test("share sends a film's proxies and bake frames in its player; a player that 
     /The player did not build: Bake level: level\.1\.bin changed since it was made\. Run shaderera bake level\. Nothing was sent\./,
   )
   assert.equal(s.requests.length, before, 'nothing was sent')
+})
+
+test('share renders a poster and a loop, uploads them, sends their shas, and prints the film page', {
+  skip: !ffmpeg && 'needs ffmpeg',
+}, async () => {
+  const s = await fakeSite()
+  const home = temp('home')
+  const root = project()
+  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
+  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--json')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  const { result } = JSON.parse(r.stdout)
+  const version = s.films.get('film1')?.versions[0]
+  assert.ok(version)
+  const poster = join(mediaDir(root), 'poster.webp')
+  const loop = join(mediaDir(root), 'loop.mp4')
+  assert.equal(version.poster, hashFile(poster))
+  assert.equal(version.loop, hashFile(loop))
+  assert.deepEqual(s.objects.get(version.poster), readFileSync(poster), 'the poster, uploaded')
+  assert.deepEqual(s.objects.get(version.loop), readFileSync(loop), 'the loop, uploaded')
+  assert.deepEqual(result.warnings, [])
+  assert.equal(result.poster, statSync(poster).size)
+  assert.equal(result.loop, statSync(loop).size)
+  assert.equal(result.url, `${s.site}/film/film1`, "the response's page, not the runner")
+
+  // The poster: a webp no wider than the film (64) nor 1280, under 500 KB.
+  const image = spawnSync('ffprobe', [
+    ...['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width'],
+    ...['-of', 'csv=p=0', poster],
+  ])
+  assert.equal(image.stdout.toString().trim(), 'webp,64')
+  assert.ok(result.poster <= POSTER.bytes)
+  // The loop: the 1 s film, silent H.264 at 480 wide, under 4 MB.
+  const p = probe(loop)
+  assert.equal(p.video?.codec, 'h264')
+  assert.equal(p.video?.width, LOOP.width)
+  assert.equal(p.audio, undefined)
+  assert.ok(Math.abs(p.duration - 1) < 0.05, `${p.duration} s`)
+  assert.ok(result.loop <= LOOP.bytes)
+
+  // The plain lines: the page, never the runner.
+  const again = await cli(home, root, 'share', '--to', s.site, '--yes')
+  assert.equal(again.status, 0, again.stderr)
+  assert.match(again.stdout, /\n {2}with a poster of \d+ B and a loop of \d+ KB\n/)
+  assert.ok(again.stdout.endsWith(`\n  ${s.site}/film/film1\n`), again.stdout)
+  assert.doesNotMatch(again.stdout, /runner/)
+})
+
+test('a poster or loop that does not render is left out with a warning, and the film is shared', {
+  skip: !ffmpeg && 'needs ffmpeg',
+}, async () => {
+  const s = await fakeSite()
+  const home = temp('home')
+  const root = project()
+  // The loop starts at 0; the poster is at 0.5 s.
+  const source = join(root, 'src', 'composition.ts')
+  writeFileSync(
+    source,
+    readFileSync(source, 'utf8').replace(
+      'render: async (t) => {',
+      "render: async (t) => {\n      if (t === 0) throw new Error('the render broke at 0')",
+    ),
+  )
+  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
+  const r = await cli(home, root, 'share', '--to', s.site, '--yes')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  assert.match(r.stderr, /! no loop: .*the render broke at 0/)
+  assert.doesNotMatch(r.stderr, /no poster/)
+  assert.match(r.stdout, /\n {2}with a poster of \d+ B\n/)
+  assert.ok(r.stdout.endsWith(`\n  ${s.site}/film/film1\n`), r.stdout)
+  const version = s.films.get('film1')?.versions[0]
+  assert.equal(version?.poster, hashFile(join(mediaDir(root), 'poster.webp')))
+  assert.equal(version?.loop, undefined)
+  assert.ok(!existsSync(join(mediaDir(root), 'loop.mp4')))
+})
+
+test('share --no-media renders and sends neither; without a page in the response the url is <site>/f/<film>', async () => {
+  const s = await fakeSite()
+  s.options.page = false
+  const home = temp('home')
+  const root = project()
+  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
+  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media', '--json')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  const { result } = JSON.parse(r.stdout)
+  assert.equal(result.url, `${s.site}/f/film1`)
+  assert.equal(result.poster, null)
+  assert.equal(result.loop, null)
+  assert.deepEqual(result.warnings, [])
+  const version = s.films.get('film1')?.versions[0]
+  assert.ok(version)
+  assert.ok(!('poster' in version) && !('loop' in version), 'no poster or loop sent')
+  assert.ok(!existsSync(mediaDir(root)), 'nothing rendered')
+  assert.equal(r.stderr, '')
 })
