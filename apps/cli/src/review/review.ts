@@ -3,10 +3,11 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
-import type { Json } from '@shaderera/core'
+import type { Json, SampledClip } from '@shaderera/core'
 import { frameCount } from '@shaderera/core/host'
 import { checkChild } from '../cli/check.ts'
-import { clipFiles, type Loudness, mixLoudness } from '../cli/ffmpeg.ts'
+import type { Loudness } from '../cli/ffmpeg.ts'
+import { mixWav } from '../cli/mix.ts'
 import type { Child } from '../node/child.ts'
 import type { Project } from '../node/project.ts'
 import type { Requirements } from '../project/requirements.ts'
@@ -61,7 +62,7 @@ export type ReviewReport = {
     contrast: { id: string; t: number; ratio: number | null }[]
     motion: { samples: number; staticPercent: number | null }
     alpha: { nonOpaque: number }
-    /** The clips, how much of the film they cover, and their mix's loudness (EBU R128). */
+    /** The clips heard (a src without sound is not), how much of the film they cover, and their mix's loudness (EBU R128). */
     audio: { clips: number; coverage: number; loudness: Loudness | null } | null
   }
   elapsedMs: number
@@ -685,10 +686,21 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     }
   }
   const moved = samples.filter((s) => s.diff !== null)
-  const clips = await child.audio()
+  const listed = await child.audio()
   let audio: ReviewReport['diagnostics']['audio'] = null
-  if (clips) {
-    const spans = clips
+  if (listed) {
+    // Measured, never judged: a loudness target is the placement's, declared where it applies.
+    // Coverage and loudness are of the clips heard: a src without sound is silence.
+    let heard: readonly SampledClip[] = listed
+    let loudness: Loudness | null = null
+    try {
+      const mixed = mixWav(o.project.root, listed, { from: 0, to: duration })
+      heard = mixed.clips
+      loudness = mixed.loudness
+    } catch {
+      // No ffmpeg, or a clip it cannot read: the audio check of render and deliver says so.
+    }
+    const spans = heard
       .map((c) => [c.at, c.to !== undefined ? c.at + c.to - (c.from ?? 0) : duration] as const)
       .sort((a, b) => a[0] - b[0])
     let covered = 0
@@ -699,19 +711,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
       if (e > s) covered += e - s
       end = Math.max(end, b)
     }
-    // Measured, never judged: a loudness target is the placement's, declared where it applies.
-    let loudness: Loudness | null = null
-    let cleanup = () => {}
-    try {
-      const files = clipFiles(o.project.root, clips)
-      cleanup = files.cleanup
-      loudness = mixLoudness(files.clips, 0, duration)
-    } catch {
-      // No ffmpeg, or a clip it cannot read: the audio check of render and deliver says so.
-    } finally {
-      cleanup()
-    }
-    audio = { clips: clips.length, coverage: round(covered / duration, 3), loudness }
+    audio = { clips: heard.length, coverage: round(covered / duration, 3), loudness }
   }
 
   return {

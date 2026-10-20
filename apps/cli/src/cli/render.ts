@@ -19,7 +19,6 @@ import {
   bitsPerSecond,
   CODECS,
   type Codec,
-  clipFiles,
   containerOf,
   type Encoder,
   ffmpegArgs,
@@ -27,7 +26,6 @@ import {
   hasNvenc,
   type Input,
   type Loudness,
-  loudnessGain,
   loudnessLine,
   measureLoudness,
   type Probe,
@@ -36,10 +34,9 @@ import {
   type Quality,
   requireFfmpeg,
   requireFrames,
-  withGainFiles,
-  writeStems,
 } from './ffmpeg.ts'
 import { found } from './findings.ts'
+import { openMix } from './mix.ts'
 import { blackFrame, fileTimecode, prerollOf, writePreroll } from './preroll.ts'
 
 /**
@@ -106,7 +103,7 @@ export const exportVideo = async (
     encoder?: Encoder
     /** `false`: no audio stream, whatever the source's clips (a silent DOOH placement, say). */
     audio?: boolean
-    /** A loudness to bring the mix to, in LUFS integrated, by one constant gain (loudnessGain). */
+    /** A loudness to bring the mix to, in LUFS integrated, by one constant gain (openMix). */
     loudness?: number
     /**
      * Frames rendered already (a plan's chunks), in order and in this input format: encoded as
@@ -169,23 +166,19 @@ export const exportVideo = async (
     )
   mkdirSync(dirname(out), { recursive: true })
   const partial = `${out}.partial`
-  // Project files as they are; sound made in code as temporary WAVs.
-  const files = clipFiles(root, o.audio === false ? [] : ((await child.audio()) ?? []))
+  const clips = o.audio === false ? [] : ((await child.audio()) ?? [])
+  // The mix's temporary files go in the finally (or with its own throw).
+  const mix = openMix(root, clips, { from: head, to }, { loudness: o.loudness })
   const workers = manifest.sequential || !o.more ? 1 : Math.max(1, Math.floor(o.workers ?? 1))
   const start = performance.now()
   const base = out.replace(/\.[^./\\]+$/, '')
   const sidecars: string[] = []
   // Everything that can throw is inside the try, so the hosts opened here are always closed.
   let opened: Child[] = []
-  let cleanup = () => {}
   // The finished film when only its rename failed; stems this render began to write.
   let finished = false
   let stemsWritten = false
   try {
-    const gains = withGainFiles(files.clips, head, to)
-    cleanup = gains.cleanup
-    const { clips } = gains
-    const level = o.loudness === undefined ? null : loudnessGain(clips, head, to, o.loudness)
     const extra = await Promise.allSettled(
       Array.from({ length: workers - 1 }, () => (o.more as () => Promise<Child>)()),
     )
@@ -214,14 +207,14 @@ export const exportVideo = async (
       container: containerOf(out, codec),
       quality: o.quality,
       crf: o.crf,
-      clips,
+      // AAC's priming (1024 samples), cut from the mix when the mp4 has no edit list to skip it.
+      audio: mix.encode(!prores && o.editList === false),
       input,
       codec,
       ...(prores ? {} : { encoder: encoder as Encoder }),
       ...(o.bitrate ? { bitrate: o.bitrate } : {}),
       ...(o.maxrate ? { maxrate: o.maxrate } : {}),
       ...(o.editList === false ? { editList: false } : {}),
-      ...(level ? { gainDb: level.gainDb } : {}),
       revision: o.revision,
     })
     let next = 0
@@ -256,7 +249,7 @@ export const exportVideo = async (
         })
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
-    const loudness = clips.length > 0 ? measureLoudness(partial) : null
+    const loudness = mix.clips.length > 0 ? measureLoudness(partial) : null
     try {
       renameSync(partial, out)
     } catch (error) {
@@ -267,10 +260,8 @@ export const exportVideo = async (
         `The film is finished, but ${out} could not be replaced (${(error as NodeJS.ErrnoException).code}): is it open in another program? The new film is ${partial}; close ${out} and rename it.`,
       )
     }
-    stemsWritten = o.stems === true && clips.length > 0
-    const stems = stemsWritten
-      ? writeStems({ clips, from: head, to, dir: `${base}.stems`, gainDb: level?.gainDb })
-      : undefined
+    stemsWritten = o.stems === true && mix.clips.length > 0
+    const stems = stemsWritten ? mix.stems(`${base}.stems`) : undefined
     const clock = await clockOf(hosts)
     const captions = await child.captions()
     if (captions) {
@@ -287,7 +278,7 @@ export const exportVideo = async (
       encoder,
       bits: input === 'rgba64' ? 16 : 8,
       loudness,
-      ...(level ? { gainDb: level.gainDb } : {}),
+      ...(mix.level ? { gainDb: mix.level.gainDb } : {}),
       probe: probed,
       clock,
       ...(stems ? { stems } : {}),
@@ -301,8 +292,7 @@ export const exportVideo = async (
     throw error
   } finally {
     await Promise.all(opened.map((h) => h.close()))
-    cleanup()
-    files.cleanup()
+    mix.close()
   }
 }
 

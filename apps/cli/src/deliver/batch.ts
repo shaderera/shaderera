@@ -141,7 +141,7 @@ export const deliverBatch = async (
     batch: string
     /** `false`: no audio in any output (a silent DOOH placement, say). */
     audio?: boolean
-    /** A loudness to bring every output's mix to, in LUFS integrated (loudnessGain). */
+    /** A loudness to bring every output's mix to, in LUFS integrated (openMix). */
     loudness?: number
     trusted?: boolean
     timeoutMs?: number

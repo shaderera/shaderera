@@ -1,57 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process'
-import {
-  closeSync,
-  fstatSync,
-  mkdirSync,
-  mkdtempSync,
-  openSync,
-  readSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
-import { extname, join, resolve } from 'node:path'
-import type { Pcm, SampledClip, Sink } from '@shaderera/core'
-import { fpsFraction, gainAt, matte } from '@shaderera/core/host'
-
-/**
- * An audio clip with its file as an absolute path, and for a gain that changes over time the
- * envelope of the export window (`gainFile`: 48 kHz mono 32-bit float, from `withGainFiles`).
- */
-export type Clip = SampledClip & { readonly file: string; readonly gainFile?: string }
-
-const RATE = 48000
-
-/**
- * Writes the envelope of each clip whose gain changes over time, for the window [from, to] at
- * 48 kHz (interpolated between the host's samples), so ffmpeg multiplies it in sample by sample.
- * `cleanup` removes the files.
- */
-export const withGainFiles = (
-  clips: readonly Clip[],
-  from: number,
-  to: number,
-): { clips: Clip[]; cleanup: () => void } => {
-  if (!clips.some((c) => typeof c.gain === 'object'))
-    return { clips: [...clips], cleanup: () => {} }
-  const dir = mkdtempSync(join(tmpdir(), 'shaderera-gain-'))
-  const out = clips.map((c, i) => {
-    if (typeof c.gain !== 'object') return c
-    const n = Math.max(1, Math.ceil((to - from) * RATE))
-    const env = new Float32Array(n)
-    for (let k = 0; k < n; k++) env[k] = gainAt(c.gain, from + k / RATE)
-    const gainFile = join(dir, `${i}.f32`)
-    writeFileSync(gainFile, new Uint8Array(env.buffer))
-    return { ...c, gainFile }
-  })
-  return { clips: out, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
-}
-
-/** ffmpeg inputs for the clips' envelopes, after the clips' own (audioMix numbers them so). */
-const gainInputs = (clips: readonly Clip[]): string[] =>
-  clips.flatMap((c) =>
-    c.gainFile ? ['-f', 'f32le', '-ar', String(RATE), '-ac', '1', '-i', c.gainFile] : [],
-  )
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
+import { extname } from 'node:path'
+import type { Sink } from '@shaderera/core'
+import { fpsFraction, matte } from '@shaderera/core/host'
 
 export type Quality = 'review' | 'master'
 
@@ -120,47 +71,6 @@ export const SDR_BT709 = [
 
 const s = (n: number) => String(Number(n.toFixed(6)))
 
-/**
- * The clips as one filter graph ending in `[aout]`: each trimmed to the export window (starting at
- * `from`), delayed to its place, given its gain and mixed without amix's default scaling. Clip i is
- * input `first + i`; the envelopes of clips whose gain changes over time follow the clips, in order.
- */
-export const audioMix = (clips: readonly Clip[], from: number, first: number): string => {
-  let envelope = first + clips.length
-  const chains = clips.map((c, i) => {
-    const start = (c.from ?? 0) + Math.max(0, from - c.at)
-    const end = c.to === undefined ? '' : `:end=${s(c.to)}`
-    const delay = Math.round(Math.max(0, c.at - from) * 1000)
-    const placed = `[${i + first}:a]atrim=start=${s(start)}${end},asetpts=PTS-STARTPTS,adelay=${delay}:all=1`
-    if (!c.gainFile) return `${placed},volume=${typeof c.gain === 'number' ? c.gain : 1}[a${i}]`
-    // Both on the window's timeline from 0, multiplied sample by sample.
-    const stereo = `aformat=sample_fmts=flt:sample_rates=${RATE}:channel_layouts=stereo`
-    return [
-      `${placed},aresample=${RATE},${stereo}[c${i}]`,
-      `[${envelope++}:a]pan=stereo|c0=c0|c1=c0,${stereo}[e${i}]`,
-      `[c${i}][e${i}]amultiply[a${i}]`,
-    ].join(';')
-  })
-  const inputs = clips.map((_, i) => `[a${i}]`).join('')
-  return [
-    ...chains,
-    `${inputs}amix=inputs=${clips.length}:normalize=0:duration=longest[aout]`,
-  ].join(';')
-}
-
-/**
- * The end of the mix: an optional constant gain in dB (a requested loudness), an optional cut of
- * `trim` samples at 48 kHz from the start (an mp4 without an edit list), then padding, in frames of
- * 1024 samples so PCM packets do not follow the timing of the pipe (the same mix, the same file).
- */
-const tail = (gainDb?: number, trim = 0) =>
-  `;[mix]${gainDb === undefined ? '' : `volume=${s(gainDb)}dB,`}${
-    trim > 0 ? `aresample=${RATE},atrim=start_sample=${trim},asetpts=PTS-STARTPTS,` : ''
-  }apad,asetnsamples=n=1024:p=0[aout]`
-
-/** The samples ffmpeg's AAC encoder primes with, which an mp4's edit list skips: 21.3 ms. */
-export const PRIMING = 1024
-
 /** `h264` in an mp4; ProRes 422 HQ, or ProRes 4444 with its alpha, in a mov. */
 export type Codec = 'h264' | 'prores-hq' | 'prores-4444'
 export const CODECS: readonly Codec[] = ['h264', 'prores-hq', 'prores-4444']
@@ -207,64 +117,10 @@ export const measureLoudness = (file: string): Loudness | null => {
 export const loudnessLine = (l: Loudness) =>
   `${l.integrated.toFixed(1)} LUFS, true peak ${l.truePeak.toFixed(1)} dBTP, range ${l.range.toFixed(1)} LU`
 
-/** The loudness of the clips' mix over [from, to], from a temporary WAV; null without clips. */
-export const mixLoudness = (clips: readonly Clip[], from: number, to: number): Loudness | null => {
-  if (clips.length === 0) return null
-  const dir = mkdtempSync(join(tmpdir(), 'shaderera-loudness-'))
-  const gains = withGainFiles(clips, from, to)
-  try {
-    const out = join(dir, 'mix.wav')
-    const r = spawnSync('ffmpeg', wavArgs({ from, to, out, clips: gains.clips }), {
-      encoding: 'utf8',
-    })
-    if (r.status !== 0) throw new Error(`ffmpeg (audio) failed: ${r.stderr}`)
-    return measureLoudness(out)
-  } finally {
-    gains.cleanup()
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
-
 /**
- * The constant gain, in dB, that brings the mix to `target` LUFS integrated: linear, with no
- * compression or limiting, so the mix keeps its shape (decision 0011). The true peak moves by the
- * same dB and is reported, never limited. Null for a mix too quiet to measure (-70 LUFS or below).
- */
-export const loudnessGain = (
-  clips: readonly Clip[],
-  from: number,
-  to: number,
-  target: number,
-): { gainDb: number; before: Loudness } | null => {
-  const before = mixLoudness(clips, from, to)
-  if (!before || before.integrated <= -70) return null
-  return { gainDb: target - before.integrated, before }
-}
-
-/**
- * The finishing handoff's audio: the same mix as the mp4's, as 48 kHz 24-bit stereo PCM WAV,
- * padded or cut to exactly the window's length. `gainDb`: a constant gain after the mix.
- */
-export const wavArgs = (o: {
-  from: number
-  to: number
-  out: string
-  clips: readonly Clip[]
-  gainDb?: number
-}) => {
-  const args = ['-y', '-loglevel', 'error']
-  for (const c of o.clips) args.push('-i', c.file)
-  args.push(...gainInputs(o.clips))
-  const graph = `${audioMix(o.clips, o.from, 0).replace('[aout]', '[mix]')}${tail(o.gainDb)}`
-  args.push('-filter_complex', graph, '-map', '[aout]')
-  args.push('-ar', '48000', '-ac', '2', '-c:a', 'pcm_s24le', '-t', s(o.to - o.from), o.out)
-  return args
-}
-
-/**
- * ffmpeg's arguments: raw RGBA frames on stdin, each clip trimmed to the export window, delayed
- * to its place and mixed without amix's default scaling. The frames reach ffmpeg matted over
- * black (ffmpegSink), so their alpha is 255.
+ * ffmpeg's arguments: raw RGBA frames on stdin as input 0, and the mix's inputs and graph
+ * (Mix.encode) when the file has sound. The frames reach ffmpeg matted over black (ffmpegSink), so
+ * their alpha is 255.
  */
 export const ffmpegArgs = (o: {
   width: number
@@ -277,7 +133,8 @@ export const ffmpegArgs = (o: {
   quality?: Quality
   /** Overrides the quality's crf. */
   crf?: number
-  clips: readonly Clip[]
+  /** The mix's part of the encode (Mix.encode), or none for a file without sound. */
+  audio?: { readonly inputs: readonly string[]; readonly graph: string } | null
   /**
    * What the frames are: straight RGBA (8 or 16 bits a channel; matted by ffmpegSink for a codec
    * without alpha, converted by swscale), or yuv420p the host already matted and converted on the
@@ -286,8 +143,6 @@ export const ffmpegArgs = (o: {
   input?: Input
   /** libx264 (the default), or the GPU's H.264 encoder (exportVideo picks it for review). */
   encoder?: Encoder
-  /** A constant gain after the mix, in dB (a requested loudness: loudnessGain). */
-  gainDb?: number
   /** `h264` (the default, mp4), or ProRes in a mov with 48 kHz 24-bit PCM. */
   codec?: Codec
   /** H.264 only: a constant bitrate (floor and ceiling at once), such as `15M`. */
@@ -295,9 +150,9 @@ export const ffmpegArgs = (o: {
   /** H.264 only: a ceiling on the crf's bitrate, such as `10M`. */
   maxrate?: string
   /**
-   * `false`: an mp4 with no edit list, its audio trimmed by the AAC encoder's priming so that it
-   * still starts with the picture (the first 21.3 ms of the mix are dropped). Measured: an mp4
-   * without an edit list and without the trim plays its sound 21.4 ms late.
+   * `false`: an mp4 with no edit list. Its audio must come trimmed by the AAC encoder's priming
+   * (`Mix.encode(true)`) so that it still starts with the picture. Measured: an mp4 without an
+   * edit list and without the trim plays its sound 21.4 ms late.
    */
   editList?: boolean
   /** The timecode of the file's first frame, written as the container's timecode. */
@@ -317,20 +172,9 @@ export const ffmpegArgs = (o: {
   const pixFmt = { rgba: 'rgba', rgba64: 'rgba64le', yuv420p: 'yuv420p' }[o.input ?? 'rgba']
   const args = ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', pixFmt]
   args.push('-s', `${o.width}x${o.height}`, '-r', fpsFraction(o.fps), '-i', '-')
-  for (const c of o.clips) args.push('-i', c.file)
-  args.push(...gainInputs(o.clips))
-  // AAC's priming (1024 samples), cut from the mix when the mp4 has no edit list to skip it.
-  const trim = !prores && o.editList === false ? PRIMING : 0
   // The sound runs the clip's whole length (silence after the last sound), as the WAV does.
-  if (o.clips.length > 0)
-    args.push(
-      '-filter_complex',
-      `${audioMix(o.clips, o.from, 1).replace('[aout]', '[mix]')}${tail(o.gainDb, trim)}`,
-      '-map',
-      '0:v',
-      '-map',
-      '[aout]',
-    )
+  if (o.audio)
+    args.push(...o.audio.inputs, '-filter_complex', o.audio.graph, '-map', '0:v', '-map', '[aout]')
   if (prores) {
     const alpha = codec === 'prores-4444'
     const format = alpha ? 'yuva444p10le' : 'yuv422p10le'
@@ -344,7 +188,7 @@ export const ffmpegArgs = (o: {
       alpha ? '4' : '3',
       ...(alpha ? ['-alpha_bits', '16'] : []),
     )
-    if (o.clips.length > 0) args.push('-c:a', 'pcm_s24le', '-ar', '48000', '-ac', '2')
+    if (o.audio) args.push('-c:a', 'pcm_s24le', '-ar', '48000', '-ac', '2')
     if (o.timecode) args.push('-timecode', o.timecode)
     if (o.revision) args.push(...revisionTag(o.revision), '-movflags', '+use_metadata_tags')
     // The mov muxer stamps the time of writing: bitexact leaves it out, so the same frames give
@@ -392,7 +236,7 @@ export const ffmpegArgs = (o: {
   )
   if (o.editList === false) args.push('-use_editlist', '0')
   // 48 kHz stereo, as YouTube asks and the WAV handoff is (an mp4 otherwise keeps the files' rate).
-  if (o.clips.length > 0) args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2')
+  if (o.audio) args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', '2')
   if (o.timecode) args.push('-timecode', o.timecode)
   if (o.revision) args.push(...revisionTag(o.revision))
   args.push(...muxer(o.container), '-t', s(o.to - o.from), o.out)
@@ -488,38 +332,6 @@ export const matte64 = (data: Uint8Array | Uint8ClampedArray): Uint8Array => {
     out[i + 3] = 65535
   }
   return new Uint8Array(out.buffer)
-}
-
-/** The clips by `group` (clips without one are `ungrouped`), in the order groups first appear. */
-export const stemsOf = (clips: readonly Clip[]): Map<string, Clip[]> => {
-  const groups = new Map<string, Clip[]>()
-  for (const c of clips) {
-    const name = c.group ?? 'ungrouped'
-    if (!/^[\w.-]+$/.test(name))
-      throw new Error(`A clip's group names a stem file: letters, digits, . _ - (${name}).`)
-    groups.set(name, [...(groups.get(name) ?? []), c])
-  }
-  return groups
-}
-
-/**
- * Writes one WAV per group into `dir` (`<group>.wav`), each the mix of that group's clips with the
- * same gains and the same constant gain as the full mix, so the stems sum to it. Returns the files.
- */
-export const writeStems = (o: {
-  clips: readonly Clip[]
-  from: number
-  to: number
-  dir: string
-  gainDb?: number
-}): string[] => {
-  mkdirSync(o.dir, { recursive: true })
-  return [...stemsOf(o.clips)].map(([name, clips]) => {
-    const out = join(o.dir, `${name}.wav`)
-    const r = spawnSync('ffmpeg', wavArgs({ ...o, clips, out }), { encoding: 'utf8' })
-    if (r.status !== 0) throw new Error(`ffmpeg (stem ${name}) failed: ${r.stderr}`)
-    return out
-  })
 }
 
 /** What ffprobe and the file's boxes say about an output: what a placement is checked against. */
@@ -664,89 +476,3 @@ export const probeLine = (p: Probe): string =>
     p.editList ? 'edit list' : 'no edit list',
     ...(p.revision ? [`revision ${p.revision.slice(0, 12)}`] : []),
   ].join(', ')
-
-/** A WAV of 32-bit float samples, channels interleaved. */
-export const floatWav = (pcm: Pcm): Uint8Array => {
-  const channels = pcm.channels.length
-  const frames = pcm.channels[0]?.length ?? 0
-  if (channels < 1 || channels > 2 || pcm.channels.some((c) => c.length !== frames))
-    throw new Error('A pcm clip has one or two channels of the same length.')
-  if (!(Number.isInteger(pcm.sampleRate) && pcm.sampleRate > 0))
-    throw new Error(
-      `A pcm clip's sampleRate is a whole number of samples a second, not ${pcm.sampleRate}.`,
-    )
-  const data = frames * channels * 4
-  const out = Buffer.alloc(44 + data)
-  out.write('RIFF', 0, 'latin1')
-  out.writeUInt32LE(36 + data, 4)
-  out.write('WAVEfmt ', 8, 'latin1')
-  out.writeUInt32LE(16, 16)
-  out.writeUInt16LE(3, 20) // IEEE float
-  out.writeUInt16LE(channels, 22)
-  out.writeUInt32LE(pcm.sampleRate, 24)
-  out.writeUInt32LE(pcm.sampleRate * channels * 4, 28)
-  out.writeUInt16LE(channels * 4, 32)
-  out.writeUInt16LE(32, 34)
-  out.write('data', 36, 'latin1')
-  out.writeUInt32LE(data, 40)
-  for (let i = 0; i < frames; i++)
-    for (let c = 0; c < channels; c++)
-      out.writeFloatLE((pcm.channels[c] as Float32Array)[i] as number, 44 + (i * channels + c) * 4)
-  return out
-}
-
-/**
- * Whether a file has an audio stream, by ffprobe. Throws naming `clip` (which clip, and its src)
- * when ffprobe cannot read the file.
- */
-const hasAudio = (file: string, clip: string): boolean => {
-  const r = spawnSync(
-    'ffprobe',
-    [
-      '-v',
-      'error',
-      '-select_streams',
-      'a',
-      '-show_entries',
-      'stream=index',
-      '-of',
-      'csv=p=0',
-      file,
-    ],
-    { encoding: 'utf8' },
-  )
-  if (r.error) throw new Error(`ffprobe is needed to read ${clip}: ${r.error.message}`)
-  if (r.status !== 0) throw new Error(`${clip} cannot be read: ${r.stderr.trim()}`)
-  return r.stdout.trim() !== ''
-}
-
-/**
- * The clips with a file for each: a project file (`src`), or a temporary float WAV for sound made
- * in code (`pcm`). A src with no audio stream (a video without sound) is silence, left out of the
- * mix as shaderera.com's mix leaves it; a src that cannot be read throws, naming the clip. `cleanup`
- * removes the temporary files.
- */
-export const clipFiles = (
-  root: string,
-  clips: readonly SampledClip[],
-): { clips: Clip[]; cleanup: () => void } => {
-  // Every src is checked before any temporary file is written.
-  const heard = clips.flatMap((c, i): { c: SampledClip; i: number; file?: string }[] => {
-    if ((c.src === undefined) === (c.pcm === undefined))
-      throw new Error(
-        `Audio clip ${i} needs a src (a project file) or pcm (samples), and only one.`,
-      )
-    if (c.src === undefined) return [{ c, i }]
-    const file = resolve(root, c.src)
-    return hasAudio(file, `Audio clip ${i} (${c.src})`) ? [{ c, i, file }] : []
-  })
-  let dir: string | undefined
-  const out = heard.map(({ c, i, file: src }): Clip => {
-    if (src !== undefined) return { ...c, file: src }
-    dir ??= mkdtempSync(join(tmpdir(), 'shaderera-pcm-'))
-    const file = join(dir, `${i}.wav`)
-    writeFileSync(file, floatWav(c.pcm as Pcm))
-    return { ...c, file }
-  })
-  return { clips: out, cleanup: () => dir && rmSync(dir, { recursive: true, force: true }) }
-}

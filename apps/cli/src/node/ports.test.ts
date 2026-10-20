@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { encode as encodePng } from 'fast-png'
 import jpeg from 'jpeg-js'
-import { floatWav, mixLoudness } from '../cli/ffmpeg.ts'
+import { floatWav, mixWav } from '../cli/mix.ts'
 import { exportVideo } from '../cli/render.ts'
 import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
@@ -173,7 +173,7 @@ test('sound made in code is mixed like a file, in both hosts', async () => {
       })
       assert.equal(done.probe.audio?.sampleRate, 48000)
       // The same tone as a mono WAV file, mixed the same way, measures the same.
-      const file = mixLoudness([{ src: 'tone', file: wav, at: 0.25 }], 0, 1)
+      const file = mixWav(root, [{ src: 'assets/tone.wav', at: 0.25 }], { from: 0, to: 1 }).loudness
       assert.ok(done.loudness && file, 'measured')
       assert.ok(
         Math.abs(done.loudness.truePeak - file.truePeak) < 0.2,
