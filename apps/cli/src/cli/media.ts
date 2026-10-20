@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { scan, treeId } from '../project/revisions.ts'
+import { scanProject, treeId } from '../project/revisions.ts'
 import { toPng } from '../review/review.ts'
 import { open } from './args.ts'
 import { requireFfmpeg } from './ffmpeg.ts'
@@ -84,7 +84,7 @@ export const renderMedia = async (
         to: Math.min(LOOP.seconds, duration),
         out: full,
         audio: false,
-        revision: treeId(scan(root)),
+        revision: treeId(scanProject(root)),
       })
       const scale = ['-i', full, '-an', '-vf', `scale=${LOOP.width}:-2`, '-c:v', 'libx264']
       made.loop = fit(
