@@ -28,7 +28,10 @@ Versions and jobs:
 
 shaderera.com: the films API is --api <origin>, else SHADERERA_API, else https://api.shaderera.com;
 the site (film pages, the studio page, plugins) is --site <origin>, else SHADERERA_SITE, else https://shaderera.com:
-  login --token <token> [--api origin]       keep the token share sends to that API
+  login [--api origin] [--no-open]           sign in with GitHub and keep the token share sends to that API
+  login --token <token> [--api origin]       keep a token given by hand instead
+  whoami [--api origin] [--json]             who this machine is signed in as
+  logout [--api origin] [--all]              sign this machine out (--all: every machine)
   share [--film id] [--title t] [--no-media] [--yes] [--api origin] [--site origin] [--json]   send the project's files as a new film or version
   fork <film|url>[@version] [dir] [--api origin] [--site origin] [--json]   copy a published version into a new folder
   studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]   the local bridge of the studio page
@@ -60,6 +63,8 @@ const commands = [
   'diff',
   'job',
   'login',
+  'logout',
+  'whoami',
   'share',
   'fork',
   'studio',
@@ -78,6 +83,7 @@ const OWN_JSON = new Set([
   'info',
   'share',
   'fork',
+  'whoami',
 ])
 /** Commands that own stdout (a protocol, or a bridge that runs until Ctrl-C): never wrapped. */
 const STREAMS = new Set(['mcp', 'studio'])

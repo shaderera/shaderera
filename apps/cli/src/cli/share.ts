@@ -10,13 +10,13 @@ import { type Files, hashFile, scan, slash } from '../project/revisions.ts'
 import { EXIT } from './findings.ts'
 import { mediaDir, renderMedia } from './media.ts'
 import {
-  apiFlag,
   apiOf,
   bytesText,
   call,
   healthOf,
   readShareNote,
   readToken,
+  signInHint,
   siteOf,
   writeShareNote,
 } from './site.ts'
@@ -219,8 +219,7 @@ export const shareProject = async (o: {
   const project = await findProject(o.root)
   const { root } = project
   const token = readToken(api)
-  if (!token)
-    throw new LoginNeeded(`No token for ${api}: shaderera login --token <token>${apiFlag(api)}`)
+  if (!token) throw new LoginNeeded(`No token for ${api}. ${signInHint(api)}`)
   const licence = licenceOf(root)
   const note = readShareNote(root, api)
   const film = o.film ?? note.film
