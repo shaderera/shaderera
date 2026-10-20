@@ -11,6 +11,17 @@ import { dirname, join } from 'node:path'
 export const DEFAULT_SITE = 'https://shaderera.com'
 
 /**
+ * The client id of Shaderera's GitHub OAuth App, which `login` signs in with (the device flow). It
+ * is public. Empty until the App exists: `login` then needs `--token`, or
+ * `SHADERERA_GITHUB_CLIENT_ID`.
+ */
+export const GITHUB_CLIENT_ID = ''
+
+/** How to sign in to `site`: `npx shaderera login`, with `--to` for a site other than the default. */
+export const signInHint = (site: string): string =>
+  `Sign in: npx shaderera login${site === DEFAULT_SITE ? '' : ` --to ${site}`}`
+
+/**
  * The site's origin: `--to <origin>`, else `SHADERERA_SITE`, else shaderera.com. Plain http only
  * for this machine, since a token goes with every write.
  */
@@ -98,9 +109,7 @@ export const call = async (
     message = (JSON.parse(text) as { error?: string }).error ?? message
   } catch {}
   const login =
-    r.status === 401
-      ? ` Log in: shaderera login --token <token>${site === DEFAULT_SITE ? '' : ` --to ${site}`}`
-      : ''
+    r.status === 401 && !message.includes('npx shaderera login') ? ` ${signInHint(site)}` : ''
   throw new Error(`${method} ${path} on ${site}: ${r.status} ${message}${login}`)
 }
 

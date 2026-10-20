@@ -418,9 +418,30 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 
 | Command | What it does |
 |---|---|
-| `login --token <token> [--to origin]` | keeps the token for that site in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
+| `login [--to origin] [--no-open]` | signs in with GitHub and keeps the site's token in `~/.shaderera/tokens.json` (readable by you only). It never prints a token |
+| `login --token <token> [--to origin]` | keeps a token given by hand, in the same file |
 | `share [--film id] [--title t] [--yes] [--to origin] [--json]` | builds the project's web player, and sends the project and the player as a new film, or as a new version of the film it shared to before |
 | `fork <film\|url>[@version] [dir] [--to origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
+
+**`login`** signs in with GitHub's device flow:
+
+1. It prints a code and opens `https://github.com/login/device` in your browser (`--no-open`
+   only prints the address).
+2. You enter the code and approve. GitHub asks for no permissions: the site sees your public
+   profile only.
+3. `login` sends GitHub's token once to the site, which answers with its own token and your handle
+   (your GitHub login). It keeps the site's token, and never keeps GitHub's.
+
+```
+$ npx shaderera login
+Enter the code WDJB-MJHT at https://github.com/login/device
+opening https://github.com/login/device
+Signed in as ana
+```
+
+Signing in again gives a new token, and the one before stops working. The sign-in uses the
+client id of Shaderera's GitHub OAuth App, or `SHADERERA_GITHUB_CLIENT_ID` when it is set. Until
+that App exists, `login` without `--token` says so, and `--token` is the way in.
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
 [above](#versions-and-jobs)), and nothing else:
@@ -451,7 +472,8 @@ checked against its sha256 as it is read.
   else the folder's name; later shares make new versions of it. `--film <id>` shares to a film
   you own, and is noted for next time.
 - **The token** is the one `login` kept for that site. It goes only in the request's
-  `Authorization` header.
+  `Authorization` header. Without one, or when the site refuses it, `share` says
+  `Sign in: npx shaderera login`.
 
 ```
 $ npx shaderera share

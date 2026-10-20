@@ -177,7 +177,7 @@ for a library of your own, see [docs/plugin-guide.md](docs/plugin-guide.md).
 shared film into a new folder as an ordinary project:
 
 ```bash
-npx shaderera login --token <token>
+npx shaderera login                      # sign in with GitHub (or --token <token>)
 npx shaderera share                      # a new film, then new versions of it
 npx shaderera fork https://shaderera.com/f/<film> my-film
 ```

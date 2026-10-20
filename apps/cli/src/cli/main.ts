@@ -27,7 +27,8 @@ Versions and jobs:
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems]   freeze a render job
 
 shaderera.com (or --to/--site <origin>, else SHADERERA_SITE):
-  login --token <token> [--to origin]        keep the token share sends to that site
+  login [--to origin] [--no-open]            sign in with GitHub and keep the token share sends to that site
+  login --token <token> [--to origin]        keep a token given by hand instead
   share [--film id] [--title t] [--yes] [--to origin] [--json]   send the project's files as a new film or version
   fork <film|url>[@version] [dir] [--to origin] [--json]          copy a published version into a new folder
   studio [--connect id] [--site origin] [--origin dev-origin]... [--no-open]   the local bridge of the studio page

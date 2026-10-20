@@ -11,9 +11,9 @@ import { EXIT } from './findings.ts'
 import {
   bytesText,
   call,
-  DEFAULT_SITE,
   readShareNote,
   readToken,
+  signInHint,
   siteOf,
   writeShareNote,
 } from './site.ts'
@@ -198,10 +198,7 @@ export const shareProject = async (o: {
   const project = await findProject(o.root)
   const { root } = project
   const token = readToken(site)
-  if (!token)
-    throw new LoginNeeded(
-      `No token for ${site}: shaderera login --token <token>${site === DEFAULT_SITE ? '' : ` --to ${site}`}`,
-    )
+  if (!token) throw new LoginNeeded(`No token for ${site}. ${signInHint(site)}`)
   const licence = licenceOf(root)
   const note = readShareNote(root, site)
   const film = o.film ?? note.film

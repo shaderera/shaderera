@@ -184,11 +184,11 @@ A job that is not done gets `409`. An unknown one gets `404`.
 
 ### `POST /share {title?}` → `{film, version, url}`
 
-Runs `shaderera share` as you, with your own login (`shaderera login`), to the site. Pressing
+Runs `shaderera share` as you, with your own sign-in (`npx shaderera login`), to the site. Pressing
 Share in the page is the confirmation. A new film is titled `title`, else as `share` titles it.
 
-- **Not logged in** (no token for the site, or the site refused it): `401` with
-  `{error:"login", command:"npx shaderera login"}`.
+- **Not signed in** (no token for the site, or the site refused it): `401` with
+  `{error:"login", command:"npx shaderera login"}`. The page shows the command to run.
 - **Anything else** that stops the share (no licence, a player that does not build, the site
   unreachable): `500` with `{error}`.
 
