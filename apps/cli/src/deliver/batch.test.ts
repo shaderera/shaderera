@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { availableParallelism, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -177,4 +177,36 @@ test('a declared placement checks the delivered file, and passes once the file i
     made.check?.measured ?? '',
     /mp4, h264 64×36 10 fps, 0\.5 s, .*no audio, no edit list/,
   )
+})
+
+test('deliver spreads an output over several hosts, as render --job does, and closes them', {
+  skip: (!ffmpeg && 'no ffmpeg') || (availableParallelism() < 5 && 'fewer than 5 cores'),
+}, async () => {
+  const root = fixture('mcp')
+  // 9 s at 10 fps: 90 frames, 3 hosts by defaultWorkers on 5 cores or more.
+  const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
+  writeFileSync(join(root, 'shaderera.json'), JSON.stringify({ ...manifest, duration: 9 }))
+  writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 0 }))
+  const jobs = await batchJobs(root, { batch: 'w', delivery: {} })
+  let opened = 0
+  let closed = 0
+  const host = (job: Job) => {
+    const { width, height } = job.output
+    const child = memoryChild({ size: { width, height }, frame: boxFrame(width, height) })
+    const close = async () => {
+      closed++
+      await child.close()
+    }
+    return { ...child, close }
+  }
+  const { index } = await deliverBatch(root, jobs, {
+    batch: 'w',
+    open: async (job) => ({
+      ...(await inMemory(job)),
+      more: async () => (opened++, host(job)),
+    }),
+  })
+  assert.equal(index.outputs[0]?.status, 'pass', JSON.stringify(index.outputs[0]))
+  assert.equal(opened, 2)
+  assert.equal(closed, 2)
 })
