@@ -446,7 +446,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         () => progress && process.stderr.write('\n'),
       )
       console.log(
-        `chunk ${r.index}: ${r.frames} frames in ${r.seconds.toFixed(1)} s on ${hosts.length} host(s) →${join(dir, plan.chunks[r.index]?.file ?? '')}`,
+        `chunk ${r.index}: ${r.frames} frames in ${r.seconds.toFixed(1)} s on ${hosts.length} host(s) → ${join(dir, plan.chunks[r.index]?.file ?? '')}`,
       )
       return 0
     }
