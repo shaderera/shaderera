@@ -10,7 +10,17 @@ import { saveToken } from '../cli/site.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
 import { startRelay } from './fixtures/relay.ts'
-import { CLOSE, isId, keyPair, makeId, relayUrl, seal, sessionKey, unseal } from './pairing.ts'
+import {
+  CLOSE,
+  isId,
+  keyPair,
+  makeId,
+  makeNonce,
+  relayUrl,
+  seal,
+  sessionKey,
+  unseal,
+} from './pairing.ts'
 import { connectRelay } from './relay.ts'
 import { NOTICE, noticeOnce, setTelemetry, telemetryStatus } from './telemetry.ts'
 
@@ -21,6 +31,8 @@ process.env.USERPROFILE = home
 delete process.env.SHADERERA_TELEMETRY
 
 const SITE = 'https://shaderera.example'
+/** The nonce the in-process CLIs pair with; the CLI makes one of its own each run. */
+const nonce = makeNonce()
 const DEV = 'http://localhost:3000'
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
@@ -140,8 +152,11 @@ const page = (relay: string, id: string) => {
     closed,
     opened,
     send: (m: unknown) => ws.send(JSON.stringify(m)),
-    /** page-hello now and on every cli-joined; resolves with the session key and the bridge. */
-    pair: async () => {
+    /**
+     * page-hello now and on every cli-joined, then the proof of `proof`; resolves with the session
+     * key and the bridge.
+     */
+    pair: async (proof = nonce) => {
       const mine = await keyPair()
       await opened
       ws.send(JSON.stringify({ type: 'page-hello', pub: mine.pub }))
@@ -150,12 +165,27 @@ const page = (relay: string, id: string) => {
       )
       const hello = await next('cli-hello')
       const key = await sessionKey(mine.privateKey, hello.pub as string, id)
+      ws.send(JSON.stringify({ type: 'page-proof', ...(await seal(key, { nonce: proof })) }))
       const sealed = (await next('bridge')) as unknown as { iv: string; box: string }
       const bridge = await unseal<{ port: number; secret: string }>(key, sealed)
       ws.send(JSON.stringify({ type: 'paired' }))
       return { key, hello, bridge }
     },
   }
+}
+
+/** The page address `shaderera studio --no-open` prints, once it has: `<site>/studio/<id>#<nonce>`. */
+const addressOf = async (out: () => string, site: string, id: string) => {
+  for (let i = 0; i < 400; i++) {
+    const m = /^open +(\S+)$/m.exec(out())
+    if (m) {
+      const url = new URL(m[1] as string)
+      assert.equal(`${url.origin}${url.pathname}${url.search}`, `${site}/studio/${id}?from=web`)
+      return { nonce: url.hash.slice(1) }
+    }
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  throw new Error(`no address in: ${out()}`)
 }
 
 let root: string
@@ -171,10 +201,13 @@ after(async () => {
   await relay.close()
 })
 
-test('a studio session id is 6 characters of the alphabet', () => {
+test('a studio session id is 20 characters of the alphabet', () => {
   for (let i = 0; i < 200; i++) assert.ok(isId(makeId()))
-  assert.equal(isId('abc0ef'), false)
-  assert.equal(isId('abcdefg'), false)
+  assert.equal(makeId().length, 20)
+  assert.equal(isId('abcdefghjkmnpqrstuv0'), false)
+  assert.equal(isId('abcdef'), false)
+  assert.equal(isId('abcdefghjkmnpqrstuvwx'), false)
+  assert.match(makeNonce(), /^[\w-]{22}$/)
 })
 
 test('the CLI pairs through the relay, and only the page can open the bridge it sends', async () => {
@@ -187,6 +220,7 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
   const cli = connectRelay({
     site: relay.origin,
     id,
+    nonce,
     bridge,
     hello: { version: '9.9.9', os: 'test', telemetry: true },
     onPaired: () => {
@@ -211,6 +245,7 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
   const second = connectRelay({
     site: relay.origin,
     id,
+    nonce,
     bridge,
     hello: { version: '9.9.9', os: 'test', telemetry: true },
   })
@@ -220,6 +255,44 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
   assert.equal((await p.next('cli-left')).type, 'cli-left')
 })
 
+test('a page without the nonce the CLI opened never gets the bridge or an answer', async () => {
+  const id = makeId()
+  const stranger = page(relay.origin, id)
+  await stranger.opened
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+  })
+  await stranger.next('cli-joined')
+  const mine = await keyPair()
+  stranger.send({ type: 'page-hello', pub: mine.pub })
+  const hello = await stranger.next('cli-hello')
+  const key = await sessionKey(mine.privateKey, hello.pub as string, id)
+  // Another nonce; the nonce under a key that is not its hello's; a request with no proof; paired.
+  stranger.send({ type: 'page-proof', ...(await seal(key, { nonce: makeNonce() })) })
+  const other = await sessionKey((await keyPair()).privateKey, hello.pub as string, id)
+  stranger.send({ type: 'page-proof', ...(await seal(other, { nonce })) })
+  stranger.send({ type: 'rpc', id: '1', ...(await seal(key, { method: 'GET', path: '/info' })) })
+  stranger.send({ type: 'paired' })
+  const heard = await Promise.race([
+    stranger.next('bridge'),
+    stranger.next('rpc-result'),
+    new Promise((done) => setTimeout(() => done(null), 300)),
+  ])
+  assert.equal(heard, null)
+  // The relay takes paired only after the CLI has sent the bridge.
+  assert.equal(relay.sessions.get(id)?.paired, false)
+  // The page the CLI opened, in its place, pairs.
+  const opened = page(relay.origin, id)
+  const { bridge: got } = await opened.pair()
+  assert.equal(got.secret, bridge.secret)
+  cli.close()
+  opened.ws.close()
+})
+
 test('before pairing, a reloaded page pairs in place of the first, and a second CLI is refused', async () => {
   const id = makeId()
   const first = page(relay.origin, id)
@@ -227,6 +300,7 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
   const cli = connectRelay({
     site: relay.origin,
     id,
+    nonce,
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
@@ -236,6 +310,7 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
   const other = connectRelay({
     site: relay.origin,
     id,
+    nonce,
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
@@ -257,6 +332,7 @@ test('an id no CLI paired with in time is expired', async () => {
   const cli = connectRelay({
     site: relay.origin,
     id,
+    nonce,
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
@@ -507,6 +583,7 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
   const cli = connectRelay({
     site: relay.origin,
     id,
+    nonce,
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
@@ -604,12 +681,11 @@ test('shaderera studio --connect pairs with the page, and says so when the id ex
   const start = (site: string, id: string) =>
     spawn(
       process.execPath,
-      [main, 'studio', '--connect', id, '--site', site, '--root', fixture()],
+      [main, 'studio', '--connect', id, '--site', site, '--no-open', '--root', fixture()],
       { env: { ...process.env, HOME: home, USERPROFILE: home } },
     )
   const id = makeId()
   const p = page(slow.origin, id)
-  const pairing = p.pair()
   const cli = start(slow.origin, id)
   let out = ''
   cli.stdout.on('data', (d: Buffer) => {
@@ -619,6 +695,11 @@ test('shaderera studio --connect pairs with the page, and says so when the id ex
     out += d.toString()
   })
   const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
+  const pairing = addressOf(() => out, slow.origin, id).then((address) => {
+    // The address the CLI prints: the page and the nonce in its fragment.
+    assert.notEqual(address.nonce, nonce)
+    return p.pair(address.nonce)
+  })
   const paired = await Promise.race([pairing, exited.then(() => null)])
   assert.ok(paired, out)
   const { bridge: got, hello } = paired
@@ -666,13 +747,24 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
   const slow = await startRelay()
   const id = makeId()
   const p = page(slow.origin, id)
-  const pairing = p.pair()
   const project = fixture()
   writeFileSync(join(project, 'package.json'), JSON.stringify({ license: 'MIT' }))
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
   const cli = spawn(
     process.execPath,
-    [main, 'studio', '--connect', id, '--site', slow.origin, '--to', to, '--root', project],
+    [
+      main,
+      'studio',
+      '--connect',
+      id,
+      '--site',
+      slow.origin,
+      '--to',
+      to,
+      '--no-open',
+      '--root',
+      project,
+    ],
     { env: { ...process.env, HOME: home, USERPROFILE: home } },
   )
   let out = ''
@@ -682,6 +774,7 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
   cli.stderr.on('data', (d: Buffer) => {
     out += d.toString()
   })
+  const pairing = addressOf(() => out, slow.origin, id).then((a) => p.pair(a.nonce))
   const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
   try {
     const paired = await Promise.race([pairing, exited.then(() => null)])
