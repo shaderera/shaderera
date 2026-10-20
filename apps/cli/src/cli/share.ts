@@ -8,7 +8,15 @@ import { findProject } from '../node/project.ts'
 import { buildPlayer } from '../player/build.ts'
 import { type Files, hashFile, scan, slash } from '../project/revisions.ts'
 import { EXIT } from './findings.ts'
-import { bytesText, call, readShareNote, readToken, siteOf, writeShareNote } from './site.ts'
+import {
+  bytesText,
+  call,
+  DEFAULT_SITE,
+  readShareNote,
+  readToken,
+  siteOf,
+  writeShareNote,
+} from './site.ts'
 
 /** Files a revision holds that are never sent: secrets, at any depth. */
 const SECRET = /^(\.env(\..+)?|\.npmrc)$/
@@ -44,7 +52,8 @@ const licenceOf = (root: string): string => {
   return declared.trim() === 'UNLICENSED' ? 'All rights reserved' : declared.trim()
 }
 
-const titleOf = (root: string): string => {
+/** The title a new film gets: package.json's name, else the folder's. */
+export const titleOf = (root: string): string => {
   const file = join(root, 'package.json')
   const name = existsSync(file)
     ? (JSON.parse(readFileSync(file, 'utf8')) as { name?: unknown }).name
@@ -155,43 +164,51 @@ export const send = async (o: {
 /** Where `share` builds the player: under `.shaderera/`, which no revision holds. */
 export const playerDir = (root: string): string => join(root, '.shaderera', 'player')
 
+/** No token for the site: the person logs in first. Nothing was sent. */
+export class LoginNeeded extends Error {}
+
 /**
- * `shaderera share [--to <origin>] [--film <id>] [--title <t>] [--yes] [--json]`: builds the
- * project's web player, then sends the project and the player to the site as a new film, or as a
- * new version of the film it shared to before. It prints what it will send and asks first; off a
- * terminal (or with `--json`) it needs `--yes`. A player that does not build stops it before
- * anything is sent.
+ * A share, as `shaderera share` and the studio's share button run it: builds the project's web
+ * player, says what it will send (`say`), asks (`confirm`; none: send), then sends the project
+ * and the player to the site as a new film, or as a new version of the film it shared to before.
+ * Null when declined. A player that does not build stops it before anything is sent.
  */
-export const run = async (argv: readonly string[]): Promise<number> => {
-  const { values: v } = parseArgs({
-    args: [...argv],
-    options: {
-      to: { type: 'string' },
-      film: { type: 'string' },
-      title: { type: 'string' },
-      yes: { type: 'boolean' },
-      json: { type: 'boolean' },
-      root: { type: 'string' },
-    },
-  })
-  const site = siteOf(v.to)
-  const project = await findProject(v.root ?? process.cwd())
+export const shareProject = async (o: {
+  root: string
+  site: string
+  film?: string
+  title?: string
+  say?: (line: string) => void
+  confirm?: () => Promise<boolean>
+}): Promise<{
+  site: string
+  film: string
+  created: boolean
+  version: string
+  url: string
+  files: number
+  bytes: number
+  player: { files: number; bytes: number }
+  uploaded: number
+  objects: number
+  notSent: string[]
+} | null> => {
+  const { site } = o
+  const say = o.say ?? (() => {})
+  const project = await findProject(o.root)
   const { root } = project
   const token = readToken(site)
   if (!token)
-    throw new Error(
-      `No token for ${site}: shaderera login --token <token>${v.to ? ` --to ${site}` : ''}`,
+    throw new LoginNeeded(
+      `No token for ${site}: shaderera login --token <token>${site === DEFAULT_SITE ? '' : ` --to ${site}`}`,
     )
   const licence = licenceOf(root)
   const note = readShareNote(root, site)
-  const film = v.film ?? note.film
-  const title = v.title ?? titleOf(root)
+  const film = o.film ?? note.film
+  const title = o.title ?? titleOf(root)
   const { files, bytes, secrets } = shareFiles(root)
   const count = Object.keys(files).length
 
-  const say = (line: string) => {
-    if (!v.json) console.log(line)
-  }
   // The player is built for this site: only its pages may frame it and get its port.
   const dir = playerDir(root)
   const player = await buildPlayer(project, {
@@ -207,22 +224,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     `share: ${count} files, ${bytesText(bytes)}, and a player of ${player.files.length} files, ${bytesText(player.bytes)}, to ${site} as ${film ? `a new version of film ${film}` : `a new film "${title}"${note.forkedFrom ? `, forked from ${note.forkedFrom.slice(0, 12)}` : ''}`} (licence ${licence})`,
   )
   if (secrets.length > 0) say(`  not sent: ${secrets.join(', ')}`)
-  if (!v.yes) {
-    if (v.json || !process.stdin.isTTY || !process.stdout.isTTY)
-      throw new Error('share needs --yes when it is not on a terminal. Nothing was sent.')
-    if (!(await confirm('Send? [y/N] '))) {
-      console.log('Nothing was sent.')
-      return EXIT.failed
-    }
-  }
+  if (o.confirm && !(await o.confirm())) return null
 
-  const {
-    film: target,
-    version,
-    url,
-    uploaded,
-    objects,
-  } = await send({
+  const sent = await send({
     site,
     token,
     root,
@@ -233,30 +237,65 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     ...(note.forkedFrom ? { forkedFrom: note.forkedFrom } : {}),
     player: dir,
   })
-  if (v.json)
+  return {
+    site,
+    film: sent.film,
+    created: !film,
+    version: sent.version,
+    url: sent.url,
+    files: count,
+    bytes,
+    player: { files: player.files.length, bytes: player.bytes },
+    uploaded: sent.uploaded,
+    objects: sent.objects,
+    notSent: secrets,
+  }
+}
+
+/**
+ * `shaderera share [--to <origin>] [--film <id>] [--title <t>] [--yes] [--json]`: shareProject. It
+ * prints what it will send and asks first; off a terminal (or with `--json`) it needs `--yes`.
+ */
+export const run = async (argv: readonly string[]): Promise<number> => {
+  const { values: v } = parseArgs({
+    args: [...argv],
+    options: {
+      to: { type: 'string' },
+      film: { type: 'string' },
+      title: { type: 'string' },
+      yes: { type: 'boolean' },
+      json: { type: 'boolean' },
+      root: { type: 'string' },
+    },
+  })
+  const site = siteOf(v.to)
+  const shared = await shareProject({
+    root: v.root ?? process.cwd(),
+    site,
+    ...(v.film ? { film: v.film } : {}),
+    ...(v.title ? { title: v.title } : {}),
+    say: (line) => {
+      if (!v.json) console.log(line)
+    },
+    confirm: async () => {
+      if (v.yes) return true
+      if (v.json || !process.stdin.isTTY || !process.stdout.isTTY)
+        throw new Error('share needs --yes when it is not on a terminal. Nothing was sent.')
+      return confirm('Send? [y/N] ')
+    },
+  })
+  if (!shared) {
+    console.log('Nothing was sent.')
+    return EXIT.failed
+  }
+  if (v.json) {
+    const { objects: _, ...result } = shared
+    console.log(JSON.stringify(result, null, 2))
+  } else {
     console.log(
-      JSON.stringify(
-        {
-          site,
-          film: target,
-          created: !film,
-          version,
-          url,
-          files: count,
-          bytes,
-          player: { files: player.files.length, bytes: player.bytes },
-          uploaded,
-          notSent: secrets,
-        },
-        null,
-        2,
-      ),
+      `shared film ${shared.film} version ${shared.version.slice(0, 12)}: ${shared.uploaded} of ${shared.objects} files were new`,
     )
-  else {
-    console.log(
-      `shared film ${target} version ${version.slice(0, 12)}: ${uploaded} of ${objects} files were new`,
-    )
-    console.log(`  ${url}`)
+    console.log(`  ${shared.url}`)
   }
   return EXIT.ok
 }

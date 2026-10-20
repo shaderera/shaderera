@@ -1,0 +1,97 @@
+import { spawn } from 'node:child_process'
+import { parseArgs } from 'node:util'
+import { shadereraVersion } from '../deliver/environment.ts'
+import { findProject } from '../node/project.ts'
+import { isOrigin } from '../player/parents.ts'
+import { startBridge } from '../studio/bridge.ts'
+import { isId, makeId, pageUrl } from '../studio/pairing.ts'
+import { closeText, connectRelay } from '../studio/relay.ts'
+import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
+import { common } from './args.ts'
+import { EXIT } from './findings.ts'
+import { siteOf } from './site.ts'
+
+/** Opens `url` in the person's default browser; a failure to is only a missed convenience. */
+const openBrowser = (url: string) => {
+  const [command, args] =
+    process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '""', url]]
+      : [process.platform === 'darwin' ? 'open' : 'xdg-open', [url]]
+  spawn(command as string, args as string[], { stdio: 'ignore', detached: true })
+    .on('error', () => {})
+    .unref()
+}
+
+/**
+ * `shaderera studio [--connect <id>] [--site <origin>] [--origin <dev origin>]... [--no-open]`:
+ * the local bridge of the studio page on the site (docs/studio.md, decision 0021). Without
+ * `--connect` it makes a studio session id and opens `<site>/studio/<id>`; with it, it pairs with
+ * the id the page made. It runs until Ctrl-C.
+ */
+export const run = async (argv: readonly string[]): Promise<number> => {
+  const { values: v } = parseArgs({
+    args: [...argv],
+    options: {
+      connect: { type: 'string' },
+      site: { type: 'string' },
+      origin: { type: 'string', multiple: true },
+      'no-open': { type: 'boolean' },
+      ...common,
+    },
+  })
+  const site = siteOf(v.site)
+  for (const origin of v.origin ?? [])
+    if (!isOrigin(origin))
+      throw new Error(`--origin takes an origin (scheme, host and port), not ${origin}.`)
+  if (v.connect !== undefined && !isId(v.connect))
+    throw new Error(
+      `Not a studio session id: ${v.connect} (6 letters and digits, from ${site}/studio).`,
+    )
+  const { root } = await findProject(v.root ?? process.cwd())
+  noticeOnce((text) => console.log(`${text}\n`))
+
+  const bridge = await startBridge({
+    root,
+    site,
+    origins: [site, ...(v.origin ?? []).filter((o) => o !== site)],
+    hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
+  })
+  bridge.onEvent((e) => {
+    if (e.type === 'log') (e.level === 'info' ? console.log : console.error)(e.text)
+    if (e.type === 'changed') console.log(`changed: revision ${e.revision}`)
+  })
+  const id = v.connect ?? makeId()
+  const page = pageUrl(site, id)
+  console.log(`project  ${root}`)
+  console.log(`bridge   ${bridge.origin} (for ${site} only)`)
+  if (v.connect) console.log(`pairing with ${page}`)
+  else if (v['no-open']) console.log(`open     ${page}`)
+  else {
+    console.log(`opening  ${page}`)
+    openBrowser(page)
+  }
+
+  const relay = connectRelay({
+    site,
+    id,
+    bridge,
+    hello: { version: shadereraVersion(), os: process.platform, telemetry: telemetryStatus().on },
+    onPaired: () => console.log('paired: the studio page drives this project. Ctrl-C stops.'),
+    onPageLeft: () => console.log('the studio page closed'),
+  })
+  const stop = new Promise<void>((done) => process.once('SIGINT', () => done()))
+  const end = await Promise.race([relay.closed, stop.then(() => null)])
+  let code: number = EXIT.ok
+  if (end && !end.paired) {
+    // Never paired: there is no page to serve.
+    console.error(closeText(end.code, site, id))
+    code = EXIT.error
+  } else if (end) {
+    // Paired already: the page talks to the bridge directly, which keeps serving.
+    console.log('the relay closed; the bridge still serves the page directly. Ctrl-C stops.')
+    await stop
+  }
+  relay.close()
+  await bridge.close()
+  return code
+}

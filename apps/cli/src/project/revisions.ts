@@ -89,12 +89,14 @@ export const hashFile = (file: string, to?: string): string => {
 /**
  * The project's files as they are now: path (with `/`) → sha256. Links are skipped, and listed in
  * `links` when it is given. `keep` narrows it to some paths (a bake's inputs): a folder it
- * refuses is not entered, a file it refuses not hashed.
+ * refuses is not entered, a file it refuses not hashed. `hash` hashes a file (a watcher's, which
+ * remembers the files it hashed, studio/bridge.ts).
  */
 export const scan = (
   root: string,
   links?: string[],
   keep: (path: string, folder: boolean) => boolean = () => true,
+  hash: (file: string) => string = hashFile,
 ): Files => {
   const files: Files = {}
   const walk = (dir: string) => {
@@ -106,7 +108,7 @@ export const scan = (
       const s = lstatSync(full)
       if (s.isSymbolicLink()) links?.push(path)
       else if (s.isDirectory()) keep(path, true) && walk(full)
-      else if (s.isFile() && keep(path, false)) files[path] = hashFile(full)
+      else if (s.isFile() && keep(path, false)) files[path] = hash(full)
     }
   }
   walk(root)

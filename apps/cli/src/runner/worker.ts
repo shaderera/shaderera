@@ -114,8 +114,9 @@ const read = async (path: string) => {
 const service = async (op: string, query: Record<string, string>, body?: Uint8Array) => {
   // @ts-expect-error: served by the runner plugin.
   const token: string = (await import('/__shaderera/token.js')).default
+  // Beside the files: the runner server's root, or the base a studio frame is served under.
   const response = await fetch(
-    `/__shaderera/service/${op}?${new URLSearchParams({ ...query, token })}`,
+    `${files}__shaderera/service/${op}?${new URLSearchParams({ ...query, token })}`,
     {
       method: body ? 'POST' : 'GET',
       ...(body ? { body: body as Uint8Array<ArrayBuffer> } : {}),
@@ -156,15 +157,16 @@ const ask: Ask = {
  * - `files`: where `io.read` finds the project's files, an absolute URL ending in `/`. The runner
  *   server's root (`/`) otherwise.
  * - `ask`: what answers `io.video`, `io.cache` and `io.bake` (the `Ask` in io.ts), in place of the
- *   CLI's process behind the runner server.
+ *   CLI's process behind the runner server. Without it, that process answers, beside `files` (the
+ *   studio's frame of the runner server, docs/studio.md).
  *
  * Such a runner opens its own project only, never a saved revision.
  */
-export const configureRunner = (o: { files: string; ask: Ask }): void => {
+export const configureRunner = (o: { files: string; ask?: Ask }): void => {
   if (!/^[a-z][a-z0-9+.-]*:.*\/$/i.test(o.files))
     throw new Error(`configureRunner: files is an absolute URL ending in /, not ${o.files}.`)
   files = base = o.files
-  Object.assign(ask, o.ask)
+  if (o.ask) Object.assign(ask, o.ask)
 }
 
 const io: Io = {

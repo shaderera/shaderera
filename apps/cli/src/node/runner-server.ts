@@ -27,6 +27,11 @@ type RunnerOptions = {
   cacheDir?: string
   /** The bakes' frames, checked against their stamps: what io.bake reads. */
   bakes?: BakeFrames
+  /**
+   * For the studio (docs/studio.md): served under this secret path only, to a sandboxed frame on
+   * a page of `studioOrigins`. That page reloads the frame when the project changes (no HMR).
+   */
+  base?: string
 }
 
 /**
@@ -67,15 +72,19 @@ const listen = async (project: Project, o: RunnerOptions & { port: number }) => 
           ? undefined
           : resolve(project.root, project.manifest.dom),
         o.bakes,
+        o.base,
       ),
     ],
+    ...(o.base ? { base: o.base } : {}),
     optimizeDeps: { exclude: ['comlink', '@shaderera/core'] },
     server: {
       host: HOST,
       port: o.port,
       strictPort: true,
       fs: { allow: [vite.searchForWorkspaceRoot(project.root), o.pkgDir] },
-      hmr: { host: HOST, port: o.port, clientPort: o.port },
+      // A framed runner's requests come from an opaque origin: the plugin answers them itself.
+      ...(o.base ? { cors: false } : {}),
+      hmr: o.base ? false : { host: HOST, port: o.port, clientPort: o.port },
       // Frozen revisions, agent stages and renders are written under the root; none is the
       // project the preview shows, so none may reload it.
       watch: { ignored: ['**/.shaderera/**', '**/versions/**', '**/out/**'] },
