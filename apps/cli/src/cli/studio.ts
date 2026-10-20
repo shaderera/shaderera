@@ -84,6 +84,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     hello: { version: shadereraVersion(), os: process.platform, telemetry: telemetryStatus().on },
     onPaired: () => console.log('paired: the studio page drives this project. Ctrl-C stops.'),
     onPageLeft: () => console.log('the studio page closed'),
+    onRelay: (back) =>
+      console.log(
+        back
+          ? 'the relay is back: the studio page can reach this CLI through it again'
+          : 'the relay dropped this CLI; rejoining (the bridge still serves the page directly)',
+      ),
   })
   const stop = new Promise<void>((done) => process.once('SIGINT', () => done()))
   const end = await Promise.race([relay.closed, stop.then(() => null)])
@@ -97,7 +103,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     console.log('the relay closed; the bridge still serves the page directly. Ctrl-C stops.')
     await stop
   }
-  relay.close()
+  await relay.close()
   await bridge.close()
   return code
 }

@@ -325,6 +325,46 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
   reloaded.ws.close()
 })
 
+test('a paired CLI the relay drops rejoins with its token; closing it ends the session', async () => {
+  const id = makeId()
+  const p = page(relay.origin, id)
+  const pairing = p.pair()
+  const heard: boolean[] = []
+  let cliPaired: () => void = () => {}
+  const paired = new Promise<void>((done) => {
+    cliPaired = done
+  })
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+    delay: () => 50,
+    onPaired: () => cliPaired(),
+    onRelay: (back) => heard.push(back),
+  })
+  const { key } = await pairing
+  await paired
+  // The relay cuts the CLI's socket (a deploy, the network): the CLI comes back by itself.
+  relay.drop(id, 'cli')
+  assert.equal((await p.next('cli-left')).type, 'cli-left')
+  assert.equal((await p.next('cli-joined')).type, 'cli-joined')
+  // The page's key still opens what the CLI seals: a relayed request is answered.
+  p.send({ type: 'rpc', id: '1', ...(await seal(key, { method: 'GET', path: '/info' })) })
+  const m = (await p.next('rpc-result')) as unknown as { iv: string; box: string }
+  assert.equal((await unseal<{ status: number }>(key, m)).status, 200)
+  assert.deepEqual(heard, [false, true])
+  // Another CLI with a wrong token is still refused.
+  const other = new WebSocket(`${relayUrl(relay.origin, id, 'cli')}&resume=${'f'.repeat(64)}`)
+  const code = await new Promise((done) => other.addEventListener('close', (e) => done(e.code)))
+  assert.equal(code, CLOSE.used)
+  // Closing the CLI (Ctrl-C) closes with 1000: the session ends, and the page is told so.
+  await cli.close()
+  assert.equal(await p.closed, CLOSE.ended)
+  assert.deepEqual(await cli.closed, { code: 1000, paired: true })
+})
+
 test('an id no CLI paired with in time is expired', async () => {
   const id = makeId()
   const p = page(relay.origin, id)
