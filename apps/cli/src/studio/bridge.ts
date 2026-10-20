@@ -77,6 +77,20 @@ export type Bridge = {
 
 const json = (status: number, value: unknown): BridgeReply => ({ status, json: value })
 
+/**
+ * `Content-Disposition` for a file to save: the name in ASCII (anything else, `"` and `\` as
+ * `_`), and the name itself in UTF-8 (RFC 6266), so a project named in any script is a header
+ * Node sends.
+ */
+const attachment = (name: string): string => {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, '_')
+  const utf8 = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16)}`,
+  )
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
+}
+
 /** Reads a request body as JSON (at most 1 MB); none is undefined. */
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
   const parts: Buffer[] = []
@@ -249,7 +263,7 @@ export const startBridge = async (o: {
         t?: unknown
       }
       const format = (body.format ?? 'mp4') as Format
-      if (!(format in TYPES)) return json(400, { error: 'format is mp4, mov or png' })
+      if (!Object.hasOwn(TYPES, format)) return json(400, { error: 'format is mp4, mov or png' })
       if (body.variant !== undefined && typeof body.variant !== 'string')
         return json(400, { error: 'variant is a name' })
       if (body.params !== undefined && (typeof body.params !== 'object' || body.params === null))
@@ -258,7 +272,8 @@ export const startBridge = async (o: {
         return json(400, { error: 't is a time in seconds' })
       const id = randomBytes(6).toString('hex')
       const variant = body.variant as string | undefined
-      const name = `${basename(root)}${variant ? `-${variant}` : ''}-${id}.${format}`
+      // A variant's name may hold what a file name cannot (`16:9`), as in project/jobs.ts.
+      const name = `${basename(root)}${variant ? `-${variant.replace(/[^\w.-]/g, '_')}` : ''}-${id}.${format}`
       const job: Job = {
         id,
         state: 'queued',
@@ -333,7 +348,7 @@ export const startBridge = async (o: {
   }
 
   const sse = new Set<ServerResponse>()
-  const server = createServer(async (req, res) => {
+  const serve = async (req: IncomingMessage, res: ServerResponse) => {
     const origin = req.headers.origin
     const url = new URL(req.url ?? '/', 'http://bridge')
     const allowed = origin !== undefined && o.origins.includes(origin)
@@ -390,14 +405,24 @@ export const startBridge = async (o: {
         ...cors,
         'Content-Type': reply.file.type,
         'Content-Length': String(statSync(reply.file.path).size),
-        'Content-Disposition': `attachment; filename="${reply.file.name}"`,
+        'Content-Disposition': attachment(reply.file.name),
         'Access-Control-Expose-Headers': 'Content-Disposition',
       })
-      createReadStream(reply.file.path).pipe(res)
+      createReadStream(reply.file.path)
+        .on('error', () => res.destroy())
+        .pipe(res)
       return
     }
     res.writeHead(reply.status, { ...cors, 'Content-Type': 'application/json' })
     res.end(JSON.stringify(reply.json))
+  }
+  // A request that fails is a 500 for it, never the end of the command.
+  const server = createServer((req, res) => {
+    serve(req, res).catch((error: unknown) => {
+      if (res.headersSent) return res.destroy()
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
+    })
   })
   listeners.add((event) => {
     for (const res of sse) res.write(`data: ${JSON.stringify(event)}\n\n`)
