@@ -54,7 +54,7 @@ test('review (quick) on a film without shots or text: measured or unknown, never
     assert.equal(by.alpha?.status, 'unknown')
     for (const c of r.checks) if (c.status === 'pass') assert.ok(c.measured, c.id)
     assert.ok(r.diagnostics.alpha.nonOpaque > 0.9)
-    // No audio(): no audio diagnostics, in every host (node/contract.test.ts).
+    // No audio(): no audio diagnostics, in every host (node/contract.it.ts).
     assert.equal(r.diagnostics.audio, null)
   } finally {
     await child.close()

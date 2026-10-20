@@ -32,7 +32,9 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node scripts/docs.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"src/**/*.test.ts\""
+    "test": "node --test \"src/**/*.test.ts\"",
+    "test:slow": "pnpm run build && node --test \"src/**/*.it.ts\"",
+    "test:all": "pnpm run build && node --test \"src/**/*.test.ts\" \"src/**/*.it.ts\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

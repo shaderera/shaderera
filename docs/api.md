@@ -19,7 +19,7 @@ surface is labelled:
 - **internal:** for Shaderera's own packages only; no promise.
 
 Pinned by tests: `packages/core/src/api.test.ts` lists every export of each entry (and
-`apps/cli/src/stamp/plugin.test.ts` those of `shaderera/stamp`), and
+`apps/cli/src/stamp/plugin.it.ts` those of `shaderera/stamp`), and
 `packages/create-shaderera/src/create.test.ts` fails when the empty project imports anything but a
 stable entry. Adding or removing an export is therefore a visible change.
 

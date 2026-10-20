@@ -2,30 +2,16 @@
 // canvases and fonts from @napi-rs/canvas). Pixels are checked for what each item must draw.
 
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { Canvas, GlobalFonts } from '@napi-rs/canvas'
 import type { Host } from '@shaderera/core'
 import { create, globals } from 'webgpu'
+import { assemble } from './assemble.ts'
 
-// The items as `add` would lay them out in one project: each file at its path, so items built on
-// other items import them as a project would. Under out/, so node_modules still resolve.
-const plugins = join(import.meta.dirname, '..')
-const project = join(plugins, 'out', 'assembled')
-rmSync(project, { recursive: true, force: true })
-mkdirSync(project, { recursive: true })
-for (const item of readdirSync(plugins)) {
-  let label: { files?: string[] }
-  try {
-    label = JSON.parse(readFileSync(join(plugins, item, 'shaderera.item.json'), 'utf8'))
-  } catch {
-    continue
-  }
-  for (const f of label.files ?? [])
-    cpSync(join(plugins, item, f), join(project, f), { recursive: true })
-}
+const project = assemble()
 const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { createCodeWall, readCode } = (await from(
   'src/type/code-wall.ts',
@@ -63,7 +49,7 @@ const { decodeImage, loadAtlas, loadTexture } = (await from(
 type Analysis = import('../audio-beat-clock/src/music/beat.ts').Analysis
 
 Object.assign(globalThis, globals)
-const here = plugins
+const here = join(import.meta.dirname, '..')
 GlobalFonts.registerFromPath(
   join(here, 'font-ibm-plex-mono', 'assets', 'fonts', 'IBMPlexMono-SemiBold.ttf'),
   'Plex Bold',
