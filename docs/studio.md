@@ -12,10 +12,13 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
                      [--no-open]
 ```
 
-- **Without `--connect`**, it makes a studio session id and opens `<site>/studio/<id>` in your
-  default browser. `--no-open` prints the address instead.
-- **With `--connect <id>`**, it pairs with the id a studio page made. `<site>/studio` makes an
-  id and shows the command to give your agent: `npx shaderera@latest studio --connect <id>`.
+- **Without `--connect`**, it makes a studio session id.
+- **With `--connect <id>`**, it takes the id a studio page made. `<site>/studio` makes an id and
+  shows the command to give your agent: `npx shaderera@latest studio --connect <id>`.
+- **Either way, it opens `<site>/studio/<id>#<nonce>`** in your default browser, and pairs only
+  with the page that holds that nonce (below). From the web, that is a new tab: the page that
+  showed the command never pairs, and says the studio opened elsewhere once the new tab joins.
+  `--no-open` prints the address instead, for you to open; keep it to yourself.
 - **`--site <origin>`** is the site: `https://shaderera.com` by default, else `SHADERERA_SITE`,
   as for `share`. It is https, or plain http on this machine only (`localhost`, `127.0.0.1`).
 - **`--to <origin>`** is where Share sends films, as `share --to`: `https://shaderera.com` by
@@ -40,8 +43,12 @@ Add `--to <origin>` to share to a local films site as well, for example
 
 ## Ids and origins
 
-- **A studio session id** is 6 characters from `abcdefghjkmnpqrstuvwxyz23456789`. The page lives
+- **A studio session id** is 20 characters from `abcdefghjkmnpqrstuvwxyz23456789`. The page lives
   at `<site>/studio/<id>`.
+- **The pairing nonce** is 16 random bytes, base64url, new for each run of the command. The CLI
+  puts it in the address's fragment, `<site>/studio/<id>#<nonce>`, which the browser never sends
+  to a server. The page keeps it in this tab's `sessionStorage` until it pairs, so a reload of a
+  waiting page still pairs, and takes it off the address.
 - **Expiry.** An id expires when no CLI has paired with it within 10 minutes of its first
   connection. Once paired, it is used: no second CLI can pair with it.
 
@@ -53,7 +60,8 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
 1. **The page connects** with `role=page`.
 2. **The CLI connects** with `role=cli`. The relay forwards `{type:"cli-joined"}` to the page.
 3. **The page sends `{type:"page-hello", pub}`**: an ECDH P-256 public key, raw (uncompressed, 65
-   bytes), base64url. It sends it when it connects and again on every `cli-joined`.
+   bytes), base64url. It sends it when it connects and again on every `cli-joined`. A page with no
+   nonce sends nothing and waits.
 4. **The CLI replies `{type:"cli-hello", pub, version, os, telemetry}`** to every `page-hello`.
    - `pub` is its own key, the same for the life of the command.
    - `version` is the CLI's version.
@@ -64,12 +72,17 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
    - `info` = `"shaderera-studio-v0"`.
 
    The result is an AES-256-GCM key.
-6. **The CLI sends `{type:"bridge", iv, box}`.**
+6. **The page proves the nonce: `{type:"page-proof", iv, box}`.**
+   - `box` is the UTF-8 JSON `{"nonce":"<the nonce>"}`, sealed with the session key as below.
+   - The CLI ignores a proof that does not open with the key of the page's last `page-hello`, or
+     holds another nonce. Until a proof matches, it sends no `bridge` and answers no `rpc`.
+7. **The CLI sends `{type:"bridge", iv, box}`.**
    - `iv` is 12 random bytes.
    - `box` is the AES-GCM ciphertext, tag included, of the UTF-8 JSON `{"port":n,"secret":"<32 hex>"}`.
    - Both are base64url. The page also accepts plain base64.
    - The relay sees only ciphertext.
-7. **The page decrypts it and sends `{type:"paired"}`.** The relay marks the id used.
+8. **The page decrypts it and sends `{type:"paired"}`.** The relay marks the id used. It takes
+   `paired` only while a CLI is connected that has sent `bridge`.
 
 **The relay's rules:**
 - It forwards every frame from one side to the other as it is, and stores nothing.

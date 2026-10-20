@@ -497,8 +497,9 @@ when not sent) and `warnings`; `fork`'s is `site`, `dir`, `film`, `title`, `owne
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
-machine. Without `--connect`, it opens `<site>/studio/<id>` in your browser (`--no-open` prints
-the address instead); with `--connect <id>`, it pairs with the id a studio page made. The site is
+machine. It makes a studio session id, or takes the one a studio page made with `--connect <id>`,
+and opens `<site>/studio/<id>#<nonce>` in your browser (`--no-open` prints the address instead): it
+pairs only with the page that holds that nonce. The site is
 `--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Share sends films to
 `--to <origin>`, as `share --to` and with the same default, which can be another site than the
 page's. It also takes `--root`, `--host`, `--trusted` and `--timeout`, for the renders the page

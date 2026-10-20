@@ -1,11 +1,18 @@
-// The CLI's side of the relay (docs/studio.md): pairs with the page by ECDH, sends it the bridge's
-// port and secret sealed under the session key, and, when the page cannot reach 127.0.0.1, answers
-// its requests and pushes the bridge's events through the relay, sealed the same way.
+// The CLI's side of the relay (docs/studio.md): pairs with the page by ECDH, and once the page has
+// proved it holds the nonce the CLI opened it with, sends it the bridge's port and secret sealed
+// under the session key; when the page cannot reach 127.0.0.1, it answers its requests and pushes
+// the bridge's events through the relay, sealed the same way.
+import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { Bridge, StudioEvent } from './bridge.ts'
 import { CLOSE, keyPair, relayUrl, seal, sessionKey, unseal } from './pairing.ts'
 
 type Message = { type?: string; [key: string]: unknown }
+
+const sameNonce = (given: string, nonce: string) => {
+  const [a, b] = [Buffer.from(given), Buffer.from(nonce)]
+  return a.length === b.length && timingSafeEqual(a, b)
+}
 
 export type RelayEnd = { code: number; reason: string; paired: boolean }
 
@@ -20,12 +27,15 @@ export const closeText = (code: number, site: string, id: string): string =>
         : `The relay on ${site} closed (${code}).`
 
 /**
- * Connects to the relay as the CLI for studio session `id` and serves `bridge` through it.
- * `closed` resolves when the relay closes, with its code and whether the page had paired.
+ * Connects to the relay as the CLI for studio session `id` and serves `bridge` through it, to the
+ * page that proves it holds `nonce` only. `closed` resolves when the relay closes, with its code
+ * and whether the page had paired.
  */
 export const connectRelay = (o: {
   site: string
   id: string
+  /** The nonce in the address the CLI opened (pairing.ts's makeNonce). */
+  nonce: string
   bridge: Pick<Bridge, 'port' | 'secret' | 'handle' | 'onEvent'>
   hello: { version: string; os: string; telemetry: boolean }
   onPaired?: () => void
@@ -33,6 +43,9 @@ export const connectRelay = (o: {
 }): { closed: Promise<RelayEnd>; close: () => void } => {
   const ws = new WebSocket(relayUrl(o.site, o.id, 'cli'))
   let mine: Awaited<ReturnType<typeof keyPair>> | undefined
+  // The key of the last page-hello, and the key of the page that proved the nonce: only the second
+  // gets the bridge and has its requests answered.
+  let offered: CryptoKey | undefined
   let key: CryptoKey | undefined
   let paired = false
   let stopEvents: (() => void) | undefined
@@ -47,12 +60,21 @@ export const connectRelay = (o: {
       // One key pair for the CLI's life: a page-hello sent again gives the same key, and a new
       // page's (it reloaded before pairing) a new one.
       mine ??= await keyPair()
-      key = await sessionKey(mine.privateKey, m.pub, o.id)
+      offered = await sessionKey(mine.privateKey, m.pub, o.id)
       send({ type: 'cli-hello', pub: mine.pub, ...o.hello })
-      send({
-        type: 'bridge',
-        ...(await seal(key, { port: o.bridge.port, secret: o.bridge.secret })),
-      })
+    } else if (
+      m.type === 'page-proof' &&
+      offered &&
+      typeof m.iv === 'string' &&
+      typeof m.box === 'string'
+    ) {
+      // The proof opens with the key of the page's hello and holds the nonce: it is the page this
+      // CLI opened. Any other page never gets the bridge.
+      const k = offered
+      const proof = await unseal<{ nonce?: unknown }>(k, { iv: m.iv, box: m.box }).catch(() => null)
+      if (typeof proof?.nonce !== 'string' || !sameNonce(proof.nonce, o.nonce)) return
+      key = k
+      send({ type: 'bridge', ...(await seal(k, { port: o.bridge.port, secret: o.bridge.secret })) })
     } else if (m.type === 'paired') {
       paired = true
       o.onPaired?.()

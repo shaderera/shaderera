@@ -4,7 +4,7 @@ import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
 import { isOrigin } from '../player/parents.ts'
 import { startBridge } from '../studio/bridge.ts'
-import { isId, makeId, pageUrl } from '../studio/pairing.ts'
+import { ID_LENGTH, isId, makeId, makeNonce, pageUrl } from '../studio/pairing.ts'
 import { closeText, connectRelay } from '../studio/relay.ts'
 import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
 import { common } from './args.ts'
@@ -25,9 +25,9 @@ const openBrowser = (url: string) => {
 /**
  * `shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origin <dev origin>]...
  * [--no-open]`: the local bridge of the studio page on the site (docs/studio.md, decision 0021).
- * Without `--connect` it makes a studio session id and opens `<site>/studio/<id>`; with it, it
- * pairs with the id the page made. Share sends films to `--to`, as `shaderera share` does. It runs
- * until Ctrl-C.
+ * Without `--connect` it makes a studio session id; with it, it takes the id the page made. Either
+ * way it opens `<site>/studio/<id>#<nonce>` itself and pairs only with the page that holds that
+ * nonce. Share sends films to `--to`, as `shaderera share` does. It runs until Ctrl-C.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v } = parseArgs({
@@ -48,7 +48,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       throw new Error(`--origin takes an origin (scheme, host and port), not ${origin}.`)
   if (v.connect !== undefined && !isId(v.connect))
     throw new Error(
-      `Not a studio session id: ${v.connect} (6 letters and digits, from ${site}/studio).`,
+      `Not a studio session id: ${v.connect} (${ID_LENGTH} letters and digits, from ${site}/studio).`,
     )
   const { root } = await findProject(v.root ?? process.cwd())
   noticeOnce((text) => console.log(`${text}\n`))
@@ -64,12 +64,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (e.type === 'changed') console.log(`changed: revision ${e.revision}`)
   })
   const id = v.connect ?? makeId()
-  const page = pageUrl(site, id)
+  // The page pairs only if it holds the nonce, which only the page opened here has.
+  const nonce = makeNonce()
+  const page = pageUrl(site, id, nonce)
   console.log(`project  ${root}`)
   console.log(`bridge   ${bridge.origin} (for ${site} only)`)
   if (to !== site) console.log(`share to ${to}`)
-  if (v.connect) console.log(`pairing with ${page}`)
-  else if (v['no-open']) console.log(`open     ${page}`)
+  if (v['no-open']) console.log(`open     ${page}`)
   else {
     console.log(`opening  ${page}`)
     openBrowser(page)
@@ -78,6 +79,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const relay = connectRelay({
     site,
     id,
+    nonce,
     bridge,
     hello: { version: shadereraVersion(), os: process.platform, telemetry: telemetryStatus().on },
     onPaired: () => console.log('paired: the studio page drives this project. Ctrl-C stops.'),

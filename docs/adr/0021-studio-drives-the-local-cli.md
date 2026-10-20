@@ -26,6 +26,7 @@ A spike on workers.dev measured this in Chrome 155 and Edge 155. Pairing went th
    - The CLI and the page meet on the relay only to exchange the CLI's port and a secret. The secret is exchanged end to end, so the relay never learns it.
    - After pairing, the page talks to 127.0.0.1 directly. The bridge accepts only shaderera.com's origin carrying that session's secret.
    - Another browser that opens the same link sees nothing.
+   - (Amended 2026-10-20, #138: the CLI pairs only with the page it opened. It opens `<site>/studio/<id>#<nonce>` itself, from the web way in too, and sends the port and secret only to a page that proves it holds the nonce. The fragment reaches no server, so a page the person did not get from their own CLI never pairs.)
 5. **The fallback is the relay.** Where a browser refuses loopback (Safari and Brave, and Chrome if the person declines the prompt), the session runs through the relay instead. The page says so. The relay forwards and stores nothing.
 6. **Code reaches shaderera.com only when the person shares.** The studio's share button runs `shaderera share` (0019, 0020). Shared films are listed on the site automatically.
 7. **Telemetry without code.** shaderera.com records studio events only:

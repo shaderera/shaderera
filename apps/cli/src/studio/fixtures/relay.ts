@@ -2,7 +2,8 @@
 // WebSocket server of its own (RFC 6455, text and close frames only) at
 // /studio/relay/<id>?role=page|cli, with the relay's rules:
 // - an id not paired within `ttlMs` of its first connection is expired: a CLI gets 4001;
-// - once the page sends `paired`, the id is used: a CLI gets 4002 and a page 4003;
+// - once the page sends `paired` (taken only after the CLI there has sent `bridge`), the id is
+//   used: a CLI gets 4002 and a page 4003;
 // - before that, a second CLI gets 4002 too, and a second page replaces the first (a reload);
 // - `cli-joined` goes to the page when a CLI connects; `page-left`/`cli-left` when a side closes;
 // - every other frame goes to the other side as it is.
@@ -12,7 +13,7 @@ import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 
 type Peer = { send: (text: string) => void; close: (code: number, reason: string) => void }
-type Session = { created: number; paired: boolean; page?: Peer; cli?: Peer }
+type Session = { created: number; paired: boolean; bridged?: boolean; page?: Peer; cli?: Peer }
 
 const frame = (opcode: number, payload: Buffer): Buffer => {
   const n = payload.length
@@ -106,7 +107,7 @@ export const startRelay = async (o: { ttlMs?: number } = {}) => {
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
     const url = new URL(req.url ?? '/', 'http://relay')
-    const match = /^\/studio\/relay\/([a-z2-9]{6})$/.exec(url.pathname)
+    const match = /^\/studio\/relay\/([a-z2-9]{20})$/.exec(url.pathname)
     const role = url.searchParams.get('role')
     if (!match || (role !== 'page' && role !== 'cli')) return socket.destroy()
     const accept = createHash('sha1')
@@ -127,7 +128,9 @@ export const startRelay = async (o: { ttlMs?: number } = {}) => {
       socket,
       (text) => {
         seen.push(text)
-        if (role === 'page' && (JSON.parse(text) as { type?: string }).type === 'paired')
+        const type = (JSON.parse(text) as { type?: string }).type
+        if (role === 'cli' && type === 'bridge') session.bridged = true
+        if (role === 'page' && type === 'paired' && session.cli && session.bridged)
           session.paired = true
         other()?.send(text)
       },
@@ -142,6 +145,7 @@ export const startRelay = async (o: { ttlMs?: number } = {}) => {
     if (role === 'page' && session.paired) return me.close(4003, 'taken')
     session[role]?.close(4000, 'replaced')
     session[role] = me
+    if (role === 'cli') session.bridged = false
     if (role === 'cli') session.page?.send(JSON.stringify({ type: 'cli-joined' }))
   })
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', () => done()))
