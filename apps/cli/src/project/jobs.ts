@@ -230,6 +230,12 @@ const frozenBuild = async (root: string, revision: string, variant: string | und
 }
 
 /**
+ * A variant's name as a file name: it may hold what a file name cannot (`16:9`, a space, a `/`),
+ * and `..` would leave the folder.
+ */
+export const safeName = (name: string) => name.replace(/[^\w.-]|^\.+$/g, '_')
+
+/**
  * Freezes a job: saves the working tree as a revision unless one is named, resolves the variant
  * and params against that revision's manifest, records the packages it executes, and writes
  * `versions/jobs/<name>.json`. The same inputs under the same name return the job already there;
@@ -292,10 +298,7 @@ export const createJob = async (
   const job: Job = {
     shaderera,
     id,
-    // A variant's name may hold what a file name cannot (`16:9`, a space).
-    name:
-      o.name ??
-      `${(o.variant ?? 'main').replace(/[^\w.-]/g, '_')}-${revision.slice(0, 8)}-${id.slice(0, 6)}`,
+    name: o.name ?? `${safeName(o.variant ?? 'main')}-${revision.slice(0, 8)}-${id.slice(0, 6)}`,
     ...(o.label ? { label: o.label } : {}),
     created: new Date().toISOString(),
     by: o.by,
