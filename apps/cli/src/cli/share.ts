@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, join, relative } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { parseArgs } from 'node:util'
 import { shadereraVersion } from '../deliver/environment.ts'
@@ -8,6 +8,7 @@ import { findProject } from '../node/project.ts'
 import { buildPlayer } from '../player/build.ts'
 import { type Files, hashFile, scan, slash } from '../project/revisions.ts'
 import { EXIT } from './findings.ts'
+import { mediaDir, renderMedia } from './media.ts'
 import {
   bytesText,
   call,
@@ -97,9 +98,11 @@ export const playerFiles = (dir: string): Files => {
 
 /**
  * Sends a version: uploads what the site lacks of the source (`files`, under `root`) and of the
- * player (`player`, a folder of built player files; none when left out), makes the film when
- * there is none yet, and posts `{ files, player, licence, shaderera }`. A site that refuses a
- * version without a player says so, and that error is the share's.
+ * player (`player`, a folder of built player files; none when left out) and of the poster and
+ * loop (`media`, their files), makes the film when there is none yet, and posts `{ files, player,
+ * licence, shaderera, poster?, loop? }`. A site that refuses a version without a player says so,
+ * and that error is the share's. The url is the film's page: the response's `page`, else
+ * `<site>/f/<film>`; never its `url`, which is the player's runner.
  */
 export const send = async (o: {
   site: string
@@ -111,13 +114,16 @@ export const send = async (o: {
   film?: string
   forkedFrom?: string
   player?: string
+  media?: { poster?: string; loop?: string }
 }): Promise<{ film: string; version: string; url: string; uploaded: number; objects: number }> => {
   const { site, token, root } = o
   const player = o.player ? playerFiles(o.player) : {}
+  const media = Object.entries(o.media ?? {}).map(([k, file]) => [k, file, hashFile(file)] as const)
   // Each hash's file on this machine; each is read again and must still be what was hashed.
   const fileOf = new Map<string, readonly [string, string]>([
     ...Object.entries(player).map(([p, sha]) => [sha, [o.player as string, p]] as const),
     ...Object.entries(o.files).map(([p, sha]) => [sha, [root, p]] as const),
+    ...media.map(([, file, sha]) => [sha, [dirname(file), basename(file)]] as const),
   ])
   const { missing } = (await (
     await call(site, 'POST', '/uploads/missing', { token, json: { hashes: [...fileOf.keys()] } })
@@ -147,15 +153,21 @@ export const send = async (o: {
   const made = (await (
     await call(site, 'POST', `/films/${encodeURIComponent(film)}/versions`, {
       token,
-      json: { files: o.files, player, licence: o.licence, shaderera: shadereraVersion() },
+      json: {
+        files: o.files,
+        player,
+        licence: o.licence,
+        shaderera: shadereraVersion(),
+        ...Object.fromEntries(media.map(([k, , sha]) => [k, sha])),
+      },
     })
-  ).json()) as { version: string; url?: string }
+  ).json()) as { version: string; page?: string }
   // A --film is noted once a version reached it.
   if (film !== readShareNote(root, site).film) writeShareNote(root, site, { ...before, film })
   return {
     film,
     version: made.version,
-    url: made.url ?? `${site}/f/${film}`,
+    url: made.page ?? `${site}/f/${film}`,
     uploaded: missing.length,
     objects: fileOf.size,
   }
@@ -170,8 +182,10 @@ export class LoginNeeded extends Error {}
 /**
  * A share, as `shaderera share` and the studio's share button run it: builds the project's web
  * player, says what it will send (`say`), asks (`confirm`; none: send), then sends the project
- * and the player to the site as a new film, or as a new version of the film it shared to before.
- * Null when declined. A player that does not build stops it before anything is sent.
+ * and the player to the site as a new film, or as a new version of the film it shared to before,
+ * with a poster and a loop (renderMedia; `media: false`: none). Null when declined. A player that
+ * does not build stops it before anything is sent; a poster or loop that does not render is
+ * left out, with a warning (`warn`; none: `say`).
  */
 export const shareProject = async (o: {
   root: string
@@ -179,7 +193,9 @@ export const shareProject = async (o: {
   film?: string
   title?: string
   say?: (line: string) => void
+  warn?: (line: string) => void
   confirm?: () => Promise<boolean>
+  media?: boolean
 }): Promise<{
   site: string
   film: string
@@ -192,6 +208,10 @@ export const shareProject = async (o: {
   uploaded: number
   objects: number
   notSent: string[]
+  /** The poster's and the loop's bytes; null when not sent. */
+  poster: number | null
+  loop: number | null
+  warnings: string[]
 } | null> => {
   const { site } = o
   const say = o.say ?? (() => {})
@@ -225,6 +245,16 @@ export const shareProject = async (o: {
   )
   if (secrets.length > 0) say(`  not sent: ${secrets.join(', ')}`)
   if (o.confirm && !(await o.confirm())) return null
+  const media = o.media === false ? { warnings: [] } : await renderMedia(root, mediaDir(root))
+  for (const w of media.warnings) (o.warn ?? say)(w)
+  const size = (file?: string) => (file ? statSync(file).size : null)
+  const poster = size(media.poster)
+  const loop = size(media.loop)
+  const sizes = [
+    ...(poster === null ? [] : [`a poster of ${bytesText(poster)}`]),
+    ...(loop === null ? [] : [`a loop of ${bytesText(loop)}`]),
+  ]
+  if (sizes.length > 0) say(`  with ${sizes.join(' and ')}`)
 
   const sent = await send({
     site,
@@ -236,6 +266,10 @@ export const shareProject = async (o: {
     ...(film ? { film } : {}),
     ...(note.forkedFrom ? { forkedFrom: note.forkedFrom } : {}),
     player: dir,
+    media: {
+      ...(media.poster ? { poster: media.poster } : {}),
+      ...(media.loop ? { loop: media.loop } : {}),
+    },
   })
   return {
     site,
@@ -249,12 +283,16 @@ export const shareProject = async (o: {
     uploaded: sent.uploaded,
     objects: sent.objects,
     notSent: secrets,
+    poster,
+    loop,
+    warnings: media.warnings,
   }
 }
 
 /**
- * `shaderera share [--to <origin>] [--film <id>] [--title <t>] [--yes] [--json]`: shareProject. It
- * prints what it will send and asks first; off a terminal (or with `--json`) it needs `--yes`.
+ * `shaderera share [--to <origin>] [--film <id>] [--title <t>] [--no-media] [--yes] [--json]`:
+ * shareProject. It prints what it will send and asks first; off a terminal (or with `--json`) it
+ * needs `--yes`. It prints the film's page; warnings go to stderr.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v } = parseArgs({
@@ -265,6 +303,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       title: { type: 'string' },
       yes: { type: 'boolean' },
       json: { type: 'boolean' },
+      'no-media': { type: 'boolean' },
       root: { type: 'string' },
     },
   })
@@ -277,6 +316,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     say: (line) => {
       if (!v.json) console.log(line)
     },
+    warn: (line) => console.warn(`! ${line}`),
+    media: v['no-media'] !== true,
     confirm: async () => {
       if (v.yes) return true
       if (v.json || !process.stdin.isTTY || !process.stdout.isTTY)

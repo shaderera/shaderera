@@ -419,7 +419,7 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 | Command | What it does |
 |---|---|
 | `login --token <token> [--to origin]` | keeps the token for that site in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
-| `share [--film id] [--title t] [--yes] [--to origin] [--json]` | builds the project's web player, and sends the project and the player as a new film, or as a new version of the film it shared to before |
+| `share [--film id] [--title t] [--no-media] [--yes] [--to origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
 | `fork <film\|url>[@version] [dir] [--to origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
@@ -437,6 +437,13 @@ them (made with ffmpeg) and the bakes' frames. The site stores and serves it and
 Only the site's own pages may frame the player and get its port. A player that does not build (a
 bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the share before
 anything is sent.
+
+**A poster and a loop** go with each version, for the site to show the film by: the main
+variant's frame at the film's middle, a webp at most 1280 px wide and 500 KB; and its first
+min(4 s, duration), a silent H.264 mp4 480 px wide and at most 4 MB. `share` renders them with
+the CLI's own host and ffmpeg into `.shaderera/media/`, after you confirm. One that does not
+render (no ffmpeg, a frame that fails, too large) is left out with a warning, and the film is
+shared without it. `--no-media` renders and sends neither.
 
 Before sending, it prints how many files and bytes it will send, the player's, to which site and
 film, and asks.
@@ -458,9 +465,13 @@ $ npx shaderera share
 share: 14 files, 2.1 MB, and a player of 31 files, 3.4 MB, to https://shaderera.com as a new film "neon-rain" (licence MIT)
   not sent: .env
 Send? [y/N] y
-shared film k3x9q2mfa7 version 3ff052ac4865: 31 of 31 files were new
-  https://shaderera.com/f/k3x9q2mfa7
+  with a poster of 48 KB and a loop of 612 KB
+shared film k3x9q2mfa7 version 3ff052ac4865: 33 of 33 files were new
+  https://shaderera.com/film/k3x9q2mfa7
 ```
+
+The address it prints is the film's page, the canvas with the film open, as the site answers it
+(else `<site>/f/<film>`).
 
 **`fork`** takes a film's id, `<id>@<version>` (a version may be the start of one) or the address
 of its page, whose origin is then the site; without a version it takes the latest. It needs no
@@ -474,7 +485,8 @@ forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 file
 ```
 
 With `--json`, `share`'s result is `site`, `film`, `created`, `version`, `url`, `files`, `bytes`,
-`player` (`{ files, bytes }`), `uploaded` and `notSent`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
+`player` (`{ files, bytes }`), `uploaded`, `notSent`, `poster` and `loop` (their bytes, or null
+when not sent) and `warnings`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
 `licence`, `files` and `bytes`.
 
 ## `studio`, `telemetry`

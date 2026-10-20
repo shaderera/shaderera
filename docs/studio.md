@@ -186,6 +186,8 @@ A job that is not done gets `409`. An unknown one gets `404`.
 
 Runs `shaderera share` as you, with your own login (`shaderera login`), to the site. Pressing
 Share in the page is the confirmation. A new film is titled `title`, else as `share` titles it.
+`url` is the film's page, as `share` prints it; a poster or loop that did not render is a `warn`
+log line.
 
 - **Not logged in** (no token for the site, or the site refused it): `401` with
   `{error:"login", command:"npx shaderera login"}`.

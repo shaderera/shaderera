@@ -308,6 +308,7 @@ export const startBridge = async (o: {
           site: o.site,
           ...(typeof body.title === 'string' && body.title.trim() ? { title: body.title } : {}),
           say: (line) => log('info', line),
+          warn: (line) => log('warn', line),
         })
         if (!shared) throw new Error('Nothing was sent.')
         log('info', `shared ${shared.url}`)
