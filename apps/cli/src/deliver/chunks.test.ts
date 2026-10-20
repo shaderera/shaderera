@@ -92,3 +92,30 @@ test('chunks rendered apart and assembled give the very file one render gives', 
     assert.match(cli(root, 'assemble', '--plan', plan).stderr, /chunk-001\.mkv changed/)
   }
 })
+
+// The frames a file holds, decoded (Matroska's own header differs from one write to the next).
+const frames = (file: string) =>
+  spawnSync('ffmpeg', ['-loglevel', 'error', '-i', file, '-f', 'framemd5', '-'], {
+    encoding: 'utf8',
+  }).stdout.replace(/^#.*\n/gm, '')
+
+test('a chunk spread over several hosts holds the frames one host makes', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const root = mkdtempSync(join(tmpdir(), 'shaderera-chunk-workers-'))
+  cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
+    recursive: true,
+  })
+  writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1 }))
+  assert.equal(cli(root, 'job', '--name', 'w').status, 0)
+  assert.equal(cli(root, 'plan', '--job', 'w', '--chunks', '1').status, 0)
+  const file = join(root, 'out', 'w.plan', 'chunk-000.mkv')
+  const one = cli(root, 'render', '--job', 'w', '--chunk', '0', '--workers', '1')
+  assert.equal(one.status, 0, one.stderr)
+  assert.match(one.stdout, /on 1 host\(s\)/)
+  const single = frames(file)
+  const two = cli(root, 'render', '--job', 'w', '--chunk', '0', '--workers', '2')
+  assert.equal(two.status, 0, two.stderr)
+  assert.match(two.stdout, /on 2 host\(s\)/)
+  assert.equal(frames(file), single, 'the same frames on two hosts')
+})

@@ -137,24 +137,27 @@ export const readPlan = (dir: string): Plan => {
 /**
  * Renders one chunk on this machine into `<dir>/<file>` (written beside it and moved into place),
  * with exportFrames's determinism re-check on its own frames, and records it in `<file>.json`.
+ * Frames go round `hosts` (the first also re-checks and is recorded), two ahead a host; the
+ * caller opens and closes them.
  */
 export const renderChunk = async (
-  child: Child,
+  hosts: readonly [Child, ...Child[]],
   plan: Plan,
   index: number,
   dir: string,
   onFrame?: (i: number, n: number) => void,
 ): Promise<ChunkRecord> => {
   requireFfmpeg()
+  const child = hosts[0]
   const chunk = plan.chunks[index]
   if (!chunk) throw new Error(`The plan has chunks 0 to ${plan.chunks.length - 1}, not ${index}.`)
   if (chunk.reused)
     throw new Error(
       `Chunk ${index} is frames of job ${chunk.reused.job}'s plan, reused: there is nothing to render.`,
     )
-  if (plan.input === 'yuv420p' && !child.has.yuv)
+  if (plan.input === 'yuv420p' && !hosts.every((h) => h.has.yuv))
     throw new Error('This plan hands frames over as yuv420p, made on the GPU: this host has none.')
-  if (plan.input === 'rgba64' && !child.has.deep)
+  if (plan.input === 'rgba64' && !hosts.every((h) => h.has.deep))
     throw new Error('This plan hands frames over at 16 bits, made on the GPU: this host has none.')
   mkdirSync(dir, { recursive: true })
   const out = join(dir, chunk.file)
@@ -182,15 +185,19 @@ export const renderChunk = async (
   ]
   // Not matted: the bytes the host hands over are the bytes stored.
   const sink = ffmpegSink(args, plan.input, false)
+  let next = 0
   try {
     const { frames } = await exportFrames({
       fps: plan.fps,
       from: chunk.from,
       to: chunk.to,
-      render: async (t) => (await child.render(t, 'final', plan.input)).pixels,
+      // Frames go round the hosts in the order exportFrames asks for them.
+      render: async (t) =>
+        (await (hosts[next++ % hosts.length] as Child).render(t, 'final', plan.input)).pixels,
       inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
       sink,
       onFrame,
+      ahead: hosts.length * 2,
     })
     if (frames !== chunk.frames)
       throw new Error(`Chunk ${index} rendered ${frames} frames; the plan has ${chunk.frames}.`)

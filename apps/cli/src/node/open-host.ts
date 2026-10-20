@@ -55,3 +55,18 @@ export const hostOpener = async (
   return () =>
     openChild(sized, { ...common, entryFile: built.entryFile, trusted: o.trusted === true })
 }
+
+/**
+ * `n` more hosts from an opener, all opening at once (each runs the source's open). If one
+ * fails, the ones that opened are closed and its error is thrown.
+ */
+export const openHosts = async (more: () => Promise<Child>, n: number): Promise<Child[]> => {
+  const opened = await Promise.allSettled(Array.from({ length: n }, () => more()))
+  const hosts = opened.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+  const failed = opened.find((r) => r.status === 'rejected')
+  if (failed) {
+    await Promise.all(hosts.map((h) => h.close()))
+    throw (failed as PromiseRejectedResult).reason
+  }
+  return hosts
+}

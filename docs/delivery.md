@@ -271,7 +271,9 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
 - `plan` splits the job's frames into chunks of whole frames and fixes the format every host hands
   them over in (yuv420p or 16-bit RGBA from the GPU compositor, else RGBA).
 - Each chunk renders, with its own determinism re-check, into a lossless FFV1 file (the bytes the
-  host made), recorded with its sha256 and host. Where it runs is the person's: machines in the
+  host made), recorded with its sha256 and host. Its frames go round `--workers` hosts on that
+  machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
+  heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
 - `assemble` refuses a missing or changed chunk, and chunks from different kinds of host (another
   GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`. It
