@@ -16,6 +16,7 @@
 // Writes the new audio (48 kHz, 24-bit WAV) and, beside it, <out>.map.json: a
 // shaderera.analysis/1 time-map whose knots [old seconds, new seconds] src/audio/repace.ts reads.
 
+import { hex } from '../src/audio/repace.ts'
 import { parseTimedText, type Word } from '../src/type/timed-text.ts'
 
 export type Repace = { maxPause: number; keep: readonly number[]; tempo: number; fade: number }
@@ -92,11 +93,6 @@ export const repace = (
     cuts: cuts.length,
     knots: knots.map(([x, y]) => [x, Math.round((y / o.tempo) * 1e6) / 1e6] as [number, number]),
   }
-}
-
-const hex = async (bytes: Uint8Array) => {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 if (import.meta.main) {
