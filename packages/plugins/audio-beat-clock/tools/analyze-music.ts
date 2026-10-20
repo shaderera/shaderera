@@ -182,7 +182,7 @@ const perFrame = Math.floor(duration * FPS)
 const bands = Object.fromEntries(
   bandNames.map((b) => {
     const en = energy[b]
-    const max = Math.max(...en)
+    const max = en.reduce((m, v) => Math.max(m, v), 0)
     return [
       b,
       Array.from({ length: perFrame }, (_, i) => {
@@ -194,7 +194,7 @@ const bands = Object.fromEntries(
 )
 
 // Silences: 40 ms or more under -40 dB below the song's peak RMS.
-const peak = Math.max(...rms)
+const peak = rms.reduce((m, v) => Math.max(m, v), 0)
 const silences: { from: number; to: number }[] = []
 let start = -1
 for (let f = 0; f < frames; f++) {

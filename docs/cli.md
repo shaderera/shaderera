@@ -29,6 +29,8 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 - **`--root <dir>`**: where to start looking for `shaderera.json`. Default: the working
   directory. The CLI walks up to the nearest directory that has one, so it works from `src/`.
 - **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused.
+  In the files named after it (`out/<project>-<variant>.mp4`, `out/stills/<variant>-<t>.png`,
+  `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
 - **`--host node|browser`**: overrides the manifest's `host` for this run. A project with `dom`
   cannot be run with `--host node`.
 - **`--trusted`**: run the project without Node's permission model
@@ -169,11 +171,12 @@ out/stills/final-vs-animatic-4.000.png  vs animatic: PSNR 38.41 dB, mean ΔE 0.4
 Renders every frame `i / fps` in `[from, to)` at `intent: 'final'`, spread over the workers and
 written in order. What each format is, and what was measured: [delivery.md](delivery.md).
 
-The file is written as `<out>.partial` and renamed to `<out>` only when it is complete: while a
-render runs, `<out>` is the previous film or nothing, never half a film. A render that fails or is
+The file is written as `<out>.<pid>.partial` (the render's process id, so two renders to one
+`<out>` never share it) and renamed to `<out>` only when it is complete: while a render runs,
+`<out>` is the previous film or nothing, never half a film. A render that fails or is
 stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
-kept as `<out>.partial` and the error says so. A host error fails the render with
+kept as `<out>.<pid>.partial` and the error says so. A host error fails the render with
 its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
 memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
 The file must hold every frame rendered; one ffmpeg finished short is refused.
@@ -230,7 +233,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `.mcp.json`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, at any depth |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
@@ -426,7 +429,8 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 [above](#versions-and-jobs)), and nothing else:
 - never `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, `node_modules/` or `.git/`
   anywhere, or a link (symlink, junction);
-- never a secret: `.env`, `.env.*` or `.npmrc`, at any depth (it names the ones it leaves out);
+- never a file that holds secrets, which a revision never holds (`save`, above): it names the
+  ones it leaves out;
 - besides the files, the licence (package.json's `license`), the title of a new film and the
   version of `shaderera` that sent it.
 
@@ -446,7 +450,7 @@ render (no ffmpeg, a frame that fails, too large) is left out with a warning, an
 shared without it. `--no-media` renders and sends neither.
 
 Before sending, it prints how many files and bytes it will send, the player's, to which site and
-film, and asks.
+film, the secrets it leaves out, and asks.
 Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exits 2. Declining
 sends nothing and exits 1. Only the files the site does not already have are uploaded, each one
 checked against its sha256 as it is read.

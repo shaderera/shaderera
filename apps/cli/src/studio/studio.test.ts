@@ -24,8 +24,7 @@ const SITE = 'https://shaderera.example'
 const DEV = 'http://localhost:3000'
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
-const fixture = () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-studio-'))
+const fixture = (root = mkdtempSync(join(tmpdir(), 'shaderera-studio-'))) => {
   cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
@@ -435,6 +434,53 @@ test('/render renders on this machine into out/, and /render/<job>/file streams 
   )
 })
 
+test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and the bridge lives on', async () => {
+  const thai = fixture(join(mkdtempSync(join(tmpdir(), 'shaderera-studio-')), 'ภาพยนตร์'))
+  const manifest = JSON.parse(readFileSync(join(thai, 'shaderera.json'), 'utf8'))
+  manifest.variants['16:9'] = { params: { grey: 50 } }
+  writeFileSync(join(thai, 'shaderera.json'), JSON.stringify(manifest))
+  const b = await startBridge({ root: thai, to: SITE, origins: [SITE], settleMs: 50 })
+  try {
+    const sse = events(b)
+    await sse.opened
+    const r = await call(b.port, {
+      method: 'POST',
+      path: '/render',
+      headers: asPage(b),
+      body: { format: 'png', variant: '16:9' },
+    })
+    const { job } = jsonOf(r)
+    const end = await sse.next(
+      (e) => e.type === 'job' && e.id === job && (e.state === 'done' || e.state === 'failed'),
+    )
+    sse.close()
+    assert.equal(end.type === 'job' && end.state, 'done', JSON.stringify(end))
+    const name = `ภาพยนตร์-16_9-${job}.png`
+    assert.ok(existsSync(join(thai, 'out', 'studio', name)))
+    const file = await call(b.port, { path: `/render/${job}/file`, headers: asPage(b) })
+    assert.equal(file.status, 200)
+    const disposition = String(file.headers['content-disposition'])
+    assert.equal(
+      disposition,
+      `attachment; filename="________-16_9-${job}.png"; filename*=UTF-8''${encodeURIComponent(name)}`,
+    )
+    assert.equal(decodeURIComponent(disposition.split("UTF-8''")[1] as string), name)
+    // a name the format table only inherits is not a format
+    for (const format of ['toString', 'constructor']) {
+      const bad = await call(b.port, {
+        method: 'POST',
+        path: '/render',
+        headers: asPage(b),
+        body: { format },
+      })
+      assert.equal(bad.status, 400, format)
+    }
+    assert.equal((await call(b.port, { path: '/info', headers: asPage(b) })).status, 200)
+  } finally {
+    await b.close()
+  }
+})
+
 test('/render makes an mp4 with ffmpeg', { skip: !ffmpeg && 'no ffmpeg' }, async () => {
   const job = await renderJob({ format: 'mp4', params: { grey: 200 } })
   const file = await call(bridge.port, { path: `/render/${job}/file`, headers: asPage(bridge) })
@@ -533,6 +579,22 @@ test('telemetry: one notice, off by config or by SHADERERA_TELEMETRY=0', () => {
     delete process.env.SHADERERA_TELEMETRY
   }
   setTelemetry(true)
+})
+
+test('telemetry: a config that cannot be read is off, and is never overwritten', () => {
+  const file = join(home, '.shaderera', 'config.json')
+  const broken = '{ "telemetry": false, }\n'
+  mkdirSync(join(home, '.shaderera'), { recursive: true })
+  const was = existsSync(file) ? readFileSync(file, 'utf8') : '{}\n'
+  writeFileSync(file, broken)
+  try {
+    assert.deepEqual(telemetryStatus(), { on: false, by: 'config' })
+    assert.ok(!noticeOnce(() => {}))
+    assert.throws(() => setTelemetry(true), /cannot be read: fix it or delete it/)
+    assert.equal(readFileSync(file, 'utf8'), broken)
+  } finally {
+    writeFileSync(file, was)
+  }
 })
 
 test('shaderera studio --connect pairs with the page, and says so when the id expired', async () => {

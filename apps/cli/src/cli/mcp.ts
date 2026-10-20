@@ -12,7 +12,7 @@ import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
 import { findProject, type Project } from '../node/project.ts'
 import { createNodeSession } from '../node/session.ts'
-import { createJob, listJobs, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
+import { createJob, listJobs, openJob, readJob, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { head, log, save } from '../project/revisions.ts'
 import { review } from '../review/review.ts'
@@ -185,7 +185,9 @@ export const createServer = (
     if (!c.has.inspect) throw new Error('This source has no inspect(t).')
     return c.inspect(t)
   }
-  // biome-ignore lint/suspicious/noExplicitAny: arguments are checked by the tool's input schema
+  // The low-level Server does not check arguments against a tool's input schema: they come as
+  // the client sent them, and each tool reads what it needs.
+  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
   const call = async (name: string, a: { [k: string]: any }): Promise<unknown> => {
     const opened = await session.open()
     const { root, manifest } = opened.project
@@ -298,7 +300,7 @@ export const createServer = (
           const report = await review({
             project: target.project,
             child: target.child,
-            outDir: join(root, 'out', 'review', ...(variant ? [variant] : [])),
+            outDir: join(root, 'out', 'review', ...(variant ? [safeName(variant)] : [])),
             requirements: outputRequirements(readRequirements(root), {
               variant,
               ...target.project.manifest,

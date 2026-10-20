@@ -28,15 +28,15 @@ const chain = (cues: { start: number; end?: number; text: string; words?: Word[]
 
 /**
  * LRC: `[mm:ss.xx] line`, several stamps on one line for a repeated line, and enhanced LRC's
- * `<mm:ss.xx>` before each word. Tags such as `[ar:…]` and `[offset:+250]` (ms, added to every
- * time, as the format says) are read; lines without a time are skipped.
+ * `<mm:ss.xx>` before each word. Tags such as `[ar:…]` and `[offset:+250]` (ms; a positive offset
+ * makes every time sooner, as the format says) are read; lines without a time are skipped.
  */
 export const parseLrc = (source: string): Cue[] => {
   const offset = Number(/^\[offset:\s*([+-]?\d+)\]/im.exec(source)?.[1] ?? 0) / 1000
   const cues: { start: number; text: string; words?: Word[] }[] = []
   const stamp = /\[(\d+):(\d+(?:\.\d+)?)\]/g
   for (const line of source.split(/\r?\n/)) {
-    const starts = [...line.matchAll(stamp)].map((m) => clock(m[1] ?? '0', m[2] ?? '0') + offset)
+    const starts = [...line.matchAll(stamp)].map((m) => clock(m[1] ?? '0', m[2] ?? '0') - offset)
     if (starts.length === 0) continue
     const body = line.replace(stamp, '')
     const marks = [...body.matchAll(/<(\d+):(\d+(?:\.\d+)?)>([^<]*)/g)]
@@ -46,7 +46,9 @@ export const parseLrc = (source: string): Cue[] => {
         cues.push({ start, text })
         continue
       }
-      const times = marks.map((m) => clock(m[1] ?? '0', m[2] ?? '0') + offset)
+      // Word times are written for the first stamp; a repeat of the line moves them with it.
+      const shift = start - (starts[0] as number)
+      const times = marks.map((m) => clock(m[1] ?? '0', m[2] ?? '0') - offset + shift)
       const words = marks.flatMap((m, i) => {
         const word = (m[3] ?? '').trim()
         return word

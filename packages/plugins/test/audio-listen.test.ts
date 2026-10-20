@@ -93,10 +93,14 @@ test("audio-listen: a stroke per onset, and a take's peak is the centre of its l
   })
   assert.equal(strokesOf(swell, RATE).length, 1)
   assert.deepEqual(
-    windowsOf(3, 1).map((w) => w.start),
+    windowsOf(new Float32Array(3 * RATE), RATE, 1).map((w) => w.start),
     [0, 0.5, 1, 1.5, 2],
   )
-  assert.deepEqual(windowsOf(0, 1), [], 'nothing to cut, and no endless loop')
+  assert.deepEqual(
+    windowsOf(new Float32Array(0), RATE, 1),
+    [],
+    'nothing to cut, and no endless loop',
+  )
 })
 
 test('audio-listen: two hits 80 ms apart, the first still ringing, are both takes', async () => {
@@ -189,6 +193,32 @@ test('audio-listen: takes come best first, each ranked against the other descrip
       fake('x'),
     ),
     /nothing in it is louder than -60 dBFS/,
+  )
+})
+
+test('audio-listen: texture hears the loudest windows of a long recording, wherever they are', async () => {
+  // 200 s of a quiet whistle, and 2 s of a loud low hum near the end: 399 one-second windows.
+  const pcm = Float32Array.from({ length: 200 * RATE }, (_, i) => {
+    const t = i / RATE
+    return t >= 180 && t < 182
+      ? 0.5 * Math.sin(2 * Math.PI * 300 * t)
+      : 0.01 * Math.sin(2 * Math.PI * 900 * t)
+  })
+  const windows = windowsOf(pcm, RATE, 1)
+  assert.ok(near(windows[0]?.level ?? 0, -43, 0.1), `a quiet window's level ${windows[0]?.level}`)
+  assert.ok(near(windows[360]?.level ?? 0, -9, 0.1), `a loud window's level ${windows[360]?.level}`)
+  const heard = await listen(
+    pcm,
+    RATE,
+    'a low hum',
+    { top: 1, kind: 'texture', win: 1, not: [] },
+    fake('a low hum'),
+  )
+  assert.equal(heard.scored, 150)
+  const [best] = heard.trims
+  assert.ok(
+    best && best.start >= 179.5 && best.end <= 182.5,
+    `the hum: ${best?.start}–${best?.end}`,
   )
 })
 

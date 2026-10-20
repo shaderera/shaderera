@@ -56,6 +56,13 @@ export type LogEntry = {
 const ROOT_ONLY = new Set(['out', '.shaderera', 'versions', '.claude', 'NVIDIA Corporation'])
 /** Never part of a revision, at any depth: installs and git's own folders. */
 const ANYWHERE = new Set(['node_modules', '.git'])
+/**
+ * Never part of a revision, at any depth: files that hold secrets (env files, direnv's, Wrangler's,
+ * npm's and curl's credentials, MCP configs with keys, private keys), so neither a share nor a
+ * handoff can carry one.
+ */
+export const SECRET =
+  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|\.mcp\.json|.+\.(pem|key|p12|pfx))$/
 /** writeAtomic's temporary files, which another process may be about to move into place. */
 const TEMPORARY = /\.\d+\.tmp$/
 
@@ -87,14 +94,14 @@ export const hashFile = (file: string, to?: string): string => {
 }
 
 /**
- * The project's files as they are now: path (with `/`) → sha256. Links are skipped, and listed in
- * `links` when it is given. `keep` narrows it to some paths (a bake's inputs): a folder it
- * refuses is not entered, a file it refuses not hashed. `hash` hashes a file (a watcher's, which
- * remembers the files it hashed, studio/bridge.ts).
+ * The project's files as they are now: path (with `/`) → sha256. Links and secrets are skipped,
+ * and listed in `left.links` and `left.secrets` when they are given. `keep` narrows it to some
+ * paths (a bake's inputs): a folder it refuses is not entered, a file it refuses not hashed.
+ * `hash` hashes a file (a watcher's, which remembers the files it hashed, studio/bridge.ts).
  */
 export const scan = (
   root: string,
-  links?: string[],
+  left: { links?: string[]; secrets?: string[] } = {},
   keep: (path: string, folder: boolean) => boolean = () => true,
   hash: (file: string) => string = hashFile,
 ): Files => {
@@ -106,7 +113,8 @@ export const scan = (
       const full = join(dir, name)
       const path = slash(relative(root, full))
       const s = lstatSync(full)
-      if (s.isSymbolicLink()) links?.push(path)
+      if (s.isSymbolicLink()) left.links?.push(path)
+      else if (s.isFile() && SECRET.test(name)) left.secrets?.push(path)
       else if (s.isDirectory()) keep(path, true) && walk(full)
       else if (s.isFile() && keep(path, false)) files[path] = hash(full)
     }

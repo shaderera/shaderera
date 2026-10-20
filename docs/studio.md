@@ -163,7 +163,8 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 
 - **What counts as a change.** A change counts only when it touches the files a revision holds:
   not `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, and not `node_modules/` or
-  `.git/` anywhere. A change that leaves the revision the same sends nothing.
+  `.git/` anywhere, and not a file that holds secrets (`.env`, `.npmrc`, … as `save` lists them in
+  [cli.md](cli.md#versions-and-jobs)). A change that leaves the revision the same sends nothing.
 - **Job states** are `queued`, `running`, `done` and `failed`. `done` and `failed` end a job.
   `progress` runs from 0 to 1.
 
@@ -180,12 +181,16 @@ asked.
   - `"png"`: one still, at `t` seconds (`0` by default), inside the film.
 - **The project is saved as a revision first**, and a video is tagged with it, as `render` does.
 - **The file stays in the project**, as `out/studio/<project>[-<variant>]-<job>.<mp4|mov|png>`.
+  In the variant's name, anything but letters, digits, `_`, `.` and `-` becomes `_` (`16:9` is
+  `16_9`).
 
 ### `GET /render/<job>/file`
 
 The job's file, streamed for the page to save, with:
 - `Content-Type`: `video/mp4`, `video/quicktime` or `image/png`;
-- `Content-Disposition: attachment; filename="…"`, exposed to the page.
+- `Content-Disposition: attachment; filename="…"; filename*=UTF-8''…`, exposed to the page.
+  `filename` is the name in ASCII, with `_` for anything else; `filename*` is the name itself,
+  percent-encoded UTF-8 (RFC 6266), for a project named in any script.
 
 A job that is not done gets `409`. An unknown one gets `404`.
 
@@ -245,5 +250,6 @@ sends nothing itself.
   The page holds its events until one of those reports `telemetry`.
 
 `shaderera telemetry off|on|status` keeps the choice in `~/.shaderera/config.json`.
-`SHADERERA_TELEMETRY=0` turns it off whatever that file says. The first `shaderera studio` prints
+`SHADERERA_TELEMETRY=0` turns it off whatever that file says. A config that cannot be read counts
+as off, and is never overwritten: fix it or delete it. The first `shaderera studio` prints
 a notice saying all of this, once, and notes in the same file that it did.

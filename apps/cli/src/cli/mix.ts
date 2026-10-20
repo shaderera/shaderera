@@ -83,8 +83,8 @@ export const openMix = (
       const measured = join(temp(), 'loudness.wav')
       write(measured, heard)
       const before = measureLoudness(measured)
-      if (before && before.integrated > -70)
-        level = { gainDb: options.loudness - before.integrated, before }
+      if (!before) throw new Error('ffmpeg could not measure the loudness of the mix')
+      if (before.integrated > -70) level = { gainDb: options.loudness - before.integrated, before }
     }
     return {
       clips: heard,
