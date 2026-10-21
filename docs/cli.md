@@ -383,7 +383,7 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
-amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
+amultiply), NVENC at 1920×1080 (tested again, not the render's kept answer), Chrome. Inside a project: its host, `webgpu`'s version, the
 adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
 [above](#required-plugins)). Each lack says how to fix it.
