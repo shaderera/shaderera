@@ -15,6 +15,9 @@ import { cmapCodePoints, missingGlyphs } from './cmap.ts'
 import {
   blankTimes,
   boxContrast,
+  type CaptionStat,
+  captionStats,
+  captionsOver,
   endHold,
   fontFamilies,
   frameStats,
@@ -62,6 +65,8 @@ export type ReviewReport = {
     contrast: { id: string; t: number; ratio: number | null }[]
     motion: { samples: number; staticPercent: number | null }
     alpha: { nonOpaque: number }
+    /** Each caption measured, in order of start (seconds and grapheme clusters); null without captions(). */
+    captions: CaptionStat[] | null
     /** The clips heard (a src without sound is not), how much of the film they cover, and their mix's loudness (EBU R128). */
     audio: { clips: number; coverage: number; loudness: Loudness | null } | null
   }
@@ -601,6 +606,55 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     }
   }
 
+  // captions: the subtitle sidecar every export writes, measured; judged only on declared limits.
+  const cues = await child.captions()
+  const limits = req.captions
+  const captions = cues ? captionStats(cues) : null
+  if (!captions)
+    checks.push({
+      id: 'captions',
+      title: 'captions',
+      status: judged(limits !== undefined, true),
+      measured: 'no captions(): exports write no subtitle sidecar',
+      detail: limits ? 'requirements.json declares caption limits' : undefined,
+    })
+  else {
+    // A caption the export refuses is an error, declared or not: render and deliver stop on it.
+    const refused = captions.filter((c) => c.refused)
+    const over = limits ? captionsOver(captions, limits) : []
+    const timed = captions.filter((c) => !c.refused)
+    const most = (k: 'cps' | 'lines' | 'longestLine') =>
+      round(Math.max(0, ...timed.map((c) => c[k] ?? 0)), 2)
+    const least = (k: 'duration' | 'gap') => {
+      const v = timed.flatMap((c) => (c[k] === null ? [] : [c[k] as number]))
+      return v.length ? `${round(Math.min(...v))} s` : 'none'
+    }
+    const pairs = timed.reduce((n, c) => n + c.overlaps.filter((o) => o > c.index).length, 0)
+    const say = (c: CaptionStat) =>
+      `#${c.index} ${JSON.stringify(c.text.replace(/\s+/g, ' ').slice(0, 30))} at ${round(c.start)} s`
+    const measuredCaptions = `${captions.length} captions: at most ${most('cps')} cps, ${most('lines')} lines, ${most('longestLine')} characters a line (grapheme clusters); shortest ${least('duration')}, smallest gap ${least('gap')}; ${pairs} overlapping pairs${refused.length ? `; ${refused.length} refused by every export` : ''}`
+    const failing = [...refused, ...over]
+    checks.push({
+      id: 'captions',
+      title: 'captions',
+      status: refused.length ? 'fail' : judged(limits !== undefined, over.length > 0),
+      measured: limits
+        ? `${measuredCaptions}; ${over.length} over the declared limits (${Object.entries(limits)
+            .map(([k, v]) => `${k} ${v}`)
+            .join(', ')})`
+        : measuredCaptions,
+      detail: failing.length
+        ? [
+            ...refused.map((c) => `${say(c)}: ${c.refused}, which every export refuses`),
+            ...over.slice(0, 8).map((c) => `${say(c)}: ${c.why.join(', ')}`),
+          ].join('; ')
+        : undefined,
+      at: failing.length
+        ? [...new Set(failing.flatMap((c) => (Number.isNaN(c.start) ? [] : [round(c.start)])))]
+        : undefined,
+    })
+  }
+
   checks.push({
     id: 'assets',
     title: 'assets',
@@ -730,6 +784,13 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
           : null,
       },
       alpha: { nonOpaque: round(nonOpaque, 4) },
+      captions:
+        captions?.map((c) => ({
+          ...c,
+          duration: c.duration === null ? null : round(c.duration),
+          cps: c.cps === null ? null : round(c.cps, 2),
+          gap: c.gap === null ? null : round(c.gap),
+        })) ?? null,
       audio,
     },
     elapsedMs: Math.round(performance.now() - start),

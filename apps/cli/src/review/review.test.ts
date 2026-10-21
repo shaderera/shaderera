@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
+import type { Requirements } from '../project/requirements.ts'
 import { readingShort, review, reviewTimes } from './review.ts'
 
 /** fixtures/mcp's film in memory: a red box that the camera slides left, inspected and pickable. */
@@ -51,6 +52,9 @@ test('review (quick) on a film without shots or text: measured or unknown, never
     assert.equal(by['end-hold']?.status, 'info')
     assert.match(by['end-hold']?.measured ?? '', /held at the end: pixels still/)
     assert.equal(by['blank-frames']?.status, 'info')
+    // No captions(): measured as info, with no subtitle sidecar to judge.
+    assert.equal(by.captions?.status, 'info')
+    assert.equal(r.diagnostics.captions, null)
     assert.equal(by.alpha?.status, 'unknown')
     for (const c of r.checks) if (c.status === 'pass') assert.ok(c.measured, c.id)
     assert.ok(r.diagnostics.alpha.nonOpaque > 0.9)
@@ -117,4 +121,46 @@ test('reading time at 30 fps: samples snapped to frames still make one stretch',
     t,
   }))
   assert.deepEqual(readingShort(runs, sampleT, { min: 1.5, charsPerSecond: 15 }), [])
+})
+
+test('captions: measured as info; a declared maxCps fails exactly the caption over it', async () => {
+  const captions = [
+    { start: 0, end: 0.5, text: 'Hi' },
+    { start: 0.5, end: 0.9, text: 'ส่งตรงจากสวน' },
+  ]
+  const project = memoryProject()
+  const child = memoryChild({ size: { width: 64, height: 36 }, captions })
+  const outDir = tempDir('review')
+  try {
+    const run = async (requirements?: Requirements) =>
+      (await review({ project, child, outDir, quick: true, requirements })).checks.find(
+        (c) => c.id === 'captions',
+      )
+    const info = await run()
+    assert.equal(info?.status, 'info')
+    assert.match(
+      info?.measured ?? '',
+      /^2 captions: at most 27.5 cps, 1 lines, 11 characters a line/,
+    )
+    // 11 grapheme clusters in 0.4 s: 27.5 cps; "Hi" is 4 cps.
+    const judged = await run({ version: 1, captions: { maxCps: 20 } })
+    assert.equal(judged?.status, 'fail')
+    assert.match(judged?.detail ?? '', /^#1 "ส่งตรงจากสวน" at 0.5 s: 27.5 cps > 20$/)
+    assert.deepEqual(judged?.at, [0.5])
+    const open = memoryChild({
+      size: { width: 64, height: 36 },
+      captions: [{ start: 0, end: Number.POSITIVE_INFINITY, text: 'last line' }],
+    })
+    try {
+      const r = await review({ project, child: open, outDir, quick: true })
+      const c = r.checks.find((x) => x.id === 'captions')
+      assert.equal(c?.status, 'fail')
+      assert.match(c?.detail ?? '', /no end \(end: Infinity.*which every export refuses/)
+      assert.equal(r.diagnostics.captions?.[0]?.end, null)
+    } finally {
+      await open.close()
+    }
+  } finally {
+    await child.close()
+  }
 })
