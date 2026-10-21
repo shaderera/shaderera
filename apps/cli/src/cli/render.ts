@@ -158,10 +158,10 @@ export const exportVideo = async (
   const encoder = prores
     ? 'prores'
     : (o.encoder ??
-      ((o.quality ?? 'review') === 'review' && hasNvenc(manifest.width, manifest.height)
+      ((o.quality ?? 'review') === 'review' && (await hasNvenc(manifest.width, manifest.height))
         ? 'nvenc'
         : 'x264'))
-  if (encoder === 'nvenc' && !hasNvenc(manifest.width, manifest.height))
+  if (encoder === 'nvenc' && !(await hasNvenc(manifest.width, manifest.height)))
     throw new Error(
       'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
     )
@@ -368,7 +368,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (loudness !== undefined && !Number.isFinite(loudness))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
   requireFfmpeg()
-  const root = (await findProject(typeof v.root === 'string' ? v.root : process.cwd())).root
+  const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
+  const root = located.root
   const job = typeof v.job === 'string' ? readJob(root, v.job) : undefined
   const given = Object.keys(DELIVERY_FLAGS).filter((k) => v[k as keyof typeof v] !== undefined)
   if (job && given.length > 0)
@@ -416,6 +417,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (frames === 0 || m.sequential) return 0
     return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
   }
+  // NVENC's answer comes beside the open (exportVideo asks for this size again, answered).
+  if ((video.codec ?? 'h264') === 'h264')
+    void hasNvenc(located.manifest.width, located.manifest.height)
   const { project, child, extra } = job
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)
