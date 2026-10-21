@@ -120,6 +120,23 @@ A film whose frames take seconds, or that is rendered partly outside the host, n
 that already exist. Use them, and tell the person what is running and how far it is: a long
 command that prints nothing looks frozen.
 
+- **Keep `open` light.** `open` runs in every host: each `--workers` host of a render, each chunk,
+  each `still`, `check` and `review`. Work only `audio()` needs (a music bed made in code, a mix)
+  goes in `audio()`, which runs once and only when the sound is wanted: a 28-minute film that
+  made its bed sample by sample in `open` paid 57 s in every host for frames that never used it.
+  Derived bytes that are the same every run (a decoded pyramid, an analysis) go through
+  `io.cache`, so they are made once, not once a host.
+- **Close each clip when its shot ends.** A clip's decoder holds its buffers until `close()` or
+  the end of the render, in every host: a film of about 60 clips that closed none grew to about
+  3.5 GB a host and could not run more than three. `frame(i)` after `close()` opens it again, with
+  the same bytes.
+- **Per-pixel work on the GPU.** A pass over every pixel in JavaScript (`getImageData`, a loop,
+  `putImageData`) costs about 15 ms a 1080p frame; the same levels or grade in a WGSL pass over
+  `host.gpu`, or a `look-*` plugin, costs well under one.
+- **Measure before guessing.** `NODE_OPTIONS=--cpu-prof npx shaderera render --trusted --from 10
+  --to 14` writes one `.cpuprofile` for the CLI and one for each host (without `--trusted` a host
+  cannot write it): open them in Chrome DevTools, Performance, and see whether the time is in
+  `open`, in the film's draw or waiting.
 - **Check with fewer frames.** `check` renders every timestamp twice; at 5 s a frame, the default
   50 take over eight minutes. `npx shaderera check --times 4` still compares two orders.
 - **Render in the background with progress.** `npx shaderera render --progress 2> render.log`
