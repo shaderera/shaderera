@@ -1,10 +1,10 @@
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util'
-import type { Json } from '@shaderera/core'
+import type { Json, Manifest } from '@shaderera/core'
 import { withVariant } from '@shaderera/core/host'
 import { buildForNode } from '../node/build.ts'
 import type { Child } from '../node/child.ts'
 import { hostOf } from '../node/host-of.ts'
-import { hostOpener } from '../node/open-host.ts'
+import { hostOpener, openHosts } from '../node/open-host.ts'
 import { findProject, type Project } from '../node/project.ts'
 import { checkBakes } from '../project/bakes.ts'
 import { effectiveParams } from '../project/jobs.ts'
@@ -100,7 +100,8 @@ export const parseParam = (kv: string): [string, Json] => {
  * defaults; `size` overrides the frame size (review's resized reopen); `--param`s go over both,
  * and a name the manifest's params schema does not declare is refused (effectiveParams). Every
  * bake the manifest declares is checked against its stamp first, and refused when stale
- * (project/bakes.ts); its frames are what the source's io.bake reads.
+ * (project/bakes.ts); its frames are what the source's io.bake reads. `extra` says how many more
+ * hosts the run needs (from the manifest it renders): they open at once with the first, in `extra`.
  */
 export const open = async (
   flags: {
@@ -112,7 +113,8 @@ export const open = async (
     param?: unknown
   },
   size?: { width: number; height: number },
-): Promise<{ project: Project; child: Child; more: () => Promise<Child> }> => {
+  extra: (manifest: Manifest) => number = () => 0,
+): Promise<{ project: Project; child: Child; more: () => Promise<Child>; extra: Child[] }> => {
   const found = await findProject(typeof flags.root === 'string' ? flags.root : process.cwd())
   const name = typeof flags.variant === 'string' ? flags.variant : undefined
   const { manifest, params: variantParams } = withVariant(found.manifest, name)
@@ -131,7 +133,8 @@ export const open = async (
     build: async () => ({ project: variant, entryFile: await buildForNode(variant) }),
   })
   const project = { ...found, manifest: size ? { ...manifest, ...size } : manifest }
-  return { project, child: await more(), more }
+  const [child, ...others] = await openHosts(more, 1 + extra(project.manifest))
+  return { project, child: child as Child, more, extra: others }
 }
 
 /** `--trusted` and `--timeout <s>` as the host's options. */

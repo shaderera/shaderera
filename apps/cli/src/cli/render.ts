@@ -1,7 +1,7 @@
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { exportFrames, frameTimes, type Sink } from '@shaderera/core'
+import { exportFrames, frameTimes, type Manifest, type Sink } from '@shaderera/core'
 import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
@@ -107,6 +107,11 @@ export const exportVideo = async (
     onFrame?: (i: number, n: number) => void
     workers?: number
     more?: () => Promise<Child>
+    /**
+     * Hosts opened already besides `child` (opened with it, so their opens overlap): the frames go
+     * round them instead of `workers` from `more`, and the caller closes them.
+     */
+    hosts?: readonly Child[]
     /** By default NVENC for a review where this machine has it, x264 for a master or without. */
     encoder?: Encoder
     /** `false`: no audio stream, whatever the source's clips (a silent DOOH placement, say). */
@@ -188,8 +193,8 @@ export const exportVideo = async (
   let finished = false
   let stemsWritten = false
   try {
-    opened = await openHosts(o.more as () => Promise<Child>, workers - 1)
-    const hosts = [child, ...opened]
+    if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1)
+    const hosts = [child, ...(o.hosts ?? opened)]
     // Every host must give the same bytes in the same format.
     const input: Input = o.frames
       ? o.frames.input
@@ -367,7 +372,38 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     throw new Error(
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
     )
-  const { project, child, more } = job ? await openJob(root, job, childOptions(v)) : await open(v)
+  const num = (x: unknown) => (x === undefined ? undefined : Number(x))
+  const planDir = (j: { name: string }) =>
+    typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${j.name}.plan`)
+  const reusing = v.reuse !== undefined || v.changed !== undefined || v.fix !== undefined
+  // How many hosts besides the first the frames go round: --workers, or defaultWorkers for the
+  // frames this run renders (a chunk's, the window's; none for a png job's handoff). They open at
+  // once with the first, so their opens overlap each other and the save.
+  const extraOf = (m: Manifest) => {
+    const chunkFrames = () => {
+      try {
+        return job ? (readPlan(planDir(job)).chunks[Number(v.chunk)]?.frames ?? 0) : 0
+      } catch {
+        return 0
+      }
+    }
+    const frames =
+      reusing || v.chunk === undefined
+        ? !reusing && job?.delivery.format === 'png'
+          ? 0
+          : frameTimes(
+              m.fps,
+              job?.output.from ?? num(v.from) ?? 0,
+              job?.output.to ?? num(v.to) ?? m.duration,
+            ).length
+        : chunkFrames()
+    if (frames === 0 || m.sequential) return 0
+    return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
+  }
+  const { project, child, extra } = job
+    ? await openJob(root, job, childOptions(v), extraOf)
+    : await open(v, undefined, extraOf)
+  const hosts = [child, ...extra] as const
   // What the output is traced to: the job's revision, or the working tree saved now (the same
   // files give the same id, so an unchanged project saves nothing new). Saved once the source
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
@@ -378,7 +414,6 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // The progress line goes to a terminal, or to a reader that asks (--progress);
   // piped into a log, it would be one line per frame.
   const progress = process.stderr.isTTY || v.progress === true
-  const num = (x: unknown) => (x === undefined ? undefined : Number(x))
   const start = performance.now()
   const onFrame = progress
     ? (i: number, n: number) => {
@@ -386,29 +421,15 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         process.stderr.write(`\rframe ${i + 1}/${n}  ${fps.toFixed(1)} fps`)
       }
     : undefined
-  // The hosts a chunk's frames go round besides `child` (--workers, or defaultWorkers for its
-  // frames), closed in the finally.
-  let extra: Child[] = []
-  const openExtra = async (frames: number) => {
-    const workers = project.manifest.sequential
-      ? 1
-      : Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(project.manifest, frames)))
-    extra = await openHosts(more, workers - 1)
-    return [child, ...extra] as const
-  }
   try {
-    if (v.reuse !== undefined || v.changed !== undefined || v.fix !== undefined) {
+    if (reusing) {
       // A plan of the job that renders only the changed spans and reuses an earlier plan's frames.
       if (!job || typeof v.reuse !== 'string' || typeof v.changed !== 'string')
         throw new Error(
           '--reuse renders a job from an earlier plan: shaderera render --job <name> --reuse <plan> --changed <from>-<to>[,…] [--fix].',
         )
       if (v.chunk !== undefined) throw new Error('--reuse renders every changed span: no --chunk.')
-      const dir =
-        typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${job.name}.plan`)
-      const hosts = await openExtra(
-        frameTimes(job.output.fps, job.output.from, job.output.to).length,
-      )
+      const dir = planDir(job)
       const r = await renderReusing(child, job, project.manifest, {
         reuse: v.reuse,
         changed: v.changed,
@@ -436,12 +457,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         throw new Error(
           '--chunk renders a chunk of a job: shaderera render --job <name> --chunk <i>.',
         )
-      const dir =
-        typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${job.name}.plan`)
+      const dir = planDir(job)
       const plan = readPlan(dir)
       if (plan.jobId !== job.id)
         throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
-      const hosts = await openExtra(plan.chunks[Number(v.chunk)]?.frames ?? 0)
       const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame).finally(
         () => progress && process.stderr.write('\n'),
       )
@@ -481,10 +500,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       ...video,
       from,
       to,
-      workers:
-        num(v.workers) ??
-        defaultWorkers(project.manifest, frameTimes(project.manifest.fps, from, to).length),
-      more,
+      hosts: extra,
       out:
         typeof v.out === 'string'
           ? resolve(v.out)

@@ -169,7 +169,9 @@ out/stills/final-vs-animatic-4.000.png  vs animatic: PSNR 38.41 dB, mean ΔE 0.4
 ## `render`
 
 Renders every frame `i / fps` in `[from, to)` at `intent: 'final'`, spread over the workers and
-written in order. What each format is, and what was measured: [delivery.md](delivery.md).
+written in order. Every worker opens at once with the first, so a render pays the source's `open`
+about once, not once a worker. What each format is, and what was measured:
+[delivery.md](delivery.md).
 
 The file is written as `<out>.<pid>.partial` (the render's process id, so two renders to one
 `<out>` never share it) and renamed to `<out>` only when it is complete: while a render runs,
