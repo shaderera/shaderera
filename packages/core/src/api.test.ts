@@ -12,6 +12,8 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'flattenFrame',
     'frameAt',
     'frameTimes',
+    'parseFps',
+    'sha256',
   ])
   assert.deepEqual(await keys('./gpu.ts'), ['readBuffer', 'readTexture'])
   assert.deepEqual(await keys('./host.ts'), [
@@ -30,11 +32,9 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'openSource',
     'over',
     'paramDefaults',
-    'parseFps',
     'sampleClips',
     'sampleTimes',
     'seekable',
-    'sha256',
     'straight',
     'timecodeOf',
     'toSrt',

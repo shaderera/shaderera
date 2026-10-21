@@ -86,7 +86,7 @@ test('look-blur: amount 0 is the source exactly, inside a window, a map and dept
     const out = await g.run(texture, {
       kind,
       radius: 20,
-      shapes: [{ x: 30, y: 16, w: 30, h: 30, amount: 0 }],
+      shapes: [{ x: 30, y: 16, width: 30, height: 30, amount: 0 }],
     })
     assert.ok(same(out, 30, 60, 16, 46), `${kind}: the window is untouched`)
     assert.ok(!same(out, 0, 20, 0, H), `${kind}: outside it is blurred`)

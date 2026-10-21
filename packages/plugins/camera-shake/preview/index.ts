@@ -11,7 +11,7 @@ import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import {
   blendShots,
   fit,
-  lens,
+  lensDeg,
   type Shot,
   viewProjection,
 } from '../../previews/src/motion/camera.ts'
@@ -77,9 +77,9 @@ const cameraShake: OpenPreview = async (host, stateId) => {
     return fit({
       center: SUBJECT.center,
       radius: SUBJECT.radius,
-      azimuth: 210 + 10 * Math.sin(ph * Math.PI * 2),
-      elevation: 14 + 2 * Math.sin(ph * Math.PI * 4),
-      fov: lens(MM, 1),
+      azimuthDeg: 210 + 10 * Math.sin(ph * Math.PI * 2),
+      elevationDeg: 14 + 2 * Math.sin(ph * Math.PI * 4),
+      fovDeg: lensDeg(MM, 1),
       aspect: 1,
       fill: 0.4 + 0.04 * Math.cos(ph * Math.PI * 2),
       shift: LIFT,

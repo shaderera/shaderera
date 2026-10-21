@@ -30,6 +30,8 @@ stable entry. Adding or removing an export is therefore a visible change.
 | every type in `protocol.ts` | types | `Open`, `Host`, `Io`, `Source`, `RenderOptions`, `Frame`, `Layer`, `LayerInfo`, `Depth`, `Json`, `Manifest`, `Variant`, `Preroll`, `CameraCapability`, `Matrices`, `Mat4`, `Vec3`, `Pick`, `AudioClip`, `Pcm`, `Caption`, `CheckpointCapability`, `MountDom`, `DomView`, `DecodedImage`, `Footage`, `Bake`, `Baked`, … |
 | `flattenFrame(frame)` | function | a composition flattens what its children return |
 | `frameTimes(fps, from, to)`, `frameAt(t, fps)` | functions | one definition of a range's frames (t = i / fps) and of the frame index at t |
+| `parseFps(value)` | function | a rate as shaderera.json writes it (`30`, `29.97`, `"24000/1001"`) as an exact fraction `{ fps, num, den }`, or null |
+| `sha256(bytes)` | function | the SHA-256 of some bytes as lowercase hex, in the browser and in Node: how an analysis names its source |
 | `checkDeterminism`, `diffJson`, `diffPixels` | functions | the checks the CLI runs, for an embedding app's own tests |
 | `exportFrames`, `Sink` | function, type | the frame loop with backpressure for an app with its own encoder; `ahead` keeps several frames rendering at once, written in order |
 | `DeterminismReport`, `DeterminismFailure`, `JsonChange`, `PixelDiff` | types | results of the above |
@@ -46,7 +48,7 @@ resources and passes. Stable only when consumers outside this repository need it
 ## `@shaderera/core/host`: internal
 
 What both hosts share (`checkManifest`, `withVariant`, `openSource`, `seekable`, `over`,
-`straight`, `matte`, `gpuCompositor`, `yuvFits`, `finalOnly`, `layerInfo`, `sha256`, `paramDefaults`,
+`straight`, `matte`, `gpuCompositor`, `yuvFits`, `finalOnly`, `layerInfo`, `paramDefaults`,
 `fullDevice`, `timecodeOf`, `toSrt`, `toVtt`, …). A participant never imports it.
 
 ## `shaderera`: the commands are stable; the modules are internal

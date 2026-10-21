@@ -20,7 +20,7 @@ export const scramble = (text: string, frame: number, share: number, glyphs = GL
 
 /**
  * Text that decodes into place character by character over its first `rise` seconds, and
- * scrambles away over its last `fall` seconds, between `from` and `to`. Out of nothing, or with
+ * scrambles away over its last `fall` seconds, between `start` and `end`. Out of nothing, or with
  * `swap`, out of ASCII noise (for text replacing other text). `settled` is true while all of it
  * reads.
  */
@@ -28,8 +28,8 @@ export const decoded = (
   text: string,
   t: number,
   o: {
-    from: number
-    to: number
+    start: number
+    end: number
     frame: number
     seed?: number
     rise?: number
@@ -39,8 +39,8 @@ export const decoded = (
   },
 ) => {
   const seed = o.seed ?? 0
-  const inn = (t - o.from) / (o.rise ?? 0.3)
-  const out = (o.to - t) / (o.fall ?? 0.15)
+  const inn = (t - o.start) / (o.rise ?? 0.3)
+  const out = (o.end - t) / (o.fall ?? 0.15)
   const chars = [...text].map((ch, i) => {
     if (ch === ' ') return ch
     const h = rnd(seed * 7919 + i * 13)
@@ -49,7 +49,11 @@ export const decoded = (
       ? noise(o.frame * 977 + i * 31 + seed, o.glyphs ?? GLYPHS)
       : ' '
   })
-  return { text: chars.join(''), settled: Math.min(inn, out) > 1, visible: t >= o.from && t < o.to }
+  return {
+    text: chars.join(''),
+    settled: Math.min(inn, out) > 1,
+    visible: t >= o.start && t < o.end,
+  }
 }
 
 export type Draw = (ctx: Ctx, text: string, x: number, y: number) => void

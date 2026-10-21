@@ -39,8 +39,8 @@ const textCodeWall: OpenPreview = async (host, stateId) => {
   const walls = WALLS.map((w, i) =>
     createCodeWall({
       files: files[i] ?? [],
-      from: i * WALL,
-      to: (i + 1) * WALL,
+      start: i * WALL,
+      end: (i + 1) * WALL,
       step: SIXTEENTH,
       claim: w.claim,
       // The default note names every path in full, wider than the hole at this size.

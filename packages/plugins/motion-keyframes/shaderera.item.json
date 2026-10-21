@@ -5,7 +5,7 @@
   "description": "Values over time: numbers and 3D points held between keys and eased into each, and smooth paths through many points at even speed",
   "category": "Animation & Camera",
   "tags": ["keyframes", "animation", "tween", "track", "timeline", "motion", "path"],
-  "version": "0.2.0",
+  "version": "0.3.0",
   "licence": "MIT",
   "requires": { "items": { "motion-eases": "^0.1.0" } },
   "files": ["src/motion/keyframes.ts"]

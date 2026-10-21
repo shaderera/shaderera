@@ -3,7 +3,7 @@
 // asked for its value at t. No state, so any t renders the same at any time. The eases are
 // motion-eases'.
 
-import type { Json } from '@shaderera/core'
+import type { Json, Vec3 } from '@shaderera/core'
 import { clamp, type Ease, lerp, smooth } from './eases.ts'
 
 /** A key: at time t the value is v, reached from the key before with `ease` (smooth by default). */
@@ -72,30 +72,29 @@ export const track = (given: readonly (Key<number> | KeyObject<number>)[]) => {
   return Object.assign(value, { inspect: stateAt(given) })
 }
 
-export type V3 = readonly [number, number, number]
-
 /** A point over time, each axis its own track with the same keys and eases; `inspect` as `track`. */
-export const track3 = (given: readonly (Key<V3> | KeyObject<V3>)[]) => {
+export const track3 = (given: readonly (Key<Vec3> | KeyObject<Vec3>)[]) => {
   const keys = asKeys(given)
   const axis = (i: 0 | 1 | 2) => track(keys.map(([t, v, e]) => [t, v[i], e] as Key<number>))
   const x = axis(0)
   const y = axis(1)
   const z = axis(2)
-  return Object.assign((t: number): V3 => [x(t), y(t), z(t)], { inspect: stateAt(given) })
+  return Object.assign((t: number): Vec3 => [x(t), y(t), z(t)], { inspect: stateAt(given) })
 }
 
 /**
  * One move through several points that never stops at the ones between: a smooth curve through
  * all of them (centripetal Catmull-Rom, so it neither loops nor overshoots), travelled at an even
- * speed with one ease over the whole span from `from` to `to`. A track stops at every key; a path
+ * speed with one ease over the whole span from `start` to `end`. A track stops at every key; a path
  * flows through.
  */
-export const path3 = (points: readonly V3[], from: number, to: number, ease: Ease = smooth) => {
+export const path3 = (points: readonly Vec3[], start: number, end: number, ease: Ease = smooth) => {
   if (points.length === 0) throw new Error('a path needs at least one point')
-  const p = (i: number) => points[Math.min(points.length - 1, Math.max(0, i))] as V3
-  const dist = (a: V3, b: V3) => Math.max(1e-6, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]))
+  const p = (i: number) => points[Math.min(points.length - 1, Math.max(0, i))] as Vec3
+  const dist = (a: Vec3, b: Vec3) =>
+    Math.max(1e-6, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]))
   // One segment between p1 and p2 (Barry-Goldman, alpha 0.5).
-  const segment = (i: number, s: number): V3 => {
+  const segment = (i: number, s: number): Vec3 => {
     const p0 = i === 0 ? p(0) : p(i - 1)
     const p1 = p(i)
     const p2 = p(i + 1)
@@ -104,7 +103,7 @@ export const path3 = (points: readonly V3[], from: number, to: number, ease: Eas
     const t2 = t1 + Math.sqrt(dist(p1, p2))
     const t3 = t2 + Math.sqrt(dist(p2, p3))
     const tt = t1 + (t2 - t1) * s
-    const mix = (a: V3, b: V3, ta: number, tb: number): V3 => {
+    const mix = (a: Vec3, b: Vec3, ta: number, tb: number): Vec3 => {
       const w = (tt - ta) / Math.max(tb - ta, 1e-9)
       return [a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w, a[2] + (b[2] - a[2]) * w]
     }
@@ -117,18 +116,18 @@ export const path3 = (points: readonly V3[], from: number, to: number, ease: Eas
   }
   const segments = Math.max(1, points.length - 1)
   const N = 64 * segments
-  const samples: V3[] = []
+  const samples: Vec3[] = []
   const lengths = [0]
   for (let k = 0; k <= N; k++) {
     const x = (k / N) * segments
     const i = Math.min(segments - 1, Math.floor(x))
     samples.push(points.length === 1 ? p(0) : segment(i, x - i))
     if (k > 0)
-      lengths.push((lengths[k - 1] as number) + dist(samples[k - 1] as V3, samples[k] as V3))
+      lengths.push((lengths[k - 1] as number) + dist(samples[k - 1] as Vec3, samples[k] as Vec3))
   }
   const total = lengths[N] as number
-  return (t: number): V3 => {
-    const d = ease(clamp((t - from) / Math.max(to - from, 1e-6))) * total
+  return (t: number): Vec3 => {
+    const d = ease(clamp((t - start) / Math.max(end - start, 1e-6))) * total
     let lo = 0
     let hi = N
     while (hi - lo > 1) {
@@ -136,8 +135,8 @@ export const path3 = (points: readonly V3[], from: number, to: number, ease: Eas
       if ((lengths[mid] as number) < d) lo = mid
       else hi = mid
     }
-    const a = samples[lo] as V3
-    const b = samples[hi] as V3
+    const a = samples[lo] as Vec3
+    const b = samples[hi] as Vec3
     const w =
       (d - (lengths[lo] as number)) /
       Math.max((lengths[hi] as number) - (lengths[lo] as number), 1e-9)

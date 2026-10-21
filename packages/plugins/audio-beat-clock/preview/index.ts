@@ -50,7 +50,7 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
   const canvas = host.io.canvas(width, height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
   const house = createHouse(host, ctx)
-  const analysis = await loadAnalysis(host, SONG, 'audio/beat.analysis.json')
+  const analysis = await loadAnalysis(host, 'audio/beat.analysis.json')
   // The analyser cannot hear the downbeat at 0 s (its onsets start 0.1 s in), so the first one
   // it measures is bar 2's.
   const clock = clockFromAnalysis(analysis, { firstBar: 2 })

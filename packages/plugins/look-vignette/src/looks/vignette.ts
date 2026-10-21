@@ -21,7 +21,7 @@ export type VignetteParams = {
    */
   size?: readonly [number, number]
   /** The colour the edges go towards, as display values 0–1. */
-  colour?: readonly [number, number, number]
+  color?: readonly [number, number, number]
 }
 
 /** The vignette for a W×H frame. */
@@ -102,7 +102,7 @@ export const createVignette = (host: Host, o: { width: number; height: number })
           cy,
           rx,
           ry,
-          ...(p.colour ?? [0, 0, 0]),
+          ...(p.color ?? [0, 0, 0]),
           0,
         ]),
       )

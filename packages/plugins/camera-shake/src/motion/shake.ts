@@ -3,10 +3,9 @@
 // frame). It turns the camera in its own space after it has looked at its target, so the shot's
 // target stays what was authored.
 
+import type { Vec3 } from '@shaderera/core'
 import type { Shot } from './camera.ts'
 import { hash } from './random.ts'
-
-type V3 = readonly [number, number, number]
 
 /** Smooth 1D gradient noise in about [-1, 1], fixed for a seed. */
 export const noise1 = (x: number, seed = 0) => {
@@ -40,15 +39,15 @@ export const SHAKE = {
   impact: { degrees: 2.8, frequency: 11, drift: 0.06 },
 } as const satisfies { [name: string]: ShakeStyle }
 
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-const scale = (a: V3, s: number): V3 => [a[0] * s, a[1] * s, a[2] * s]
-const cross = (a: V3, b: V3): V3 => [
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s]
+const cross = (a: Vec3, b: Vec3): Vec3 => [
   a[1] * b[2] - a[2] * b[1],
   a[2] * b[0] - a[0] * b[2],
   a[0] * b[1] - a[1] * b[0],
 ]
-const norm = (a: V3): V3 => {
+const norm = (a: Vec3): Vec3 => {
   const l = Math.hypot(a[0], a[1], a[2])
   return l < 1e-12 ? [0, 0, 1] : [a[0] / l, a[1] / l, a[2] / l]
 }

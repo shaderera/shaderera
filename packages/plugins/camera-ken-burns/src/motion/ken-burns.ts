@@ -4,15 +4,12 @@
 
 import { crop, type Picture, type Rect } from '../image/fit.ts'
 
-/** [x, y, width, height], as image-regions gives a region's box. */
-export type Box = readonly [number, number, number, number]
-
-/** A rectangle of the picture, in its pixels. */
-export type View = Rect
-
 export type Framing = {
-  /** The box to frame, or 'full' for the largest crop of the frame's aspect. */
-  on: Box | 'full'
+  /**
+   * The box to frame (as image-regions gives a region's box), or 'full' for the largest crop of
+   * the frame's aspect.
+   */
+  on: Rect | 'full'
   /** On a box, its share of the frame's height (0.5); on 'full', a zoom (1 shows it all). */
   fill?: number
   /** Where the box's centre sits, as a share of the frame's height from its top (0.42). */
@@ -25,7 +22,7 @@ export type Framing = {
 }
 
 /** The part of the picture a framing shows in a frame of `aspect` (width / height). */
-export const viewOf = (picture: Picture, f: Framing, aspect: number): View => {
+export const viewOf = (picture: Picture, f: Framing, aspect: number): Rect => {
   if (f.on === 'full') {
     const w = crop(picture, aspect).width / (f.fill ?? 1)
     return crop(
@@ -35,7 +32,7 @@ export const viewOf = (picture: Picture, f: Framing, aspect: number): View => {
       w,
     )
   }
-  const [bx, by, bw, bh] = f.on
+  const { x: bx, y: by, width: bw, height: bh } = f.on
   const w = Math.max((bh / (f.fill ?? 0.5)) * aspect, bw / (f.maxWidth ?? 0.92))
   const h = w / aspect
   const cx = bx + bw / 2 + (f.dx ?? 0) * w
@@ -54,7 +51,7 @@ export const moveOf = (
   to: Framing,
   p: number,
   aspect: number,
-): View => {
+): Rect => {
   const a = viewOf(picture, from, aspect)
   const b = viewOf(picture, to, aspect)
   const w = a.width * (b.width / a.width) ** p

@@ -199,13 +199,13 @@ test('the shaderera range is checked too', () => {
 
 test('an item built on other items brings them in once, and never replaces what the project has', () => {
   const registry = temp('reg')
-  const item = (name: string, file: string, items?: { [n: string]: string }) =>
+  const item = (name: string, version: string, file: string, items?: { [n: string]: string }) =>
     write(temp(name), {
       'shaderera.item.json': {
         name,
         type: 'component',
         category: 'Typography',
-        version: '0.1.0',
+        version,
         licence: 'MIT',
         ...(items ? { requires: { items } } : {}),
         files: [file],
@@ -213,9 +213,15 @@ test('an item built on other items brings them in once, and never replaces what 
       [file]: `export const ${name.replace(/-/g, '')} = 1\n`,
       'README.md': `How to use ${name}.\n`,
     })
-  publish(item('text-scramble', 'src/type/scramble.ts'), registry)
-  publish(item('text-glitch-titles', 'src/type/titles.ts', { 'text-scramble': '^0.1.0' }), registry)
-  publish(item('text-code-wall', 'src/type/code-wall.ts', { 'text-scramble': '^0.1.0' }), registry)
+  publish(item('text-scramble', '0.3.0', 'src/type/scramble.ts'), registry)
+  publish(
+    item('text-glitch-titles', '0.2.0', 'src/type/titles.ts', { 'text-scramble': '^0.3.0' }),
+    registry,
+  )
+  publish(
+    item('text-code-wall', '0.3.0', 'src/type/code-wall.ts', { 'text-scramble': '^0.3.0' }),
+    registry,
+  )
   const root = project()
   const first = add(root, registry, 'text-glitch-titles')
   assert.ok(existsSync(join(root, 'src', 'type', 'scramble.ts')))
@@ -228,7 +234,7 @@ test('an item built on other items brings them in once, and never replaces what 
     '// changed by hand\n',
   )
   // the README is published (info prints it) and searched, but never copied into the project
-  assert.ok(existsSync(join(registry, 'items', 'text-glitch-titles', '0.1.0', 'README.md')))
+  assert.ok(existsSync(join(registry, 'items', 'text-glitch-titles', '0.2.0', 'README.md')))
   assert.ok(!existsSync(join(root, 'README.md')))
   assert.equal(search(registry, 'How to use text-glitch-titles')[0]?.name, 'text-glitch-titles')
 })
