@@ -13,7 +13,7 @@ type Segment = { kind: BlurKind; note: string; params: BlurParams }
 
 /** The kinds in order, a quarter of the loop each; the first follows the last. */
 const SEGMENTS: Segment[] = [
-  { kind: 'gaussian', note: 'soft; σ half the radius', params: { radius: 64 } },
+  { kind: 'gaussian', note: 'soft; sigma half the radius', params: { radius: 64 } },
   {
     kind: 'bokeh',
     note: 'a lens: each light opens into a disc',

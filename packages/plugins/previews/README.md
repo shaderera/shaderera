@@ -68,6 +68,7 @@ files or the list of previews change; `make.ts` only for a plugin that has one):
 node scripts/assemble.ts
 node scripts/render.ts --variants
 node ../audio-beat-clock/preview/make.ts
+node ../image-to-png/preview/make.ts
 node ../../../apps/cli/bin/shaderera.js still 0.5 2 3.5 5 --sheet --variant text-scramble.glitch
 node ../../../apps/cli/bin/shaderera.js render --variant look-screen-passes --out out/look.mp4
 ```

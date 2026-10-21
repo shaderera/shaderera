@@ -77,7 +77,7 @@ const lookFilmGrain: OpenPreview = async (host, stateId) => {
       house.hud(
         t,
         o.frame,
-        `σ ${segment.params.amount}   SIZE ${segment.params.size} PX   CARD ${CARD.size} PX`,
+        `SIGMA ${segment.params.amount}   SIZE ${segment.params.size} PX   CARD ${CARD.size} PX`,
         'GAUSSIAN, BY TONE',
       )
       return [
