@@ -271,7 +271,9 @@ Exit 1 when any output fails, after rendering the rest. See [delivery.md](delive
 `shaderera plan --job <name> [--chunks 4] [--out dir]`, then `shaderera render --job <name>
 --chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
 [--mixed-hosts] [--no-audio] [--loudness=LUFS]`: the same file as one `render --job`. See
-[delivery.md](delivery.md#rendering-a-job-on-several-machines).
+[delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's frames go round
+`--workers` hosts on its machine (the same default as `render`), and its file holds the same
+frames however many.
 
 After a small edit, `shaderera render --job <new> --reuse <earlier plan> --changed <from>-<to>[,…]
 [--fix] [--plan dir]` writes a plan of the new job (by default `out/<new>.plan`) that renders only
@@ -283,7 +285,7 @@ and compares them with the earlier ones, and refuses a frame that differs, namin
 
 ```
 $ shaderera render --job b5 --reuse out/a5.plan --changed 330-331
-chunk 1: 25 frames from 330 s in 3.2 s
+chunk 1: 25 frames from 330 s in 3.2 s on 1 host(s)
 /path/to/project/out/b5.plan/plan.json: 25 frames rendered, 7475 reused from /path/to/project/out/a5.plan; 34 reused frames rendered again matched
 then: npx shaderera assemble --plan /path/to/project/out/b5.plan
 ```

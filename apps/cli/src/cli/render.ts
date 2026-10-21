@@ -8,6 +8,7 @@ import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
+import { openHosts } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
 import {
@@ -187,12 +188,7 @@ export const exportVideo = async (
   let finished = false
   let stemsWritten = false
   try {
-    const extra = await Promise.allSettled(
-      Array.from({ length: workers - 1 }, () => (o.more as () => Promise<Child>)()),
-    )
-    opened = extra.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
-    const failed = extra.find((r) => r.status === 'rejected')
-    if (failed) throw (failed as PromiseRejectedResult).reason
+    opened = await openHosts(o.more as () => Promise<Child>, workers - 1)
     const hosts = [child, ...opened]
     // Every host must give the same bytes in the same format.
     const input: Input = o.frames
@@ -390,6 +386,16 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         process.stderr.write(`\rframe ${i + 1}/${n}  ${fps.toFixed(1)} fps`)
       }
     : undefined
+  // The hosts a chunk's frames go round besides `child` (--workers, or defaultWorkers for its
+  // frames), closed in the finally.
+  let extra: Child[] = []
+  const openExtra = async (frames: number) => {
+    const workers = project.manifest.sequential
+      ? 1
+      : Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(project.manifest, frames)))
+    extra = await openHosts(more, workers - 1)
+    return [child, ...extra] as const
+  }
   try {
     if (v.reuse !== undefined || v.changed !== undefined || v.fix !== undefined) {
       // A plan of the job that renders only the changed spans and reuses an earlier plan's frames.
@@ -400,17 +406,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       if (v.chunk !== undefined) throw new Error('--reuse renders every changed span: no --chunk.')
       const dir =
         typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${job.name}.plan`)
+      const hosts = await openExtra(
+        frameTimes(job.output.fps, job.output.from, job.output.to).length,
+      )
       const r = await renderReusing(child, job, project.manifest, {
         reuse: v.reuse,
         changed: v.changed,
         fix: v.fix === true,
         dir,
         onFrame,
+        extra,
       }).finally(() => progress && process.stderr.write('\n'))
       const reused = r.plan.chunks.filter((c) => c.reused).reduce((n, c) => n + c.frames, 0)
       for (const c of r.rendered)
         console.log(
-          `chunk ${c.index}: ${c.frames} frames from ${Number(c.from.toFixed(4))} s in ${c.seconds.toFixed(1)} s`,
+          `chunk ${c.index}: ${c.frames} frames from ${Number(c.from.toFixed(4))} s in ${c.seconds.toFixed(1)} s on ${hosts.length} host(s)`,
         )
       if (r.fixed.length > 0)
         console.log(`--fix: rendered around frames ${r.fixed.join(', ')}, which differed`)
@@ -431,11 +441,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       const plan = readPlan(dir)
       if (plan.jobId !== job.id)
         throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
-      const r = await renderChunk(child, plan, Number(v.chunk), dir, onFrame).finally(
+      const hosts = await openExtra(plan.chunks[Number(v.chunk)]?.frames ?? 0)
+      const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame).finally(
         () => progress && process.stderr.write('\n'),
       )
       console.log(
-        `chunk ${r.index}: ${r.frames} frames in ${r.seconds.toFixed(1)} s → ${join(dir, plan.chunks[r.index]?.file ?? '')}`,
+        `chunk ${r.index}: ${r.frames} frames in ${r.seconds.toFixed(1)} s on ${hosts.length} host(s) → ${join(dir, plan.chunks[r.index]?.file ?? '')}`,
       )
       return 0
     }
@@ -512,6 +523,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   } finally {
     process.off('SIGINT', interrupt)
     process.off('SIGTERM', interrupt)
+    await Promise.all(extra.map((h) => h.close()))
     await child.close()
   }
 }

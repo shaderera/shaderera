@@ -180,6 +180,8 @@ export const renderReusing = async (
     fix: boolean
     dir: string
     onFrame?: (i: number, n: number) => void
+    /** More hosts the changed chunks' frames go round, besides `child`: the caller closes them. */
+    extra?: readonly Child[]
   },
 ): Promise<{ plan: Plan; rendered: ChunkRecord[]; samples: number; fixed: number[] }> => {
   const oldDir = resolve(o.reuse)
@@ -243,7 +245,8 @@ export const renderReusing = async (
   writeFileSync(join(o.dir, 'plan.json'), `${JSON.stringify(plan, null, 1)}\n`)
   const rendered: ChunkRecord[] = []
   for (const c of plan.chunks)
-    if (!c.reused) rendered.push(await renderChunk(child, plan, c.index, o.dir, o.onFrame))
+    if (!c.reused)
+      rendered.push(await renderChunk([child, ...(o.extra ?? [])], plan, c.index, o.dir, o.onFrame))
   const samples = [...checked].filter(([f, same]) => same && !changed[f]).length
   return { plan, rendered, samples, fixed }
 }
