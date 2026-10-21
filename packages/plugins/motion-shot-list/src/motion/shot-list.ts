@@ -94,16 +94,17 @@ export const shotList = (shots: readonly Shot[]): ShotList => {
 /** What is on screen at t. Before 0 it is the first shot, after the end the last. */
 export const shotAt = (list: ShotList, t: number): At => {
   const { shots } = list
-  if (!shots.length) throw new Error('shotAt: the shot list is empty')
   // The last shot that has started by t.
   let lo = 0
   let hi = shots.length - 1
   while (lo < hi) {
     const mid = (lo + hi + 1) >> 1
-    if (shots[mid]!.start <= t) lo = mid
+    const s = shots[mid]
+    if (s && s.start <= t) lo = mid
     else hi = mid - 1
   }
-  const shot = shots[lo]!
+  const shot = shots[lo]
+  if (!shot) throw new Error('shotAt: the shot list is empty')
   const before = shots[lo - 1]
   if (!before || t >= before.end) return { shot: onScreen(shot, t), transition: 1 }
   return {

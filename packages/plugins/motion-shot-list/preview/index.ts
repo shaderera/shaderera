@@ -145,7 +145,7 @@ const preview: OpenPreview = async (host, state) => {
       ctx.fillStyle = RED
       ctx.fillRect(PLAYHEAD - 1, LANE.top - 10, 3, 2 * LANE.height + LANE.gap + 20)
 
-      house.note(SHOTS[shot.index]!.note, R, 820)
+      house.note(SHOTS[shot.index]?.note ?? '', R, 820)
       house.hud(t, o.frame, `${list.shots.length} SHOTS   ${list.duration.toFixed(1)} S`)
       return [{ color: canvas }]
     },

@@ -18,7 +18,7 @@
     "ntsc",
     "timing"
   ],
-  "version": "0.1.1",
+  "version": "0.1.2",
   "licence": "MIT",
   "requires": { "shaderera": ">=0.1.5" },
   "files": ["src/motion/shot-list.ts"]
