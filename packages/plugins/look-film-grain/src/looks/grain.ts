@@ -11,7 +11,7 @@ export type GrainParams = {
   /** A grain's size in px; 1 is a pixel each. */
   size?: number
   /** 0 the same on every channel, 1 each channel its own. */
-  colour?: number
+  color?: number
   /** How much the grain keeps to the mid-tones, 0–1: at 1, pure black and white stay clean. */
   midtones?: number
   /** The grain's pattern; pass options.frame so it changes every frame. */
@@ -88,7 +88,7 @@ export const createGrain = (host: Host, o: { width: number; height: number }) =>
         new Float32Array([
           p.amount ?? 0.04,
           p.size ?? 1.5,
-          p.colour ?? 0,
+          p.color ?? 0,
           (p.seed ?? 0) % 4096,
           p.midtones ?? 0.7,
           0,

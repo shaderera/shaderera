@@ -33,7 +33,7 @@ return { id: 'square', x: x(t), key: x.inspect(t) }
 `u` is how far the move into that key has gone, 0 to 1 and not eased (1 at rest). A tuple key
 reports `{ at, index, u }` with no id.
 
-A track comes to rest on every key. `path3(points, from, to, ease)` is one move through several
+A track comes to rest on every key. `path3(points, start, end, ease)` is one move through several
 points that never stops between them: a centripetal Catmull-Rom curve at even speed.
 
 Stateless: any t gives the same value whenever it is asked.

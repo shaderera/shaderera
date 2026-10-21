@@ -22,32 +22,40 @@ for (const item of ['camera-ken-burns', 'image-fit']) {
 const { moveOf, viewOf } = (await import(
   pathToFileURL(join(project, 'src/motion/ken-burns.ts')).href
 )) as typeof import('../camera-ken-burns/src/motion/ken-burns.ts')
-type View = import('../camera-ken-burns/src/motion/ken-burns.ts').View
+type Rect = import('../image-fit/src/image/fit.ts').Rect
 
 const picture = { width: 4000, height: 3000 }
 const A = 16 / 9
 const near = (a: number, b: number, what: string) =>
   assert.ok(Math.abs(a - b) < 1e-6, `${what}: ${a} is not ${b}`)
-const isInside = (v: View) =>
+const isInside = (v: Rect) =>
   v.x >= -1e-9 &&
   v.y >= -1e-9 &&
   v.x + v.width <= picture.width + 1e-9 &&
   v.y + v.height <= picture.height + 1e-9
 
 test('camera-ken-burns: a box framed at its fill, its centre at the eye line', () => {
-  const v = viewOf(picture, { on: [1800, 1200, 300, 400] }, A)
+  const v = viewOf(picture, { on: { x: 1800, y: 1200, width: 300, height: 400 } }, A)
   near(v.height, 800, 'the box is half the height')
   near(v.width / v.height, A, 'the aspect')
   near(1200 + 200 - v.y, 0.42 * v.height, 'the box centre sits 0.42 down')
   near(v.x + v.width / 2, 1950, 'centred across')
-  const lower = viewOf(picture, { on: [1800, 1200, 300, 400], eye: 0.6, dy: 0.1 }, A)
+  const lower = viewOf(
+    picture,
+    { on: { x: 1800, y: 1200, width: 300, height: 400 }, eye: 0.6, dy: 0.1 },
+    A,
+  )
   near(1400 - lower.y, (0.6 - 0.1) * lower.height, 'eye and dy move the view')
 })
 
 test('camera-ken-burns: a wide box takes at most maxWidth of the frame', () => {
-  const v = viewOf(picture, { on: [1000, 1400, 1840, 200] }, A)
+  const v = viewOf(picture, { on: { x: 1000, y: 1400, width: 1840, height: 200 } }, A)
   near(v.width, 2000, 'widened to 92%')
-  near(viewOf(picture, { on: [1000, 1400, 1600, 200], maxWidth: 0.5 }, A).width, 3200, 'maxWidth')
+  near(
+    viewOf(picture, { on: { x: 1000, y: 1400, width: 1600, height: 200 }, maxWidth: 0.5 }, A).width,
+    3200,
+    'maxWidth',
+  )
 })
 
 test('camera-ken-burns: full is the largest crop of the aspect, and zooms by fill', () => {
@@ -59,10 +67,10 @@ test('camera-ken-burns: full is the largest crop of the aspect, and zooms by fil
 
 test('camera-ken-burns: every view stays inside the picture', () => {
   const framings = [
-    { on: [0, 0, 200, 300] as const },
-    { on: [3900, 2900, 100, 100] as const, eye: 0.1 },
-    { on: [100, 100, 3900, 2900] as const },
-    { on: [2000, 1500, 10, 10] as const, fill: 0.01 },
+    { on: { x: 0, y: 0, width: 200, height: 300 } as const },
+    { on: { x: 3900, y: 2900, width: 100, height: 100 } as const, eye: 0.1 },
+    { on: { x: 100, y: 100, width: 3900, height: 2900 } as const },
+    { on: { x: 2000, y: 1500, width: 10, height: 10 } as const, fill: 0.01 },
     { on: 'full' as const, fill: 0.5, dx: 0.3 },
     { on: 'full' as const, fill: 3, dx: -2, dy: 2 },
   ]
@@ -76,7 +84,7 @@ test('camera-ken-burns: every view stays inside the picture', () => {
 
 test('camera-ken-burns: a move ends on its framings and pushes at an even log speed', () => {
   const from = { on: 'full' } as const
-  const to = { on: [1800, 1200, 300, 400], fill: 0.6 } as const
+  const to = { on: { x: 1800, y: 1200, width: 300, height: 400 }, fill: 0.6 } as const
   assert.deepEqual(moveOf(picture, from, to, 0, A), viewOf(picture, from, A))
   const end = moveOf(picture, from, to, 1, A)
   const b = viewOf(picture, to, A)

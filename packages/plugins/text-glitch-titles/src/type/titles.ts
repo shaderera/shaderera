@@ -11,18 +11,18 @@ import { decoded, glitched, hollow } from './scramble.ts'
 type Ctx = OffscreenCanvasRenderingContext2D
 
 /**
- * A title card: its items shown in turn from `from` to `to`. An `id` names it in inspect (and is
+ * A title card: its items shown in turn from `start` to `end`. An `id` names it in inspect (and is
  * what the source stamp marks).
  */
 export type Title = {
   id?: string
-  from: number
-  to: number
+  start: number
+  end: number
   items: [title: string, note: string][]
 }
 /** What `inspect(t)` reports for a title showing at t. */
 export type TitleState = {
-  /** The title's own fields but its items: `id`, `from`, `to`, the stamp's `source`, any other. */
+  /** The title's own fields but its items: `id`, `start`, `end`, the stamp's `source`, any other. */
   [field: string]: Json
   /** The item showing, its place among all the titles' items, and its layout. */
   item: number
@@ -225,14 +225,14 @@ export const createTitles = (o: TitleOptions) => {
   /** Each title showing at t, with the item it shows and that item's timing. */
   const showing = (t: number) =>
     o.titles.flatMap((card, ci) => {
-      if (t < card.from || t >= card.to) return []
-      const n = Math.floor((t - card.from) / o.swap)
+      if (t < card.start || t >= card.end) return []
+      const n = Math.floor((t - card.start) / o.swap)
       const j = n % card.items.length
       const isFirst = n === 0
-      const isLast = card.from + (n + 1) * o.swap >= card.to - 1e-6
+      const isLast = card.start + (n + 1) * o.swap >= card.end - 1e-6
       const single = card.items.length === 1
-      const start = single ? card.from : card.from + n * o.swap
-      const end = single ? card.to : Math.min(card.to, start + o.swap)
+      const start = single ? card.start : card.start + n * o.swap
+      const end = single ? card.end : Math.min(card.end, start + o.swap)
       const i = (first[ci] ?? 0) + j
       const layout = layouts[i % layouts.length] ?? 'edge'
       return [{ card, j, i, isFirst, isLast, single, start, end, layout }]
@@ -242,8 +242,8 @@ export const createTitles = (o: TitleOptions) => {
   const draw = (ctx: Ctx, W: number, H: number, t: number, frame: number) => {
     for (const { card, j, i, isFirst, isLast, single, start, end, layout } of showing(t)) {
       const timing = {
-        from: start,
-        to: end,
+        start,
+        end,
         frame,
         rise: isFirst ? 0.3 : 0.14,
         fall: isLast ? 0.15 : 0.06,
@@ -251,7 +251,7 @@ export const createTitles = (o: TitleOptions) => {
       }
       const [titleText, noteText] = card.items[j] ?? ['', '']
       const title = decoded(titleText, t, { ...timing, seed: i * 3 })
-      const text = decoded(noteText, t, { ...timing, from: start + 0.05, seed: i * 3 + 2 }).text
+      const text = decoded(noteText, t, { ...timing, start: start + 0.05, seed: i * 3 + 2 }).text
       const count = decoded(`${String(i + 1).padStart(2, '0')} / ${total}`, t, {
         ...timing,
         seed: i * 3 + 1,

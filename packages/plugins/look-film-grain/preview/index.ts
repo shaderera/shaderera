@@ -29,7 +29,7 @@ const SEGMENTS: Segment[] = [
     id: 'colour',
     word: 'COLOUR',
     note: 'each channel its own grain',
-    params: { amount: 0.1, size: 2, colour: 1 },
+    params: { amount: 0.1, size: 2, color: 1 },
   },
   {
     id: 'held',

@@ -14,7 +14,7 @@
     "photos",
     "documentary"
   ],
-  "version": "0.2.0",
+  "version": "0.3.0",
   "licence": "MIT",
   "requires": { "items": { "image-fit": "^0.1.0" } },
   "files": ["src/motion/ken-burns.ts"]

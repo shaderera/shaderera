@@ -2,45 +2,50 @@
 // clock for every time it uses, so every change lands on the music: clock.at(17) is bar 17's
 // downbeat, clock.at(17, 2) its third beat, clock.at(17, 0, 3) its fourth 1/16.
 
-import type { Host } from '@shaderera/core'
+import { type Host, sha256 } from '@shaderera/core'
 
-/** What tools/analyze-music.ts writes. */
+/** What tools/analyze-music.ts writes: a shaderera.analysis/1 artifact of kind "music". */
 export type Analysis = {
-  kind: 'shaderera.analysis/1'
-  of: { path: string; sha256: string }
-  duration: number
+  format: 'shaderera.analysis/1'
+  kind: 'music'
+  /** The song, as measured. */
+  source: { path: string; bytes: number; sha256: string; seconds: number }
+  /** The script and its ffmpeg: provenance only, nothing here is read to render. */
+  tool: Record<string, unknown>
+  /** Every setting that changed the output. */
+  params: Record<string, unknown>
   tempo: {
     bpm: number
     period: number
     phase: number
     downbeatClass: number
-    /** How the grid was fitted to the song's strong onsets (fitGrid); absent in older analyses. */
-    fit?: { from: number; subdivision: number; onsets: number; residualMs: number }
+    /** How the grid was fitted to the song's strong onsets (fitGrid). */
+    fit: { from: number; subdivision: number; onsets: number; residualMs: number }
   }
   beats: number[]
   downbeats: number[]
   onsets: { t: number; strength: number }[]
-  silences: { from: number; to: number }[]
+  silences: { start: number; end: number }[]
   sections: { t: number; novelty: number }[]
   bands: { fps: number; sub: number[]; low: number[]; mid: number[]; high: number[] }
 }
 
-const hex = async (bytes: Uint8Array) => {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 /**
- * Reads an analysis, and refuses it when it was measured from other bytes than `song`: a changed
- * song with an old analysis would cut the picture to a grid the music no longer has.
+ * Reads an analysis, and refuses it when it is not one or when the song it names has other bytes
+ * than the ones measured: a changed song with an old analysis would cut the picture to a grid the
+ * music no longer has.
  */
-export const loadAnalysis = async (host: Host, song: string, analysis: string) => {
-  const a = JSON.parse(new TextDecoder().decode(await host.io.read(analysis))) as Analysis
-  if (a.of.sha256 !== (await hex(await host.io.read(song))))
+export const loadAnalysis = async (host: Host, path: string): Promise<Analysis> => {
+  const doc = JSON.parse(new TextDecoder().decode(await host.io.read(path))) as Analysis
+  if (doc.format !== 'shaderera.analysis/1' || doc.kind !== 'music')
     throw new Error(
-      `${analysis} was measured from other bytes than ${song}; run: node tools/analyze-music.ts ${song} ${analysis}`,
+      `${path} is not a shaderera.analysis/1 music artifact; run node tools/analyze-music.ts on its song again`,
     )
-  return a
+  if ((await sha256(await host.io.read(doc.source.path))) !== doc.source.sha256)
+    throw new Error(
+      `${path} was measured from other bytes than ${doc.source.path}; run: node tools/analyze-music.ts ${doc.source.path} ${path}`,
+    )
+  return doc
 }
 
 export type Clock = {

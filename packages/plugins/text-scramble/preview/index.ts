@@ -113,12 +113,12 @@ const textScramble: OpenPreview = async (host, stateId) => {
         } else if (slot.id === 'decode') {
           const d = DECODES[j] ?? { rise: 0.3, fall: 0.15 }
           label(
-            `decoded(text, t, { from, to, rise: ${d.rise.toFixed(2)}, fall: ${d.fall.toFixed(2)} })`,
+            `decoded(text, t, { start, end, rise: ${d.rise.toFixed(2)}, fall: ${d.fall.toFixed(2)} })`,
             top + 16,
           )
           text = decoded(slot.text, t, {
-            from: s.from,
-            to: s.to,
+            start: s.from,
+            end: s.to,
             frame: o.frame,
             seed: s.n * 3 + j,
             ...d,

@@ -3,17 +3,11 @@
 
 export type Platform = 'none' | 'shorts' | 'reels' | 'tiktok'
 
+/** A rectangle in pixels: its top-left corner and its size. */
+export type Rect = { x: number; y: number; width: number; height: number }
+
 /** Margins in pixels, and the box inside them. */
-export type Area = {
-  left: number
-  right: number
-  top: number
-  bottom: number
-  x: number
-  y: number
-  width: number
-  height: number
-}
+export type Area = Rect & { left: number; right: number; top: number; bottom: number }
 
 /**
  * The safe area of a W×H frame. With no platform, generic title-safe margins (not a platform
@@ -64,18 +58,18 @@ export type Anchor = {
 
 /**
  * The corner of a W×H frame farthest from the subject, where an editor puts a credit: where there
- * is room. The subject is a point [x, y] or a box [x, y, width, height] (its centre counts), in px
- * on screen. The anchor is that corner of the safe area, aligned so text grows inward. A tie goes
+ * is room. The subject is a point [x, y] or a box { x, y, width, height } (its centre counts), in
+ * px on screen. The anchor is that corner of the safe area, aligned so text grows inward. A tie goes
  * to the first of bl, br, tr, tl.
  */
 export const freeCorner = (
-  subject: [number, number] | [number, number, number, number],
+  subject: readonly [number, number] | Rect,
   width: number,
   height: number,
   platform: Platform = 'none',
 ): Anchor => {
   const [x, y] =
-    subject.length === 4 ? [subject[0] + subject[2] / 2, subject[1] + subject[3] / 2] : subject
+    'width' in subject ? [subject.x + subject.width / 2, subject.y + subject.height / 2] : subject
   const corners: [Corner, number, number][] = [
     ['bl', 0, height],
     ['br', width, height],

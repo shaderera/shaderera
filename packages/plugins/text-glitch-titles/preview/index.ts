@@ -41,7 +41,7 @@ const textGlitchTitles: OpenPreview = async (host, stateId) => {
   const picture = host.io.canvas(width, PICTURE)
   const pctx = picture.getContext('2d') as OffscreenCanvasRenderingContext2D
   const titles = createTitles({
-    titles: [{ id: 'features', from: -duration, to: 2 * duration, items: ITEMS }],
+    titles: [{ id: 'features', start: -duration, end: 2 * duration, items: ITEMS }],
     fonts: { title: `"${FONT.monoBold}"`, small: `"${FONT.mono}"`, note: `"${SERIF}"` },
     swap: SWAP,
     layouts,

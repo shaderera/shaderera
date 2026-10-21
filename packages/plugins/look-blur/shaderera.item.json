@@ -19,7 +19,7 @@
     "shader",
     "wgsl"
   ],
-  "version": "0.1.1",
+  "version": "0.2.0",
   "licence": "MIT",
   "requires": { "items": { "render-srgb": "^0.1.0" } },
   "files": ["src/looks/blur.ts", "src/looks/blur.wgsl.ts"]

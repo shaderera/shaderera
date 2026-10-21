@@ -40,7 +40,7 @@ test('look-film-grain: strength, size, tones, channels and seed', async () => {
   const mono = await g.read(grain.apply(mid.texture, { amount: 0.1, seed: 2 }))
   for (let i = 0; i < mono.length; i += 4)
     assert.ok(mono[i] === mono[i + 1] && mono[i] === mono[i + 2])
-  const colour = await g.read(grain.apply(mid.texture, { amount: 0.1, colour: 1, seed: 2 }))
+  const colour = await g.read(grain.apply(mid.texture, { amount: 0.1, color: 1, seed: 2 }))
   let apart = 0
   for (let i = 0; i < colour.length; i += 4) if (colour[i] !== colour[i + 1]) apart++
   assert.ok(apart > (colour.length / 4) * 0.5, 'colour grain differs by channel')

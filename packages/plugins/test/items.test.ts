@@ -25,7 +25,7 @@ const { glyphPoints } = (await from(
 const { decoded, glitched, scramble } = (await from(
   'src/type/scramble.ts',
 )) as typeof import('../text-scramble/src/type/scramble.ts')
-const { bandsOf, clockFromAnalysis, clockOf, fitGrid } = (await from(
+const { bandsOf, clockFromAnalysis, clockOf, fitGrid, loadAnalysis } = (await from(
   'src/music/beat.ts',
 )) as typeof import('../audio-beat-clock/src/music/beat.ts')
 const { freeCorner, safeArea } = (await from(
@@ -37,7 +37,7 @@ const { bezier, glide, hold, settle } = (await from(
 const { path3, track, track3 } = (await from(
   'src/motion/keyframes.ts',
 )) as typeof import('../motion-keyframes/src/motion/keyframes.ts')
-const { cameraCapability, cameraPath, cameraTrack, fit, lens, shot, viewProjection, widenFov } =
+const { cameraCapability, cameraPath, cameraTrack, fit, lensDeg, shot, viewProjection, widenFov } =
   (await from('src/motion/camera.ts')) as typeof import('../camera-keyframes/src/motion/camera.ts')
 const { SHAKE, shake } = (await from(
   'src/motion/shake.ts',
@@ -107,6 +107,37 @@ test('audio-beat-clock: bars, positions, bands and pulses', () => {
   assert.deepEqual(bandsOf(a)(1 / 60), [0.5, 1, 1, 1])
 })
 
+test('audio-beat-clock: the analysis has the shared header, read from its own path, and names its song', async () => {
+  const song = new Uint8Array([1, 2, 3, 4])
+  const { sha256 } = await import('@shaderera/core')
+  const header = {
+    format: 'shaderera.analysis/1',
+    kind: 'music',
+    source: { path: 'audio/song.wav', bytes: 4, sha256: await sha256(song), seconds: 1 },
+    tool: { script: 'tools/analyze-music.ts' },
+    params: { fps: 60 },
+    silences: [{ start: 0.5, end: 0.75 }],
+  }
+  const files: Record<string, Uint8Array> = { 'audio/song.wav': song }
+  const json = (o: unknown) => new TextEncoder().encode(JSON.stringify(o))
+  const host = {
+    io: {
+      read: async (p: string) => files[p] ?? assert.fail(`no ${p}`),
+    },
+  } as unknown as Host
+  files['a.json'] = json(header)
+  const a = await loadAnalysis(host, 'a.json')
+  assert.deepEqual(a.silences, [{ start: 0.5, end: 0.75 }])
+  assert.equal(a.source.path, 'audio/song.wav')
+  files['old.json'] = json({ kind: 'shaderera.analysis/1', of: header.source })
+  await assert.rejects(loadAnalysis(host, 'old.json'), /not a shaderera.analysis\/1 music artifact/)
+  files['other.json'] = json({ ...header, source: { ...header.source, sha256: '0'.repeat(64) } })
+  await assert.rejects(
+    loadAnalysis(host, 'other.json'),
+    /measured from other bytes than audio\/song.wav/,
+  )
+})
+
 test('audio-beat-clock: the grid is fitted to the onsets, on the steps they sit on', () => {
   // A 150 BPM song whose hits fall on sixteenths, measured by autocorrelation as 149.85.
   const truth = 60 / 150
@@ -136,9 +167,9 @@ test('audio-beat-clock: the grid is fitted to the onsets, on the steps they sit 
 test('text-scramble: deterministic scramble, decode in and out, glitch draws', () => {
   assert.equal(scramble('HELLO WORLD', 7, 0.5), scramble('HELLO WORLD', 7, 0.5))
   assert.notEqual(scramble('HELLO WORLD', 7, 1), 'HELLO WORLD')
-  assert.equal(decoded('BEAT', 1.5, { from: 1, to: 3, frame: 9 }).text, 'BEAT')
-  assert.ok(decoded('BEAT', 1.5, { from: 1, to: 3, frame: 9 }).settled)
-  assert.equal(decoded('BEAT', 0.5, { from: 1, to: 3, frame: 9 }).visible, false)
+  assert.equal(decoded('BEAT', 1.5, { start: 1, end: 3, frame: 9 }).text, 'BEAT')
+  assert.ok(decoded('BEAT', 1.5, { start: 1, end: 3, frame: 9 }).settled)
+  assert.equal(decoded('BEAT', 0.5, { start: 1, end: 3, frame: 9 }).visible, false)
   const c = io.canvas(640, 360)
   const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D
   // `font` is a family alone, as the README says: the functions put the size in front, and a
@@ -163,13 +194,17 @@ test('format-safe-areas: title-safe margins, platform zones', () => {
 })
 
 test('format-safe-areas: the corner farthest from the subject, inside the safe area', () => {
-  const corner = (s: [number, number] | [number, number, number, number]) =>
+  const corner = (s: [number, number] | { x: number; y: number; width: number; height: number }) =>
     freeCorner(s, 1920, 1080).corner
   assert.equal(corner([1800, 100]), 'bl')
   assert.equal(corner([100, 100]), 'br')
   assert.equal(corner([100, 1000]), 'tr')
   assert.equal(corner([1800, 1000]), 'tl')
-  assert.equal(corner([600, 200, 800, 400]), 'bl', 'a box counts by its centre')
+  assert.equal(
+    corner({ x: 600, y: 200, width: 800, height: 400 }),
+    'bl',
+    'a box counts by its centre',
+  )
   assert.equal(corner([960, 540]), 'bl', 'a tie goes to bl')
   const a = safeArea(1080, 1920, 'reels')
   assert.deepEqual(freeCorner([100, 1800], 1080, 1920, 'reels'), {
@@ -193,8 +228,8 @@ test('text-glitch-titles and text-code-wall draw in 16:9 and 9:16', async () => 
   const titles = createTitles({
     titles: [
       {
-        from: 0,
-        to: 4,
+        start: 0,
+        end: 4,
         items: [
           ['AUDIO DRIVEN', 'the line is the song'],
           ['BEAT GRID', 'cut on the 1/16'],
@@ -207,8 +242,8 @@ test('text-glitch-titles and text-code-wall draw in 16:9 and 9:16', async () => 
   })
   const wall = createCodeWall({
     files: await readCode(hostOf(1, 1), ['src/type/code-wall.ts', 'src/type/scramble.ts']),
-    from: 0,
-    to: 4,
+    start: 0,
+    end: 4,
     step: 0.125,
     claim: ['EVERYTHING', 'IS SOURCE CODE'],
     fonts: { mono: '"Plex"', claim: '"Plex Bold"' },
@@ -290,14 +325,14 @@ test('text-glitch-titles: inspect names the title showing and its item', () => {
     titles: [
       {
         id: 'intro',
-        from: 0,
-        to: 2,
+        start: 0,
+        end: 2,
         items: [
           ['ONE', 'a'],
           ['TWO', 'b'],
         ],
       },
-      { from: 2, to: 3, items: [['THREE', 'c']] },
+      { start: 2, end: 3, items: [['THREE', 'c']] },
     ],
     fonts: { title: '"Plex Bold"', small: '"Plex"', note: '"Stix Italic"' },
     swap: 1,
@@ -307,8 +342,8 @@ test('text-glitch-titles: inspect names the title showing and its item', () => {
   assert.deepEqual(titles.inspect(1.25), [
     {
       id: 'intro',
-      from: 0,
-      to: 2,
+      start: 0,
+      end: 2,
       item: 1,
       index: 1,
       title: 'TWO',
@@ -318,7 +353,7 @@ test('text-glitch-titles: inspect names the title showing and its item', () => {
     },
   ])
   assert.deepEqual(titles.inspect(2.5), [
-    { from: 2, to: 3, item: 0, index: 2, title: 'THREE', note: 'c', layout: 'edge', u: 0.5 },
+    { start: 2, end: 3, item: 0, index: 2, title: 'THREE', note: 'c', layout: 'edge', u: 0.5 },
   ])
 })
 
@@ -340,7 +375,11 @@ test('camera-keyframes: the target lands in the middle, right is right, a tall f
   assert.ok(Math.abs(x ?? 1) < 1e-6 && Math.abs(y ?? 1) < 1e-6 && (z ?? -1) > 0 && (z ?? 2) < 1)
   assert.ok((project(viewProjection(c, 16 / 9), [1, 0, 0])[0] ?? 0) > 0, 'world +x is screen right')
   assert.ok((project(viewProjection(c, 16 / 9), [0, 1, 0])[1] ?? 0) > 0, 'world +y is screen up')
-  assert.ok(camera(0, 9 / 16).fov > c.fov)
+  assert.ok(camera(0, 9 / 16).fovDeg > c.fovDeg)
+  assert.ok(
+    Math.abs(camera(0, 9 / 16).fovDeg - (widenFov(Math.PI / 4.5, 9 / 16) * 180) / Math.PI) < 1e-9,
+    'fovDeg is degrees, opened in radians',
+  )
   assert.equal(widenFov(0.5, 16 / 9), 0.5)
   const opened = widenFov(0.5, 9 / 16)
   assert.ok(Math.abs(opened - 0.8522531745541341) < 1e-12, 'half way on a log scale')
@@ -386,13 +425,26 @@ test('camera-keyframes: orbits keep their distance, fit frames exactly, lenses, 
   const mid = camera(1, 16 / 9).eye
   assert.ok(Math.abs(Math.hypot(...mid) - 10) < 1e-6, 'an orbit keeps its distance')
   assert.ok(Math.hypot(...camera(2.5, 16 / 9).eye) < 9.9, 'a line cuts across')
-  assert.ok(Math.abs(lens(35) - 31.4) < 0.5, 'a 35 mm lens on 16:9 is about 31 degrees vertical')
-  const f = fit({ center: [0, 0, 0], radius: 1, azimuth: 0, elevation: 0, fov: 40, fill: 0.5 })
+  assert.ok(Math.abs(lensDeg(35) - 31.4) < 0.5, 'a 35 mm lens on 16:9 is about 31 degrees vertical')
+  assert.equal(lensDeg(35), (2 * Math.atan(35 / (16 / 9) / 70) * 180) / Math.PI)
+  const f = fit({
+    center: [0, 0, 0],
+    radius: 1,
+    azimuthDeg: 0,
+    elevationDeg: 0,
+    fovDeg: 40,
+    fill: 0.5,
+  })
   const d = Math.hypot(...f.eye)
   assert.ok(
     Math.abs(Math.asin(1 / d) - (0.5 * (20 * Math.PI)) / 180) < 1e-9,
     'the subject spans half the height',
   )
+  const side = fit({ center: [0, 0, 0], radius: 1, azimuthDeg: 90, elevationDeg: 30, fovDeg: 40 })
+  const sd = Math.hypot(...side.eye)
+  assert.ok(Math.abs(side.eye[1] - sd / 2) < 1e-9, '30 degrees above the horizon')
+  assert.ok(Math.abs(side.eye[2]) < 1e-9 && side.eye[0] > 0, '90 degrees round from +z is +x')
+  assert.equal(side.fovDeg, 40)
   const path = cameraPath([shot([0, 0, 10]), shot([5, 0, 5]), shot([10, 0, 0])], 0, 2)
   assert.ok(path(1, 16 / 9).eye[0] > 3 && path(1, 16 / 9).eye[0] < 7)
   const shifted = viewProjection(shot([0, 0, 10], [0, 0, 0], 40, 0, { shift: [-1 / 6, 0] }), 16 / 9)

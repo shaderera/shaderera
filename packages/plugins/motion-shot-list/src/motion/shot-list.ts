@@ -5,6 +5,8 @@
  * is the film's code.
  */
 
+import { parseFps } from '@shaderera/core'
+
 export type Shot = {
   id: string
   /** Seconds on screen, the transition out of it (the next shot's `transition`) included. */
@@ -133,23 +135,15 @@ const onScreen = (shot: Placed, t: number): OnScreen => {
   return on
 }
 
-/** NTSC rates written as decimals are these nominal × 1000/1001 (23.976, 29.97, 59.94…). */
-const NTSC = [24, 30, 48, 60, 120]
-
-/** A rate as an exact fraction [num, den], as core's parseFps reads shaderera.json's fps. */
+/** A rate as an exact fraction [num, den], as core reads shaderera.json's fps. */
 const rate = (
   fps: number | string,
   fail = (why: string): never => {
     throw new Error(why)
   },
 ): [number, number] => {
-  if (typeof fps === 'string') {
-    const m = /^\s*(\d+)\s*\/\s*(\d+)\s*$/.exec(fps)
-    if (m && Number(m[1]) > 0 && Number(m[2]) > 0) return [Number(m[1]), Number(m[2])]
-  } else if (Number.isFinite(fps) && fps > 0) {
-    const ntsc = NTSC.find((n) => Math.abs(fps - (n * 1000) / 1001) < 0.005)
-    if (ntsc !== undefined) return [ntsc * 1000, 1001]
-    return Number.isInteger(fps) ? [fps, 1] : [Math.round(fps * 1000), 1000]
-  }
-  return fail(`fps must be a positive number or a fraction such as "24000/1001", not ${fps}`)
+  const r = parseFps(fps)
+  return r
+    ? [r.num, r.den]
+    : fail(`fps must be a positive number or a fraction such as "24000/1001", not ${fps}`)
 }

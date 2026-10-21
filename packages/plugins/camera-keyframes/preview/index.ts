@@ -6,6 +6,7 @@
 // keys sit on a timeline with each move's ease drawn as a curve. The move and the lens are the big
 // words (house.ts).
 
+import type { Vec3 } from '@shaderera/core'
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import {
   cameraPath,
@@ -13,13 +14,12 @@ import {
   FILL,
   fit,
   type Key,
-  lens,
+  lensDeg,
   type Shot,
   shot,
   viewProjection,
 } from '../../previews/src/motion/camera.ts'
 import { type Ease, glide, hold, linear, settle, smooth } from '../../previews/src/motion/eases.ts'
-import type { V3 } from '../../previews/src/motion/keyframes.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 import { createStage, project, SUBJECT } from './stage.ts'
 
@@ -30,13 +30,13 @@ const LIFT: readonly [number, number] = [0, 0.082]
 
 type Move = { at: number; shot: Shot; mm: number; ease: Ease; easeName: string; move: string }
 
-const framed = (mm: number, azimuth: number, elevation: number, fill: number): Shot =>
+const framed = (mm: number, azimuthDeg: number, elevationDeg: number, fill: number): Shot =>
   fit({
     center: SUBJECT.center,
     radius: SUBJECT.radius,
-    azimuth,
-    elevation,
-    fov: lens(mm, 1),
+    azimuthDeg,
+    elevationDeg,
+    fovDeg: lensDeg(mm, 1),
     aspect: 1,
     fill,
     shift: LIFT,
@@ -66,9 +66,9 @@ const TRACK: Move[] = [
     shot: fit({
       center: [0, 2.2, 0],
       radius: 1.1,
-      azimuth: 250,
-      elevation: 9,
-      fov: lens(85, 1),
+      azimuthDeg: 250,
+      elevationDeg: 9,
+      fovDeg: lensDeg(85, 1),
       aspect: 1,
       fill: FILL.close,
       shift: LIFT,
@@ -80,7 +80,7 @@ const TRACK: Move[] = [
   },
   {
     at: 4.4,
-    shot: shot([-8, 3, -5], [0, 1.2, 0], lens(28, 1), 0, { path: 'line', shift: LIFT }),
+    shot: shot([-8, 3, -5], [0, 1.2, 0], lensDeg(28, 1), 0, { path: 'line', shift: LIFT }),
     mm: 28,
     ease: smooth,
     easeName: 'smooth',
@@ -93,13 +93,13 @@ TRACK.push({ ...(TRACK[0] as Move), at: 6, ease: settle(9), easeName: 'settle', 
  * One flowing move round the box: start high, sweep low round it, drop to the floor and look up
  * at it, climb away. Every shot looks at the box, so the target holds still while the eye flows.
  */
-const AIM: V3 = SUBJECT.center
+const AIM: Vec3 = SUBJECT.center
 const PATH: { shot: Shot; mm: number }[] = [
-  { shot: shot([7, 6.4, 10], AIM, lens(35, 1), 0, { shift: LIFT }), mm: 35 },
-  { shot: shot([10, 3.6, 0], AIM, lens(24, 1), 0.12, { shift: LIFT }), mm: 24 },
-  { shot: shot([4.2, 2, -3.4], AIM, lens(28, 1), 0, { shift: LIFT }), mm: 28 },
-  { shot: shot([-3.6, 0.5, -3.2], AIM, lens(20, 1), -0.15, { shift: LIFT }), mm: 20 },
-  { shot: shot([-9, 9, 7], AIM, lens(35, 1), 0, { shift: LIFT }), mm: 35 },
+  { shot: shot([7, 6.4, 10], AIM, lensDeg(35, 1), 0, { shift: LIFT }), mm: 35 },
+  { shot: shot([10, 3.6, 0], AIM, lensDeg(24, 1), 0.12, { shift: LIFT }), mm: 24 },
+  { shot: shot([4.2, 2, -3.4], AIM, lensDeg(28, 1), 0, { shift: LIFT }), mm: 28 },
+  { shot: shot([-3.6, 0.5, -3.2], AIM, lensDeg(20, 1), -0.15, { shift: LIFT }), mm: 20 },
+  { shot: shot([-9, 9, 7], AIM, lensDeg(35, 1), 0, { shift: LIFT }), mm: 35 },
 ]
 PATH.push(PATH[0] as { shot: Shot; mm: number })
 
@@ -189,7 +189,7 @@ const cameraKeyframes: OpenPreview = async (host, stateId) => {
     const to = keys[k] ?? keys[0]
     const u = from && to ? Math.min(1, Math.max(0, (t - from.at) / (to.at - from.at))) : 0
     const move = stateId === 'track' ? (TRACK[k]?.move ?? '') : 'flow'
-    return { c, k, u, move, mm: mmOf(c.fov) }
+    return { c, k, u, move, mm: mmOf(c.fovDeg) }
   }
 
   const drawRoute = (vp: Float32Array, t: number) => {
@@ -349,7 +349,7 @@ const cameraKeyframes: OpenPreview = async (host, stateId) => {
       theme.hud(
         t,
         o.frame,
-        `EYE ${e.map((v) => v.toFixed(2)).join(' ')}   FOV ${s.c.fov.toFixed(2)}`,
+        `EYE ${e.map((v) => v.toFixed(2)).join(' ')}   FOV ${s.c.fovDeg.toFixed(2)}`,
         `${s.mm.toFixed(1)} MM   ${fps} FPS`,
       )
       return [{ color: canvas }]
@@ -369,7 +369,7 @@ const cameraKeyframes: OpenPreview = async (host, stateId) => {
         move: s.move,
         eye: [...s.c.eye],
         target: [...s.c.target],
-        fov: s.c.fov,
+        fovDeg: s.c.fovDeg,
         mm: s.mm,
       }
     },

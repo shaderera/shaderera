@@ -6,8 +6,8 @@ import { createCodeWall, readCode } from './type/code-wall.ts'
 // in open
 const wall = createCodeWall({
   files: await readCode(host, ['src/composition.ts', 'src/scene.wgsl']),
-  from: clock.at(31),
-  to: clock.at(32, 2),
+  start: clock.at(31),
+  end: clock.at(32, 2),
   step: clock.sixteenth,
   claim: ['EVERYTHING', 'IS SOURCE CODE'],
   fonts: { mono: '"IBM Plex Mono"', claim: '"IBM Plex Mono SemiBold"' },

@@ -7,8 +7,9 @@
 // (house.ts).
 
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
+import type { Rect } from '../../previews/src/image/fit.ts'
 import { progress } from '../../previews/src/motion/eases.ts'
-import { type Box, type Framing, moveOf, type View } from '../../previews/src/motion/ken-burns.ts'
+import { type Framing, moveOf } from '../../previews/src/motion/ken-burns.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const L = 48
@@ -19,9 +20,9 @@ const STILL = { width: 1600, height: 1400 }
 const MAP = { x: L, y: 718, scale: 130 / STILL.height }
 const EYE = 0.42
 
-const HEAD: Box = [940, 300, 220, 220]
-const HAND: Box = [500, 700, 110, 110]
-const ROW: Box = [160, 860, 1280, 80]
+const HEAD: Rect = { x: 940, y: 300, width: 220, height: 220 }
+const HAND: Rect = { x: 500, y: 700, width: 110, height: 110 }
+const ROW: Rect = { x: 160, y: 860, width: 1280, height: 80 }
 const FULL: Framing = { on: 'full' }
 
 const MOVES: {
@@ -97,7 +98,7 @@ const cameraKenBurns: OpenPreview = async (host, stateId) => {
   s.strokeStyle = '#fff'
   s.lineWidth = 4
   s.beginPath()
-  s.arc(HEAD[0] + HEAD[2] / 2, HEAD[1] + HEAD[3] / 2, HEAD[2] / 2, 0, Math.PI * 2)
+  s.arc(HEAD.x + HEAD.width / 2, HEAD.y + HEAD.height / 2, HEAD.width / 2, 0, Math.PI * 2)
   s.fill()
   s.stroke()
   s.fillStyle = '#5a5a5a'
@@ -107,16 +108,16 @@ const cameraKenBurns: OpenPreview = async (host, stateId) => {
   s.strokeStyle = '#5a5a5a'
   s.beginPath()
   s.moveTo(910, 580)
-  s.lineTo(HAND[0] + HAND[2] / 2, HAND[1] + HAND[3] / 2)
+  s.lineTo(HAND.x + HAND.width / 2, HAND.y + HAND.height / 2)
   s.stroke()
   s.fillStyle = '#c8c8c8'
   s.beginPath()
-  s.arc(HAND[0] + HAND[2] / 2, HAND[1] + HAND[3] / 2, HAND[2] / 2, 0, Math.PI * 2)
+  s.arc(HAND.x + HAND.width / 2, HAND.y + HAND.height / 2, HAND.width / 2, 0, Math.PI * 2)
   s.fill()
   for (let i = 0; i < 16; i++) {
     s.fillStyle = i % 4 === 0 ? '#fff' : '#9a9a9a'
     s.beginPath()
-    s.arc(ROW[0] + (i + 0.5) * (ROW[2] / 16), ROW[1] + ROW[3] / 2, 22, 0, Math.PI * 2)
+    s.arc(ROW.x + (i + 0.5) * (ROW.width / 16), ROW.y + ROW.height / 2, 22, 0, Math.PI * 2)
     s.fill()
   }
 
@@ -128,12 +129,12 @@ const cameraKenBurns: OpenPreview = async (host, stateId) => {
   }
 
   /** A box of the still, in the frame of view v. */
-  const inFrame = ([bx, by, bw, bh]: Box, v: View) => {
+  const inFrame = ({ x: bx, y: by, width: bw, height: bh }: Rect, v: Rect) => {
     const k = FRAME.width / v.width
     return [FRAME.x + (bx - v.x) * k, FRAME.y + (by - v.y) * k, bw * k, bh * k] as const
   }
 
-  const drawFrame = (v: View, m: (typeof MOVES)[0]) => {
+  const drawFrame = (v: Rect, m: (typeof MOVES)[0]) => {
     ctx.drawImage(still, v.x, v.y, v.width, v.height, FRAME.x, FRAME.y, FRAME.width, FRAME.height)
     ctx.strokeStyle = 'rgba(255,255,255,0.5)'
     ctx.lineWidth = 1
@@ -160,13 +161,13 @@ const cameraKenBurns: OpenPreview = async (host, stateId) => {
     ctx.fillText(`EYE ${EYE}`, R - 18, ey - 8)
   }
 
-  const drawMap = (v: View) => {
+  const drawMap = (v: Rect) => {
     const k = MAP.scale
     ctx.drawImage(still, MAP.x, MAP.y, STILL.width * k, STILL.height * k)
     ctx.strokeStyle = 'rgba(255,255,255,0.45)'
     ctx.lineWidth = 1
     ctx.strokeRect(MAP.x, MAP.y, STILL.width * k, STILL.height * k)
-    for (const [bx, by, bw, bh] of [HEAD, HAND, ROW])
+    for (const { x: bx, y: by, width: bw, height: bh } of [HEAD, HAND, ROW])
       ctx.strokeRect(MAP.x + bx * k, MAP.y + by * k, bw * k, bh * k)
     ctx.strokeStyle = RED
     ctx.lineWidth = 2

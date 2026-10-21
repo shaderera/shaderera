@@ -5,7 +5,7 @@
   "description": "Where text may go in 16:9, 1:1 and 9:16, clear of YouTube Shorts, Reels and TikTok UI, and which corner is free for a credit",
   "category": "Layout & Formats",
   "tags": ["safe area", "vertical", "9:16", "shorts", "reels", "tiktok", "variants", "credit"],
-  "version": "0.2.0",
+  "version": "0.3.0",
   "licence": "MIT",
   "files": ["src/layout/frame.ts"]
 }
