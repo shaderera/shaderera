@@ -51,6 +51,8 @@ const { loadAtlas, loadTexture } = (await from(
 type Analysis = import('../audio-beat-clock/src/music/beat.ts').Analysis
 
 Object.assign(globalThis, globals)
+// Dawn's instance must outlive every device and pending readback, so it is held here.
+const gpu = create([])
 const here = join(import.meta.dirname, '..')
 GlobalFonts.registerFromPath(
   join(here, 'font-ibm-plex-mono', 'assets', 'fonts', 'IBMPlexMono-SemiBold.ttf'),
@@ -466,7 +468,6 @@ test('camera-shake: the same at any t in any order, still at zero amount', () =>
 
 test('render-three-host + render-three-textures: an image card renders on the host GPU, the same at any t in any order, texture and bytes alike', async () => {
   const THREE = await import('three/webgpu')
-  const gpu = create([])
   const adapter = await gpu.requestAdapter()
   assert.ok(adapter)
   const device = await adapter.requestDevice()
