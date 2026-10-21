@@ -13,5 +13,5 @@ applyToThree(c, threeCamera, W / H)
 
 Presets: `breathe`, `handheld-mild`, `handheld`, `impact`. Seeded noise and `motion-eases`'
 `envelope` of the hits, both pure functions of t: no `Math.random`, no decay stepped per frame. It turns the
-camera in its own space, so the authored target stays where it is. Built on `camera-keyframes` and
-`motion-eases`.
+camera in its own space, so the authored target stays where it is. Built on `camera-keyframes`,
+`motion-eases` and `motion-random`.

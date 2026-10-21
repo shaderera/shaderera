@@ -3,7 +3,8 @@
 // cut out of the middle. Everything on screen is this code.
 
 import type { Host } from '@shaderera/core'
-import { decoded, glitched, rnd, scramble } from './scramble.ts'
+import { rnd } from '../motion/random.ts'
+import { decoded, glitched, scramble } from './scramble.ts'
 
 type Ctx = OffscreenCanvasRenderingContext2D
 

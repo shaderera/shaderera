@@ -3,16 +3,9 @@
 // choice comes from a hash of the frame and the character, never from Math.random, so a frame
 // renders the same every time.
 
-type Ctx = OffscreenCanvasRenderingContext2D
+import { hash, rnd } from '../motion/random.ts'
 
-/** A 32-bit hash (PCG). */
-export const hash = (v: number) => {
-  const s = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0
-  const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0
-  return ((w >>> 22) ^ w) >>> 0
-}
-/** A hash as a number in [0, 1). */
-export const rnd = (v: number) => hash(v) / 4294967296
+type Ctx = OffscreenCanvasRenderingContext2D
 
 export const GLYPHS = '0123456789#$%&@*+=<>/\\|!?:;ABCDEFXZ'
 const noise = (v: number, glyphs: string) => glyphs[hash(v) % glyphs.length] ?? '#'

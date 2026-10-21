@@ -4,14 +4,9 @@
 // target stays what was authored.
 
 import type { Shot } from './camera.ts'
+import { hash } from './random.ts'
 
 type V3 = readonly [number, number, number]
-
-const hash = (v: number) => {
-  const s = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0
-  const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0
-  return ((w >>> 22) ^ w) >>> 0
-}
 
 /** Smooth 1D gradient noise in about [-1, 1], fixed for a seed. */
 export const noise1 = (x: number, seed = 0) => {

@@ -8,6 +8,7 @@
 
 import type { Layer } from '@shaderera/core'
 import { createHouse, iridescent, type Word } from '../../previews/src/house.ts'
+import { rnd } from '../../previews/src/motion/random.ts'
 import type { OpenPreview } from '../../previews/src/preview.ts'
 import {
   extrude,
@@ -68,12 +69,6 @@ const smooth = (x: number) => {
   const c = clamp01(x)
   return c * c * (3 - 2 * c)
 }
-const hash = (v: number) => {
-  const s = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0
-  const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0
-  return ((w >>> 22) ^ w) >>> 0
-}
-const rnd = (v: number) => hash(v) / 4294967296
 
 // Column-major 4×4 matrices, WebGPU clip space (z in [0, 1]).
 type M = Float32Array
