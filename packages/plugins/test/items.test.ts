@@ -16,9 +16,9 @@ const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { createCodeWall, readCode } = (await from(
   'src/type/code-wall.ts',
 )) as typeof import('../text-code-wall/src/type/code-wall.ts')
-const { createCaptions } = (await from(
-  'src/type/captions.ts',
-)) as typeof import('../text-feature-captions/src/type/captions.ts')
+const { createTitles } = (await from(
+  'src/type/titles.ts',
+)) as typeof import('../text-glitch-titles/src/type/titles.ts')
 const { glyphPoints } = (await from(
   'src/procedural/glyph-points.ts',
 )) as typeof import('../text-glyph-points/src/procedural/glyph-points.ts')
@@ -188,10 +188,10 @@ test('format-safe-areas: the corner farthest from the subject, inside the safe a
   })
 })
 
-test('text-feature-captions and text-code-wall draw in 16:9 and 9:16', async () => {
+test('text-glitch-titles and text-code-wall draw in 16:9 and 9:16', async () => {
   const fonts = { title: '"Plex Bold"', small: '"Plex"', note: '"Stix Italic"' }
-  const captions = createCaptions({
-    captions: [
+  const titles = createTitles({
+    titles: [
       {
         from: 0,
         to: 4,
@@ -220,8 +220,8 @@ test('text-feature-captions and text-code-wall draw in 16:9 and 9:16', async () 
     for (const t of [0.5, 1.5, 2.5, 3.5]) {
       const c = io.canvas(W, H)
       const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D
-      captions(ctx, W, H, t, Math.round(t * 60))
-      assert.ok(inked(c) > 0.005, `caption at ${t} in ${W}x${H}`)
+      titles(ctx, W, H, t, Math.round(t * 60))
+      assert.ok(inked(c) > 0.005, `title at ${t} in ${W}x${H}`)
       const w = io.canvas(W, H)
       wall(w.getContext('2d') as OffscreenCanvasRenderingContext2D, W, H, t, Math.round(t * 60))
       assert.ok(inked(w) > 0.02, `wall at ${t} in ${W}x${H}`)
@@ -285,9 +285,9 @@ test('motion-keyframes: object keys carry an id to inspect and move as tuples do
   assert.equal(p.inspect(0.5).id, 'b')
 })
 
-test('text-feature-captions: inspect names the caption showing and its item', () => {
-  const captions = createCaptions({
-    captions: [
+test('text-glitch-titles: inspect names the title showing and its item', () => {
+  const titles = createTitles({
+    titles: [
       {
         id: 'intro',
         from: 0,
@@ -303,8 +303,8 @@ test('text-feature-captions: inspect names the caption showing and its item', ()
     swap: 1,
     layouts: ['edge', 'split'],
   })
-  assert.deepEqual(captions.inspect(-1), [])
-  assert.deepEqual(captions.inspect(1.25), [
+  assert.deepEqual(titles.inspect(-1), [])
+  assert.deepEqual(titles.inspect(1.25), [
     {
       id: 'intro',
       from: 0,
@@ -317,7 +317,7 @@ test('text-feature-captions: inspect names the caption showing and its item', ()
       u: 0.25,
     },
   ])
-  assert.deepEqual(captions.inspect(2.5), [
+  assert.deepEqual(titles.inspect(2.5), [
     { from: 2, to: 3, item: 0, index: 2, title: 'THREE', note: 'c', layout: 'edge', u: 0.5 },
   ])
 })

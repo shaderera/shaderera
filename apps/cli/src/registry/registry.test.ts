@@ -214,10 +214,10 @@ test('an item built on other items brings them in once, and never replaces what 
       'README.md': `How to use ${name}.\n`,
     })
   publish(item('text-scramble', 'src/type/scramble.ts'), registry)
-  publish(item('captions', 'src/type/captions.ts', { 'text-scramble': '^0.1.0' }), registry)
+  publish(item('text-glitch-titles', 'src/type/titles.ts', { 'text-scramble': '^0.1.0' }), registry)
   publish(item('text-code-wall', 'src/type/code-wall.ts', { 'text-scramble': '^0.1.0' }), registry)
   const root = project()
-  const first = add(root, registry, 'captions')
+  const first = add(root, registry, 'text-glitch-titles')
   assert.ok(existsSync(join(root, 'src', 'type', 'scramble.ts')))
   assert.equal(first.length, 2)
   writeFileSync(join(root, 'src', 'type', 'scramble.ts'), '// changed by hand\n')
@@ -228,9 +228,9 @@ test('an item built on other items brings them in once, and never replaces what 
     '// changed by hand\n',
   )
   // the README is published (info prints it) and searched, but never copied into the project
-  assert.ok(existsSync(join(registry, 'items', 'captions', '0.1.0', 'README.md')))
+  assert.ok(existsSync(join(registry, 'items', 'text-glitch-titles', '0.1.0', 'README.md')))
   assert.ok(!existsSync(join(root, 'README.md')))
-  assert.equal(search(registry, 'How to use captions')[0]?.name, 'captions')
+  assert.equal(search(registry, 'How to use text-glitch-titles')[0]?.name, 'text-glitch-titles')
 })
 
 test('an item that imports npm packages installs them, unless the project has them', () => {

@@ -1,4 +1,4 @@
-// Feature captions: a huge title and a small note, several to a scene, each held for `swap`
+// Glitch titles: a huge title and a small note, several to a scene, each held for `swap`
 // seconds and swapping to the next through ASCII noise. Each one is set somewhere new, in turn,
 // in one of four compositions on the frame's safe area, with its number huge and hollow behind
 // it. Name what the picture is doing while it does it.
@@ -11,20 +11,20 @@ import { decoded, glitched, hollow } from './scramble.ts'
 type Ctx = OffscreenCanvasRenderingContext2D
 
 /**
- * A caption: its items shown in turn from `from` to `to`. An `id` names it in inspect (and is what
- * the source stamp marks).
+ * A title card: its items shown in turn from `from` to `to`. An `id` names it in inspect (and is
+ * what the source stamp marks).
  */
-export type Caption = {
+export type Title = {
   id?: string
   from: number
   to: number
   items: [title: string, note: string][]
 }
-/** What `inspect(t)` reports for a caption showing at t. */
-export type CaptionState = {
-  /** The caption's own fields but its items: `id`, `from`, `to`, the stamp's `source`, any other. */
+/** What `inspect(t)` reports for a title showing at t. */
+export type TitleState = {
+  /** The title's own fields but its items: `id`, `from`, `to`, the stamp's `source`, any other. */
   [field: string]: Json
-  /** The item showing, its place among all the captions' items, and its layout. */
+  /** The item showing, its place among all the titles' items, and its layout. */
   item: number
   index: number
   title: string
@@ -35,8 +35,8 @@ export type CaptionState = {
 }
 export type Layout = 'edge' | 'column' | 'spine' | 'split'
 
-export type CaptionOptions = {
-  captions: Caption[]
+export type TitleOptions = {
+  titles: Title[]
   /** CSS font families, quoted: '"IBM Plex Mono SemiBold"'. */
   fonts: { title: string; small: string; note: string }
   /** Seconds each item holds before the next swaps in (two beats of the music reads well). */
@@ -48,7 +48,7 @@ export type CaptionOptions = {
   colors?: { title: string; small: string; note: string; line: string; hollow: string }
 }
 
-export const createCaptions = (o: CaptionOptions) => {
+export const createTitles = (o: TitleOptions) => {
   const layouts = o.layouts ?? ['edge', 'split', 'column', 'spine']
   const c = o.colors ?? {
     title: 'rgba(255,255,255,0.95)',
@@ -58,10 +58,8 @@ export const createCaptions = (o: CaptionOptions) => {
     hollow: 'rgba(255,255,255,0.28)',
   }
   const numbers = o.numbers ?? true
-  const total = o.captions.reduce((n, x) => n + x.items.length, 0)
-  const first = o.captions.map((_, i) =>
-    o.captions.slice(0, i).reduce((n, x) => n + x.items.length, 0),
-  )
+  const total = o.titles.reduce((n, x) => n + x.items.length, 0)
+  const first = o.titles.map((_, i) => o.titles.slice(0, i).reduce((n, x) => n + x.items.length, 0))
   // The family is the bold face: a weight here would land after the size, an invalid font.
   const bold = o.fonts.title
 
@@ -224,25 +222,25 @@ export const createCaptions = (o: CaptionOptions) => {
     }
   }
 
-  /** Each caption showing at t, with the item it shows and that item's timing. */
+  /** Each title showing at t, with the item it shows and that item's timing. */
   const showing = (t: number) =>
-    o.captions.flatMap((cap, ci) => {
-      if (t < cap.from || t >= cap.to) return []
-      const n = Math.floor((t - cap.from) / o.swap)
-      const j = n % cap.items.length
+    o.titles.flatMap((card, ci) => {
+      if (t < card.from || t >= card.to) return []
+      const n = Math.floor((t - card.from) / o.swap)
+      const j = n % card.items.length
       const isFirst = n === 0
-      const isLast = cap.from + (n + 1) * o.swap >= cap.to - 1e-6
-      const single = cap.items.length === 1
-      const start = single ? cap.from : cap.from + n * o.swap
-      const end = single ? cap.to : Math.min(cap.to, start + o.swap)
+      const isLast = card.from + (n + 1) * o.swap >= card.to - 1e-6
+      const single = card.items.length === 1
+      const start = single ? card.from : card.from + n * o.swap
+      const end = single ? card.to : Math.min(card.to, start + o.swap)
       const i = (first[ci] ?? 0) + j
       const layout = layouts[i % layouts.length] ?? 'edge'
-      return [{ cap, j, i, isFirst, isLast, single, start, end, layout }]
+      return [{ card, j, i, isFirst, isLast, single, start, end, layout }]
     })
 
-  /** Draws the caption showing at t, if any, onto ctx (it does not clear it). */
+  /** Draws the title showing at t, if any, onto ctx (it does not clear it). */
   const draw = (ctx: Ctx, W: number, H: number, t: number, frame: number) => {
-    for (const { cap, j, i, isFirst, isLast, single, start, end, layout } of showing(t)) {
+    for (const { card, j, i, isFirst, isLast, single, start, end, layout } of showing(t)) {
       const timing = {
         from: start,
         to: end,
@@ -251,7 +249,7 @@ export const createCaptions = (o: CaptionOptions) => {
         fall: isLast ? 0.15 : 0.06,
         swap: !single && !isFirst,
       }
-      const [titleText, noteText] = cap.items[j] ?? ['', '']
+      const [titleText, noteText] = card.items[j] ?? ['', '']
       const title = decoded(titleText, t, { ...timing, seed: i * 3 })
       const text = decoded(noteText, t, { ...timing, from: start + 0.05, seed: i * 3 + 2 }).text
       const count = decoded(`${String(i + 1).padStart(2, '0')} / ${total}`, t, {
@@ -274,10 +272,10 @@ export const createCaptions = (o: CaptionOptions) => {
     }
   }
 
-  /** The captions showing at t, as JSON for the film's inspect. */
-  const inspect = (t: number): CaptionState[] =>
-    showing(t).map(({ cap, j, i, start, end, layout }) => {
-      const { items, ...own } = cap as Caption & { readonly [field: string]: Json }
+  /** The titles showing at t, as JSON for the film's inspect. */
+  const inspect = (t: number): TitleState[] =>
+    showing(t).map(({ card, j, i, start, end, layout }) => {
+      const { items, ...own } = card as Title & { readonly [field: string]: Json }
       const [title, note] = items[j] ?? ['', '']
       return { ...own, item: j, index: i, title, note, layout, u: (t - start) / (end - start) }
     })
