@@ -41,6 +41,7 @@
           "render-gaussian-splats",
           "render-gltf-read",
           "render-image-textures",
+          "render-srgb",
           "render-three-host",
           "review-av-timeline",
           "review-picture-reuse",
@@ -459,6 +460,13 @@
       "label": "render-image-textures",
       "params": {
         "item": "render-image-textures",
+        "state": "default"
+      }
+    },
+    "render-srgb": {
+      "label": "render-srgb",
+      "params": {
+        "item": "render-srgb",
         "state": "default"
       }
     },

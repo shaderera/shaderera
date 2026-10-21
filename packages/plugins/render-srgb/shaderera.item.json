@@ -1,0 +1,21 @@
+{
+  "name": "render-srgb",
+  "type": "component",
+  "title": "sRGB transfer",
+  "description": "The sRGB transfer functions (IEC 61966-2-1), display values to linear light and back, as WGSL functions for a shader and a CPU version that gives the same values",
+  "category": "Rendering",
+  "tags": [
+    "srgb",
+    "linear light",
+    "gamma",
+    "transfer function",
+    "colour",
+    "encode",
+    "decode",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/render/srgb.ts", "src/render/srgb.wgsl.ts"]
+}
