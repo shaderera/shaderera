@@ -109,6 +109,7 @@ const textFit: OpenPreview = async (host, stateId) => {
         ctx.font = `36px ${sans}`
         const lines = wrap(ctx, PARAGRAPH, w)
         label(`wrap(ctx, text, ${w})  →  ${lines.length} lines`, ROW.top + 16)
+        ctx.font = `36px ${sans}`
         ctx.textAlign = 'left'
         ctx.textBaseline = 'alphabetic'
         ctx.fillStyle = '#fff'
@@ -127,6 +128,7 @@ const textFit: OpenPreview = async (host, stateId) => {
             top + 16,
           )
           const mid = top + 90
+          ctx.font = `100px ${medium}`
           ctx.letterSpacing = `${tr}px`
           ctx.textAlign = 'left'
           ctx.textBaseline = 'middle'

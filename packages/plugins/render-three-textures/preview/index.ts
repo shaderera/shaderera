@@ -12,11 +12,14 @@ import { makeCards } from './cards.ts'
 
 const CELL = 512
 const COLUMNS = 4
-/** The window the atlas is seen through, and its scale in it. */
-const VIEW = { top: 140, bottom: 790 }
 const SCALE = 0.4
 /** Black kept above the atlas at the top of the pan, and below it at the bottom. */
 const MARGIN = 14
+/**
+ * The window the atlas is seen through: three rows of cells and the margin, so at either end of
+ * the pan it shows whole rows, never cards cut in half.
+ */
+const VIEW = { top: 140, bottom: 140 + MARGIN + 3 * CELL * SCALE }
 /** The row of the card the box is on, in each of the 16 steps: down the atlas and back up. */
 const ROWS = [0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 2, 2, 1, 1, 0, 0]
 

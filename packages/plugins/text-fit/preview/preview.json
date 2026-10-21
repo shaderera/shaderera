@@ -1,5 +1,5 @@
 {
-  "caption": "Sizes text to a width, wraps it into lines between words, Thai too, and measures it tracked.",
+  "caption": "Sizes text to a width, wraps it into lines between words, and measures it tracked.",
   "states": [
     {
       "id": "all",
