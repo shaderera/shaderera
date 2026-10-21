@@ -2,7 +2,7 @@ The crop of a still that a frame shows: framed on a box with headroom, and moved
 
 ```ts
 import { moveOf, viewOf } from './motion/ken-burns.ts'
-import { progress, smooth } from './motion/keyframes.ts'
+import { progress, smooth } from './motion/eases.ts'
 
 // in render(t): from the whole photo to its cat's head, over 0–4 s
 const head = region(cat, 'cat-head-0').box                     // [x, y, width, height]
@@ -26,4 +26,4 @@ line. A view never leaves the picture: it shrinks to fit, then slides back in, s
 box sits off its mark.
 
 It gives a rectangle only. Boxes come from `image-regions` or any analyser, and drawing the crop
-and easing `p` (`motion-keyframes`) are the film's.
+and easing `p` (`motion-eases`) are the film's.

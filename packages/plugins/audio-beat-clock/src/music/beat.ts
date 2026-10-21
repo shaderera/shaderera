@@ -208,13 +208,3 @@ const fitSteps = (
     residualMs: Number.isFinite(error) ? error * 1000 : Number.NaN,
   }
 }
-
-/**
- * An envelope that jumps to 1 on each of `times` and decays with time constant `decay` seconds:
- * a flash, a kick of the camera, a burst. 0 before the first.
- */
-export const pulse = (t: number, times: readonly number[], decay = 0.12) => {
-  let last = Number.NEGATIVE_INFINITY
-  for (const x of times) if (x <= t && x > last) last = x
-  return Number.isFinite(last) ? Math.exp(-(t - last) / decay) : 0
-}

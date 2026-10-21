@@ -45,17 +45,6 @@ export const SHAKE = {
   impact: { degrees: 2.8, frequency: 11, drift: 0.06 },
 } as const satisfies { [name: string]: ShakeStyle }
 
-/** 1 at `at`, decaying with time constant `decay` seconds after it; 0 before: a hit's envelope. */
-export const hit = (t: number, at: number, decay = 0.25) =>
-  t < at ? 0 : Math.exp(-(t - at) / decay)
-
-/** The sum of hits at `times`: a camera that takes every hit of the music. */
-export const hits = (t: number, times: readonly number[], decay = 0.25) =>
-  Math.min(
-    1.5,
-    times.reduce((s, at) => s + hit(t, at, decay), 0),
-  )
-
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 const scale = (a: V3, s: number): V3 => [a[0] * s, a[1] * s, a[2] * s]
@@ -70,8 +59,8 @@ const norm = (a: V3): V3 => {
 }
 
 /**
- * The shot shaken at t. `amount` scales it (an envelope such as `hit`, or 1 for a steady
- * handheld); `seed` gives each camera its own wander.
+ * The shot shaken at t. `amount` scales it (motion-eases' `envelope` of the hits, or 1 for a
+ * steady handheld); `seed` gives each camera its own wander.
  */
 export const shake = (
   s: Shot,

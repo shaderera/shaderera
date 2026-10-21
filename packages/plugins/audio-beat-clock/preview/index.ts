@@ -6,13 +6,8 @@
 // those the whole frame: the bands, the beat grid.
 
 import { createHouse, L, R, RED } from '../../previews/src/house.ts'
-import {
-  bandsOf,
-  clockFromAnalysis,
-  hitsOf,
-  loadAnalysis,
-  pulse,
-} from '../../previews/src/music/beat.ts'
+import { envelope } from '../../previews/src/motion/eases.ts'
+import { bandsOf, clockFromAnalysis, hitsOf, loadAnalysis } from '../../previews/src/music/beat.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const SONG = 'audio/beat.wav'
@@ -81,8 +76,11 @@ const audioBeatClock: OpenPreview = async (host, stateId) => {
       sixteenth: p.sixteenth,
       step: (p.beat - 1) * 4 + (p.sixteenth - 1),
       bands: { sub, low, mid, high },
-      downbeat: pulse(t, around(beats.filter((_, i) => i % 4 === 0)), 0.07),
-      hit: pulse(t, around(hits), 0.09),
+      downbeat: envelope(t, around(beats.filter((_, i) => i % 4 === 0)), {
+        combine: 'last',
+        decay: 0.07,
+      }),
+      hit: envelope(t, around(hits), { combine: 'last', decay: 0.09 }),
     }
   }
   type S = ReturnType<typeof state>

@@ -60,7 +60,7 @@ export const viewOf = (picture: Picture, f: Framing, aspect: number): View => {
 /**
  * The view at progress `p` of the move between two framings, 0 at `from` and 1 at `to`. The width
  * goes in log space, so a push in or out reads at an even speed; the centre goes in a straight
- * line. `p` is used as given: ease it before (motion-keyframes' `progress`).
+ * line. `p` is used as given: ease it before (motion-eases' `progress`).
  */
 export const moveOf = (
   picture: Picture,

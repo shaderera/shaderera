@@ -6,7 +6,8 @@
 // sides of a shot designed for 16:9.
 
 import type { CameraCapability, Matrices } from '@shaderera/core'
-import { clamp, type Ease, type Key, lerp, path3, smooth, track, type V3 } from './keyframes.ts'
+import { clamp, type Ease, lerp, smooth } from './eases.ts'
+import { type Key, path3, track, type V3 } from './keyframes.ts'
 
 export type Shot = {
   eye: V3
