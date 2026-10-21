@@ -512,6 +512,8 @@ test('/render makes an mp4 with ffmpeg', { skip: !ffmpeg && 'no ffmpeg' }, async
 })
 
 test('/share without a login says how to log in', async () => {
+  // A project that can be shared: its licence is checked before the token.
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ license: 'MIT' }))
   const r = await call(bridge.port, {
     method: 'POST',
     path: '/share',

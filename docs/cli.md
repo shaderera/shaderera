@@ -386,7 +386,10 @@ ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
 adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
-[above](#required-plugins)). Each lack says how to fix it.
+[above](#required-plugins)). Each lack says how to fix it. It also says whether this machine is
+signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERERA_API` names
+another) and whether the project can be shared (`share`: the licence it declares). Neither is
+needed, so neither fails `doctor`.
 
 The limits are the ones films run into, as the Node host's device gets them (it asks for the
 adapter's maximum). They come from the GPU and its backend, not from Shaderera: Dawn on D3D12 caps
@@ -438,7 +441,7 @@ They talk to two origins, each reached over https (plain http only on this machi
 | `login --token <token> [--api origin]` | keeps a token given by hand, in the same file |
 | `whoami [--api origin] [--json]` | who this machine is signed in as, the name the API knows it by, and until when; exits 1 when it is not signed in |
 | `logout [--api origin] [--all]` | signs this machine out (`--all`: every machine of yours) and forgets its token |
-| `share [--film id] [--title t] [--no-media] [--yes] [--api origin] [--site origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
+| `share [--film id] [--title t] [--no-media] [--dry-run] [--host h] [--trusted] [--timeout s] [--yes] [--api origin] [--site origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
 | `fork <film\|url>[@version] [dir] [--api origin] [--site origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
 
 **`login`** signs in with GitHub's device flow:
@@ -492,7 +495,8 @@ before anything is sent.
 **A poster and a loop** go with each version, for the site to show the film by: the main
 variant's frame at the film's middle, a webp at most 1280 px wide and 500 KB; and its first
 min(4 s, duration), a silent H.264 mp4 480 px wide and at most 4 MB. `share` renders them with
-the CLI's own host and ffmpeg into `.shaderera/media/`, after you confirm. One that does not
+the CLI's own host and ffmpeg into `.shaderera/media/`, after you confirm; `--host`, `--trusted`
+and `--timeout` apply to that render, as to a `render`'s. One that does not
 render (no ffmpeg, a frame that fails, too large) is left out with a warning, and the film is
 shared without it. `--no-media` renders and sends neither.
 
@@ -502,8 +506,22 @@ Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exit
 sends nothing and exits 1. Only the files the API does not already have are uploaded, each one
 checked against its sha256 as it is read.
 
+**The API's limits** come with its health (`limits`: bytes a file and a version, files a
+version, hashes an ask, a poster's and a loop's bytes). After the poster and loop, and before
+anything is uploaded, `share` checks the version against them: one over a limit is refused with
+each limit it breaks, and nothing is sent. An API that names none is not checked here; its
+routes still refuse what is over.
+
+**`--dry-run`** does everything a share does on this machine and sends nothing: it needs no
+token (it says whether you are signed in), builds the player, renders the poster and loop
+(unless `--no-media`), and names each limit the version would break. It exits 0 when a share
+would go through, 1 when it is over a limit. With `--json` its result is `dryRun`, `api`,
+`signedIn`, `film` (null for a new one), `title`, `licence`, `files`, `bytes`, `player`,
+`parents`, `notSent`, `poster`, `loop`, `warnings`, `limits` and `over`.
+
 - **The licence** is package.json's `license`: an SPDX id such as `MIT`, or `UNLICENSED` for all
-  rights reserved. A project without one is refused before anything is sent.
+  rights reserved, which a new project starts with. A project without one is refused before
+  anything is sent, and before the token is looked for.
 - **The film** a project shares to is noted per API in `.shaderera/share.json`, which is never
   sent or forked. The first share makes a new film titled `--title`, else package.json's `name`,
   else the folder's name; later shares make new versions of it. `--film <id>` shares to a film
@@ -592,7 +610,7 @@ commands and the MCP server.
 | Code | When |
 |---|---|
 | 0 | the command ran and nothing failed; or it printed the usage |
-| 1 | it ran and found a failure: `check` found a difference; `review` or `deliver` has a failing check; `still --diff` found a frame that depends on history; `handoff --verify` found a different frame; `doctor` is missing something needed; `share` was declined |
+| 1 | it ran and found a failure: `check` found a difference; `review` or `deliver` has a failing check; `still --diff` found a frame that depends on history; `handoff --verify` found a different frame; `doctor` is missing something needed; `share` was declined; `share --dry-run` is over a limit; `whoami` is not signed in |
 | 2 | it could not run: an unknown command or flag, a missing tool, a project that does not build or open, a shader that does not compile, a render that threw; printed as `shaderera: <message>` |
 
 ## `--json`: one envelope

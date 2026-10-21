@@ -29,7 +29,7 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
 - **`--origin <origin>`** (repeatable) adds a page origin the bridge answers, for developing the
   page on another origin than the relay's.
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
-  to the renders the page asks for.
+  to the renders the page asks for, and to a share's poster and loop.
 
 It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
 rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
@@ -234,8 +234,8 @@ log line.
 
 - **Not signed in** (no token for `--api`, or it refused the token): `401` with
   `{error:"login", command:"npx shaderera login"}`. The page shows the command to run.
-- **Anything else** that stops the share (no licence, a player that does not build, the API
-  unreachable): `500` with `{error}`.
+- **Anything else** that stops the share (no licence, a player that does not build, a version
+  over the API's limits, the API unreachable): `500` with `{error}`.
 
 ## The relay fallback
 

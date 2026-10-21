@@ -322,6 +322,7 @@ export const startBridge = async (o: {
           root,
           api: o.api,
           site: o.site,
+          ...(o.hostFlags ? { hostFlags: o.hostFlags } : {}),
           ...(typeof body.title === 'string' && body.title.trim() ? { title: body.title } : {}),
           say: (line) => log('info', line),
           warn: (line) => log('warn', line),

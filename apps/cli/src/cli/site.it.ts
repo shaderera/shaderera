@@ -19,7 +19,8 @@ const sha256 = (b: Buffer | string) => createHash('sha256').update(b).digest('he
 /**
  * A fake of the films API (`/api/v1`, the routes the films app serves) in memory: films, versions
  * of path → sha256, and objects. It records every request, and can serve one object corrupted.
- * Its health names `options.parents` (null: an older API, without the field).
+ * Its health names `options.parents` (null: an older API, without the field) and
+ * `options.limits`, which its routes enforce as the API's do (hashes an ask, bytes a file).
  */
 const fakeSite = async () => {
   const TOKEN = 'tok-secret-123'
@@ -40,7 +41,13 @@ const fakeSite = async () => {
   const requests: { method: string; path: string; auth: string | undefined }[] = []
   const corrupt = new Set<string>()
   /** Like the app's API: a version needs a built player; its response has the film's `page`. */
-  const options = { needsPlayer: false, page: true, parents: null as unknown }
+  const options = {
+    needsPlayer: false,
+    page: true,
+    parents: null as unknown,
+    limits: {} as { fileBytes?: number; hashesPerAsk?: number; filesPerVersion?: number },
+  }
+  const asks: number[] = []
   const json = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -63,15 +70,21 @@ const fakeSite = async () => {
         ok: true,
         service: 'web',
         ...(options.parents === null ? {} : { parents: options.parents }),
+        limits: options.limits,
       })
     if (method === 'POST' && path === '/uploads/missing') {
       const { hashes } = JSON.parse(body.toString()) as { hashes: string[] }
+      asks.push(hashes.length)
+      if (options.limits.hashesPerAsk !== undefined && hashes.length > options.limits.hashesPerAsk)
+        return json(res, 400, { error: 'Too many hashes.' })
       return json(res, 200, { missing: hashes.filter((h) => !objects.has(h)) })
     }
     if (obj) {
       const sha = obj[1] as string
       if (method === 'PUT') {
         if (sha256(body) !== sha) return json(res, 400, { error: 'Bad hash.' })
+        if (options.limits.fileBytes !== undefined && body.length > options.limits.fileBytes)
+          return json(res, 413, { error: 'The file is over its limit.' })
         objects.set(sha, body)
         res.writeHead(204).end()
         return
@@ -133,7 +146,7 @@ const fakeSite = async () => {
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   const site = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   after(() => server.close())
-  return { site, TOKEN, films, objects, requests, corrupt, options }
+  return { site, TOKEN, films, objects, requests, corrupt, options, asks }
 }
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
@@ -262,15 +275,107 @@ test('share sends what a revision holds less secrets and its built player, only 
   assert.equal(s.films.get('film1')?.versions.length, 2)
 })
 
-test('share refuses a project that declares no licence, before anything is sent', async () => {
+test('share refuses a project that declares no licence, before anything is sent and before the token', async () => {
   const s = await fakeSite()
   const home = temp('home')
   const root = project(null)
+  // Not signed in: the licence is what it says first.
+  const first = await cli(home, root, 'share', '--api', s.site, '--yes')
+  assert.equal(first.status, 2)
+  assert.match(first.stderr, /declares no licence/)
   await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
   const r = await cli(home, root, 'share', '--api', s.site, '--yes')
   assert.equal(r.status, 2)
   assert.match(r.stderr, /declares no licence/)
   assert.equal(s.requests.length, 0)
+})
+
+test('share --dry-run needs no token, builds the player, and sends nothing', async () => {
+  const s = await fakeSite()
+  s.options.limits = { fileBytes: 5 * 1024 * 1024, filesPerVersion: 2000 }
+  const home = temp('home')
+  const root = project()
+  const r = await cli(home, root, 'share', '--api', s.site, '--dry-run', '--no-media', '--json')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  const { result } = JSON.parse(r.stdout)
+  assert.equal(result.dryRun, true)
+  assert.equal(result.signedIn, false)
+  assert.equal(result.film, null)
+  assert.equal(result.title, 'neon-rain')
+  assert.equal(result.licence, 'MIT')
+  assert.ok(result.files > 0 && result.bytes > 0)
+  assert.ok(result.player.files > 0, 'the player was built')
+  assert.ok(existsSync(join(playerDir(root), 'runner.html')))
+  assert.deepEqual(result.notSent, ['.env', 'sub/.npmrc'])
+  assert.deepEqual(result.limits, s.options.limits)
+  assert.deepEqual(result.over, [])
+  assert.equal(result.poster, null)
+  assert.deepEqual(
+    s.requests.map((q) => `${q.method} ${q.path} ${q.auth ?? 'no token'}`),
+    ['GET /films/health no token'],
+    'only the health is read',
+  )
+
+  const said = await cli(home, root, 'share', '--api', s.site, '--dry-run', '--no-media')
+  assert.equal(said.status, 0, said.stderr)
+  assert.match(
+    said.stdout,
+    /^share: \d+ files, .* to http:\/\/127\.0\.0\.1:\d+ as a new film "neon-rain"/m,
+  )
+  assert.match(said.stdout, /not signed in to .*Sign in: npx shaderera login --api/)
+  assert.match(said.stdout, /Nothing was sent \(--dry-run\)\.\n$/)
+})
+
+test("a version over the API's limits is refused before anything is uploaded; --dry-run names them", async () => {
+  const s = await fakeSite()
+  const home = temp('home')
+  const root = project()
+  writeFileSync(join(root, 'big.bin'), Buffer.alloc(3000, 1))
+  s.options.limits = { fileBytes: 2000, filesPerVersion: 3 }
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')
+  assert.equal(r.status, 2, r.stdout + r.stderr)
+  assert.match(
+    r.stderr,
+    new RegExp(
+      `Over the limits of ${s.site}: .*big\\.bin is 3 KB, over the 2 KB a file may be; .*the version has \\d+ files \\(source and player\\), over the 3 a version may have\\. Nothing was sent\\.`,
+    ),
+  )
+  assert.deepEqual(
+    s.requests.map((q) => q.path),
+    ['/films/health'],
+    'nothing was uploaded',
+  )
+
+  const dry = await cli(home, root, 'share', '--api', s.site, '--dry-run', '--no-media', '--json')
+  assert.equal(dry.status, 1, 'a dry run over a limit exits 1')
+  const { result } = JSON.parse(dry.stdout)
+  assert.equal(result.signedIn, true)
+  assert.ok(result.over.some((o: string) => /^big\.bin is 3 KB/.test(o)))
+})
+
+test('share asks which objects are missing in batches no larger than the API takes', async () => {
+  const s = await fakeSite()
+  s.options.limits = { hashesPerAsk: 3 }
+  const home = temp('home')
+  const root = project()
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media', '--json')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  assert.ok(s.asks.length > 1, `${s.asks.length} asks`)
+  assert.ok(s.asks.every((n) => n <= 3))
+  assert.equal(JSON.parse(r.stdout).result.uploaded, s.objects.size)
+})
+
+test('share passes --host to the poster and loop render', {
+  skip: !ffmpeg && 'needs ffmpeg',
+}, async () => {
+  const s = await fakeSite()
+  const home = temp('home')
+  const root = project()
+  const r = await cli(home, root, 'share', '--api', s.site, '--dry-run', '--host', 'nonsense')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  assert.match(r.stderr, /! no poster or loop: --host is node or browser, not nonsense\./)
 })
 
 test('fork copies a version into a new folder as a project, and its share is a new film forked from it', async () => {
