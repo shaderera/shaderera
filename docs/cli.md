@@ -540,7 +540,8 @@ paired: the studio page drives this project. Ctrl-C stops.
 
 Serves the operations above as MCP tools over stdio. It starts in any folder: each tool call
 finds its project from its `root`, or from `--root` (default: the current folder) and above.
-Accepts `--trusted` and `--timeout`. See [mcp.md](mcp.md). The CLI hosts no agent: the person's own agent drives these
+Accepts `--variant` and `--host` (every call's defaults), `--trusted` and `--timeout`. See
+[mcp.md](mcp.md). The CLI hosts no agent: the person's own agent drives these
 commands and the MCP server.
 
 ## Exit codes

@@ -1,8 +1,12 @@
 # MCP
 
 `shaderera mcp` serves the CLI's operations as MCP tools over stdio, so an agent can render,
-inspect, diff and trace a frame back to its code, review it, and save revisions and render jobs.
-It starts in any folder, and accepts `--root`, `--trusted` and `--timeout`.
+inspect, compare and trace a frame back to its code, review it, and save revisions and render
+jobs. The tools have the CLI's names where they do what a command does (`render`, `check`,
+`still`, `save`, `versions`, `job`, `review`). It starts in any folder, and accepts `--root`,
+`--variant`, `--host`, `--trusted` and `--timeout` as the CLI does: `--variant` makes that variant
+of `shaderera.json` every call's default, and `--host` opens every child (and freezes every `job`)
+in that host.
 
 ## Add it to your agent
 
@@ -36,23 +40,27 @@ carries only MCP.
 
 ## Tools
 
-Every tool returns one JSON text block, except `render_frame` and `review`. Every tool also
-takes `root?` (see [Which project](#which-project)). Errors come back as `isError` with
+Every tool returns one JSON text block, except `render_frame`, `still` and `review`. Every tool
+also takes `root?` (see [Which project](#which-project)). `render_frame`, `still`, `inspect` and
+`compare` also take `variant?` (a variant of `shaderera.json`) and `params?` (an object over the
+variant's params and the defaults, as `--param`): the call then opens its own child for that
+version, and closes it after. Errors come back as `isError` with
 the message.
 
 | Tool | Input | Output |
 |---|---|---|
-| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`), `scale?` 1–16 | `{ sha256, meanRgba, alphaBox, layers, ms }`; a PNG block only with `image: true`, of the region when one is given |
-| `inspect` | `t`; `path?` | the inspect JSON at `t`, or the value at `path` |
-| `diff` | `a`, `b`; `path?` | `{ changes, pixels }`: `diffJson` of the two inspects (under `path`) and `diffPixels` of the two final frames |
+| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`), `scale?` 1–16; `variant?`, `params?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side unless `full: true`; a region is enlarged `scale` times, never scaled down |
+| `still` | `times?` (seconds), `every?`; `variant?`, `params?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. At most 64 frames; no file is written |
+| `inspect` | `t`; `path?`; `variant?`, `params?` | the inspect JSON at `t`, or the value at `path` |
+| `compare` | `a`, `b`; `path?`; `variant?`, `params?` | `{ changes, pixels }`: `diffJson` of the inspects at the two times (under `path`) and `diffPixels` of the two final frames. Not `shaderera diff`, which compares two revisions |
 | `pick` | `t`, `x`, `y` | `{ pick, object, source }`: the `Pick`, the inspected object with that `id`, its `source` |
 | `get_camera` | `t` | `{ matrices, description, path, source }`; `description` is eye, forward, up, fovY, aspect, near, far |
 | `get_source` | `id`; `t?` (default 0) | `{ path, file, line, column, around }`; `around` is ±8 numbered lines. Only a file inside the project (symbolic links followed) is read |
-| `check_determinism` | `times?` (default 20), `seed?` | like `shaderera check`: `{ times, failures, what, msPerFrame, previewVsFinal }` |
-| `export` | `from?`, `to?`, `out?`, `job?` | `{ out, frames, seconds }` (needs ffmpeg). `out` must be inside the project. With `job` (a name from `create_job`), renders that frozen job instead of the working tree. A source that is not deterministic is refused and no file is left ([determinism.md](determinism.md#export-refuses-a-source-that-fails)) |
-| `save_revision` | `label?`, `note?` | the revision, saved in `versions/`; the same files always have the same id |
-| `list_versions` | — | `{ head, log, jobs }`: the head revision, the log of saves, restores and undos, and the render jobs |
-| `create_job` | `variant?`, `params?`, `revision?`, `name?`, `label?`, `from?`, `to?` | the job. Freezes a revision (the project is saved first unless `revision` is given), a variant from `shaderera.json`, params over the defaults and an optional window, like `shaderera job` ([cli.md](cli.md#versions-and-jobs)). It never replaces a job |
+| `check` | `times?` (default 20), `seed?` | like `shaderera check`: `{ times, failures, what, msPerFrame, previewVsFinal }` |
+| `render` | `from?`, `to?`, `out?`, `job?` | like `shaderera render`: `{ out, frames, seconds }` (needs ffmpeg). `out` must be inside the project. With `job` (a name from the `job` tool), renders that frozen job instead of the working tree. A source that is not deterministic is refused and no file is left ([determinism.md](determinism.md#export-refuses-a-source-that-fails)) |
+| `save` | `label?`, `note?` | like `shaderera save`: the revision, saved in `versions/`; the same files always have the same id |
+| `versions` | — | like `shaderera versions`: `{ head, log, jobs }`: the head revision, the log of saves, restores and undos, and the render jobs |
+| `job` | `variant?`, `params?`, `revision?`, `name?`, `label?`, `from?`, `to?` | the job. Freezes a revision (the project is saved first unless `revision` is given), a variant from `shaderera.json`, params over the defaults and an optional window, like `shaderera job` ([cli.md](cli.md#versions-and-jobs)). It never replaces a job |
 | `review` | `variant?`, `quick?` | like `shaderera review` ([cli.md](cli.md#review)): the report JSON as text, then the contact sheet and each principal frame's thumb (shots and the last frame; not the transition samples) as PNG images. Files go to `out/review/` (a variant: `out/review/<variant>/`); requirements from `requirements.json` |
 
 Notes from the code:
@@ -63,6 +71,9 @@ Notes from the code:
   `camera`. That is the literal of your camera object, which may be a computed one.
 - `pick` on a source without `pick` returns `{ "pick": null, "object": null, "source": null }`.
 - Images are opt-in on purpose: hashes, means and boxes are cheaper to read and compare.
+- A scaled-down image is drawn through a canvas, which premultiplies alpha; `full: true` and
+  regions are the frame's straight RGBA byte for byte. `pick`'s `x` and `y` are frame pixels, not
+  the scaled image's.
 
 ## Walk-through: a camera jump
 
@@ -81,10 +92,10 @@ A film interpolates a camera between keys, and one key is wrong. Ask the agent t
 
 The eye moves 0.394 m in one frame (1/30 s), where neighbouring frames move a few centimetres.
 
-**2. `diff`** the two times under `camera`:
+**2. `compare`** the two times under `camera`:
 
 ```json
-// diff { "a": 4.1, "b": 4.133, "path": "camera" }
+// compare { "a": 4.1, "b": 4.133, "path": "camera" }
 {"changes":[
   {"path":"eye[0]","a":3.76995520772679,"b":4.1532517708868415},
   {"path":"eye[2]","a":1.3369509084980105,"b":1.428560405492499},
@@ -109,4 +120,4 @@ says which keys it is between: the jump happens while passing `k5`.
 
 **4. Fix and verify.** The agent edits the file **with its own tools** (Edit, Write). Shaderera's
 MCP has no tool that edits project code: the server notices the change, and the next `get_camera`
-scan, `diff` and `check_determinism` run against the new code.
+scan, `compare` and `check` run against the new code.

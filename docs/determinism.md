@@ -25,7 +25,7 @@ hosts and GPUs only within a tolerance ([below](#across-hosts-and-gpus)).
 
 ## How `check` measures it
 
-`shaderera check` (and MCP's `check_determinism`, and `checkDeterminism` from `@shaderera/core`):
+`shaderera check` (and MCP's `check`, and `checkDeterminism` from `@shaderera/core`):
 
 1. **Picks times.** `--times` frame-aligned timestamps (default 50; 20 over MCP): frame 0, the
    last frame, and seeded picks between.
@@ -49,7 +49,7 @@ A failure names the time, what came before it and what changed, and exits 1:
 ## Export refuses a source that fails
 
 A source that fails the check can play, but it cannot export. Every export (`render`, `deliver`,
-MCP's `export`) is also the first pass of a check. Before the file is finished, up to 8 of its
+MCP's `render`) is also the first pass of a check. Before the file is finished, up to 8 of its
 frames (the first, the last and seeded picks) are rendered again in a shuffled order, with
 `inspect` compared too. If one changed, the export stops, no file is left, and the error names the
 frames:

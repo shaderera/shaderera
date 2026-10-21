@@ -274,8 +274,8 @@ never as a pass.
 
 | Capability | You implement | CLI | MCP |
 |---|---|---|---|
-| render | `render(t, options)` | `render`, `still`, `check` (pixels) | `render_frame`, `export`, `diff` (pixels) |
-| inspect | `inspect(t)` returning JSON | `inspect`, `check` (inspect + pixels), `review` | `inspect`, `diff` (state) |
+| render | `render(t, options)` | `render`, `still`, `check` (pixels) | `render_frame`, `still`, `render`, `compare` (pixels) |
+| inspect | `inspect(t)` returning JSON | `inspect`, `check` (inspect + pixels), `review` | `inspect`, `compare` (state) |
 | `id` / `source` | an `id` on object literals in the inspect JSON; `"stamp": true` for `source` | `source` lines in `inspect` | `get_source`, `pick`'s `source` |
 | pick | `pick(t, x, y)` → `{ id, point? }` | — | `pick` |
 | camera | `camera.get(t)` → `Matrices`; `camera.override(m \| null)` | — | `get_camera`; `render_frame`'s `camera` |
