@@ -6,6 +6,7 @@ import {
   captionStats,
   captionsOver,
   endHold,
+  excerpt,
   fontFamilies,
   frameStats,
   layoutSignature,
@@ -122,9 +123,9 @@ test('captionStats: cps, duration, gap, lines and longest line in grapheme clust
   assert.deepEqual(
     s.map((c) => [c.index, c.duration, c.cps, c.gap, c.lines, c.longestLine, c.overlaps]),
     [
-      [0, 2, 5.5, 0.5, 1, 11, []],
-      [1, 1, 18, 3.4 - 3.5, 2, 11, [2]],
-      [2, 1.6, 3 / 1.6, null, 1, 3, [1]],
+      [1, 2, 5.5, 0.5, 1, 11, []],
+      [2, 1, 18, 3.4 - 3.5, 2, 11, [3]],
+      [3, 1.6, 3 / 1.6, null, 1, 3, [2]],
     ],
   )
   assert.ok(s.every((c) => c.refused === undefined))
@@ -134,7 +135,7 @@ test('captionsOver: a declared maxCps fails exactly the caption over it; minGap 
   const s = captionStats(CAPTIONS)
   assert.deepEqual(
     captionsOver(s, { maxCps: 17 }).map((c) => [c.index, c.why]),
-    [[1, ['18 cps > 17']]],
+    [[2, ['18 cps > 17']]],
   )
   assert.deepEqual(
     captionsOver(s, { minGap: 0.08, maxLines: 1, maxLineChars: 10, minDuration: 1.5 }).map((c) => [
@@ -142,9 +143,9 @@ test('captionsOver: a declared maxCps fails exactly the caption over it; minGap 
       c.why,
     ]),
     [
-      [0, ['a line of 11 characters > 10']],
+      [1, ['a line of 11 characters > 10']],
       [
-        1,
+        2,
         [
           'a line of 11 characters > 10',
           '2 lines > 1',
@@ -167,6 +168,19 @@ test('captionStats: an LRC cue ending at Infinity is an open end, not a crash', 
   assert.equal(s[0]?.gap, 0)
   assert.deepEqual(
     captionsOver(s, { maxCps: 1, minDuration: 5 }).map((c) => c.index),
-    [0],
+    [1],
   )
+})
+
+test('excerpt: whole copy when it fits, else cut at a word boundary with an ellipsis', () => {
+  assert.equal(excerpt('  Hi\n there ', 30), 'Hi there')
+  assert.equal(
+    excerpt('This third caption runs far too long to read', 30),
+    'This third caption runs far…',
+  )
+  assert.equal(excerpt('One, two, three, four, five', 12), 'One, two…')
+  // Thai has no spaces between words, and still breaks between them.
+  assert.equal(excerpt('ส่งตรงจากสวนถึงบ้านคุณทุกวัน', 13), 'ส่งตรงจากสวน…')
+  // One word longer than the limit: no boundary to cut at, quoted whole.
+  assert.equal(excerpt('Supercalifragilistic', 10), 'Supercalifragilistic')
 })

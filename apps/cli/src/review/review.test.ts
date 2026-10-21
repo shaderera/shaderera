@@ -127,6 +127,7 @@ test('captions: measured as info; a declared maxCps fails exactly the caption ov
   const captions = [
     { start: 0, end: 0.5, text: 'Hi' },
     { start: 0.5, end: 0.9, text: 'ส่งตรงจากสวน' },
+    { start: 6.6, end: 9.6, text: 'This third caption runs far too long to read' },
   ]
   const project = memoryProject()
   const child = memoryChild({ size: { width: 64, height: 36 }, captions })
@@ -140,13 +141,19 @@ test('captions: measured as info; a declared maxCps fails exactly the caption ov
     assert.equal(info?.status, 'info')
     assert.match(
       info?.measured ?? '',
-      /^2 captions: at most 27.5 cps, 1 lines, 11 characters a line/,
+      /^3 captions: at most 27.5 cps, 1 lines, 44 characters a line/,
     )
     // 11 grapheme clusters in 0.4 s: 27.5 cps; "Hi" is 4 cps.
     const judged = await run({ version: 1, captions: { maxCps: 20 } })
     assert.equal(judged?.status, 'fail')
-    assert.match(judged?.detail ?? '', /^#1 "ส่งตรงจากสวน" at 0.5 s: 27.5 cps > 20$/)
+    assert.match(judged?.detail ?? '', /^#2 "ส่งตรงจากสวน" at 0.5 s: 27.5 cps > 20$/)
     assert.deepEqual(judged?.at, [0.5])
+    // Numbered from 1 as in the SRT; the quote ends on a whole word.
+    const third = await run({ version: 1, captions: { maxCps: 10 } })
+    assert.match(
+      third?.detail ?? '',
+      /; #3 "This third caption runs far…" at 6.6 s: 14.667 cps > 10$/,
+    )
     const open = memoryChild({
       size: { width: 64, height: 36 },
       captions: [{ start: 0, end: Number.POSITIVE_INFINITY, text: 'last line' }],

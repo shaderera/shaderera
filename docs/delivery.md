@@ -158,7 +158,7 @@ viewing is muted. For each caption:
 - duration, and the gap to the next caption (negative when they overlap);
 - line count and the longest line, in grapheme clusters, so a Thai syllable with its vowel and
   tone marks counts once;
-- the other captions it overlaps.
+- the other captions it overlaps, by number: review numbers captions from 1, as the SRT does.
 
 Nothing is judged unless requirements.json declares limits (decision 0011):
 

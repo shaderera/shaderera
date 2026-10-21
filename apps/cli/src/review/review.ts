@@ -19,6 +19,7 @@ import {
   captionStats,
   captionsOver,
   endHold,
+  excerpt,
   fontFamilies,
   frameStats,
   layoutSignature,
@@ -408,7 +409,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         measured: `${short.length} texts shown for less than their reading time (sampled every 0.25 s; need max(${rule.min} s, characters / ${rule.charsPerSecond} per s))`,
         detail: short.length
           ? short
-              .map((r) => `${r.id} "${r.text.slice(0, 40)}": ${r.shown} s, need ${r.need} s`)
+              .map((r) => `${r.id} "${excerpt(r.text, 40)}": ${r.shown} s, need ${r.need} s`)
               .join('; ')
           : undefined,
       })
@@ -419,7 +420,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         title: 'reading time',
         status: 'info',
         measured: shortest
-          ? `shortest on screen: ${shortest.shown} s, ${shortest.id} "${shortest.text.slice(0, 40)}" (sampled every 0.25 s)`
+          ? `shortest on screen: ${shortest.shown} s, ${shortest.id} "${excerpt(shortest.text, 40)}" (sampled every 0.25 s)`
           : 'no visible text at the samples',
       })
     }
@@ -568,7 +569,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         : `no text in inspect or the DOM at ${textT.length} t (text drawn without either cannot be seen)`,
       ...(shown.length
         ? {
-            detail: [...new Set(shown.map((r) => `${r.id} "${r.text.slice(0, 30)}"`))]
+            detail: [...new Set(shown.map((r) => `${r.id} "${excerpt(r.text, 30)}"`))]
               .slice(0, 8)
               .join(', '),
             at: [...new Set(shown.map((r) => r.t))],
@@ -631,7 +632,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     }
     const pairs = timed.reduce((n, c) => n + c.overlaps.filter((o) => o > c.index).length, 0)
     const say = (c: CaptionStat) =>
-      `#${c.index} ${JSON.stringify(c.text.replace(/\s+/g, ' ').slice(0, 30))} at ${round(c.start)} s`
+      `#${c.index} ${JSON.stringify(excerpt(c.text, 30))} at ${round(c.start)} s`
     const measuredCaptions = `${captions.length} captions: at most ${most('cps')} cps, ${most('lines')} lines, ${most('longestLine')} characters a line (grapheme clusters); shortest ${least('duration')}, smallest gap ${least('gap')}; ${pairs} overlapping pairs${refused.length ? `; ${refused.length} refused by every export` : ''}`
     const failing = [...refused, ...over]
     checks.push({
