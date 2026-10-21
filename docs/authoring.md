@@ -63,6 +63,7 @@ What is on the shelf:
   - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
   - `render-three-host`: three.js on the host's GPU;
   - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
+  - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-regions`: named regions of a photograph (mask, box, centre), from SAM 3.1 or painted masks;
   - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;

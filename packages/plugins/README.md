@@ -49,6 +49,7 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |
 | `render-gltf-read` | component | glTF 2.0 (.gltf + .bin, or .glb) read into plain data: each primitive's typed arrays, its node's world matrix, its material as stated; refuses Draco and other required extensions by name | the Wallloom opening film, which wrote it twice |
 | `render-image-textures` | component | PNG/JPEG decoded the same in Node and the browser, atlases for many cards, WebP and video frames to PNG once | product-studio's plumbing (no look) |
+| `render-srgb` | component | the sRGB transfer functions (IEC 61966-2-1), display values to linear light and back, in WGSL and on the CPU with the same values | written in seven films; private copies in `look-blur` and `look-vignette` |
 | `render-three-host` | component | three.js WebGPURenderer on host.gpu, deterministic, the frame as a GPU texture layer | product-studio's plumbing (no look) |
 | `review-av-timeline` | component | the sound as pictures and the picture's change per frame on one timeline; picture-to-sound offsets in ms | opening film's review method |
 | `review-picture-reuse` | component | the shots of a video that show a picture already seen, a crop, zoom or pan counting, as analysis data from `review-shots`' shots; ORB and a RANSAC homography in OpenCV | the taste-to-plugins film's no-repeated-pictures check |

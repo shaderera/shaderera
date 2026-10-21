@@ -6,8 +6,12 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createVignette } from '../look-vignette/src/looks/vignette.ts'
 import { grey, openFrame } from './frame.ts'
+import { layOut } from './lay-out.ts'
+
+const { createVignette } = (await layOut('look-vignette')(
+  'src/looks/vignette.ts',
+)) as typeof import('../look-vignette/src/looks/vignette.ts')
 
 const W = 160
 const H = 90
