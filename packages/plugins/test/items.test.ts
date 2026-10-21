@@ -27,15 +27,14 @@ const { decoded, fitWidth, glitched, scramble } = (await from(
 const { bandsOf, clockFromAnalysis, clockOf, fitGrid, pulse } = (await from(
   'src/music/beat.ts',
 )) as typeof import('../audio-beat-clock/src/music/beat.ts')
-const { freeCorner, safeArea, widenFov } = (await from(
+const { freeCorner, safeArea } = (await from(
   'src/layout/frame.ts',
 )) as typeof import('../format-safe-areas/src/layout/frame.ts')
 const { bezier, glide, hold, path3, progress, settle, track, track3 } = (await from(
   'src/motion/keyframes.ts',
 )) as typeof import('../motion-keyframes/src/motion/keyframes.ts')
-const { cameraCapability, cameraPath, cameraTrack, fit, lens, shot, viewProjection } = (await from(
-  'src/motion/camera.ts',
-)) as typeof import('../camera-keyframes/src/motion/camera.ts')
+const { cameraCapability, cameraPath, cameraTrack, fit, lens, shot, viewProjection, widenFov } =
+  (await from('src/motion/camera.ts')) as typeof import('../camera-keyframes/src/motion/camera.ts')
 const { hits, SHAKE, shake } = (await from(
   'src/motion/shake.ts',
 )) as typeof import('../camera-shake/src/motion/shake.ts')
@@ -152,7 +151,7 @@ test('text-kinetic: deterministic scramble, decode in and out, glitch draws', ()
   assert.ok(inked(c) > 0.05, 'glitched text drew')
 })
 
-test('format-safe-areas: title-safe margins, platform zones, the tall lens', () => {
+test('format-safe-areas: title-safe margins, platform zones', () => {
   const tall = safeArea(1080, 1920)
   assert.equal(tall.top, 0.14 * 1920)
   const reels = safeArea(1080, 1920, 'reels')
@@ -162,9 +161,6 @@ test('format-safe-areas: title-safe margins, platform zones, the tall lens', () 
   )
   assert.ok(safeArea(1080, 1920, 'tiktok').right > tall.right)
   assert.equal(safeArea(1920, 1080).left, 96)
-  assert.equal(widenFov(0.5, 16 / 9), 0.5)
-  const opened = widenFov(0.5, 9 / 16)
-  assert.ok(opened > 0.5 && opened < widenFov(0.5, 9 / 16, 1))
 })
 
 test('format-safe-areas: the corner farthest from the subject, inside the safe area', () => {
@@ -347,6 +343,10 @@ test('camera-keyframes: the target lands in the middle, right is right, a tall f
   assert.ok((project(viewProjection(c, 16 / 9), [1, 0, 0])[0] ?? 0) > 0, 'world +x is screen right')
   assert.ok((project(viewProjection(c, 16 / 9), [0, 1, 0])[1] ?? 0) > 0, 'world +y is screen up')
   assert.ok(camera(0, 9 / 16).fov > c.fov)
+  assert.equal(widenFov(0.5, 16 / 9), 0.5)
+  const opened = widenFov(0.5, 9 / 16)
+  assert.ok(Math.abs(opened - 0.8522531745541341) < 1e-12, 'half way on a log scale')
+  assert.ok(opened > 0.5 && opened < widenFov(0.5, 9 / 16, 1))
   const down = shot([0, 10, 0.0001], [0, 0, 0], 40)
   assert.ok(viewProjection(down, 1).every(Number.isFinite), 'straight down does not break')
   const cam = cameraCapability(camera, 16 / 9)
