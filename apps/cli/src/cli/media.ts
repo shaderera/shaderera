@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { findProject } from '../node/project.ts'
 import { scanProject, treeId } from '../project/revisions.ts'
-import { toPng } from '../review/review.ts'
 import { open } from './args.ts'
 import { requireFfmpeg } from './ffmpeg.ts'
 import { exportVideo } from './render.ts'
@@ -14,22 +14,37 @@ export const POSTER = { width: 1280, bytes: 500_000 }
 /** The hover loop: the main variant's first seconds, a silent H.264 mp4. */
 export const LOOP = { width: 480, seconds: 4, bytes: 4_000_000 }
 
+/**
+ * The size the poster and the loop render at: the film's, at most POSTER.width wide, its height
+ * even for the loop's H.264.
+ */
+const posterSize = ({ width, height }: { width: number; height: number }) =>
+  width <= POSTER.width
+    ? undefined
+    : { width: POSTER.width, height: 2 * Math.round((height * POSTER.width) / width / 2) }
+
 /** Where `share` writes them: under `.shaderera/`, which no revision holds. */
 export const mediaDir = (root: string): string => join(root, '.shaderera', 'media')
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-/** Runs ffmpeg; throws its last line of error. */
-const ffmpeg = (args: readonly string[]) => {
-  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', ...args], { encoding: 'utf8' })
+/** Runs ffmpeg, `input` on its stdin; throws its last line of error. */
+const ffmpeg = (args: readonly string[], input?: Uint8Array) => {
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', ...args], { encoding: 'utf8', input })
   if (r.status !== 0)
     throw new Error(`ffmpeg failed: ${r.stderr.trim().split('\n').at(-1) ?? r.status}`)
 }
 
 /** Encodes at each setting in turn until the file fits `max` bytes; throws when none does. */
-const fit = (out: string, max: number, settings: readonly string[][], what: string) => {
+const fit = (
+  out: string,
+  max: number,
+  settings: readonly string[][],
+  what: string,
+  input?: Uint8Array,
+) => {
   for (const s of settings) {
-    ffmpeg([...s, out])
+    ffmpeg([...s, out], input)
     if (statSync(out).size <= max) return out
   }
   rmSync(out, { force: true })
@@ -38,9 +53,9 @@ const fit = (out: string, max: number, settings: readonly string[][], what: stri
 
 /**
  * The poster and the hover loop the site shows for a shared version (#124), rendered by the CLI's
- * own host from the main variant and sized with ffmpeg into `dir`: the frame at the film's middle
- * as a webp at most 1280 px wide and 500 KB, and the first min(4 s, duration) through render's
- * export as a silent H.264 mp4 480 px wide and at most 4 MB. Either that fails is left out with a
+ * own host from the main variant, opened at most 1280 px wide (posterSize), into `dir`: the frame
+ * at the film's middle as a webp of at most 500 KB, and the first min(4 s, duration) through
+ * render's export as a silent H.264 mp4 480 px wide and at most 4 MB. Either that fails is left out with a
  * warning; nothing here stops a share.
  */
 export const renderMedia = async (
@@ -52,7 +67,7 @@ export const renderMedia = async (
   let opened: Awaited<ReturnType<typeof open>>
   try {
     requireFfmpeg()
-    opened = await open({ root })
+    opened = await open({ root }, posterSize((await findProject(root)).manifest))
   } catch (e) {
     return { warnings: [`no poster or loop: ${message(e)}`] }
   }
@@ -63,14 +78,15 @@ export const renderMedia = async (
   const temp = mkdtempSync(join(tmpdir(), 'shaderera-media-'))
   try {
     try {
-      const png = join(temp, 'poster.png')
-      writeFileSync(png, toPng((await child.render(duration / 2, 'final')).pixels, width, height))
-      const scale = ['-i', png, '-vf', `scale=${Math.min(POSTER.width, width)}:-1`]
+      // Its RGBA straight to ffmpeg: rendered at the poster's size, it needs no PNG nor resize.
+      const { pixels } = await child.render(duration / 2, 'final')
+      const raw = ['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${width}x${height}`, '-i', '-']
       made.poster = fit(
         join(dir, 'poster.webp'),
         POSTER.bytes,
-        [80, 60, 40, 20].map((q) => [...scale, '-c:v', 'libwebp', '-quality', String(q)]),
+        [80, 60, 40, 20].map((q) => [...raw, '-c:v', 'libwebp', '-quality', String(q)]),
         'the poster',
+        pixels,
       )
     } catch (e) {
       warnings.push(`no poster: ${message(e)}`)

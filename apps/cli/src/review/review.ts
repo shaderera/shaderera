@@ -1,6 +1,7 @@
 // One review of a project: principal frames, a contact sheet and technical checks. The CLI and MCP
 // both call this; each opens the child (for a variant or a frozen revision) itself.
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
 import type { Json, SampledClip } from '@shaderera/core'
@@ -83,19 +84,55 @@ export type ReviewOptions = {
 const THUMB = 1600
 const round = (n: number, d = 3) => Number(n.toFixed(d))
 
-/** RGBA pixels as a PNG, scaled down to fit `max` pixels on the long side. */
-export const toPng = (px: Uint8Array, width: number, height: number, max = Infinity): Buffer => {
+/**
+ * RGBA pixels as a PNG, scaled down to fit `max` pixels on the long side. Encoded off the main
+ * thread (on libuv's pool), so that frames encode in parallel: pngWriter.
+ */
+export const toPng = (
+  px: Uint8Array,
+  width: number,
+  height: number,
+  max = Infinity,
+): Promise<Buffer> => {
   const ctx = createCanvas(width, height).getContext('2d')
   const image = ctx.createImageData(width, height)
   image.data.set(px)
   ctx.putImageData(image, 0, 0)
   const scale = Math.min(1, max / Math.max(width, height))
-  if (scale === 1) return ctx.canvas.toBuffer('image/png')
+  if (scale === 1) return ctx.canvas.encode('png')
   const w = Math.max(1, Math.round(width * scale))
   const h = Math.max(1, Math.round(height * scale))
   const small = createCanvas(w, h).getContext('2d')
   small.drawImage(ctx.canvas, 0, 0, w, h)
-  return small.canvas.toBuffer('image/png')
+  return small.canvas.encode('png')
+}
+
+/** PNGs encoding at once: about libuv's pool (4 threads) and a few frames' pixels held. */
+const ENCODES = 8
+
+/**
+ * Writes PNGs as they finish encoding, at most ENCODES at once: `write` waits only when that many
+ * are in flight. `done` waits for the rest and throws the first error.
+ */
+export const pngWriter = () => {
+  const pending = new Set<Promise<void>>()
+  let failed: { error: unknown } | undefined
+  return {
+    async write(file: string, png: Promise<Buffer>): Promise<void> {
+      const p: Promise<void> = png
+        .then((b) => writeFile(file, b))
+        .catch((error: unknown) => {
+          failed ??= { error }
+        })
+        .finally(() => pending.delete(p))
+      pending.add(p)
+      if (pending.size >= ENCODES) await Promise.race(pending)
+    },
+    async done(): Promise<void> {
+      await Promise.all(pending)
+      if (failed) throw failed.error
+    },
+  }
 }
 
 /** A grid of frames, each labelled with its t and shot label underneath. */
@@ -103,7 +140,7 @@ export const contactSheet = (
   frames: readonly { t: number; label: string; pixels: Uint8Array }[],
   width: number,
   height: number,
-): Buffer => {
+): Promise<Buffer> => {
   const cols = Math.min(4, Math.max(1, frames.length))
   const rows = Math.ceil(frames.length / cols)
   const tileW = Math.min(width, Math.floor((THUMB - 8 * (cols + 1)) / cols))
@@ -135,7 +172,7 @@ export const contactSheet = (
     while (shown.length > 4 && sheet.measureText(shown).width > tileW) shown = shown.slice(0, -2)
     sheet.fillText(shown === text ? text : `${shown}…`, x, y + tileH + 16)
   })
-  return sheet.canvas.toBuffer('image/png')
+  return sheet.canvas.encode('png')
 }
 
 /**
@@ -256,18 +293,24 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     : reviewTimes(shots, fps, duration)
   const frames: ReviewFrame[] = []
   const rendered: { t: number; label: string; pixels: Uint8Array }[] = []
+  const pngs = pngWriter()
   for (const [i, f] of picked.entries()) {
     const { pixels } = await child.render(f.t, 'final')
     const name = `${String(i).padStart(2, '0')}-${f.t.toFixed(2)}s`
     const file = join(o.outDir, `${name}.png`)
     const thumb = join(o.outDir, `${name}.thumb.png`)
-    writeFileSync(file, toPng(pixels, width, height))
-    writeFileSync(thumb, toPng(pixels, width, height, THUMB))
+    const png = toPng(pixels, width, height)
+    await pngs.write(file, png)
+    // A frame that fits the thumb is its own thumb: the same bytes, not encoded again.
+    await pngs.write(
+      thumb,
+      Math.max(width, height) <= THUMB ? png : toPng(pixels, width, height, THUMB),
+    )
     frames.push({ t: f.t, label: f.label, file, thumb })
     rendered.push({ ...f, pixels })
   }
   const contactSheetFile = join(o.outDir, 'contact-sheet.png')
-  writeFileSync(contactSheetFile, contactSheet(rendered, width, height))
+  await pngs.write(contactSheetFile, contactSheet(rendered, width, height))
 
   // format
   const want = req.format ?? {}
@@ -714,6 +757,8 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     audio = { clips: heard.length, coverage: round(covered / duration, 3), loudness }
   }
 
+  // The frames and the sheet have encoded beside the checks.
+  await pngs.done()
   return {
     version: 1,
     manifest: { width, height, fps, duration },
