@@ -1,8 +1,9 @@
 // Text measured and laid out in a width on a Canvas2D context: the size that fits a width, lines
-// wrapped greedily at word boundaries, and a line's width at a tracking. Words come from
-// Intl.Segmenter, so text without spaces between words (Thai, Chinese, Japanese) wraps too. No
-// hyphenation, bidi or kinsoku. It draws nothing: wrap and trackedWidth measure in the font the
-// context already has, and fitWidth puts the font back as it found it.
+// wrapped greedily at word boundaries, a line's width at a tracking, and the lines as the text runs
+// review reads from inspect. Words come from Intl.Segmenter, so text without spaces between words
+// (Thai, Chinese, Japanese) wraps too. No hyphenation, bidi or kinsoku. It draws nothing: wrap and
+// trackedWidth measure in the font the context already has, and fitWidth and textRuns put the font
+// back as they found it.
 
 type Ctx = OffscreenCanvasRenderingContext2D
 
@@ -76,4 +77,54 @@ export const wrap = (
     lines.push(line.trimEnd())
   }
   return lines
+}
+
+/** A text run as inspect gives it to review: docs/protocol.md, "Text runs". */
+export type TextRun = {
+  id: string
+  text: string
+  /** [x, y, width, height] in frame pixels, from the top left. */
+  box: [number, number, number, number]
+  font: string
+}
+
+/**
+ * The text runs for `lines` set from `origin` (the top left of the text box), one a line, for the
+ * film's inspect: review reads them for its text checks. Line i's box is `lineHeight` tall from
+ * y + i × lineHeight, and as wide as the line measures in `font` (the context's font when left out)
+ * at `tracking`; `align` places it in a box `width` wide. Ids are `${id}.${i}`; a blank line
+ * makes no run but keeps its place. It measures only: draw the lines where their boxes say.
+ */
+export const textRuns = (
+  ctx: Ctx,
+  lines: readonly string[],
+  origin: readonly [number, number],
+  o: {
+    id: string
+    lineHeight: number
+    width: number
+    font?: string
+    align?: 'left' | 'center' | 'right'
+    tracking?: number
+    locale?: string
+  },
+): TextRun[] => {
+  const was = ctx.font
+  if (o.font) ctx.font = o.font
+  const font = ctx.font
+  const k = o.align === 'right' ? 1 : o.align === 'center' ? 0.5 : 0
+  const runs: TextRun[] = []
+  for (const [i, text] of lines.entries()) {
+    if (!text.trim()) continue
+    const w = trackedWidth(ctx, text, o.tracking, o.locale)
+    const x = origin[0] + (o.width - w) * k
+    runs.push({
+      id: `${o.id}.${i}`,
+      text,
+      box: [x, origin[1] + i * o.lineHeight, w, o.lineHeight],
+      font,
+    })
+  }
+  ctx.font = was
+  return runs
 }
