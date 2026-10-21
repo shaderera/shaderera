@@ -1,4 +1,4 @@
-// A still placed into a rectangle of a Canvas2D frame: the decoded image onto a canvas, the cover
+// A still placed into a rectangle of a Canvas2D frame: decoded pixels onto a canvas, the cover
 // and contain rectangles for a picture in a box, and halved copies that draw a large still small
 // with the same pixels whatever was drawn before. Plain numbers in pixels (origin top-left, rows
 // downward); where the box is and how it moves are the film's.
@@ -20,12 +20,23 @@ export type Fit = { source: Rect; target: Rect }
 type Ctx = OffscreenCanvasRenderingContext2D
 type Io = { canvas(width: number, height: number): OffscreenCanvas }
 
-/** A decoded image (`io.image`) on a canvas of its size; 16-bit rows are rounded to 8 bits. */
-export const toCanvas = (io: Io, image: DecodedImage): OffscreenCanvas => {
-  const canvas = io.canvas(image.width, image.height)
+/** Straight RGBA rows from the top: an `io.image`, or a footage frame with the footage's size. */
+export type Pixels = DecodedImage | { width: number; height: number; data: Uint8Array }
+
+/**
+ * The pixels on a canvas of their size; 16-bit rows are rounded to 8 bits. Pass `into` (a canvas
+ * of the same size) to draw onto it again: a shot of footage costs one canvas.
+ */
+export const toCanvas = (io: Io, image: Pixels, into?: OffscreenCanvas): OffscreenCanvas => {
+  const { width, height } = image
+  if (into && (into.width !== width || into.height !== height))
+    throw new Error(
+      `toCanvas: the canvas is ${into.width}×${into.height}, the pixels ${width}×${height}`,
+    )
+  const canvas = into ?? io.canvas(width, height)
   const c = canvas.getContext('2d') as Ctx
-  const data = c.createImageData(image.width, image.height)
-  if (image.bits === 8) data.data.set(image.data)
+  const data = c.createImageData(width, height)
+  if (!('bits' in image) || image.bits === 8) data.data.set(image.data)
   else
     for (let i = 0; i < image.data.length; i++)
       data.data[i] = Math.round((image.data[i] ?? 0) / 257)

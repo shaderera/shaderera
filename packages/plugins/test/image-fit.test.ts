@@ -112,6 +112,31 @@ test('image-fit: a decoded image onto a canvas, 8 and 16 bits', () => {
   assert.deepEqual(read(toCanvas(io, { width: 2, height: 1, bits: 16, data: wide })), [...data])
 })
 
+test('image-fit: footage frames onto one canvas, the bytes putImageData gives', () => {
+  const [w, h] = [37, 23]
+  const frame = (seed: number) =>
+    Uint8Array.from({ length: w * h * 4 }, (_, i) => (i * 131 + seed * 977 + (i >> 5)) % 256)
+  const bytes = (c: OffscreenCanvas) =>
+    (c.getContext('2d') as OffscreenCanvasRenderingContext2D).getImageData(0, 0, w, h).data
+  const byHand = (pixels: Uint8Array) => {
+    const c = io.canvas(w, h)
+    const x = c.getContext('2d') as OffscreenCanvasRenderingContext2D
+    const d = x.createImageData(w, h)
+    d.data.set(pixels)
+    x.putImageData(d, 0, 0)
+    return bytes(c)
+  }
+  const one = io.canvas(w, h)
+  for (const seed of [1, 2, 3]) {
+    const pixels = frame(seed)
+    const fresh = toCanvas(io, { width: w, height: h, data: pixels })
+    assert.deepEqual(bytes(fresh), byHand(pixels), 'byte-equal to putImageData by hand')
+    assert.equal(toCanvas(io, { width: w, height: h, data: pixels }, one), one, 'the same canvas')
+    assert.deepEqual(bytes(one), bytes(fresh), 'reused gives the bytes a fresh one does')
+  }
+  assert.throws(() => toCanvas(io, { width: w, height: h, data: frame(0) }, io.canvas(w, h + 1)))
+})
+
 /** A busy still: rings and a checker, so any change of filter or level shows in the bytes. */
 const still = (w: number, h: number, seed: number) => {
   const c = io.canvas(w, h)

@@ -1,4 +1,4 @@
-A still placed into a rectangle of a Canvas2D frame: the decoded image onto a canvas, cover (with a focal point) and contain, and halved copies that draw a large still small with the same pixels whatever was drawn before.
+A still placed into a rectangle of a Canvas2D frame: a decoded image or footage frame onto a canvas, cover (with a focal point) and contain, and halved copies that draw a large still small with the same pixels whatever was drawn before.
 
 ```ts
 import { contain, cover, drawFrom, pyramid, toCanvas } from './image/fit.ts'
@@ -14,9 +14,19 @@ drawFrom(ctx, photo, f.source, f.target)
 // or the whole photo inside a card, sitting at its bottom
 const g = contain(photo, { x: 80, y: 80, width: 400, height: 600 }, [0.5, 1])
 drawFrom(ctx, photo, g.source, g.target)
+
+// footage: each frame put on the shot's one canvas, then cover as for a still
+const clip = await host.io.video!('assets/shot.mp4') // in open
+const frame = host.io.canvas(clip.width, clip.height) // in open
+const data = await clip.frame(Math.floor(t * clip.fps))
+toCanvas(host.io, { width: clip.width, height: clip.height, data }, frame)
+const s = cover(clip, box).source
+ctx.drawImage(frame, s.x, s.y, s.width, s.height, box.x, box.y, box.width, box.height)
 ```
 
-- `toCanvas(io, image)` puts an `io.image` (straight RGBA, 8 or 16 bits) on a canvas of its size.
+- `toCanvas(io, pixels, into?)` puts straight RGBA on a canvas of its size: an `io.image` (8 or
+  16 bits), or a footage frame as `{ width, height, data }`. With `into`, a canvas of that size,
+  it puts them there instead of on a new one, so a shot of footage costs one canvas.
 - `cover(picture, box, focus?)` is the largest crop of the box's aspect, centred on `focus` (in
   the picture's pixels) as near as it can be while inside the picture: near an edge, the focus
   sits off centre. `contain(picture, box, align?)` is the whole picture as large as it fits,
