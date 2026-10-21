@@ -78,6 +78,8 @@ crf is constant quality: bitrate follows the content. A review encode uses NVENC
 on the GPU, p5 hq, cq 19) where ffmpeg and the machine take the frame size; a master always uses
 x264. On the product film with 4 hosts, NVENC took 9.8 → 7.7 s, and its file was about 50%
 larger at a like quality (PSNR 46.9 dB against the x264 file, same mean luma).
+Whether NVENC takes a size is a test encode, kept in `~/.shaderera/nvenc.json` for that ffmpeg
+(its path, mtime and version); `shaderera doctor` asks again.
 
 ### Rate control
 
