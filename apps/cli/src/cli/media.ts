@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { findProject } from '../node/project.ts'
 import { scanProject, treeId } from '../project/revisions.ts'
 import { open } from './args.ts'
 import { requireFfmpeg } from './ffmpeg.ts'
@@ -13,15 +12,6 @@ import { bytesText } from './site.ts'
 export const POSTER = { width: 1280, bytes: 500_000 }
 /** The hover loop: the main variant's first seconds, a silent H.264 mp4. */
 export const LOOP = { width: 480, seconds: 4, bytes: 4_000_000 }
-
-/**
- * The size the poster and the loop render at: the film's, at most POSTER.width wide, its height
- * even for the loop's H.264.
- */
-const posterSize = ({ width, height }: { width: number; height: number }) =>
-  width <= POSTER.width
-    ? undefined
-    : { width: POSTER.width, height: 2 * Math.round((height * POSTER.width) / width / 2) }
 
 /** Where `share` writes them: under `.shaderera/`, which no revision holds. */
 export const mediaDir = (root: string): string => join(root, '.shaderera', 'media')
@@ -53,9 +43,9 @@ const fit = (
 
 /**
  * The poster and the hover loop the site shows for a shared version (#124), rendered by the CLI's
- * own host from the main variant, opened at most 1280 px wide (posterSize), into `dir`: the frame
- * at the film's middle as a webp of at most 500 KB, and the first min(4 s, duration) through
- * render's export as a silent H.264 mp4 480 px wide and at most 4 MB. Either that fails is left out with a
+ * own host from the main variant and sized with ffmpeg into `dir`: the frame at the film's middle
+ * as a webp at most 1280 px wide and 500 KB, and the first min(4 s, duration) through render's
+ * export as a silent H.264 mp4 480 px wide and at most 4 MB. Either that fails is left out with a
  * warning; nothing here stops a share.
  */
 export const renderMedia = async (
@@ -67,7 +57,7 @@ export const renderMedia = async (
   let opened: Awaited<ReturnType<typeof open>>
   try {
     requireFfmpeg()
-    opened = await open({ root }, posterSize((await findProject(root)).manifest))
+    opened = await open({ root })
   } catch (e) {
     return { warnings: [`no poster or loop: ${message(e)}`] }
   }
@@ -78,9 +68,12 @@ export const renderMedia = async (
   const temp = mkdtempSync(join(tmpdir(), 'shaderera-media-'))
   try {
     try {
-      // Its RGBA straight to ffmpeg: rendered at the poster's size, it needs no PNG nor resize.
+      // Its RGBA straight to ffmpeg, which scales it: no PNG between.
       const { pixels } = await child.render(duration / 2, 'final')
-      const raw = ['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${width}x${height}`, '-i', '-']
+      const raw = [
+        ...['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${width}x${height}`, '-i', '-'],
+        ...['-vf', `scale=${Math.min(POSTER.width, width)}:-1`],
+      ]
       made.poster = fit(
         join(dir, 'poster.webp'),
         POSTER.bytes,
