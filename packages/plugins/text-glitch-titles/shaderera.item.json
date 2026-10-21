@@ -5,7 +5,7 @@
   "description": "Huge titles with a small note, several to a scene, swapping on the beat through ASCII noise, each placed anew in one of four layouts inside the safe area",
   "category": "Typography",
   "tags": ["titles", "title cards", "glitch", "launch", "feature list", "kinetic typography"],
-  "version": "0.2.0",
+  "version": "0.2.1",
   "licence": "MIT",
   "requires": {
     "items": { "text-scramble": "^0.3.0", "text-fit": "^0.2.0", "format-safe-areas": "^0.3.0" }
