@@ -27,6 +27,7 @@
           "format-broadcast-slate",
           "format-placement-specs",
           "format-safe-areas",
+          "image-fit",
           "image-regions",
           "look-blur",
           "look-film-grain",
@@ -225,6 +226,13 @@
       "params": {
         "item": "format-safe-areas",
         "state": "shorts"
+      }
+    },
+    "image-fit": {
+      "label": "image-fit",
+      "params": {
+        "item": "image-fit",
+        "state": "default"
       }
     },
     "image-regions": {

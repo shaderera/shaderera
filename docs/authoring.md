@@ -67,6 +67,7 @@ What is on the shelf:
   - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
+  - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;
   - `image-regions`: named regions of a photograph (mask, box, centre), from SAM 3.1 or painted masks;
   - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;
   - `render-bvh`: ray queries against a mesh's triangles on the GPU, closest hit and any hit;

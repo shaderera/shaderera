@@ -1,4 +1,5 @@
-// camera-ken-burns: copied into a project the way `add` lays it out, its views checked as numbers.
+// camera-ken-burns: copied into a project the way `add` lays it out (with the image-fit it
+// requires), its views checked as numbers.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -9,12 +10,14 @@ import { pathToFileURL } from 'node:url'
 const plugins = join(import.meta.dirname, '..')
 const project = join(plugins, 'out', 'camera-ken-burns')
 rmSync(project, { recursive: true, force: true })
-const label = JSON.parse(
-  readFileSync(join(plugins, 'camera-ken-burns', 'shaderera.item.json'), 'utf8'),
-) as { files: string[] }
-for (const f of label.files) {
-  mkdirSync(dirname(join(project, f)), { recursive: true })
-  cpSync(join(plugins, 'camera-ken-burns', f), join(project, f))
+for (const item of ['camera-ken-burns', 'image-fit']) {
+  const label = JSON.parse(readFileSync(join(plugins, item, 'shaderera.item.json'), 'utf8')) as {
+    files: string[]
+  }
+  for (const f of label.files) {
+    mkdirSync(dirname(join(project, f)), { recursive: true })
+    cpSync(join(plugins, item, f), join(project, f))
+  }
 }
 const { moveOf, viewOf } = (await import(
   pathToFileURL(join(project, 'src/motion/ken-burns.ts')).href
