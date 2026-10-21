@@ -15,7 +15,8 @@
     "shader",
     "wgsl"
   ],
-  "version": "0.2.0",
+  "version": "0.2.1",
   "licence": "MIT",
+  "requires": { "items": { "render-canvas-texture": "^0.1.0" } },
   "files": ["src/looks/grain.ts", "src/looks/grain.wgsl.ts"]
 }

@@ -4,8 +4,12 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createGrain } from '../look-film-grain/src/looks/grain.ts'
 import { grey, openFrame } from './frame.ts'
+import { layOut } from './lay-out.ts'
+
+const { createGrain } = (await layOut('look-film-grain')(
+  'src/looks/grain.ts',
+)) as typeof import('../look-film-grain/src/looks/grain.ts')
 
 const W = 256
 const H = 128

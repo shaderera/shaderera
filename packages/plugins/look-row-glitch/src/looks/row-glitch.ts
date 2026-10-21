@@ -3,6 +3,7 @@
 // texture of host.gpu or a Canvas2D canvas. Pixels move; none is changed, alpha included.
 
 import type { Host } from '@shaderera/core'
+import { createCanvasTexture } from '../render/canvas-texture.ts'
 import { ROW_GLITCH_WGSL } from './row-glitch.wgsl.ts'
 
 export type RowGlitchParams = {
@@ -43,12 +44,8 @@ export const createRowGlitch = (host: Host, o: { width: number; height: number }
     usage:
       GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
   })
-  // A canvas is uploaded here first.
-  const upload = device.createTexture({
-    size: [o.width, o.height],
-    format: 'rgba8unorm',
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  })
+  // A canvas is uploaded first.
+  const canvases = createCanvasTexture(host)
   const outView = out.createView()
   const groups = new WeakMap<GPUTexture, GPUBindGroup>()
   const groupOf = (texture: GPUTexture) => {
@@ -73,18 +70,7 @@ export const createRowGlitch = (host: Host, o: { width: number; height: number }
      * the source stored it (a canvas: straight). The texture is reused on every call.
      */
     apply(source: GPUTexture | OffscreenCanvas, p: RowGlitchParams = {}): GPUTexture {
-      let texture: GPUTexture
-      if ('createView' in source) texture = source
-      else {
-        const c = source.getContext('2d') as OffscreenCanvasRenderingContext2D
-        device.queue.writeTexture(
-          { texture: upload },
-          new Uint8Array(c.getImageData(0, 0, o.width, o.height).data),
-          { bytesPerRow: o.width * 4 },
-          [o.width, o.height],
-        )
-        texture = upload
-      }
+      const texture = 'createView' in source ? source : canvases.upload(source)
       const [low, high] = p.range ?? [0.25, 1]
       const [short, tall] = p.band ?? [4, 48]
       device.queue.writeBuffer(
@@ -117,7 +103,7 @@ export const createRowGlitch = (host: Host, o: { width: number; height: number }
     },
     dispose() {
       out.destroy()
-      upload.destroy()
+      canvases.dispose()
       uniforms.destroy()
     },
   }

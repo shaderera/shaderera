@@ -3,6 +3,7 @@
 // seed picks the grain: pass options.frame for grain that lives, a constant for grain that holds.
 
 import type { Host } from '@shaderera/core'
+import { createCanvasTexture } from '../render/canvas-texture.ts'
 import { GRAIN_WGSL } from './grain.wgsl.ts'
 
 export type GrainParams = {
@@ -41,12 +42,8 @@ export const createGrain = (host: Host, o: { width: number; height: number }) =>
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_SRC,
   })
-  // A canvas is uploaded here first.
-  const upload = device.createTexture({
-    size: [o.width, o.height],
-    format: 'rgba8unorm',
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  })
+  // A canvas is uploaded first.
+  const canvases = createCanvasTexture(host)
   const outView = out.createView()
   const groups = new WeakMap<GPUTexture, GPUBindGroup>()
   const groupOf = (texture: GPUTexture) => {
@@ -70,18 +67,7 @@ export const createGrain = (host: Host, o: { width: number; height: number }) =>
      * Return it as a layer: { color, alpha: 'opaque' }. The texture is reused on every call.
      */
     apply(source: GPUTexture | OffscreenCanvas, p: GrainParams = {}): GPUTexture {
-      let texture: GPUTexture
-      if ('createView' in source) texture = source
-      else {
-        const c = source.getContext('2d') as OffscreenCanvasRenderingContext2D
-        device.queue.writeTexture(
-          { texture: upload },
-          new Uint8Array(c.getImageData(0, 0, o.width, o.height).data),
-          { bytesPerRow: o.width * 4 },
-          [o.width, o.height],
-        )
-        texture = upload
-      }
+      const texture = 'createView' in source ? source : canvases.upload(source)
       device.queue.writeBuffer(
         uniforms,
         0,
@@ -111,7 +97,7 @@ export const createGrain = (host: Host, o: { width: number; height: number }) =>
     },
     dispose() {
       out.destroy()
-      upload.destroy()
+      canvases.dispose()
       uniforms.destroy()
     },
   }

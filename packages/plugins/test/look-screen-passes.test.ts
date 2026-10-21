@@ -8,8 +8,12 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { GlobalFonts } from '@napi-rs/canvas'
-import { createLooks, LOOKS } from '../look-screen-passes/src/looks/looks.ts'
 import { grey, openFrame } from './frame.ts'
+import { layOut } from './lay-out.ts'
+
+const { createLooks, LOOKS } = (await layOut('look-screen-passes')(
+  'src/looks/looks.ts',
+)) as typeof import('../look-screen-passes/src/looks/looks.ts')
 
 GlobalFonts.registerFromPath(
   join(
