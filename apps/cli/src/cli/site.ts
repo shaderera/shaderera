@@ -50,12 +50,11 @@ export const apiFlag = (api: string): string => (api === DEFAULT_API ? '' : ` --
 export const signInHint = (api: string): string => `Sign in: npx shaderera login${apiFlag(api)}`
 
 /**
- * The client id of Shaderera's GitHub OAuth App, which `login` signs in with (GitHub's device
- * flow). It is public, and the owner fills it in once the App exists (under the shaderera org,
- * Device Flow enabled). While it is empty, `login` without `--token` says so and stops;
- * `SHADERERA_GITHUB_CLIENT_ID` overrides it.
+ * The client id of Shaderera's GitHub OAuth App (shaderera org, Device Flow enabled), which
+ * `login` signs in with (GitHub's device flow). It is public. `SHADERERA_GITHUB_CLIENT_ID`
+ * overrides it.
  */
-export const GITHUB_CLIENT_ID = ''
+export const GITHUB_CLIENT_ID = 'Ov23ctejZ1KS8i5SbAO7'
 
 /** Where tokens are kept, one per API: `~/.shaderera/tokens.json`, readable by its owner only. */
 export const tokensFile = (): string => join(homedir(), '.shaderera', 'tokens.json')
