@@ -50,10 +50,10 @@ resolving requirements only: no host reads it to render, so nothing in it may ch
   "description": "Huge titles with a small note, several to a scene, swapping on the beat through ASCII noise, each placed anew in one of four layouts inside the safe area",
   "category": "Typography",
   "tags": ["titles", "title cards", "glitch", "launch", "feature list", "kinetic typography"],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "licence": "MIT",
   "requires": {
-    "items": { "text-scramble": "^0.1.0", "text-fit": "^0.1.0", "format-safe-areas": "^0.2.0" }
+    "items": { "text-scramble": "^0.3.0", "text-fit": "^0.1.0", "format-safe-areas": "^0.3.0" }
   },
   "files": ["src/type/titles.ts"]
 }
@@ -73,7 +73,7 @@ the folder is an error; anything merely unusual is a warning.
 | `version` | yes | `x.y.z`, see [Versions](#versions) |
 | `licence` | yes | an SPDX id: `MIT`, `OFL-1.1` |
 | `requires.shaderera` | no | a range of the `shaderera` package: `">=0.1.0"` |
-| `requires.items` | no | components, presets or media copied in with it, by name and range: `{ "text-scramble": "^0.1.0" }` |
+| `requires.items` | no | components, presets or media copied in with it, by name and range: `{ "text-scramble": "^0.3.0" }` |
 | `requires.packages` | no | npm packages the copied code imports, installed unless the project has them: `{ "three": "0.186.1" }` |
 | `requires.extensions` | no | package plugins it needs, installed and recorded in the project's label |
 | `files` | for copied types | paths relative to the folder, copied to the same paths in the project. A folder is copied whole. No absolute paths, no `..` |
@@ -95,7 +95,7 @@ Canvas2D text that moves like data: ASCII scramble, decode-in and scramble-out, 
 ```ts
 import { decoded, glitched, scramble } from './type/scramble.ts'
 
-const d = decoded('BEAT GRID', t, { from: 2, to: 4, frame: options.frame, seed: 1 })
+const d = decoded('BEAT GRID', t, { start: 2, end: 4, frame: options.frame, seed: 1 })
 ```
 ````
 
@@ -142,24 +142,67 @@ what it is. The prefixes: `asset`, `audio`, `camera`, `font`, `format`, `image`,
   `audio-beat-clock` measures a song with `node tools/analyze-music.ts`, and `loadAnalysis(host, …)`
   reads the result at render time.
 - **No film's numbers.** What a film would tune is a parameter, with a default that renders well:
-  `decoded(text, t, { from, to, frame, rise: 0.3, fall: 0.15 })`,
+  `decoded(text, t, { start, end, frame, rise: 0.3, fall: 0.15 })`,
   `hitsOf(analysis, { strength: 200 })`. Pass `t` and `frame` in; never assume a duration, a size
   or an fps.
 - **Every asset is made in code, or comes with its licence and a recorded source.** The fonts ship
   with their OFL text and `source.origin`. AI-generated media records its generator and terms.
 
+## Conventions
+
+A film glues plugins together in its own code, so they name and measure the same things the same
+way: what one returns, another takes as it is.
+
+- **Time is in seconds**, as `t` is. A span of time is `start` and `end`, as core's `Caption` has
+  them: `decoded(text, t, { start, end, frame })`, a title's `{ start, end, items }`, a silence's
+  `{ start, end }`. Core's `AudioClip` keeps `from` and `to` for the stretch of its file to read.
+  A frame number comes in only for what changes on every frame, such as noise; it never measures
+  time.
+- **Angles are in radians.** Degrees only where the name says so, as a camera operator says them:
+  `fovDeg`, `azimuthDeg`, `lensDeg(50)`, `camera-shake`'s `degrees`.
+- **A rectangle is `{ x, y, width, height }`**: its top-left corner and its size, in pixels with
+  rows downward unless the README says otherwise. A point is a tuple, `[x, y]` or `[x, y, z]`. So
+  `image-regions`' `box` goes straight into `camera-ken-burns`' `on` or `format-safe-areas`'
+  `freeCorner`.
+- **A colour is display values 0–1**, sRGB-encoded as a colour picker shows them, as a tuple
+  `[r, g, b]`, unless its name says linear light (`look-tonemap`'s `LinearRgb`). Code spells it
+  `color`, as core's `Layer.color`, WebGPU, CSS and three.js do. A Canvas2D plugin may take a CSS
+  colour string, since that is what `fillStyle` takes, and `look-paper-edges` 8-bit values, since
+  it mixes them into canvas pixels.
+- **An analysis has one header**, the `shaderera.analysis/1` format of [analysis.md](analysis.md).
+  The tool that writes it records its source and itself:
+
+  ```json
+  {
+    "format": "shaderera.analysis/1",
+    "kind": "music",
+    "source": { "path": "audio/song.mp3", "bytes": 4818231, "sha256": "9f2c…", "seconds": 182.4 },
+    "tool": { "script": "tools/analyze-music.ts", "ffmpeg": "ffmpeg version 7.1" },
+    "params": { "fps": 60, "minBpm": 70, "maxBpm": 180 },
+    "tempo": { "bpm": 160, "…": "the measurements follow" }
+  }
+  ```
+
+  `source.path` is from the project root. The loader takes only where the artifact is (its path,
+  or `image-regions`' folder), reads the source by `source.path`, and refuses another format or kind, or a source whose sha256 is not the
+  recorded one: `loadAnalysis(host, 'audio/song.analysis.json')`. A check in the repository's
+  tests fails on an official plugin's header in any other shape.
+- **Core's types and helpers where they exist**, not a copy: `Vec3`, `Mat4`, `Matrices`, `Caption`,
+  `DecodedImage`; `sha256(bytes)` for an analysis's hash and `parseFps(value)` for a rate as
+  shaderera.json writes it (`30`, `29.97`, `"24000/1001"`), both from `@shaderera/core`.
+
 ## Versions
 
 A published version is immutable. `publish` records the sha256 of its files, every `add` checks
 the files against it, and `publish` refuses a version that is already there:
-`text-scramble@0.1.0 is already published; bump the version`. To change a plugin, bump `version`.
+`text-scramble@0.3.0 is already published; bump the version`. To change a plugin, bump `version`.
 
 Under 1.0 any minor may break. A fix is `0.1.0` → `0.1.1`; a change that breaks a caller is
 `0.1.x` → `0.2.0`.
 
 The ranges in `requires` are npm's: `1.2.3`, `>=0.1.0`, `<2`, `^0.1.0`, `~0.1.2`, `1.x`, `*`, and
 alternatives joined with `||`. Pin npm packages a plugin is tested against exactly
-(`"three": "0.186.1"`), and require other plugins by caret (`"text-scramble": "^0.1.0"`).
+(`"three": "0.186.1"`), and require other plugins by caret (`"text-scramble": "^0.3.0"`).
 
 ## Testing locally
 
@@ -307,6 +350,8 @@ works offline from the last copy.
 - The README's first line is the pitch, and the call follows it.
 - `add` into a fresh project works, and `check` passes there.
 - No film's numbers; the defaults render well.
+- It follows the [conventions](#conventions): seconds and `start`/`end`, radians,
+  `{ x, y, width, height }`, display colours, the analysis header, core's types.
 - Every asset is made in code, or has its licence and source.
 - A test in `packages/plugins/test/` (`<name>.test.ts`, or `<name>.it.ts` when it is slow);
   `pnpm --filter @shaderera/plugins test:all` passes.

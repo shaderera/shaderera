@@ -126,12 +126,12 @@ is a `"shaderera"` field in its `package.json`.
   "name": "text-code-wall",
   "type": "component",
   "title": "Code wall",
-  "description": "The project's own source as a wall of text that scrolls and jumps on the beat",
+  "description": "The project's own source as a wall of text that scrolls and jumps on the beat, glitched and scrambled, with a claim cut out of the middle",
   "category": "Typography",
-  "tags": ["glitch", "code"],
-  "version": "0.1.0",
+  "tags": ["code", "source", "glitch", "matrix", "tech", "launch", "ending", "claim"],
+  "version": "0.3.0",
   "licence": "MIT",
-  "requires": { "items": { "text-scramble": "^0.1.0" } },
+  "requires": { "items": { "text-scramble": "^0.3.0", "motion-random": "^0.1.0" } },
   "files": ["src/type/code-wall.ts"]
 }
 ```
