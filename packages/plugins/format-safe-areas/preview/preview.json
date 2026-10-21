@@ -1,5 +1,5 @@
 {
-  "caption": "Shows where text may go in 16:9, 1:1 and 9:16, clear of Reels, Shorts and TikTok buttons, and widens the lens for tall frames.",
+  "caption": "Shows where text may go in 16:9, 1:1 and 9:16, clear of Reels, Shorts and TikTok buttons.",
   "states": [
     {
       "id": "all",

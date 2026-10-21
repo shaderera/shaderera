@@ -1,5 +1,5 @@
-// Where text may go (and which corner is free for a credit), and how a lens keeps a shot when the
-// frame turns tall. A variant is relaid for its format, never cropped from another.
+// Where text may go, and which corner is free for a credit. A variant is relaid for its format,
+// never cropped from another.
 
 export type Platform = 'none' | 'shorts' | 'reels' | 'tiktok'
 
@@ -96,13 +96,3 @@ export const freeCorner = (
     baseline: top ? 'top' : 'bottom',
   }
 }
-
-/**
- * A vertical field of view (radians) designed for a `designed` aspect (16:9), opened for a
- * narrower frame. `opening` 0 keeps the height (and loses the sides), 1 keeps the width (the
- * subject gets small); 0.5, half way on a log scale, keeps a wide shot reading in 9:16. Open it
- * further (0.75) for a shot whose subject spans the width, such as a word. A frame as wide as
- * the design or wider keeps the lens.
- */
-export const widenFov = (fov: number, aspect: number, opening = 0.5, designed = 16 / 9) =>
-  aspect >= designed ? fov : 2 * Math.atan(Math.tan(fov / 2) * (designed / aspect) ** opening)

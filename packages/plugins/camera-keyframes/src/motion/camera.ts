@@ -6,7 +6,6 @@
 // sides of a shot designed for 16:9.
 
 import type { CameraCapability, Matrices } from '@shaderera/core'
-import { widenFov } from '../layout/frame.ts'
 import { clamp, type Ease, type Key, lerp, path3, smooth, track, type V3 } from './keyframes.ts'
 
 export type Shot = {
@@ -168,6 +167,16 @@ export const blendShots = (a: Shot, b: Shot, u: number): Shot => {
     ...(fStop !== undefined ? { fStop } : {}),
   }
 }
+
+/**
+ * A vertical field of view (radians) designed for a `designed` aspect (16:9), opened for a
+ * narrower frame. `opening` 0 keeps the height (and loses the sides), 1 keeps the width (the
+ * subject gets small); 0.5, half way on a log scale, keeps a wide shot reading in 9:16. Open it
+ * further (0.75) for a shot whose subject spans the width, such as a word. A frame as wide as
+ * the design or wider keeps the lens.
+ */
+export const widenFov = (fov: number, aspect: number, opening = 0.5, designed = 16 / 9) =>
+  aspect >= designed ? fov : 2 * Math.atan(Math.tan(fov / 2) * (designed / aspect) ** opening)
 
 export type CameraOptions = {
   /** How far a narrower frame opens the lens: 0 keeps the height, 1 keeps the width (see widenFov). */

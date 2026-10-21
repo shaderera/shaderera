@@ -1,7 +1,7 @@
 A 3D camera as keyframed shots (eye, target, lens, roll, shift, focus) that orbit, dolly, crane and cut over time; exact framing of a subject, lenses in millimetres, WebGPU matrices or a three.js camera, and a lens that opens for vertical variants.
 
 ```ts
-import { applyToThree, cameraPath, cameraTrack, FILL, fit, lens, shot, viewProjection } from './motion/camera.ts'
+import { applyToThree, cameraPath, cameraTrack, FILL, fit, lens, shot, viewProjection, widenFov } from './motion/camera.ts'
 import { glide, hold, settle } from './motion/keyframes.ts'
 
 const hero = fit({ center: [0, 1, 0], radius: 1.2, azimuth: 20, elevation: 8, fov: lens(50), fill: FILL.medium, shift: [-1 / 6, 0] })
@@ -17,6 +17,8 @@ const flythrough = cameraPath([shot([0, 2, 20]), shot([4, 1, 6]), shot([0, 1, -6
 const c = camera(t, W / H)               // a 9:16 frame opens the lens half way
 applyToThree(c, threeCamera, W / H)      // three.js (shift via setViewOffset, focus)
 device.queue.writeBuffer(uniforms, 0, viewProjection(c, W / H))  // or raw WebGPU
+
+const fov = widenFov(Math.PI / 4, W / H)   // the rule alone, in radians: 16:9 keeps it, 9:16 opens half way
 ```
 
 - A move swings round the target on an arc by default; give a shot `path: 'line'` for a fly-by.
@@ -27,7 +29,6 @@ device.queue.writeBuffer(uniforms, 0, viewProjection(c, W / H))  // or raw WebGP
 - Everything is a formula of t: no damping stepped per frame. For a damped feel use the `settle`
   ease; to follow a moving subject, read its track at `t - lag`.
 
-Built on `motion-keyframes` and `format-safe-areas`, which `add` copies in with it. `focus` and
-`fStop` are carried from shot to shot and set on a three.js camera, but nothing here blurs: depth
-of field is the renderer's. Defaults: `fit` with a 35 mm lens, a medium shot, 10° above the
-horizon.
+Built on `motion-keyframes`, which `add` copies in with it. `focus` and `fStop` are carried from
+shot to shot and set on a three.js camera, but nothing here blurs: depth of field is the
+renderer's. Defaults: `fit` with a 35 mm lens, a medium shot, 10° above the horizon.

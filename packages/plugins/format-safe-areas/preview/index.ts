@@ -1,12 +1,11 @@
 // format-safe-areas: one shot relaid for 16:9, 1:1 and 9:16, with hard cuts between formats and
 // platforms. In each, safeArea gives the box text may use (thin white lines, the margins it returns
 // dimmed, red brackets on its corners), the two big words hold its corners, and a thin grey grid on
-// a wall is seen through widenFov's lens: the 16:9 design's view of the wall is the brighter box, so
-// a tall frame shows how far the lens opened to keep it. The grid drifts a whole number of cells a
-// loop. In 'all' the vertical frame then takes each platform's zone; a state holds one platform.
+// a wall sits behind them. The grid drifts a whole number of cells a loop. In 'all' the vertical
+// frame then takes each platform's zone; a state holds one platform.
 
 import { AREA, createHouse, RED } from '../../previews/src/house.ts'
-import { type Platform, safeArea, widenFov } from '../../previews/src/layout/frame.ts'
+import { type Platform, safeArea } from '../../previews/src/layout/frame.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const L = AREA.left
@@ -16,10 +15,8 @@ const STAGE = { top: 120, bottom: 850 }
 const FOV = (40 * Math.PI) / 180
 const WIDE = 16 / 9
 const TALL = 9 / 16
-/** The wall at distance 1: the 16:9 design sees 16 by 9 cells of it. */
-const HALF_H = Math.tan(FOV / 2)
-const HALF_W = HALF_H * WIDE
-const CELL = (2 * HALF_H) / 9
+/** The wall at distance 1: a frame sees 9 cells of it top to bottom. */
+const CELL = (2 * Math.tan(FOV / 2)) / 9
 /** Cells the grid drifts a loop. */
 const DRIFT = 4
 
@@ -51,7 +48,6 @@ const PLATFORM_LABEL: Record<Platform, string> = {
 const ratioName = (a: number) => (a > 1.7 ? '16:9' : a < 0.6 ? '9:16' : '1:1')
 const classOf = (aspect: number) =>
   1 / aspect > 4 / 3 ? 'vertical' : 1 / aspect >= 0.8 ? 'near-square' : 'landscape'
-const deg = (rad: number) => ((rad * 180) / Math.PI).toFixed(1)
 
 const formatSafeAreas: OpenPreview = async (host, stateId) => {
   const segments = STATES[stateId]
@@ -80,7 +76,6 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
       fx,
       fy,
       area: safeArea(w, h, platform),
-      fov: widenFov(FOV, w / h),
       vertical: classOf(aspect) === 'vertical',
     }
   }
@@ -100,10 +95,10 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
   const platformWord = (f: F) =>
     f.vertical ? PLATFORM_LABEL[f.platform] : classOf(f.aspect).toUpperCase()
 
-  // The wall through the frame's lens: grid lines every CELL, and the 16:9 design's view of it.
+  // The wall through the frame's lens: grid lines every CELL.
   const drawGrid = (f: F) => {
-    const { fx, fy, w, h, fov, t } = f
-    const focal = h / 2 / Math.tan(fov / 2)
+    const { fx, fy, w, h, t } = f
+    const focal = h / 2 / Math.tan(FOV / 2)
     const cx = fx + w / 2
     const cy = fy + h / 2
     const shift = ((t / duration) * DRIFT * CELL) % CELL
@@ -118,18 +113,6 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
       const sy = Math.round(cy + y * focal)
       if (sy >= fy && sy < fy + h) ctx.fillRect(fx, sy, w, 1)
     }
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)'
-    ctx.lineWidth = 1
-    ctx.strokeRect(
-      cx - HALF_W * focal + 0.5,
-      cy - HALF_H * focal + 0.5,
-      2 * HALF_W * focal - 1,
-      2 * HALF_H * focal - 1,
-    )
-    ctx.font = `12px ${mono}`
-    ctx.textAlign = 'left'
-    ctx.fillStyle = '#9a9a9a'
-    ctx.fillText('THE 16:9 SHOT', Math.max(fx, cx - HALF_W * focal) + 6, cy + HALF_H * focal + 16)
   }
 
   const bracket = (x: number, y: number, w: number, h: number, color: string, len = 16) => {
@@ -223,22 +206,12 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
         ctx.fillText(pct(area.bottom, h), fx + w / 2, sy + sh + area.bottom / 2 + 5)
       if (area.right > 30) ctx.fillText(pct(area.right, w), sx + sw + area.right / 2, sy + sh / 2)
       if (area.left > 30) ctx.fillText(pct(area.left, w), fx + area.left / 2, sy + sh / 2)
-      // A note over the frame: the lens.
-      house.note(
-        f.fov > FOV + 1e-6
-          ? `widenFov opens the 40° lens to ${deg(f.fov)}°`
-          : 'widenFov keeps the 40° lens',
-        fx + w,
-        fy - 12,
-        'right',
-        24,
-      )
       const plat = f.platform === 'none' ? '' : `, '${f.platform}'`
       house.hud(
         t,
         o.frame,
         `${classOf(f.aspect).toUpperCase()}   T ${pct(area.top, h)}  R ${pct(area.right, w)}  B ${pct(area.bottom, h)}  L ${pct(area.left, w)}`,
-        `safeArea(${ratioName(f.aspect)}${plat})   widenFov 40° → ${deg(f.fov)}°`,
+        `safeArea(${ratioName(f.aspect)}${plat})`,
       )
       return [{ color: canvas }]
     },
@@ -255,7 +228,6 @@ const formatSafeAreas: OpenPreview = async (host, stateId) => {
         aspect: f.aspect,
         platform: f.platform,
         margins: { left: f.area.left, right: f.area.right, top: f.area.top, bottom: f.area.bottom },
-        fov: (f.fov * 180) / Math.PI,
       }
     },
   }
