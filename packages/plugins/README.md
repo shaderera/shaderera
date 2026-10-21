@@ -35,7 +35,7 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `format-broadcast-slate` | component | a clock slate for a broadcast preroll: the spot's details and a countdown, at negative t | research for 0.1.0 |
 | `format-placement-specs` | preset | what Reels ads, YouTube, Amazon CTV, EU and US broadcast loudness and a DOOH screen accept, as requirements.json placements deliver checks the file against; each with its source and the date read | research for 0.1.0 |
 | `format-safe-areas` | component | where text may go per format and platform, and the corner free for a credit | opening film |
-| `image-fit` | component | a still placed into a rectangle of a Canvas2D frame: the decoded image onto a canvas, cover (with a focal point) and contain, halved copies that draw it small the same every time | five in-house films that each wrote it inline, 2026-10-21 |
+| `image-fit` | component | a still placed into a rectangle of a Canvas2D frame: a decoded image or footage frame onto a canvas, cover (with a focal point) and contain, halved copies that draw it small the same every time | five in-house films that each wrote it inline, 2026-10-21 |
 | `image-regions` | component | named regions of a photograph (mask, box, centre, the region that holds each) as analysis data; SAM 3.1 from words, or painted masks | a collage POC, 2026-10-14 |
 | `image-to-png` | component | WebP, AVIF, GIF and a video's frames converted to PNG once, beside the originals, pixels kept (ffmpeg) | split from `render-three-textures` |
 | `look-blur` | component | blur one frame, Gaussian, bokeh, directional or radial, by an amount from shapes, a map or depth: a sharp window, tilt-shift, depth of field | research: a poster's sharp window in a blurred world |

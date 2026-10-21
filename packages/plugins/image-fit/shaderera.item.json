@@ -2,7 +2,7 @@
   "name": "image-fit",
   "type": "component",
   "title": "Image fit",
-  "description": "A still placed into a rectangle of a Canvas2D frame: the decoded image onto a canvas, cover (with a focal point) and contain, and halved copies that draw a large still small with the same pixels whatever was drawn before",
+  "description": "A still placed into a rectangle of a Canvas2D frame: a decoded image or footage frame onto a canvas, cover (with a focal point) and contain, and halved copies that draw a large still small with the same pixels whatever was drawn before",
   "category": "Rendering",
   "tags": [
     "cover",
@@ -16,7 +16,7 @@
     "canvas2d",
     "deterministic"
   ],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "licence": "MIT",
   "requires": { "shaderera": ">=0.1.0" },
   "files": ["src/image/fit.ts"]
