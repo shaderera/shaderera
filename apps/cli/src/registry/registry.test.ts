@@ -487,3 +487,80 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
     delete process.env.SHADERERA_CACHE
   }
 })
+
+const quiet = async (command: string, argv: string[]): Promise<string[]> => {
+  const printed: string[] = []
+  const log = console.log
+  console.log = (s: string) => printed.push(s)
+  try {
+    await run(command, argv)
+  } finally {
+    console.log = log
+  }
+  return printed
+}
+
+test('add takes several names: all of them are copied, or none when one does not resolve', async () => {
+  const registry = temp('reg')
+  publish(piece('frame', ['src/frame.ts']), registry)
+  publish(piece('top', ['src/top.ts'], { requires: { items: { frame: '^0.1.0' } } }), registry)
+  publish(piece('side', ['src/side.ts']), registry)
+  const root = project()
+  const printed = await quiet('add', ['top', 'side', 'frame', '--from', registry, '--root', root])
+  for (const f of ['frame', 'top', 'side']) assert.ok(existsSync(join(root, 'src', `${f}.ts`)))
+  assert.equal(printed.at(-1), 'added top, side, frame')
+
+  const other = project()
+  await assert.rejects(
+    quiet('add', ['side', 'gone', '--from', registry, '--root', other]),
+    /gone is not a plugin in/,
+  )
+  assert.ok(!existsSync(join(other, 'src', 'side.ts')))
+  // A name the project already has is refused like one alone.
+  await assert.rejects(
+    quiet('add', ['side', 'top', '--from', registry, '--root', root]),
+    /already has src\/side\.ts, src\/top\.ts/,
+  )
+})
+
+test('remove takes several names, and refuses them all when one is not a package plugin', () => {
+  const root = write(project(), {
+    'shaderera.item.json': { requires: { extensions: { '@x/one': '^1.0.0', '@x/two': '^1.0.0' } } },
+  })
+  const uninstalled: string[] = []
+  const uninstall = (_r: string, name: string) => void uninstalled.push(name)
+  assert.throws(() => remove(root, ['@x/one', 'copied'], { uninstall }), /copied is not a package/)
+  assert.deepEqual(uninstalled, [])
+  remove(root, ['@x/one', '@x/two'], { uninstall })
+  assert.deepEqual(uninstalled, ['@x/one', '@x/two'])
+})
+
+test('publish takes several folders; one that fails is named, and the rest are published', async () => {
+  const registry = temp('reg')
+  const empty = temp('empty')
+  await assert.rejects(
+    quiet('publish', [
+      piece('one', ['src/one.ts']),
+      empty,
+      piece('two', ['src/two.ts']),
+      '--from',
+      registry,
+    ]),
+    (e: Error) => /published 2 of 3; 1 failed/.test(e.message) && e.message.includes(empty),
+  )
+  assert.equal(resolve(registry, 'one').item.name, 'one')
+  assert.equal(resolve(registry, 'two').item.name, 'two')
+})
+
+test('an extra argument is never ignored, and a folder of plugin sources says to publish it first', async () => {
+  const registry = temp('reg')
+  publish(piece('one', ['src/one.ts']), registry)
+  await assert.rejects(quiet('info', ['one', 'two', '--from', registry]), /one plugin at a time/)
+
+  const sources = temp('sources')
+  write(sources, { 'look-x/shaderera.item.json': { name: 'look-x' } })
+  await assert.rejects(
+    quiet('add', ['look-x', '--from', sources, '--root', project()]),
+    /holds plugin sources, not published plugins.*npx shaderera publish .*--from <folder>/,
+  )
+})
