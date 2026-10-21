@@ -18,15 +18,8 @@ import {
   shot,
   viewProjection,
 } from '../../previews/src/motion/camera.ts'
-import {
-  type Ease,
-  glide,
-  hold,
-  linear,
-  settle,
-  smooth,
-  type V3,
-} from '../../previews/src/motion/keyframes.ts'
+import { type Ease, glide, hold, linear, settle, smooth } from '../../previews/src/motion/eases.ts'
+import type { V3 } from '../../previews/src/motion/keyframes.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 import { createStage, project, SUBJECT } from './stage.ts'
 

@@ -2,14 +2,15 @@
   "name": "camera-shake",
   "type": "component",
   "title": "Camera shake",
-  "description": "A camera that breathes, is handheld, or kicks on the hits of the music: seeded noise and hit envelopes as formulas of t, applied in camera space",
+  "description": "A camera that breathes, is handheld, or kicks on the hits of the music: seeded noise as a formula of t, scaled by an envelope, applied in camera space",
   "category": "Animation & Camera",
   "tags": ["camera shake", "handheld", "impact", "noise", "breathing", "3d", "deterministic"],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "licence": "MIT",
   "requires": {
     "items": {
-      "camera-keyframes": "^0.1.0"
+      "camera-keyframes": "^0.1.0",
+      "motion-eases": "^0.1.0"
     }
   },
   "files": ["src/motion/shake.ts"]

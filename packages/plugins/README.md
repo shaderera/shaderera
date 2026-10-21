@@ -27,7 +27,7 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `audio-voice-repace` | component | re-pace a narration (long pauses between words shortened, named ones kept, tempo with the pitch kept, ffmpeg) and a time map the edit's times follow | an in-house narrated film, its paced voice |
 | `camera-ken-burns` | component | the crop of a still a frame shows: framed on a box with headroom, moved between two framings at an even speed (scale in log space), kept inside the picture | an explainer film on cats in art (POC), 2026-10-15 |
 | `camera-keyframes` | component | a 3D camera as shots: orbit, dolly, crane, cut, exact framing, lenses in mm, shift, focus; WebGPU or three.js; core's camera contract; the lens rule for tall frames | opening film, ideas from camera-controls and Cinemachine |
-| `camera-shake` | component | breathe, handheld, impact: seeded noise and hit envelopes as formulas of t | ideas from drei CameraShake |
+| `camera-shake` | component | breathe, handheld, impact: seeded noise as a formula of t, scaled by an envelope | ideas from drei CameraShake |
 | `font-ibm-plex-mono` | media | IBM Plex Mono, OFL | opening film |
 | `font-ibm-plex-sans` | media | IBM Plex Sans, OFL | an in-house film |
 | `font-instrument-serif` | media | Instrument Serif, OFL | an in-house film |
@@ -43,7 +43,8 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `look-screen-passes` | component | the frame in another medium: ascii, halftone, dither, heat, contours, pixels, inverse; ink, paper, cell and palette as parameters | opening film |
 | `look-tonemap` | component | linear light to display-referred colour through Khronos PBR Neutral or AgX, as WGSL functions and a CPU version with the same values | the Wallloom opening film's output shader |
 | `look-vignette` | component | the edges towards black or a colour, in linear light, round, the frame's shape or a given ellipse | split from `look-screen-passes` (0.2.0) |
-| `motion-keyframes` | component | values over time with eases (a stateless spring, bezier), paths that flow through points | opening film |
+| `motion-eases` | component | a 0–1 progress shaped: eases (a stateless spring, bezier), clamp, lerp, progress through a span, one envelope over hit times | split from `motion-keyframes`, `audio-beat-clock` and `camera-shake` |
+| `motion-keyframes` | component | values over time held between keys and eased into each, paths that flow through points | opening film |
 | `motion-shot-list` | component | film time to shots: the shot or two on screen at t, local time and progress, the transition's progress, the source frame (floored, speed, freeze, reverse, exact at NTSC rates) and when each footage may be closed; draws nothing | five films' shot lists (taste-to-plugins, Wallloom opening, P(DOOM), zoom, procedural) |
 | `render-bvh` | component | ray queries against triangles on the GPU: a binned SAH tree from positions and indices, WGSL closest-hit and any-hit; no shading | the Wallloom opening film's path tracer, its traversal only |
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |

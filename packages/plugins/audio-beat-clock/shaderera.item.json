@@ -2,11 +2,11 @@
   "name": "audio-beat-clock",
   "type": "component",
   "title": "Beat clock",
-  "description": "Measure a song (tempo fitted to its onsets, beat grid, downbeats, onsets, band energy, sections) and cut the picture to it: bars, beats, 1/16s, band levels, hit pulses at t",
+  "description": "Measure a song (tempo fitted to its onsets, beat grid, downbeats, onsets, band energy, sections) and cut the picture to it: bars, beats, 1/16s, band levels, hit times",
   "category": "Audio & Music",
   "tags": ["music", "beat sync", "bpm", "beat grid", "onsets", "audio reactive", "analysis"],
-  "version": "0.1.1",
+  "version": "0.2.0",
   "licence": "MIT",
-  "requires": { "shaderera": ">=0.1.0" },
+  "requires": { "shaderera": ">=0.1.0", "items": { "motion-eases": "^0.1.0" } },
   "files": ["tools/analyze-music.ts", "src/music/beat.ts"]
 }

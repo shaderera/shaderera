@@ -24,18 +24,21 @@ const { glyphPoints } = (await from(
 const { decoded, glitched, scramble } = (await from(
   'src/type/scramble.ts',
 )) as typeof import('../text-scramble/src/type/scramble.ts')
-const { bandsOf, clockFromAnalysis, clockOf, fitGrid, pulse } = (await from(
+const { bandsOf, clockFromAnalysis, clockOf, fitGrid } = (await from(
   'src/music/beat.ts',
 )) as typeof import('../audio-beat-clock/src/music/beat.ts')
 const { freeCorner, safeArea } = (await from(
   'src/layout/frame.ts',
 )) as typeof import('../format-safe-areas/src/layout/frame.ts')
-const { bezier, glide, hold, path3, progress, settle, track, track3 } = (await from(
+const { bezier, glide, hold, settle } = (await from(
+  'src/motion/eases.ts',
+)) as typeof import('../motion-eases/src/motion/eases.ts')
+const { path3, track, track3 } = (await from(
   'src/motion/keyframes.ts',
 )) as typeof import('../motion-keyframes/src/motion/keyframes.ts')
 const { cameraCapability, cameraPath, cameraTrack, fit, lens, shot, viewProjection, widenFov } =
   (await from('src/motion/camera.ts')) as typeof import('../camera-keyframes/src/motion/camera.ts')
-const { hits, SHAKE, shake } = (await from(
+const { SHAKE, shake } = (await from(
   'src/motion/shake.ts',
 )) as typeof import('../camera-shake/src/motion/shake.ts')
 const { createThreeHost, threeCamera } = (await from(
@@ -100,8 +103,6 @@ test('audio-beat-clock: bars, positions, bands and pulses', () => {
   } as unknown as Analysis
   assert.ok(Math.abs(clockFromAnalysis(a, { trim: 0.1, firstBar: 2 }).at(2) - 0.5) < 1e-9)
   assert.deepEqual(bandsOf(a)(1 / 60), [0.5, 1, 1, 1])
-  assert.equal(pulse(1, [0.5, 2], 0.1), Math.exp(-5))
-  assert.equal(pulse(0.2, [0.5]), 0)
 })
 
 test('audio-beat-clock: the grid is fitted to the onsets, on the steps they sit on', () => {
@@ -252,7 +253,6 @@ test('motion-keyframes: held, eased, cut', () => {
     ])(0.5),
     [1, 2, 3],
   )
-  assert.equal(progress(5, 4, 6), 0.5)
 })
 
 test('motion-keyframes: object keys carry an id to inspect and move as tuples do', () => {
@@ -401,15 +401,13 @@ test('camera-keyframes: orbits keep their distance, fit frames exactly, lenses, 
   )
 })
 
-test('camera-shake: the same at any t in any order, still at zero amount, kicks on a hit', () => {
+test('camera-shake: the same at any t in any order, still at zero amount', () => {
   const c = shot([0, 0, 10], [0, 0, 0], 40)
   const a = shake(c, 3.2, SHAKE.handheld)
   shake(c, 9, SHAKE.handheld)
   assert.deepEqual(shake(c, 3.2, SHAKE.handheld), a)
   assert.deepEqual(shake(c, 3.2, SHAKE.impact, 0), c)
   assert.notDeepEqual(a.target, c.target)
-  assert.equal(hits(0.5, [1]), 0)
-  assert.equal(hits(1, [1]), 1)
 })
 
 test('render-three-host + render-image-textures: an image card renders on the host GPU, the same at any t in any order, texture and bytes alike', async () => {

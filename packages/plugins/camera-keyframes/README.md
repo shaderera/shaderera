@@ -2,7 +2,7 @@ A 3D camera as keyframed shots (eye, target, lens, roll, shift, focus) that orbi
 
 ```ts
 import { applyToThree, cameraPath, cameraTrack, FILL, fit, lens, shot, viewProjection, widenFov } from './motion/camera.ts'
-import { glide, hold, settle } from './motion/keyframes.ts'
+import { glide, hold, settle } from './motion/eases.ts'
 
 const hero = fit({ center: [0, 1, 0], radius: 1.2, azimuth: 20, elevation: 8, fov: lens(50), fill: FILL.medium, shift: [-1 / 6, 0] })
 const camera = cameraTrack([
@@ -29,6 +29,7 @@ const fov = widenFov(Math.PI / 4, W / H)   // the rule alone, in radians: 16:9 k
 - Everything is a formula of t: no damping stepped per frame. For a damped feel use the `settle`
   ease; to follow a moving subject, read its track at `t - lag`.
 
-Built on `motion-keyframes`, which `add` copies in with it. `focus` and `fStop` are carried from
-shot to shot and set on a three.js camera, but nothing here blurs: depth of field is the
-renderer's. Defaults: `fit` with a 35 mm lens, a medium shot, 10° above the horizon.
+Built on `motion-keyframes` and `motion-eases`, which `add` copies in with it. `focus` and
+`fStop` are carried from shot to shot and set on a three.js camera, but nothing here blurs: depth
+of field is the renderer's. Defaults: `fit` with a 35 mm lens, a medium shot, 10° above the
+horizon.

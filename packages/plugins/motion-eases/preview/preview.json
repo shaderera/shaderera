@@ -1,0 +1,12 @@
+{
+  "caption": "Shapes a 0 to 1 progress: eases from strike to a spring, and an envelope that kicks on every hit.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1
+}

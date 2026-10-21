@@ -35,6 +35,7 @@
           "look-screen-passes",
           "look-tonemap",
           "look-vignette",
+          "motion-eases",
           "motion-keyframes",
           "motion-shot-list",
           "render-bvh",
@@ -420,6 +421,13 @@
       "params": {
         "item": "look-vignette",
         "state": "spotlight"
+      }
+    },
+    "motion-eases": {
+      "label": "motion-eases",
+      "params": {
+        "item": "motion-eases",
+        "state": "default"
       }
     },
     "motion-keyframes": {

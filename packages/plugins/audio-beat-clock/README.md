@@ -5,7 +5,8 @@ node tools/analyze-music.ts audio/song.mp3            # writes audio/song.analys
 ```
 
 ```ts
-import { bandsOf, clockFromAnalysis, hitsOf, loadAnalysis, pulse } from './music/beat.ts'
+import { envelope } from './motion/eases.ts'
+import { bandsOf, clockFromAnalysis, hitsOf, loadAnalysis } from './music/beat.ts'
 
 // in open
 const analysis = await loadAnalysis(host, 'audio/song.mp3', 'audio/song.analysis.json')
@@ -15,7 +16,7 @@ const hits = hitsOf(analysis, { strength: 200 }) // strong onsets, in film time
 
 // in render(t)
 const drop = clock.at(17)                        // bar 17's downbeat
-const flash = pulse(t, hits, 0.08)
+const flash = envelope(t, hits, { decay: 0.08 }) // 1 on each hit, then falls (motion-eases)
 const [sub] = bands(t)
 ```
 

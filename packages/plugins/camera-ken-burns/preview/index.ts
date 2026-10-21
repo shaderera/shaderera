@@ -1,14 +1,14 @@
 // camera-ken-burns: a plain still made here (a grey figure on a checker ground under a row of
 // lights) and three boxes on it, as an analyser would give them. The loop pushes in from the whole
 // still to the head, pans to the hand, pulls out to the wide row of lights and back to the whole
-// still, each move eased by motion-keyframes and placed by the plugin. The big picture is the
+// still, each move eased by motion-eases and placed by the plugin. The big picture is the
 // 16:9 crop it gives; the target box is drawn dashed in it, with red ticks at the eye line. Bottom
 // left, the whole still with the view in red. The move and its target are the big words
 // (house.ts).
 
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
+import { progress } from '../../previews/src/motion/eases.ts'
 import { type Box, type Framing, moveOf, type View } from '../../previews/src/motion/ken-burns.ts'
-import { progress } from '../../previews/src/motion/keyframes.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const L = 48
