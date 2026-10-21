@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { createServices, videoReader } from './services.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const clip = () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-video-'))
+  const root = tempDir('video')
   const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '8']
   spawnSync('ffmpeg', [...args, '-pix_fmt', 'yuv420p', join(root, 'v.mp4')])
   return root

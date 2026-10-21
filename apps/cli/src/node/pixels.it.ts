@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { exportVideo } from '../cli/render.ts'
 import { encodePng } from '../deliver/png.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
 import { type Child, openChild } from './child.ts'
@@ -28,27 +20,10 @@ import { findProject } from './project.ts'
 const project = await findProject(join(import.meta.dirname, 'fixtures', 'alpha'))
 const { width, height } = project.manifest
 const entryFile = await buildForNode(project)
-// The same film beside a link to the `webgpu` (Dawn) fixtures/particles installs: the Node host
-// then composites on the GPU and exports yuv420p (decision 0007).
-const gpuRoot = join(mkdtempSync(join(tmpdir(), 'shaderera-alpha-gpu-')), 'film')
-cpSync(join(import.meta.dirname, 'fixtures', 'alpha'), gpuRoot, { recursive: true })
-mkdirSync(join(gpuRoot, 'node_modules'))
-symlinkSync(
-  realpathSync(join(import.meta.dirname, '../../fixtures/particles/node_modules/webgpu')),
-  join(gpuRoot, 'node_modules', 'webgpu'),
-  'junction',
-)
-const gpuProject = await findProject(gpuRoot)
-const gpuEntry = await buildForNode(gpuProject)
 type Params = { [key: string]: boolean }
-const hosts: [string, (params?: Params) => Promise<Child>, typeof project][] = [
-  ['node', (params = {}) => openChild(project, { entryFile, params }), project],
-  [
-    'node with a GPU',
-    (params = {}) => openChild(gpuProject, { entryFile: gpuEntry, params }),
-    gpuProject,
-  ],
-  ['browser', (params = {}) => openBrowserChild(project, { params }), project],
+const hosts: [string, (params?: Params) => Promise<Child>][] = [
+  ['node', (params = {}) => openChild(project, { entryFile, params })],
+  ['browser', (params = {}) => openBrowserChild(project, { params })],
 ]
 
 /** Straight RGBA, worked by hand: the left half, and the veil over it on the right. */
@@ -82,12 +57,12 @@ const decode = (file: string) =>
     '-',
   ]).stdout as Buffer
 
-for (const [name, open, film] of hosts) {
+for (const [name, open] of hosts) {
   test(`${name}: straight RGBA at the boundary, byte-exact PNG, mp4 matted over black`, async () => {
     const child = await open()
     try {
-      // A host with a GPU (Dawn here, WebGPU in Chrome) exports yuv420p it made itself; the
-      // Node host without one hands ffmpeg RGBA.
+      // A host with a GPU (WebGPU in Chrome here; Dawn in contract.it.ts) exports yuv420p it
+      // made itself; the Node host without one hands ffmpeg RGBA.
       assert.equal(!!child.has.yuv, name !== 'node')
       const { pixels } = await child.render(0, 'final')
       // Chrome's canvas keeps premultiplied colour, so a straight byte may move by 1.
@@ -96,13 +71,13 @@ for (const [name, open, film] of hosts) {
       const preview = (await child.render(0, 'preview')).pixels
       assert.deepEqual(preview, pixels, 'preview and final agree on an opaque-free frame')
 
-      const dir = mkdtempSync(join(tmpdir(), 'shaderera-alpha-'))
+      const dir = tempDir('alpha')
       const png = join(dir, 'frame.png')
       writeFileSync(png, encodePng(pixels, width, height))
       assert.deepEqual(new Uint8Array(decode(png)), pixels, 'PNG round trip')
 
       const out = join(dir, 'frame.mp4')
-      await exportVideo(film, child, { out, revision: 'test' })
+      await exportVideo(project, child, { out, revision: 'test' })
       const video = new Uint8Array(decode(out))
       // H.264 at crf 18, 4:2:0, limited range: flat areas, sampled away from the edge.
       near(at(video, 4, 8).slice(0, 3), MATTE_LEFT, 4, 'mp4 left')
@@ -118,8 +93,11 @@ for (const [name, open, film] of hosts) {
     try {
       await child.render(0, 'preview')
       await assert.rejects(child.render(0, 'final'), /unfinished layer \(veil: final: false\)/)
-      const out = join(mkdtempSync(join(tmpdir(), 'shaderera-unfinished-')), 'x.mp4')
-      await assert.rejects(exportVideo(film, child, { out, revision: 'test' }), /unfinished layer/)
+      const out = join(tempDir('unfinished'), 'x.mp4')
+      await assert.rejects(
+        exportVideo(project, child, { out, revision: 'test' }),
+        /unfinished layer/,
+      )
       assert.equal(existsSync(out), false)
     } finally {
       await child.close()

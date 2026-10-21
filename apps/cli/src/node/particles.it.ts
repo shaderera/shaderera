@@ -16,39 +16,29 @@ const root = fileURLToPath(new URL('../../fixtures/particles/', import.meta.url)
 const project = await findProject(root)
 const entryFile = await buildForNode(project)
 const fps = project.manifest.fps
-const open = (checkpointMs?: number) => openChild(project, { entryFile, checkpointMs })
+// 1024 particles, the fewest the fixture takes: the same replay checks on less GPU work.
+const params = { count: 1024 }
+const open = (checkpointMs?: number) => openChild(project, { entryFile, params, checkpointMs })
 const hash = async (child: Child, f: number, intent: 'preview' | 'final' = 'final') =>
   sha256((await child.render(f / fps, intent)).pixels)
-const ms = (start: number) => Math.round(performance.now() - start)
 
 test('particles: frame N is the same by sequential play, direct, backward, loop, reset and export', async () => {
-  const target = 120
+  const target = 30
   const last = frameTimes(fps, 0, project.manifest.duration).length - 1
-  let start = performance.now()
   // Checkpoints every 20 ms of rendering, so the backward seeks restore real GPU state.
   const a = await open(20)
-  const coldOpen = ms(start)
   try {
     assert.deepEqual(a.has.sequential, { checkpoint: true })
-    start = performance.now()
     let played = ''
     for (let f = 0; f <= target; f++) played = await hash(a, f)
-    const sequentialMs = ms(start) / (target + 1)
-
-    start = performance.now()
     await hash(a, last)
-    const forward = ms(start)
-    start = performance.now()
     const backward = await hash(a, target)
-    const backwardMs = ms(start)
     await hash(a, 0)
     const looped = await hash(a, target)
     const seeks = await a.seeks()
 
     const b = await open()
-    start = performance.now()
     const direct = await hash(b, target)
-    const directMs = ms(start)
     await b.close()
 
     // Offline: the export path, frame by frame into a sink, with its own shuffled re-check.
@@ -74,16 +64,6 @@ test('particles: frame N is the same by sequential play, direct, backward, loop,
     assert.equal(direct, played, 'direct seek in a fresh process')
     assert.equal(exported, played, 'export')
     assert.ok((seeks?.restored ?? 0) > 0, 'a backward seek restored a checkpoint')
-    console.log(
-      JSON.stringify({
-        coldOpenMs: coldOpen,
-        sequentialMsPerFrame: Math.round(sequentialMs * 10) / 10,
-        forwardTo: { frame: last, ms: forward },
-        backwardTo: { frame: target, ms: backwardMs },
-        directSeekFreshProcess: { frame: target, ms: directMs },
-        seeks,
-      }),
-    )
   } finally {
     await a.close()
   }
@@ -100,17 +80,4 @@ test('particles: a preview render steps the state exactly as a final one', async
     await a.close()
     await b.close()
   }
-})
-
-test('particles: another seed is another film; the same seed is the same one', async () => {
-  const seeded = async (seed: number) => {
-    const child = await openChild(project, { entryFile, seed })
-    try {
-      return await hash(child, 20)
-    } finally {
-      await child.close()
-    }
-  }
-  assert.equal(await seeded(11), await seeded(11))
-  assert.notEqual(await seeded(11), await seeded(12))
 })

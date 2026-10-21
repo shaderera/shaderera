@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
+import { tempDir } from '../fixtures/temp.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
@@ -15,7 +15,7 @@ const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
  * folder outside the project; the source paints the byte as a grey.
  */
 test('a bake is made and stamped, read by the host, and refused when stale or changed', () => {
-  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-bake-')), 'film')
+  const root = join(tempDir('bake'), 'film')
   cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
   const glow = join(root, '..', 'glow')
   const out = join(root, 'out', 'stills')
@@ -26,8 +26,10 @@ test('a bake is made and stamped, read by the host, and refused when stale or ch
     assert.equal(r.status, 0, r.stderr)
     return decode(readFileSync(join(out, `main-${Number(t).toFixed(3)}.png`))).data[0]
   }
-  const refused = (pattern: RegExp) => {
-    for (const command of [['check', '--times', '2'], ['still', '0'], ['render']]) {
+  // Every command that opens the source refuses it alike: all three once, then one each.
+  const all = [['check', '--times', '2'], ['still', '0'], ['render']]
+  const refused = (pattern: RegExp, commands = all) => {
+    for (const command of commands) {
       const r = cli(...command)
       assert.equal(r.status, 2, `${command[0]}: ${r.stderr}`)
       assert.match(r.stderr, pattern, command[0])
@@ -51,20 +53,26 @@ test('a bake is made and stamped, read by the host, and refused when stale or ch
   assert.match(JSON.parse(peek.stdout).result.peek, /outside the project/)
 
   writeFileSync(join(root, 'level.txt'), '90')
-  refused(/Bake glow is stale: level\.txt changed since it was made\. Run shaderera bake glow\./)
+  refused(/Bake glow is stale: level\.txt changed since it was made\. Run shaderera bake glow\./, [
+    ['check', '--times', '2'],
+  ])
   assert.equal(cli('bake', 'glow').status, 0)
   assert.equal(grey('0.5'), 95)
 
   writeFileSync(join(glow, 'glow.003.bin'), new Uint8Array([1]))
-  refused(/Bake glow: glow\.003\.bin changed since it was made\. Run shaderera bake glow\./)
+  refused(/Bake glow: glow\.003\.bin changed since it was made\. Run shaderera bake glow\./, [
+    ['still', '0'],
+  ])
   rmSync(join(glow, 'glow.003.bin'))
-  refused(/Bake glow: glow\.003\.bin is missing from .*glow\. Run shaderera bake glow\./)
+  refused(/Bake glow: glow\.003\.bin is missing from .*glow\. Run shaderera bake glow\./, [
+    ['render'],
+  ])
   assert.equal(cli('bake').status, 0)
   assert.ok(existsSync(join(glow, 'glow.003.bin')))
 })
 
 test('a bake whose command fails, or names another bake, stamps nothing', () => {
-  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-bake-')), 'film')
+  const root = join(tempDir('bake'), 'film')
   cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
   writeFileSync(join(root, 'tools', 'make.mjs'), 'process.exit(3)\n')
   const cli = (...args: string[]) =>
@@ -80,7 +88,7 @@ test('a bake whose command fails, or names another bake, stamps nothing', () => 
 test('a job pins the bakes its source reads; render --job refuses one that no longer matches', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
-  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-bake-job-')), 'film')
+  const root = join(tempDir('bake-job'), 'film')
   cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
   const cli = (...args: string[]) =>
     spawnSync(process.execPath, [main, ...args, '--root', root], { encoding: 'utf8' })
@@ -124,7 +132,7 @@ test('a job pins the bakes its source reads; render --job refuses one that no lo
 })
 
 test('a bake stamps only what this run wrote, follows the project when it moves, and keeps out of revisions', () => {
-  const base = mkdtempSync(join(tmpdir(), 'shaderera-bake-'))
+  const base = tempDir('bake')
   const root = join(base, 'film')
   cpSync(fileURLToPath(new URL('./fixtures/bake/', import.meta.url)), root, { recursive: true })
   const cli = (at: string, ...args: string[]) =>
@@ -154,7 +162,7 @@ test('a bake stamps only what this run wrote, follows the project when it moves,
   assert.equal(existsSync(join(base, 'glow', 'glow.010.bin')), false)
 
   // Moved with its frames: the declared dir is read where the project is now.
-  const moved = join(mkdtempSync(join(tmpdir(), 'shaderera-moved-')), 'film')
+  const moved = join(tempDir('moved'), 'film')
   cpSync(base, join(moved, '..'), { recursive: true })
   rmSync(join(base, 'glow'), { recursive: true })
   assert.equal(cli(moved, 'check', '--times', '2').status, 0)

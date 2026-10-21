@@ -164,6 +164,23 @@ test('a clip is read from the right sample: a negative at, a delay, a window fro
   }
 })
 
+test('a pcm clip (sound made in code) is mixed like the same samples in a WAV file', {
+  skip,
+}, () => {
+  const tone = new Float32Array(48000).map(
+    (_, i) => 0.5 * Math.sin((2 * Math.PI * 440 * i) / 48000),
+  )
+  writeFileSync(out('pcm-tone.wav'), floatWav({ sampleRate: 48000, channels: [tone] }))
+  const second = { from: 0, to: 1 }
+  const pcm = mixWav(root, [{ pcm: { sampleRate: 48000, channels: [tone] }, at: 0.25 }], second, {
+    out: out('pcm.wav'),
+  })
+  const file = mixWav(root, [{ src: 'pcm-tone.wav', at: 0.25 }], second, { out: out('file.wav') })
+  assert.ok(pcm.loudness && file.loudness, 'measured')
+  assert.deepEqual(pcm.loudness, file.loudness)
+  assert.deepEqual(readFileSync(out('pcm.wav')), readFileSync(out('file.wav')))
+})
+
 test('the stems sum to the mix, with the same constant gain', { skip }, () => {
   const clips = [
     { src: lavfi('a.wav', 'sine=frequency=220:duration=0.5'), at: 0, group: 'music', gain: 0.5 },

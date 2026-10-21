@@ -44,6 +44,7 @@ test('drop-frame timecode at 29.97 and 59.94; non-drop at 23.976 and whole rates
   assert.equal(timecodeOf(3600, 60000 / 1001), '00:01:00;04')
   assert.equal(timecodeOf(1440, 24000 / 1001), '00:01:00:00')
   assert.equal(timecodeOf(90, 30), '00:00:03:00')
+  assert.equal(timecodeOf(Math.round(3661.5 * 30), 30), '01:01:01:15')
 })
 
 test('a timecode reads back to its frame, drop-frame included', () => {

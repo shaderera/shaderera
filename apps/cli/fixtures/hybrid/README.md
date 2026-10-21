@@ -10,4 +10,4 @@ An engineering fixture for the CLI's tests. 1920×1080, 30 fps, 6 s. The frame i
 - `pick(t, x, y)` checks the screen boxes first (title, then plate). Otherwise it raycasts the world through the camera in effect and returns `{ id, point }`.
 - A camera override moves only the world layer. Because the plate is opaque, its pixels can be tested directly.
 
-**Run:** `shaderera check --times 10`, `shaderera inspect --time 2`, `shaderera render`. `apps/cli/src/camera/fixtures.test.ts` covers the round trip (max 0) and checks that, under another t's override, no pixel inside the plate box changes while pixels outside it do.
+**Run:** `shaderera check --times 10`, `shaderera inspect --time 2`, `shaderera render`. `apps/cli/src/camera/fixtures.it.ts` covers the round trip (max 0) and checks that, under another t's override, no pixel inside the plate box changes while pixels outside it do.

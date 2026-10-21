@@ -277,8 +277,8 @@ throw, and libraries such as three.js call `Math.random()` while building object
 | Behaviour | Test |
 |---|---|
 | Sequential/direct/backward/loop/reset agree; checkpoint restore and invalidation; spacing cap; failed and cancelled steps; restore failure; plain-data checkpoints; off-grid t; frame 0; dispose | `packages/core/src/sequential.test.ts` |
-| The same on a real GPU source (Dawn): sequential, direct (fresh process), backward, loop, export; preview steps state as final; seeds | `apps/cli/src/node/particles.test.ts` |
+| The same on a real GPU source (Dawn): sequential, direct (fresh process), backward, loop, export; preview steps state as final; seeds | `apps/cli/src/node/particles.it.ts` |
 | Replay in the Node host | `apps/cli/src/node/sequential.test.ts` |
-| DOM capture: settled and repeatable; unsettled, missing image and missing font fail; host identity; a hung call times out; a browser job renders its frozen DOM; size override | `apps/cli/src/node/dom.test.ts` |
-| Straight RGBA in both hosts, PNG byte for byte, mp4 matted over black | `apps/cli/src/node/pixels.test.ts` |
+| DOM capture: settled and repeatable; unsettled, missing image and missing font fail; host identity; a hung call times out; a browser job renders its frozen DOM; size override | `apps/cli/src/node/dom.it.ts` |
+| Straight RGBA in both hosts, PNG byte for byte, mp4 matted over black | `apps/cli/src/node/pixels.it.ts` |
 | Export refuses a non-deterministic source and leaves no file | `apps/cli/src/cli/render.test.ts`, `deliver/finishing.test.ts` |

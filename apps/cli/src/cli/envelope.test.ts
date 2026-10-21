@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { errorFinding } from './findings.ts'
 import { checkFindings } from './review.ts'
 
@@ -26,7 +26,7 @@ test('--json: one envelope on stdout; 2 when the command cannot run', () => {
 })
 
 test('--json review: its report as result, a declared rule that fails as an error finding, exit 1', () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-envelope-'))
+  const root = tempDir('envelope')
   cpSync(fileURLToPath(new URL('./fixtures/mcp/', import.meta.url)), root, { recursive: true })
   writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 60 }))
   const r = cli('review', '--root', root, '--quick', '--json')

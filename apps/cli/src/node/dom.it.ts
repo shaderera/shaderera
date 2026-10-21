@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { createJob, openJob } from '../project/jobs.ts'
 import { review } from '../review/review.ts'
 import { openBrowserChild } from './browser.ts'
@@ -58,11 +58,11 @@ test('a hung source fails the call after timeoutMs and closes Chrome', async () 
   // page cannot fail first (#85).
   const child = await openBrowserChild(project, {
     params: { mode: 'hang' },
-    timeoutMs: 3000,
+    timeoutMs: 500,
     openTimeoutMs: TIMEOUT,
   })
   try {
-    await assert.rejects(child.render(0.3, 'final'), /took longer than 3000 ms/)
+    await assert.rejects(child.render(0.3, 'final'), /took longer than 500 ms/)
     await assert.rejects(child.render(0.3, 'final'), /Chrome closed/)
   } finally {
     await child.close()
@@ -70,7 +70,7 @@ test('a hung source fails the call after timeoutMs and closes Chrome', async () 
 })
 
 test("a job opens in the manifest's host with its revision's own DOM, not the live one", async () => {
-  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-dom-job-')), 'film')
+  const root = join(tempDir('dom-job'), 'film')
   cpSync(project.root, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
   const job = await createJob(root, { by: 'cli', name: 'dom' })
   assert.equal(job.host, 'browser')
@@ -103,7 +103,7 @@ test("a job opens in the manifest's host with its revision's own DOM, not the li
   }
 })
 
-test('the host measures the DOM text: boxes, opacity, and the fonts that drew it (fallbacks named)', async () => {
+test('the host measures the DOM text: boxes, opacity, and the fonts that drew it (fallbacks named); review checks it', async () => {
   const child = await opened('type')
   try {
     const runs = await child.text(0.3)
@@ -123,29 +123,23 @@ test('the host measures the DOM text: boxes, opacity, and the fonts that drew it
       by.mixed?.rendered?.some((f) => !f.custom && f.glyphs > 0),
       JSON.stringify(by.mixed),
     )
-  } finally {
-    await child.close()
-  }
-})
 
-test('review checks DOM text without the source reporting it: copy found, a fallback font fails glyphs', async () => {
-  const child = await opened('type')
-  try {
+    // Review checks it without the source reporting it: copy found, a fallback font fails glyphs.
     const r = await review({
       project,
       child,
-      outDir: mkdtempSync(join(tmpdir(), 'shaderera-dom-review-')),
+      outDir: tempDir('dom-review'),
       requirements: { version: 1, copy: [{ text: 'Open เปิด' }] },
       quick: true,
     })
-    const by = Object.fromEntries(r.checks.map((c) => [c.id, c]))
-    assert.equal(by.copy?.status, 'pass', JSON.stringify(by.copy))
-    assert.equal(by.glyphs?.status, 'fail')
+    const checks = Object.fromEntries(r.checks.map((c) => [c.id, c]))
+    assert.equal(checks.copy?.status, 'pass', JSON.stringify(checks.copy))
+    assert.equal(checks.glyphs?.status, 'fail')
     assert.match(
-      by.glyphs?.detail ?? '',
+      checks.glyphs?.detail ?? '',
       /mixed: drawn partly in .+, which its font-family does not name/,
     )
-    assert.doesNotMatch(by.glyphs?.detail ?? '', /latin:/)
+    assert.doesNotMatch(checks.glyphs?.detail ?? '', /latin:/)
   } finally {
     await child.close()
   }
