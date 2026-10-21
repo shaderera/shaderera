@@ -213,18 +213,18 @@ test('an item built on other items brings them in once, and never replaces what 
       [file]: `export const ${name.replace(/-/g, '')} = 1\n`,
       'README.md': `How to use ${name}.\n`,
     })
-  publish(item('text-kinetic', 'src/type/kinetic.ts'), registry)
-  publish(item('captions', 'src/type/captions.ts', { 'text-kinetic': '^0.1.0' }), registry)
-  publish(item('text-code-wall', 'src/type/code-wall.ts', { 'text-kinetic': '^0.1.0' }), registry)
+  publish(item('text-scramble', 'src/type/scramble.ts'), registry)
+  publish(item('captions', 'src/type/captions.ts', { 'text-scramble': '^0.1.0' }), registry)
+  publish(item('text-code-wall', 'src/type/code-wall.ts', { 'text-scramble': '^0.1.0' }), registry)
   const root = project()
   const first = add(root, registry, 'captions')
-  assert.ok(existsSync(join(root, 'src', 'type', 'kinetic.ts')))
+  assert.ok(existsSync(join(root, 'src', 'type', 'scramble.ts')))
   assert.equal(first.length, 2)
-  writeFileSync(join(root, 'src', 'type', 'kinetic.ts'), '// changed by hand\n')
+  writeFileSync(join(root, 'src', 'type', 'scramble.ts'), '// changed by hand\n')
   const second = add(root, registry, 'text-code-wall')
   assert.equal(second.length, 1)
   assert.equal(
-    readFileSync(join(root, 'src', 'type', 'kinetic.ts'), 'utf8'),
+    readFileSync(join(root, 'src', 'type', 'scramble.ts'), 'utf8'),
     '// changed by hand\n',
   )
   // the README is published (info prints it) and searched, but never copied into the project

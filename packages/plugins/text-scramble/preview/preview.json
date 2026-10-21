@@ -1,5 +1,5 @@
 {
-  "caption": "Type that scrambles, decodes into place, glitches and sizes itself to fit, in Canvas2D.",
+  "caption": "Type that scrambles, decodes into place and glitches, in Canvas2D.",
   "states": [
     {
       "id": "all",
@@ -20,5 +20,5 @@
   ],
   "default": "all",
   "audio": false,
-  "poster": 3.62
+  "poster": 4.62
 }

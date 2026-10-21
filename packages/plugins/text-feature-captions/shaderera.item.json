@@ -13,8 +13,10 @@
     "feature list",
     "kinetic typography"
   ],
-  "version": "0.1.2",
+  "version": "0.2.0",
   "licence": "MIT",
-  "requires": { "items": { "text-kinetic": "^0.1.0", "format-safe-areas": "^0.2.0" } },
+  "requires": {
+    "items": { "text-scramble": "^0.1.0", "text-fit": "^0.1.0", "format-safe-areas": "^0.2.0" }
+  },
   "files": ["src/type/captions.ts"]
 }

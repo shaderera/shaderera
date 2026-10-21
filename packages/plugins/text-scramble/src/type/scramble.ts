@@ -1,5 +1,5 @@
 // Text that moves like data: scrambled through ASCII, decoded into place, cut into bands that are
-// thrown sideways, and sized to fit. Canvas2D only, the same in the browser and in Node. Every
+// thrown sideways. Canvas2D only, the same in the browser and in Node. Every
 // choice comes from a hash of the frame and the character, never from Math.random, so a frame
 // renders the same every time.
 
@@ -109,16 +109,6 @@ export const glitched = (
   }
 }
 
-/** The size at which `text` in `font` (a family alone, as in glitched) is `width` wide. */
-export const fitWidth = (ctx: Ctx, font: string, text: string, width: number) => {
-  ctx.font = `100px ${font}`
-  return (100 * width) / Math.max(1, ctx.measureText(text).width)
-}
-
-/** `size`, or smaller if text at that size would be wider than `room`. */
-export const fitSize = (ctx: Ctx, font: string, text: string, size: number, room: number) =>
-  Math.min(size, fitWidth(ctx, font, text, room))
-
 /** Outlined text, for a number or word set huge and quiet behind the rest. */
 export const hollow = (
   ctx: Ctx,
@@ -140,10 +130,4 @@ export const hollow = (
   ctx.lineWidth = o.width ?? 1.2
   ctx.strokeStyle = o.color ?? 'rgba(255,255,255,0.28)'
   ctx.strokeText(text, x, y)
-}
-
-/** Seconds as `SS.mmm`. */
-export const timecode = (t: number) => {
-  const s = Math.max(0, t)
-  return `${String(Math.floor(s)).padStart(2, '0')}.${String(Math.floor((s % 1) * 1000)).padStart(3, '0')}`
 }

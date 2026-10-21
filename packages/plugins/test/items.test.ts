@@ -21,9 +21,9 @@ const { createCaptions } = (await from(
 const { glyphPoints } = (await from(
   'src/procedural/glyph-points.ts',
 )) as typeof import('../text-glyph-points/src/procedural/glyph-points.ts')
-const { decoded, fitWidth, glitched, scramble } = (await from(
-  'src/type/kinetic.ts',
-)) as typeof import('../text-kinetic/src/type/kinetic.ts')
+const { decoded, glitched, scramble } = (await from(
+  'src/type/scramble.ts',
+)) as typeof import('../text-scramble/src/type/scramble.ts')
 const { bandsOf, clockFromAnalysis, clockOf, fitGrid, pulse } = (await from(
   'src/music/beat.ts',
 )) as typeof import('../audio-beat-clock/src/music/beat.ts')
@@ -130,7 +130,7 @@ test('audio-beat-clock: the grid is fitted to the onsets, on the steps they sit 
   )
 })
 
-test('text-kinetic: deterministic scramble, decode in and out, glitch draws', () => {
+test('text-scramble: deterministic scramble, decode in and out, glitch draws', () => {
   assert.equal(scramble('HELLO WORLD', 7, 0.5), scramble('HELLO WORLD', 7, 0.5))
   assert.notEqual(scramble('HELLO WORLD', 7, 1), 'HELLO WORLD')
   assert.equal(decoded('BEAT', 1.5, { from: 1, to: 3, frame: 9 }).text, 'BEAT')
@@ -140,14 +140,10 @@ test('text-kinetic: deterministic scramble, decode in and out, glitch draws', ()
   const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D
   // `font` is a family alone, as the README says: the functions put the size in front, and a
   // weight there ('600 "Plex Bold"' → '100px 600 "Plex Bold"') is not a CSS font, so the canvas
-  // would fall back to another face. A monospace measures every letter the same.
+  // would fall back to another face.
   const font = '"Plex Bold"'
-  assert.equal(fitWidth(ctx, font, 'iiii', 400), fitWidth(ctx, font, 'MMMM', 400))
-  const size = fitWidth(ctx, font, 'GLITCH', 400)
-  ctx.font = `${size}px ${font}`
-  assert.ok(Math.abs(ctx.measureText('GLITCH').width - 400) < 0.5)
   ctx.fillStyle = '#fff'
-  glitched(ctx, 'GLITCH', 320, 180, { font, size, frame: 3, align: 'center' })
+  glitched(ctx, 'GLITCH', 320, 180, { font, size: 111, frame: 3, align: 'center' })
   assert.ok(inked(c) > 0.05, 'glitched text drew')
 })
 
@@ -207,7 +203,7 @@ test('text-feature-captions and text-code-wall draw in 16:9 and 9:16', async () 
     swap: 1,
   })
   const wall = createCodeWall({
-    files: await readCode(hostOf(1, 1), ['src/type/code-wall.ts', 'src/type/kinetic.ts']),
+    files: await readCode(hostOf(1, 1), ['src/type/code-wall.ts', 'src/type/scramble.ts']),
     from: 0,
     to: 4,
     step: 0.125,

@@ -18,4 +18,4 @@ wall(ctx, W, H, t, options.frame)
 ```
 
 A wide frame shows the files side by side; a tall one shows one file at a time, changing on
-each step. Built on `text-kinetic`, which `add` copies in with it.
+each step. Built on `text-scramble`, which `add` copies in with it.

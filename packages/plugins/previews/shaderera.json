@@ -48,10 +48,11 @@
           "review-shots",
           "text-code-wall",
           "text-feature-captions",
+          "text-fit",
           "text-glyph-morph",
           "text-glyph-outlines",
           "text-glyph-points",
-          "text-kinetic",
+          "text-scramble",
           "text-timed-cues"
         ],
         "default": "look-screen-passes"
@@ -540,6 +541,34 @@
         "state": "spine"
       }
     },
+    "text-fit": {
+      "label": "text-fit · all",
+      "params": {
+        "item": "text-fit",
+        "state": "all"
+      }
+    },
+    "text-fit.fit": {
+      "label": "text-fit · fit",
+      "params": {
+        "item": "text-fit",
+        "state": "fit"
+      }
+    },
+    "text-fit.wrap": {
+      "label": "text-fit · wrap",
+      "params": {
+        "item": "text-fit",
+        "state": "wrap"
+      }
+    },
+    "text-fit.track": {
+      "label": "text-fit · track",
+      "params": {
+        "item": "text-fit",
+        "state": "track"
+      }
+    },
     "text-glyph-morph": {
       "label": "text-glyph-morph · words",
       "params": {
@@ -589,31 +618,31 @@
         "state": "default"
       }
     },
-    "text-kinetic": {
-      "label": "text-kinetic · all",
+    "text-scramble": {
+      "label": "text-scramble · all",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "all"
       }
     },
-    "text-kinetic.scramble": {
-      "label": "text-kinetic · scramble",
+    "text-scramble.scramble": {
+      "label": "text-scramble · scramble",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "scramble"
       }
     },
-    "text-kinetic.decode": {
-      "label": "text-kinetic · decode",
+    "text-scramble.decode": {
+      "label": "text-scramble · decode",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "decode"
       }
     },
-    "text-kinetic.glitch": {
-      "label": "text-kinetic · glitch",
+    "text-scramble.glitch": {
+      "label": "text-scramble · glitch",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "glitch"
       }
     },

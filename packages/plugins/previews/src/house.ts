@@ -12,7 +12,7 @@
 import type { Host } from '@shaderera/core'
 import { CAPTION } from './caption.ts'
 import { FONT } from './preview.ts'
-import { decoded, glitched, hollow, timecode } from './type/kinetic.ts'
+import { decoded, glitched, hollow } from './type/scramble.ts'
 
 export const RED = '#ff3b1f'
 export const SERIF = FONT.serif
@@ -35,6 +35,12 @@ export const placeOf = (host: Host) => {
   const list = schema?.properties?.item?.enum
   const all = (Array.isArray(list) ? list.map(String) : []).sort()
   return { item, index: all.indexOf(item) + 1, total: all.length }
+}
+
+/** Seconds as `SS.mmm`, for the HUD's clock. */
+const timecode = (t: number) => {
+  const s = Math.max(0, t)
+  return `${String(Math.floor(s)).padStart(2, '0')}.${String(Math.floor((s % 1) * 1000)).padStart(3, '0')}`
 }
 
 /** A deterministic 0–1 hash. */

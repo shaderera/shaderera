@@ -131,7 +131,7 @@ is a `"shaderera"` field in its `package.json`.
   "tags": ["glitch", "code"],
   "version": "0.1.0",
   "licence": "MIT",
-  "requires": { "items": { "text-kinetic": "^0.1.0" } },
+  "requires": { "items": { "text-scramble": "^0.1.0" } },
   "files": ["src/type/code-wall.ts"]
 }
 ```

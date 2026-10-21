@@ -15,7 +15,7 @@ const WALL = 32 * SIXTEENTH
 
 const WALLS: { files: string[]; claim: string[]; note: string }[] = [
   {
-    files: ['src/type/code-wall.ts', 'src/type/kinetic.ts', 'src/house.ts'],
+    files: ['src/type/code-wall.ts', 'src/type/scramble.ts', 'src/house.ts'],
     claim: ['EVERYTHING', 'IS SOURCE CODE'],
     note: '160 BPM, a jump on every 1/16',
   },
