@@ -42,6 +42,7 @@ engine's licence is separate from any plugin's), and what it is built on.
 npx shaderera add text-glitch-titles     # copies src/type/titles.ts, and what it is built on
 npx shaderera add audio-beat-clock
 npx shaderera add font-ibm-plex-mono     # media: files under assets/
+npx shaderera add camera-keyframes look-vignette   # several at once: all of them, or none
 ```
 
 - **A component, preset or media plugin** is copied into the project at the paths it lists.
@@ -49,7 +50,9 @@ npx shaderera add font-ibm-plex-mono     # media: files under assets/
   file the project already has; `--force` replaces only the plugin named. Once copied, the
   files are the project's code: to stop using one, delete its files.
 - **A package plugin** (type `extension`) is an npm package. `add` installs it and records it
-  in `shaderera.item.json` under `requires`; `npx shaderera remove <name>` uninstalls it.
+  in `shaderera.item.json` under `requires`; `npx shaderera remove <name>...` uninstalls it.
+- **`--from`** wants a folder of published plugins (with an `index.json`). If it says the folder
+  holds plugin sources, publish them into a folder first (section 6), then add from that.
 
 Then read the copied files: the comment at the top says what the module does and how. Wire it
 into `render(t)`, pass the film's own times, fonts and sizes, and change anything the brief needs
@@ -117,8 +120,8 @@ one generic first:
 - a short `README.md`: one line of what it does, then the call to make.
 
 Lay it out as a folder holding `shaderera.item.json`, `README.md`, and the files at the paths a
-project should get them, then `npx shaderera publish <dir> --from <folder>`. For a package
-plugin, the label
+project should get them, then `npx shaderera publish <dir>... --from <folder>`. Several folders are published in turn,
+and the end names any that failed. For a package plugin, the label
 is a `"shaderera"` field in its `package.json`.
 
 ```json

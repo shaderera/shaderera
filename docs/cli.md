@@ -412,12 +412,14 @@ Shaderera's own at `https://shaderera.com/r`. All of it is in [plugins.md](plugi
 |---|---|
 | `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
-| `add <name>[@range] [--force]` | copies a plugin and what it is built on into the project; a package plugin is installed and recorded in `shaderera.item.json` |
-| `remove <name>` | uninstalls a package plugin and stops requiring it |
-| `publish [dir] --from <folder> [--force]` | puts a plugin into a folder of plugins |
+| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not stops them all |
+| `remove <name>...` | uninstalls package plugins and stops requiring them; each must be one the project uses, or none is removed |
+| `publish [dir]... --from <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
 
 `add` never replaces a file the project already has; `--force` replaces only the plugin named. A
-copied plugin's files are the project's own code: to stop using one, delete them.
+copied plugin's files are the project's own code: to stop using one, delete them. `info` takes one
+name. `--from` wants a folder of published plugins: a folder of plugin sources is refused, with
+the publish step to run first.
 
 ## shaderera.com: `login`, `share`, `fork`
 
