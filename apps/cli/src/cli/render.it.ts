@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
 import type { Child } from '../node/child.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
-import { probe } from './ffmpeg.ts'
+import { hasNvenc, nvencFile, probe } from './ffmpeg.ts'
 import { exportVideo } from './render.ts'
 
 /** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
@@ -219,4 +219,35 @@ test("a render's hosts open at once: a second worker costs about no more than on
   const one = seconds('1')
   const two = seconds('2')
   assert.ok(two - one < 1.2, `two hosts took ${two.toFixed(1)} s, one ${one.toFixed(1)} s`)
+})
+
+test('NVENC failing where a kept answer said yes: the answer is dropped and x264 renders the film, once', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async (t) => {
+  const home = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
+  process.env.HOME = process.env.USERPROFILE = tempDir('home')
+  try {
+    // This ffmpeg's key (at a size no other test asks: a process keeps its answers), then a yes
+    // for 66×38, which NVENC refuses (too small): as a GPU gone since.
+    await hasNvenc(68, 40)
+    const { ffmpeg: key } = JSON.parse(readFileSync(nvencFile(), 'utf8'))
+    writeFileSync(nvencFile(), JSON.stringify({ ffmpeg: key, sizes: { '66x38': true } }))
+    const warn = t.mock.method(console, 'warn', () => {})
+    const project = memoryProject({ width: 66, height: 38 })
+    const child = memoryChild({ size: { width: 66, height: 38 }, frame: boxFrame(66, 38) })
+    const out = join(tempDir('retry'), 'film.mp4')
+    const r = await exportVideo(project, child, { out, revision: 'test' })
+    assert.equal(r.encoder, 'x264')
+    assert.equal(r.frames, 10)
+    assert.equal(warn.mock.callCount(), 1)
+    assert.match(String(warn.mock.calls[0]?.arguments[0]), /NVENC failed .* x264/)
+    assert.deepEqual(JSON.parse(readFileSync(nvencFile(), 'utf8')).sizes, {})
+    // Asked by name, NVENC is never swapped for x264: the failure is the render's.
+    await assert.rejects(
+      exportVideo(project, child, { out, revision: 'test', encoder: 'nvenc' }),
+      /cannot encode with NVENC/,
+    )
+  } finally {
+    Object.assign(process.env, home)
+  }
 })
