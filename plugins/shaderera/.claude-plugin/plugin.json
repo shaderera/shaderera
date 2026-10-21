@@ -5,5 +5,8 @@
   "homepage": "https://github.com/shaderera/shaderera",
   "repository": "https://github.com/shaderera/shaderera",
   "license": "MIT",
-  "keywords": ["video", "motion graphics", "render", "webgpu", "three.js", "ffmpeg"]
+  "keywords": ["video", "motion graphics", "render", "webgpu", "three.js", "ffmpeg"],
+  "mcpServers": {
+    "shaderera": { "command": "npx", "args": ["-y", "shaderera", "mcp"] }
+  }
 }

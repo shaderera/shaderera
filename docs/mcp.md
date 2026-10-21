@@ -2,17 +2,30 @@
 
 `shaderera mcp` serves the CLI's operations as MCP tools over stdio, so an agent can render,
 inspect, diff and trace a frame back to its code, review it, and save revisions and render jobs.
-It finds the project as the CLI does, and accepts `--root`, `--trusted` and `--timeout`.
+It starts in any folder, and accepts `--root`, `--trusted` and `--timeout`.
 
-## Add it to Claude Code
+## Add it to your agent
 
-From the project directory:
+- **Claude Code:** the Shaderera Claude Code plugin (`claude plugin install shaderera@shaderera`,
+  see [INSTALL.md](../INSTALL.md)) declares the server, so it runs in every session.
+- **A project from `create-shaderera`** has a `.mcp.json` with the server, for agents that read
+  one (Claude Code asks once before it starts a project's server).
+- **Any other agent:** add a stdio MCP server whose command is `npx -y shaderera mcp`. In Claude
+  Code without the plugin: `claude mcp add shaderera -- npx -y shaderera mcp`.
 
-```sh
-claude mcp add shaderera -- npx shaderera mcp
-```
+Outside a project, `npx -y shaderera` runs the latest published CLI; inside one, the project's
+own install.
 
-The server keeps one child process open and reopens it (rebuilding the entry) on the next call
+## Which project
+
+The server starts anywhere; no tool call needs a project before it is made. Each call finds its
+project as the CLI does: from its `root` (every tool takes one; relative to the server's folder),
+or else from the server's folder (`--root`, or the folder it was started in), then each folder
+above it, up to the first `shaderera.json`. A call that finds none is an error that says to pass
+`root` or start a project with `npx create-shaderera@latest`. So one server serves a project made
+after it started, and several projects, each with its own child.
+
+For each project the server keeps one child process open and reopens it (rebuilding the entry) on the next call
 after any file under the root changes, except in `node_modules`, `.shaderera` and `out`. So an
 edit is picked up without restarting the server. `shaderera.json` is read again with it, so a new
 size or fps reaches every tool.
@@ -23,7 +36,8 @@ carries only MCP.
 
 ## Tools
 
-Every tool returns one JSON text block, except `render_frame`. Errors come back as `isError` with
+Every tool returns one JSON text block, except `render_frame` and `review`. Every tool also
+takes `root?` (see [Which project](#which-project)). Errors come back as `isError` with
 the message.
 
 | Tool | Input | Output |

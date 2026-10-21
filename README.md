@@ -91,14 +91,9 @@ command takes `--json` and returns one envelope with `ok`, an exit code and find
 `t`, `file:line` and a box, so an agent can act on them.
 
 **Give the agent eyes.** The MCP server renders frames as images, inspects state and traces a
-pixel back to the line of code that drew it. From the project directory:
-
-```bash
-claude mcp add shaderera -- npx shaderera mcp
-```
-
-In another agent, add a stdio MCP server with the command `npx shaderera mcp`, run in the
-project directory. The CLI shows the same things: a contact sheet of any moments, and a detail
+pixel back to the line of code that drew it. The Claude Code plugin declares it, and a new
+project's `.mcp.json` names it. In another agent, add a stdio MCP server with the command
+`npx -y shaderera mcp` ([docs/mcp.md](docs/mcp.md)). The CLI shows the same things: a contact sheet of any moments, and a detail
 enlarged by whole pixels, so an agent can judge an edge, not just the code.
 
 <table>

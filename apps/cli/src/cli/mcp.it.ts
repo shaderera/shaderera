@@ -9,7 +9,6 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { tempDir } from '../fixtures/temp.ts'
-import { findProject } from '../node/project.ts'
 import { createJob } from '../project/jobs.ts'
 import { createServer } from './mcp.ts'
 
@@ -31,7 +30,7 @@ const moved = { view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1], project
 
 /** A client connected in-process to the MCP server on `root`. */
 const connect = async (root: string) => {
-  const server = createServer(await findProject(root))
+  const server = createServer(root)
   const [a, b] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'test', version: '0' })
   await Promise.all([server.connect(a), client.connect(b)])
@@ -135,6 +134,35 @@ test('over real stdio, a source that logs keeps the stream clean, and export ref
   }
 })
 
+test('the server starts outside a project; a call finds its project from root, or says how to start one', async () => {
+  const empty = tempDir('mcp-empty')
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [bin, 'mcp'],
+    cwd: empty,
+    stderr: 'pipe',
+  })
+  const client = new Client({ name: 'test', version: '0' })
+  await client.connect(transport)
+  try {
+    const { tools } = await client.listTools()
+    assert.ok(tools.every((t) => 'root' in (t.inputSchema.properties ?? {})))
+    const none = (await client.callTool({ name: 'inspect', arguments: { t: 0 } })) as {
+      content: { text: string }[]
+      isError?: boolean
+    }
+    assert.equal(none.isError, true)
+    assert.match(none.content[0]?.text as string, /No Shaderera project .* create-shaderera/)
+    const frame = (await client.callTool({
+      name: 'render_frame',
+      arguments: { t: 0.5, root: fixture },
+    })) as { content: { text: string }[] }
+    assert.equal(JSON.parse(frame.content[0]?.text as string).alphaBox.x, 15)
+  } finally {
+    await client.close()
+  }
+})
+
 test('MCP tools alone find the planted camera jump in fixtures/camera-debug', async () => {
   const { call, close } = await connect(cameraDebug)
   try {
@@ -170,7 +198,7 @@ test('MCP tools alone find the planted camera jump in fixtures/camera-debug', as
 test('the review tool returns the report, the contact sheet and the frames as images', async () => {
   const root = tempDir('mcp-review')
   cpSync(fixture, root, { recursive: true, filter: (f) => !/[\\/](out|\.shaderera)$/.test(f) })
-  const server = createServer(await findProject(root))
+  const server = createServer(root)
   const [a, b] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'test', version: '0' })
   await Promise.all([server.connect(a), client.connect(b)])
