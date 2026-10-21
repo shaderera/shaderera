@@ -5,7 +5,8 @@
   "description": "Canvas2D text primitives: ASCII scramble, decode in and scramble out, horizontal band glitch, hollow outlines",
   "category": "Typography",
   "tags": ["glitch", "scramble", "decode", "ascii", "text", "kinetic typography", "captions"],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "licence": "MIT",
+  "requires": { "items": { "motion-random": "^0.1.0" } },
   "files": ["src/type/scramble.ts"]
 }

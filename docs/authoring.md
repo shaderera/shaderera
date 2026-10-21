@@ -58,6 +58,7 @@ What is on the shelf:
   plumbing again, and says so:
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
   - `motion-eases`: eases, clamp, lerp, the progress of t through a span, an envelope over hits;
+  - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;

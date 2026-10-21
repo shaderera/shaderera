@@ -39,6 +39,7 @@
           "look-vignette",
           "motion-eases",
           "motion-keyframes",
+          "motion-random",
           "motion-shot-list",
           "render-bvh",
           "render-gaussian-splats",
@@ -450,6 +451,13 @@
       "label": "motion-keyframes",
       "params": {
         "item": "motion-keyframes",
+        "state": "default"
+      }
+    },
+    "motion-random": {
+      "label": "motion-random",
+      "params": {
+        "item": "motion-random",
         "state": "default"
       }
     },
