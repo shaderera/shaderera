@@ -12,7 +12,7 @@ import { mirror } from './remote.ts'
 import { assertRequirements, requirementProblems } from './requires.ts'
 import { search } from './search.ts'
 import { satisfies, validRange } from './semver.ts'
-import { newest, publish, resolve } from './store.ts'
+import { newest, publish, registryDir, resolve } from './store.ts'
 
 const temp = (name: string) => tempDir(`plugins-${name}`)
 const write = (dir: string, files: { [path: string]: unknown }) => {
@@ -403,7 +403,7 @@ test('search --tag matches a tag with a space', async () => {
   const log = console.log
   console.log = (s: string) => printed.push(s)
   try {
-    await run('search', ['--tag', 'Motion Blur', '--json', '--from', registry])
+    await run('search', ['--tag', 'Motion Blur', '--json', '--site', registry])
   } finally {
     console.log = log
   }
@@ -480,4 +480,17 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
     server.close()
     delete process.env.SHADERERA_CACHE
   }
+})
+
+test("--site names where plugins come from: a site's /r, a URL's own path, or a folder", () => {
+  assert.equal(registryDir('https://you.example'), 'https://you.example/r')
+  assert.equal(registryDir('https://you.example/'), 'https://you.example/r')
+  assert.equal(registryDir('https://you.github.io/lib/r/'), 'https://you.github.io/lib/r')
+  assert.equal(registryDir('http://127.0.0.1:8080'), 'http://127.0.0.1:8080/r')
+  assert.equal(registryDir('/teams/plugins'), '/teams/plugins')
+  assert.throws(() => registryDir('http://you.example'), /--site is reached over https/)
+  assert.equal(
+    registryDir(),
+    `${process.env.SHADERERA_SITE ? new URL(process.env.SHADERERA_SITE).origin : 'https://shaderera.com'}/r`,
+  )
 })

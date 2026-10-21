@@ -9,7 +9,7 @@ import { closeText, connectRelay } from '../studio/relay.ts'
 import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
 import { common } from './args.ts'
 import { EXIT } from './findings.ts'
-import { siteOf } from './site.ts'
+import { apiOf, siteOf } from './site.ts'
 
 /** Opens `url` in the person's default browser; a failure to is only a missed convenience. */
 const openBrowser = (url: string) => {
@@ -23,11 +23,12 @@ const openBrowser = (url: string) => {
 }
 
 /**
- * `shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origin <dev origin>]...
+ * `shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
  * [--no-open]`: the local bridge of the studio page on the site (docs/studio.md, decision 0021).
  * Without `--connect` it makes a studio session id; with it, it takes the id the page made. Either
  * way it opens `<site>/studio/<id>#<nonce>` itself and pairs only with the page that holds that
- * nonce. Share sends films to `--to`, as `shaderera share` does. It runs until Ctrl-C.
+ * nonce. Share sends films to the films API (`--api`), as `shaderera share` does. It runs until
+ * Ctrl-C.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v } = parseArgs({
@@ -35,14 +36,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     options: {
       connect: { type: 'string' },
       site: { type: 'string' },
-      to: { type: 'string' },
+      api: { type: 'string' },
       origin: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
       ...common,
     },
   })
   const site = siteOf(v.site)
-  const to = siteOf(v.to)
+  const api = apiOf(v.api)
   for (const origin of v.origin ?? [])
     if (!isOrigin(origin))
       throw new Error(`--origin takes an origin (scheme, host and port), not ${origin}.`)
@@ -55,7 +56,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
 
   const bridge = await startBridge({
     root,
-    to,
+    api,
+    site,
     origins: [site, ...(v.origin ?? []).filter((o) => o !== site)],
     hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
   })
@@ -69,7 +71,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const page = pageUrl(site, id, nonce, v.connect !== undefined)
   console.log(`project  ${root}`)
   console.log(`bridge   ${bridge.origin} (for ${site} only)`)
-  if (to !== site) console.log(`share to ${to}`)
+  console.log(`share to ${api}`)
   if (v['no-open']) console.log(`open     ${page}`)
   else {
     console.log(`opening  ${page}`)

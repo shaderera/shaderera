@@ -8,7 +8,7 @@ machine until you share the film.
 This is protocol v0: the contract between the studio page and the bridge.
 
 ```
-npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origin <dev origin>]...
+npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
                      [--no-open]
 ```
 
@@ -20,11 +20,12 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
   page that holds that nonce (below). From the web, that is a new tab: the page that
   showed the command never pairs, and says the studio opened elsewhere once the new tab joins.
   `--no-open` prints the address instead, for you to open; keep it to yourself.
-- **`--site <origin>`** is the site: `https://shaderera.com` by default, else `SHADERERA_SITE`,
-  as for `share`. It is https, or plain http on this machine only (`localhost`, `127.0.0.1`).
-- **`--to <origin>`** is where Share sends films, as `share --to`: `https://shaderera.com` by
-  default, else `SHADERERA_SITE`. It is not `--site`: the studio page and the films can be on
-  different sites. Your login for it is `shaderera login --token <token> --to <origin>`.
+- **`--site <origin>`** is the site, the studio page and its relay: `https://shaderera.com` by
+  default, else `SHADERERA_SITE`, as for `share`. It is https, or plain http on this machine only
+  (`localhost`, `127.0.0.1`).
+- **`--api <origin>`** is the films API Share sends films to, as `share --api`:
+  `https://api.shaderera.com` by default, else `SHADERERA_API`. Your login for it is
+  `shaderera login --token <token> --api <origin>`.
 - **`--origin <origin>`** (repeatable) adds a page origin the bridge answers, for developing the
   page on another origin than the relay's.
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
@@ -41,8 +42,8 @@ then, in a project:
 npx shaderera studio --site http://127.0.0.1:5197
 ```
 
-Add `--to <origin>` to share to a local films site as well, for example
-`--to http://127.0.0.1:5193`, after `shaderera login --token <token> --to http://127.0.0.1:5193`.
+Add `--api <origin>` to share to a local films API as well, for example
+`--api http://127.0.0.1:5193`, after `shaderera login --token <token> --api http://127.0.0.1:5193`.
 
 ## Ids and origins
 
@@ -226,14 +227,14 @@ A job that is not done gets `409`. An unknown one gets `404`.
 
 ### `POST /share {title?}` → `{film, version, url}`
 
-Runs `shaderera share` as you, with your own login (`shaderera login`), to `--to`. Pressing
+Runs `shaderera share` as you, with your own login (`shaderera login`), to `--api`. Pressing
 Share in the page is the confirmation. A new film is titled `title`, else as `share` titles it.
 `url` is the film's page, as `share` prints it; a poster or loop that did not render is a `warn`
 log line.
 
-- **Not logged in** (no token for `--to`, or it refused the token): `401` with
+- **Not logged in** (no token for `--api`, or it refused the token): `401` with
   `{error:"login", command:"npx shaderera login"}`.
-- **Anything else** that stops the share (no licence, a player that does not build, the site
+- **Anything else** that stops the share (no licence, a player that does not build, the API
   unreachable): `500` with `{error}`.
 
 ## The relay fallback

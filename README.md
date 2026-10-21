@@ -160,12 +160,12 @@ npx shaderera search "beat sync"
 npx shaderera add audio-beat-clock
 ```
 
-A team keeps its own plugins in a folder, or at the URL it is served at: set `SHADERERA_PLUGINS`
-or pass `--from <dir|url>`. To fill a folder with the official plugins, from a clone of this repository after
+A team keeps its own plugins in a folder, or at the URL it is served at: pass
+`--site <dir|url>`. To fill a folder with the official plugins, from a clone of this repository after
 `pnpm install`:
 
 ```bash
-for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --from <folder>; done
+for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --site <folder>; done
 ```
 
 All of it is in [docs/plugins.md](docs/plugins.md). To write a plugin, for the official ones or
@@ -179,13 +179,15 @@ shared film into a new folder as an ordinary project:
 ```bash
 npx shaderera login --token <token>
 npx shaderera share                      # a new film, then new versions of it
-npx shaderera fork https://shaderera.com/f/<film> my-film
+npx shaderera fork https://shaderera.com/film/<film> my-film
 ```
 
 They run only when called and send only the project's files, as a revision holds them, never a
 file that holds secrets (`.env`, `.npmrc`, `.dev.vars`, keys, …), and the film's web player,
 which `share` builds on your machine ([docs/player.md](docs/player.md)). `share` prints what it will send and asks first (`--yes` off a terminal).
-`--to <origin>` or `SHADERERA_SITE` names another site. All of it is in
+They talk to the films API at `https://api.shaderera.com` (`--api <origin>` or `SHADERERA_API`
+names another) and name film pages on `https://shaderera.com` (`--site`, `SHADERERA_SITE`). All
+of it is in
 [docs/cli.md](docs/cli.md#shadereracom-login-share-fork).
 
 `npx shaderera studio` opens the studio, a page on shaderera.com that previews, renders and shares

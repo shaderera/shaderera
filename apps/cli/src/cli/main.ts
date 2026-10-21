@@ -26,11 +26,12 @@ Versions and jobs:
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems]   freeze a render job
 
-shaderera.com (or --to/--site <origin>, else SHADERERA_SITE):
-  login --token <token> [--to origin]        keep the token share sends to that site
-  share [--film id] [--title t] [--no-media] [--yes] [--to origin] [--json]   send the project's files as a new film or version
-  fork <film|url>[@version] [dir] [--to origin] [--json]          copy a published version into a new folder
-  studio [--connect id] [--site origin] [--to origin] [--origin dev-origin]... [--no-open]   the local bridge of the studio page
+shaderera.com: the films API is --api <origin>, else SHADERERA_API, else https://api.shaderera.com;
+the site (film pages, the studio page, plugins) is --site <origin>, else SHADERERA_SITE, else https://shaderera.com:
+  login --token <token> [--api origin]       keep the token share sends to that API
+  share [--film id] [--title t] [--no-media] [--yes] [--api origin] [--site origin] [--json]   send the project's files as a new film or version
+  fork <film|url>[@version] [dir] [--api origin] [--site origin] [--json]   copy a published version into a new folder
+  studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]   the local bridge of the studio page
   telemetry off|on|status                    whether the studio page counts how the studio is used
 
 ${pluginUsage}

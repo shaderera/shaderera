@@ -103,7 +103,7 @@ after(async () => {
 })
 const root = fixture()
 before(async () => {
-  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
+  bridge = await startBridge({ root, api: SITE, site: SITE, origins: [SITE, DEV], settleMs: 50 })
   relay = await startRelay({ ttlMs: 300 })
 })
 
@@ -461,7 +461,7 @@ test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and 
   const manifest = JSON.parse(readFileSync(join(thai, 'shaderera.json'), 'utf8'))
   manifest.variants['16:9'] = { params: { grey: 50 } }
   writeFileSync(join(thai, 'shaderera.json'), JSON.stringify(manifest))
-  const b = await startBridge({ root: thai, to: SITE, origins: [SITE], settleMs: 50 })
+  const b = await startBridge({ root: thai, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
   try {
     const sse = events(b)
     await sse.opened

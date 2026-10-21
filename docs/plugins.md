@@ -17,7 +17,7 @@ npx shaderera info text-feature-captions       # licence, what it copies and is 
 npx shaderera add text-feature-captions        # copies its files, and what it is built on
 npx shaderera add @shaderera/music@^0.1        # a package plugin: installed, and required
 npx shaderera remove @shaderera/music          # uninstalled, and no longer required
-npx shaderera publish path/to/plugin --from <folder>
+npx shaderera publish path/to/plugin --site <folder>
 ```
 
 A component, preset or media plugin is copied into the project at the paths it lists, with what it
@@ -27,9 +27,11 @@ delete its files.
 
 ## Where plugins come from
 
-Plugins come from a folder or the URL of one. Point to it in either of two ways:
-- pass `--from <dir|url>`;
-- set `SHADERERA_PLUGINS=<dir|url>`.
+Plugins come from the site, a folder, or the URL of one:
+- `--site <origin>` reads the site's `<origin>/r`, and so does `SHADERERA_SITE=<origin>`, the
+  same site `share` and `studio` use;
+- `--site <url>` with a path reads the folder served there (`https://you.github.io/lib/r`);
+- `--site <dir>` reads a folder.
 
 Without either, they are Shaderera's own at `https://shaderera.com/r`. A team shares a folder:
 on a network drive, or in a git repository everyone checks out. A URL is such a folder served
@@ -41,7 +43,7 @@ the official plugins in
 clone of that repository after `pnpm install`:
 
 ```
-for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --from <folder>; done
+for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --site <folder>; done
 ```
 
 The folder contains three things:

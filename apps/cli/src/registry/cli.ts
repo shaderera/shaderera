@@ -14,10 +14,10 @@ export const usage = `Plugins:
   search <words> [--type t] [--category c] [--tag x] [--json]   full-text over names, descriptions and code
   info <name>[@range] [--json]               what it is, its licence, what it copies, how to use it
   remove <name>                              uninstall a package plugin (copied files are yours: delete them)
-  publish [dir] [--force]                    put a plugin into a folder of plugins (--from <dir>)
+  publish [dir] --site <folder> [--force]    put a plugin into a folder of plugins
 
-Plugins come from a folder or the URL of one: --from <dir|url>, else SHADERERA_PLUGINS, else
-Shaderera's own at https://shaderera.com/r.`
+Plugins come from a site's /r: --site <origin>, else SHADERERA_SITE, else https://shaderera.com/r;
+or from a folder of plugins: --site <dir>.`
 
 /** Runs one plugin command; `argv` is what follows it. */
 export const run = async (command: string, argv: readonly string[]): Promise<number> => {
@@ -25,7 +25,7 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
     args: [...argv],
     allowPositionals: true,
     options: {
-      from: { type: 'string' },
+      site: { type: 'string' },
       json: { type: 'boolean' },
       force: { type: 'boolean' },
       type: { type: 'string' },
@@ -39,9 +39,9 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
     console.log(usage)
     return 0
   }
-  const source = registryDir(v.from)
+  const source = registryDir(v.site)
   if (command === 'publish' && isUrl(source))
-    throw new Error(`publish writes to a folder, not ${source}: pass --from <dir>`)
+    throw new Error(`publish writes to a folder, not ${source}: pass --site <dir>`)
   const registry = isUrl(source) ? await mirror(source, command, args) : source
   const root = () => findRoot(v.root ?? process.cwd())
   const print = (lines: string[]) => {

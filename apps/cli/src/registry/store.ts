@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import { DEFAULT_SITE, siteOf } from '../cli/site.ts'
 import { checkItem, ITEM_FILE, type Item, rawItem } from './item.ts'
 import { pack } from './npm.ts'
 import { buildSearch, symbolsOf } from './search.ts'
@@ -20,15 +21,19 @@ import { compareVersions, satisfies } from './semver.ts'
  * A registry is a folder, like a local npm or Docker registry: `index.json` lists every item and
  * version with its sha256; `search.json` is the full-text index the CLI searches without a
  * server; `items/<name>/<version>/` holds each version's files (an extension also keeps the
- * tarball npm installs, `package.tgz`). Versions are immutable. A team shares one folder (a
- * network drive or a git checkout): `--from <dir>` or `SHADERERA_PLUGINS`. A URL is the
- * same folder served over HTTP; without either, it is Shaderera's own.
+ * tarball npm installs, `package.tgz`). Versions are immutable. A site serves one at `<site>/r`
+ * (`--site <origin>`, else `SHADERERA_SITE`, else shaderera.com's); a URL with a path is the
+ * folder served there (`--site https://you.example/lib`). A team can share one folder instead (a
+ * network drive or a git checkout): `--site <dir>`.
  */
-export const registryDir = (flag?: string): string =>
-  flag ?? process.env.SHADERERA_PLUGINS ?? OFFICIAL
+export const registryDir = (site?: string): string => {
+  if (site !== undefined && !/^https?:\/\//i.test(site)) return site
+  const path = site ? new URL(site).pathname.replace(/\/+$/, '') : ''
+  return `${siteOf(site)}${path || '/r'}`
+}
 
 /** The official plugins: a registry folder served over HTTP, which remote.ts mirrors. */
-export const OFFICIAL = 'https://shaderera.com/r'
+export const OFFICIAL = `${DEFAULT_SITE}/r`
 
 export type Version = {
   readonly item: Item

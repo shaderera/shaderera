@@ -72,7 +72,7 @@ player, a site) that should stamp as the CLI does:
 ## Plugins: experimental
 
 The plugin commands are part of `shaderera`: `search`, `info`, `add`, `remove` and `publish`, reading
-plugins from `--from <dir|url>`, else `SHADERERA_PLUGINS`, else Shaderera's own at
+plugins from `--site <origin|url|dir>`, else `SHADERERA_SITE`'s `/r`, else Shaderera's own at
 `https://shaderera.com/r`. They, the folder layout and the label (`shaderera.item.json`; a
 package plugin: `"shaderera"` in its `package.json`) are in [plugins.md](plugins.md). They may
 change in any release.
