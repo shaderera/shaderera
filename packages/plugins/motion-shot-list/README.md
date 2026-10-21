@@ -3,21 +3,24 @@ Film time to shots: the shot on screen at t, its local time and progress, the so
 ```ts
 import { shotAt, shotList } from './motion/shot-list.ts'
 
-// in open: the shots in order, plain data
-const clips = { 'footage/sea.mp4': await io.video('footage/sea.mp4') }
+// in open: the footage, and the shots in order, plain data
+if (!io.video) throw new Error('This film needs io.video.')
+const sea = await io.video('footage/sea.mp4')
+const clips = new Map([['footage/sea.mp4', sea]])
 const list = shotList([
   { id: 'title', dur: 2 },
-  { id: 'sea', dur: 3, transition: 0.5, src: 'footage/sea.mp4', fps: clips['footage/sea.mp4'].fps, in: 4 },
+  { id: 'sea', dur: 3, transition: 0.5, src: 'footage/sea.mp4', fps: sea.fps, in: 4 },
 ])
+list.closeAt                     // { 'footage/sea.mp4': 4.5 }: sea is on from 1.5 to 4.5 s
 
 // in render(t)
 const at = shotAt(list, t)       // { shot, leaving?, transition }
-at.shot.shot.id                  // the shot cut to last
-at.shot.local, at.shot.progress  // seconds since its cut, and 0 to 1 through it
-at.shot.frame                    // its source frame: await clip.frame(at.shot.frame)
+const { shot, local, progress, frame } = at.shot
+// the shot cut to last, the seconds since its cut, 0 to 1 through it, and its source frame
+if (shot.src === 'footage/sea.mp4' && frame !== undefined)
+  await sea.frame(Math.min(frame, sea.frames - 1))  // clamped, if the shot runs past its source
 at.leaving                       // the shot before, during the transition into this one
 at.transition                    // 0 at the cut to 1 when the shot before is gone; 1 with none
-list.closeAt                     // { 'footage/sea.mp4': 5 }: after 5 s no shot shows it
 ```
 
 It gives times and frame numbers only. It draws nothing: whether a transition is a dissolve, a
@@ -36,6 +39,8 @@ A shot is `{ id, dur, transition?, src?, fps?, in?, speed?, hold? }`, in seconds
   start, so `in: 2` at 24 fps shows frame 47 first. Footage needs floor, where core's `frameAt`
   rounds to the nearest frame. Clamp the end to `clip.frames - 1` if a shot runs past its source.
 - Before 0 it gives the first shot, past the end the last.
+- `frame` and `leaving` are left out when there is none, not `null`. `inspect` takes JSON only,
+  so give it `at.shot.frame ?? null` and `at.leaving?.shot.id ?? null`.
 - `shotList` throws on a list that cannot play, naming the shot: a `dur` of 0, a transition
   longer than either shot or into the first one, three shots on screen at once.
 
@@ -48,7 +53,7 @@ const closed = new Set<string>()   // in open
 for (const [src, end] of Object.entries(list.closeAt))
   if (t >= end && !closed.has(src)) {
     closed.add(src)
-    await clips[src]?.close()
+    await clips.get(src)?.close()
   }
 ```
 

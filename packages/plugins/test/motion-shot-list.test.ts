@@ -1,11 +1,14 @@
 // motion-shot-list: copied into a project the way `add` lays it out, then the shots, transitions
-// and source frames at t checked against tables worked out in whole numbers.
+// and source frames at t checked against tables worked out in whole numbers, and the README's
+// examples compiled and run as written.
 
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
+import type { Footage, Io } from '@shaderera/core'
+import ts from 'typescript'
 
 const plugins = join(import.meta.dirname, '..')
 const project = join(plugins, 'out', 'motion-shot-list')
@@ -44,12 +47,12 @@ test('a 23.976 fps source in a 25 fps film: the shot and frame at every frame ma
   }
   // A few rows by hand: frame 960 starts exactly at film frame 1001 (40.04 s).
   assert.deepEqual(
-    [0, 1, 2, 3, 1000, 1001].map((i) => table[i]!.frame),
+    [0, 1, 2, 3, 1000, 1001].map((i) => table[i]?.frame),
     [0, 0, 1, 2, 959, 960],
   )
-  for (let i = 0; i < 1140; i++) {
+  assert.equal(table.length, 1140)
+  for (const [i, row] of table.entries()) {
     const at = shotAt(list, i / 25)
-    const row = table[i]!
     assert.equal(at.shot.shot.id, row.shot, `film frame ${i}`)
     assert.equal(at.shot.frame, row.frame, `film frame ${i}`)
     assert.equal(at.leaving?.shot.id, row.leaving, `film frame ${i}`)
@@ -162,4 +165,64 @@ test('a list that cannot play says why', () => {
   assert.throws(() => shotList([{ id: 'a', dur: 1, hold: 2 }]), /hold must be from 0 to dur/)
   assert.throws(() => shotList([{ id: 'a', dur: 1, fps: '24/0' }]), /fps must be/)
   assert.throws(() => shotAt(shotList([]), 0), /empty/)
+})
+
+test("the README's examples typecheck, and run as written", async () => {
+  // Its code blocks, one after the other, in a film's open and render(t).
+  const readme = readFileSync(join(plugins, 'motion-shot-list', 'README.md'), 'utf8')
+  const lines = [...readme.matchAll(/```ts\n([\s\S]*?)```/g)].flatMap((m) =>
+    (m[1] ?? '').split('\n'),
+  )
+  const file = join(project, 'src', 'readme.ts')
+  writeFileSync(
+    file,
+    [
+      "import type { Io } from '@shaderera/core'",
+      ...lines.filter((l) => l.startsWith('import ')),
+      'export const run = async (io: Io, t: number) => {',
+      ...lines.filter((l) => !l.startsWith('import ')),
+      '}',
+      '',
+    ].join('\n'),
+  )
+  const config = ts.getParsedCommandLineOfConfigFile(
+    join(plugins, 'tsconfig.json'),
+    {},
+    {
+      ...ts.sys,
+      onUnRecoverableConfigFileDiagnostic: () => {},
+    },
+  )
+  assert.ok(config)
+  const program = ts.createProgram([file], config.options)
+  const errors = ts
+    .getPreEmitDiagnostics(program)
+    .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))
+  assert.deepEqual(errors, [])
+
+  // 25 fps footage of 100 frames: at 3 s, sea's source frame is (4 + 1.5) × 25 = 137, clamped.
+  const asked: number[] = []
+  let closes = 0
+  const sea: Footage = {
+    width: 2,
+    height: 2,
+    fps: 25,
+    frames: 100,
+    frame: async (i) => {
+      asked.push(i)
+      return new Uint8Array(16)
+    },
+    close: async () => {
+      closes++
+    },
+  }
+  const io = { video: async () => sea } as unknown as Io
+  const { run } = (await import(pathToFileURL(file).href)) as {
+    run: (io: Io, t: number) => Promise<void>
+  }
+  await run(io, 3)
+  assert.deepEqual(asked, [99])
+  assert.equal(closes, 0)
+  await run(io, 4.5)
+  assert.equal(closes, 1)
 })
