@@ -42,6 +42,7 @@
           "motion-random",
           "motion-shot-list",
           "render-bvh",
+          "render-canvas-texture",
           "render-gaussian-splats",
           "render-gltf-read",
           "render-srgb",
@@ -472,6 +473,13 @@
       "label": "render-bvh",
       "params": {
         "item": "render-bvh",
+        "state": "default"
+      }
+    },
+    "render-canvas-texture": {
+      "label": "render-canvas-texture",
+      "params": {
+        "item": "render-canvas-texture",
         "state": "default"
       }
     },
