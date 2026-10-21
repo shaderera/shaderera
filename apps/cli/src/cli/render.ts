@@ -31,6 +31,7 @@ import {
   type Encoder,
   ffmpegArgs,
   ffmpegSink,
+  forgetNvenc,
   hasNvenc,
   type Input,
   type Loudness,
@@ -95,7 +96,7 @@ export const checkVideoOptions = (o: VideoOptions) => {
  * host that composites on the GPU hands ffmpeg yuv420p for H.264 and 16-bit RGBA for ProRes.
  * A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file.
  */
-export const exportVideo = async (
+const exportOnce = async (
   { root, manifest }: Project,
   child: Child,
   o: VideoOptions & {
@@ -302,6 +303,26 @@ export const exportVideo = async (
   } finally {
     await Promise.all(opened.map((h) => h.close()))
     mix.close()
+  }
+}
+
+/**
+ * When NVENC was picked from a kept yes (hasNvenc) and its ffmpeg fails, the yes is dropped and
+ * the film is rendered again once, with x264, saying so on stderr.
+ */
+export const exportVideo: typeof exportOnce = async (project, child, o) => {
+  try {
+    return await exportOnce(project, child, o)
+  } catch (error) {
+    const { width, height } = project.manifest
+    const picked =
+      o.encoder === undefined &&
+      (o.codec ?? 'h264') === 'h264' &&
+      (o.quality ?? 'review') === 'review' &&
+      /^ffmpeg exited/.test((error as Error).message)
+    if (!picked || !forgetNvenc(width, height)) throw error
+    console.warn('! NVENC failed where it worked before: rendering again with x264.')
+    return exportOnce(project, child, o)
   }
 }
 
