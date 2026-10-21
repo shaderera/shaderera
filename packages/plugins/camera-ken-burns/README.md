@@ -26,4 +26,5 @@ line. A view never leaves the picture: it shrinks to fit, then slides back in, s
 box sits off its mark.
 
 It gives a rectangle only. Boxes come from `image-regions` or any analyser, and drawing the crop
-and easing `p` (`motion-eases`) are the film's.
+and easing `p` (`motion-eases`) are the film's. Keeping the view inside the picture is
+`image-fit`'s `crop`, which `add` copies in with it.
