@@ -1,11 +1,11 @@
-// Sixteen plain grey cards for the render-image-textures preview, numbered, in portrait,
-// landscape and square, made in code and written as real PNG files' bytes (fast-png). The preview
-// hands the bytes to the plugin's loader exactly as files read from disk.
+// Sixteen plain grey cards for the render-three-textures preview, numbered, in portrait,
+// landscape and square, made in code as decoded images (8-bit straight RGBA, rows top-down), the
+// shape io.image gives. The preview hands them to the plugin's loader as io.image would.
 
-import { encode } from 'fast-png'
+import type { DecodedImage } from '@shaderera/core'
 import { FONT } from '../../previews/src/preview.ts'
 
-export type Card = { path: string; width: number; height: number; bytes: Uint8Array }
+export type Card = { path: string; image: DecodedImage }
 
 const SIZES: [number, number][] = [
   [384, 576],
@@ -15,7 +15,7 @@ const SIZES: [number, number][] = [
   [576, 432],
 ]
 
-/** The sixteen cards, as PNG bytes under made-up project paths. */
+/** The sixteen cards, decoded, under made-up project paths. */
 export const makeCards = (canvas: (w: number, h: number) => OffscreenCanvas): Card[] =>
   Array.from({ length: 16 }, (_, i) => {
     const [w, h] = SIZES[(i * 3) % SIZES.length] as [number, number]
@@ -36,17 +36,10 @@ export const makeCards = (canvas: (w: number, h: number) => OffscreenCanvas): Ca
     ctx.fillStyle = '#d0d0d0'
     ctx.textBaseline = 'alphabetic'
     ctx.fillText(`${w}×${h}`, w / 2, h - 34)
-    const data = ctx.getImageData(0, 0, w, h).data
-    const bytes = encode({
-      width: w,
-      height: h,
-      data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-      channels: 4,
-    })
+    // A copy: in Node the pixels share the canvas's memory.
+    const data = new Uint8Array(ctx.getImageData(0, 0, w, h).data)
     return {
       path: `assets/cards/card-${String(i + 1).padStart(2, '0')}.png`,
-      width: w,
-      height: h,
-      bytes,
+      image: { width: w, height: h, bits: 8, data },
     }
   })

@@ -1,5 +1,5 @@
-// render-image-textures: sixteen grey numbered cards made in code as PNG bytes (preview/cards.ts),
-// decoded by the plugin's pure-JS decoder and packed by its loadAtlas into one 2048² texture. The
+// render-three-textures: sixteen grey numbered cards made in code (preview/cards.ts), handed to the
+// plugin as io.image gives images and packed by its loadAtlas into one 2048² texture. The
 // picture is that texture's own pixels, drawn flat, with faint lines at its 512 px cells. The
 // camera pans down the atlas and back, and a red box steps from card to card with the rect the
 // plugin returned for it. No three.js scene: the plugin needs none to build the atlas.
@@ -7,7 +7,7 @@
 import type { Host } from '@shaderera/core'
 import { createHouse, L, R, RED, type Word } from '../../previews/src/house.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
-import { loadAtlas } from '../../previews/src/three/images.ts'
+import { loadAtlas } from '../../previews/src/three/textures.ts'
 import { makeCards } from './cards.ts'
 
 const CELL = 512
@@ -20,24 +20,24 @@ const MARGIN = 14
 /** The row of the card the box is on, in each of the 16 steps: down the atlas and back up. */
 const ROWS = [0, 0, 1, 1, 2, 2, 3, 3, 3, 3, 2, 2, 1, 1, 0, 0]
 
-const renderImageTextures: OpenPreview = async (host, stateId) => {
-  if (stateId !== 'default') throw new Error(`render-image-textures has no state "${stateId}"`)
+const renderThreeTextures: OpenPreview = async (host, stateId) => {
+  if (stateId !== 'default') throw new Error(`render-three-textures has no state "${stateId}"`)
   const { width, height, duration } = host.manifest
   const canvas = host.io.canvas(width, height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
   const house = createHouse(host, ctx)
 
-  // The cards as PNG files' bytes, read by the plugin as if from disk.
+  // The cards, served by io.image as if decoded from files on disk.
   const cards = makeCards((w, h) => host.io.canvas(w, h))
-  const files = new Map(cards.map((c) => [c.path, c.bytes]))
+  const files = new Map(cards.map((c) => [c.path, c.image]))
   const reader = {
     ...host,
     io: {
       ...host.io,
-      read: async (path: string) => {
-        const bytes = files.get(path)
-        if (!bytes) throw new Error(`No card ${path}`)
-        return bytes
+      image: async (path: string) => {
+        const image = files.get(path)
+        if (!image) throw new Error(`No card ${path}`)
+        return image
       },
     },
   } as Host
@@ -46,7 +46,7 @@ const renderImageTextures: OpenPreview = async (host, stateId) => {
     cards.map((c) => c.path),
     { cell: CELL, columns: COLUMNS },
   )
-  const kb = cards.reduce((s, c) => s + c.bytes.length, 0) / 1024
+  const mb = cards.reduce((s, c) => s + c.image.data.length, 0) / 2 ** 20
 
   // The atlas texture's pixels, as the plugin uploads them (rows bottom-up), turned back upright.
   const image = atlas.texture.image as { data: Uint8Array; width: number; height: number }
@@ -75,7 +75,7 @@ const renderImageTextures: OpenPreview = async (host, stateId) => {
   }
 
   const words: Word[] = [{ from: 0, to: duration, text: 'ATLAS' }]
-  const counts: Word[] = [{ from: 0, to: duration, text: '16 PNG' }]
+  const counts: Word[] = [{ from: 0, to: duration, text: '16 CARDS' }]
 
   return {
     async render(t, o) {
@@ -127,7 +127,7 @@ const renderImageTextures: OpenPreview = async (host, stateId) => {
       house.hud(
         t,
         o.frame,
-        `ATLAS ${A}×${image.height}   CELL ${CELL}   ${kb.toFixed(0)} KB OF PNG`,
+        `ATLAS ${A}×${image.height}   CELL ${CELL}   ${mb.toFixed(1)} MB OF RGBA`,
         `CARD ${String(s.card + 1).padStart(2, '0')} / 16   ASPECT ${(r?.aspect ?? 1).toFixed(2)}`,
       )
       return [{ color: canvas }]
@@ -142,4 +142,4 @@ const renderImageTextures: OpenPreview = async (host, stateId) => {
   }
 }
 
-export default renderImageTextures
+export default renderThreeTextures

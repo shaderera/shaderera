@@ -29,6 +29,7 @@
           "format-safe-areas",
           "image-fit",
           "image-regions",
+          "image-to-png",
           "look-blur",
           "look-film-grain",
           "look-paper-edges",
@@ -42,9 +43,9 @@
           "render-bvh",
           "render-gaussian-splats",
           "render-gltf-read",
-          "render-image-textures",
           "render-srgb",
           "render-three-host",
+          "render-three-textures",
           "review-av-timeline",
           "review-picture-reuse",
           "review-shots",
@@ -239,6 +240,13 @@
       "label": "image-regions",
       "params": {
         "item": "image-regions",
+        "state": "default"
+      }
+    },
+    "image-to-png": {
+      "label": "image-to-png",
+      "params": {
+        "item": "image-to-png",
         "state": "default"
       }
     },
@@ -473,13 +481,6 @@
         "state": "default"
       }
     },
-    "render-image-textures": {
-      "label": "render-image-textures",
-      "params": {
-        "item": "render-image-textures",
-        "state": "default"
-      }
-    },
     "render-srgb": {
       "label": "render-srgb",
       "params": {
@@ -491,6 +492,13 @@
       "label": "render-three-host",
       "params": {
         "item": "render-three-host",
+        "state": "default"
+      }
+    },
+    "render-three-textures": {
+      "label": "render-three-textures",
+      "params": {
+        "item": "render-three-textures",
         "state": "default"
       }
     },

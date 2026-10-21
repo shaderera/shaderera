@@ -1,0 +1,11 @@
+{
+  "name": "image-to-png",
+  "type": "component",
+  "title": "Image to PNG",
+  "description": "A tool that converts WebP, AVIF, GIF or a video's frames to PNG once, beside the originals, pixels and colours kept, so every host decodes them the same through io.image (ffmpeg)",
+  "category": "Assets & Rights",
+  "tags": ["images", "png", "webp", "avif", "gif", "video frames", "convert", "ffmpeg", "decode"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["tools/to-png.ts"]
+}

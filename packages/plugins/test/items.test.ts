@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url'
 import { Canvas, GlobalFonts } from '@napi-rs/canvas'
 import type { Host } from '@shaderera/core'
 import { create, globals } from 'webgpu'
+import { decodeImage } from '../../../apps/cli/src/runner/image.ts'
 import { project } from './assemble.ts'
 
 const from = (p: string) => import(pathToFileURL(join(project, p)).href)
@@ -44,9 +45,9 @@ const { SHAKE, shake } = (await from(
 const { createThreeHost, threeCamera } = (await from(
   'src/three/host.ts',
 )) as typeof import('../render-three-host/src/three/host.ts')
-const { decodeImage, loadAtlas, loadTexture } = (await from(
-  'src/three/images.ts',
-)) as typeof import('../render-image-textures/src/three/images.ts')
+const { loadAtlas, loadTexture } = (await from(
+  'src/three/textures.ts',
+)) as typeof import('../render-three-textures/src/three/textures.ts')
 type Analysis = import('../audio-beat-clock/src/music/beat.ts').Analysis
 
 Object.assign(globalThis, globals)
@@ -68,6 +69,7 @@ const io = {
   read: async (p: string) => new Uint8Array(readFileSync(join(project, p))),
   canvas: (w: number, h: number) => new Canvas(w, h) as unknown as OffscreenCanvas,
   font: async () => {},
+  image: async (p: string) => decodeImage(await io.read(p), p),
 }
 const hostOf = (width: number, height: number, gpu?: GPUDevice): Host =>
   ({
@@ -410,7 +412,7 @@ test('camera-shake: the same at any t in any order, still at zero amount', () =>
   assert.notDeepEqual(a.target, c.target)
 })
 
-test('render-three-host + render-image-textures: an image card renders on the host GPU, the same at any t in any order, texture and bytes alike', async () => {
+test('render-three-host + render-three-textures: an image card renders on the host GPU, the same at any t in any order, texture and bytes alike', async () => {
   const THREE = await import('three/webgpu')
   const gpu = create([])
   const adapter = await gpu.requestAdapter()
@@ -432,7 +434,7 @@ test('render-three-host + render-image-textures: an image card renders on the ho
   const W = 320
   const H = 180
   const host = hostOf(W, H, device)
-  const png = decodeImage(new Uint8Array(readFileSync(join(project, 'painting.png'))))
+  const png = await io.image('painting.png')
   assert.deepEqual([png.width, png.height, png.data[0], png.data[2]], [64, 48, 0xc0, 0x20])
   const { texture, aspect } = await loadTexture(host, 'painting.png')
   const atlas = await loadAtlas(host, ['painting.png', 'painting.png'], { cell: 32 })

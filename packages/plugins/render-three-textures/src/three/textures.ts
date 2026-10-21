@@ -1,63 +1,30 @@
-// Images as three.js textures, decoded the same in the browser and in Node: PNG and JPEG with
-// pure-JS decoders (no canvas, no browser decoder whose colour handling may differ), so every host
-// samples the same pixels. Other formats (WebP, AVIF, GIF, a video's frames) are converted to PNG
-// once with tools/to-png.ts, and the PNGs are what the film reads.
+// Images as three.js textures and atlases, from core's `io.image`: PNG and JPEG decoded in
+// JavaScript by the host, the same pixels in every host. Other formats (WebP, AVIF, GIF, a video's
+// frames) are converted to PNG once (the image-to-png plugin), and the PNGs are what the film reads.
 
-import type { Host } from '@shaderera/core'
-import { convertIndexedToRgb, decode as decodePng } from 'fast-png'
-import jpeg from 'jpeg-js'
+import type { DecodedImage, Host } from '@shaderera/core'
 import * as THREE from 'three/webgpu'
 
-export type Decoded = { width: number; height: number; data: Uint8Array; hasAlpha: boolean }
+/** 8-bit RGBA, rows top-down: a 16-bit image keeps its high byte. */
+const bytesOf = (img: DecodedImage) =>
+  img.bits === 16 ? Uint8Array.from(img.data, (v) => v >> 8) : (img.data as Uint8Array)
 
-/** RGBA bytes, rows top-down, from PNG or JPEG bytes. */
-export const decodeImage = (bytes: Uint8Array, label = 'image'): Decoded => {
-  if (bytes[0] === 0x89 && bytes[1] === 0x50) {
-    const png = decodePng(bytes)
-    const { width, height } = png
-    const out = new Uint8Array(width * height * 4)
-    let src = png.data as Uint8Array | Uint16Array
-    let channels = png.channels
-    if (png.palette) {
-      src = convertIndexedToRgb(png)
-      channels = png.palette[0]?.length ?? 3
-    }
-    const shift = png.depth === 16 ? 8 : 0
-    for (let i = 0; i < width * height; i++) {
-      const at = (c: number) => (src[i * channels + c] as number) >> shift
-      const o = i * 4
-      if (channels <= 2) {
-        out[o] = out[o + 1] = out[o + 2] = at(0)
-        out[o + 3] = channels === 2 ? at(1) : 255
-      } else {
-        out[o] = at(0)
-        out[o + 1] = at(1)
-        out[o + 2] = at(2)
-        out[o + 3] = channels === 4 ? at(3) : 255
-      }
-    }
-    return { width, height, data: out, hasAlpha: channels === 4 || channels === 2 }
-  }
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
-    const img = jpeg.decode(bytes, {
-      useTArray: true,
-      formatAsRGBA: true,
-      maxMemoryUsageInMB: 1024,
-    })
-    return { width: img.width, height: img.height, data: img.data as Uint8Array, hasAlpha: false }
-  }
-  throw new Error(`${label} is not a PNG or JPEG; convert it with: node tools/to-png.ts ${label}`)
+/** The image at `path`, through the host's `io.image`. */
+const imageOf = (host: Host, path: string) => {
+  if (!host.io.image) throw new Error(`This host has no io.image to decode ${path}`)
+  return host.io.image(path)
 }
 
 /**
  * A texture for an image's pixels: sRGB, mipmapped, flipped so v = 0 is the image's bottom. Its
  * colours are the artwork's: no grading is applied here.
  */
-export const textureOf = (img: Decoded) => {
+export const textureOf = (img: DecodedImage) => {
   const { width: w, height: h } = img
+  const src = bytesOf(img)
   const data = new Uint8Array(w * h * 4)
   const row = w * 4
-  for (let y = 0; y < h; y++) data.set(img.data.subarray((h - 1 - y) * row, (h - y) * row), y * row)
+  for (let y = 0; y < h; y++) data.set(src.subarray((h - 1 - y) * row, (h - y) * row), y * row)
   const tex = new THREE.DataTexture(data, w, h, THREE.RGBAFormat)
   tex.colorSpace = THREE.SRGBColorSpace
   tex.generateMipmaps = true
@@ -68,9 +35,9 @@ export const textureOf = (img: Decoded) => {
   return tex
 }
 
-/** Reads, decodes and uploads one image: its texture and its aspect (width over height). */
+/** Reads one image through `io.image` and uploads it: its texture and its aspect (width over height). */
 export const loadTexture = async (host: Host, path: string) => {
-  const img = decodeImage(await host.io.read(path), path)
+  const img = await imageOf(host, path)
   return {
     texture: textureOf(img),
     aspect: img.width / img.height,
@@ -97,7 +64,8 @@ export const loadAtlas = async (
   const data = new Uint8Array(W * H * 4)
   const rects: { rect: [number, number, number, number]; aspect: number }[] = []
   for (const [i, path] of paths.entries()) {
-    const img = decodeImage(await host.io.read(path), path)
+    const img = await imageOf(host, path)
+    const px = bytesOf(img)
     const s = Math.min(cell / img.width, cell / img.height)
     const w = Math.max(1, Math.round(img.width * s))
     const h = Math.max(1, Math.round(img.height * s))
@@ -114,12 +82,12 @@ export const loadAtlas = async (
         for (let sy = sy0; sy < sy1; sy++)
           for (let sx = sx0; sx < sx1; sx++)
             for (let c = 0; c < 4; c++)
-              acc[c] = (acc[c] as number) + (img.data[(sy * img.width + sx) * 4 + c] as number)
+              acc[c] = (acc[c] as number) + (px[(sy * img.width + sx) * 4 + c] as number)
         const n = (sx1 - sx0) * (sy1 - sy0)
         const o = ((y0 + y) * W + x0 + x) * 4
         for (let c = 0; c < 4; c++) data[o + c] = Math.round((acc[c] as number) / n)
       }
     rects.push({ rect: [x0 / W, 1 - (y0 + h) / H, w / W, h / H], aspect: img.width / img.height })
   }
-  return { texture: textureOf({ width: W, height: H, data, hasAlpha: true }), rects }
+  return { texture: textureOf({ width: W, height: H, bits: 8, data }), rects }
 }

@@ -37,6 +37,7 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `format-safe-areas` | component | where text may go per format and platform, and the corner free for a credit | opening film |
 | `image-fit` | component | a still placed into a rectangle of a Canvas2D frame: the decoded image onto a canvas, cover (with a focal point) and contain, halved copies that draw it small the same every time | five in-house films that each wrote it inline, 2026-10-21 |
 | `image-regions` | component | named regions of a photograph (mask, box, centre, the region that holds each) as analysis data; SAM 3.1 from words, or painted masks | a collage POC, 2026-10-14 |
+| `image-to-png` | component | WebP, AVIF, GIF and a video's frames converted to PNG once, beside the originals, pixels kept (ffmpeg) | split from `render-three-textures` |
 | `look-blur` | component | blur one frame, Gaussian, bokeh, directional or radial, by an amount from shapes, a map or depth: a sharp window, tilt-shift, depth of field | research: a poster's sharp window in a blurred world |
 | `look-film-grain` | component | film grain: Gaussian, sized, strongest in the mid-tones, mono or colour | split from `look-screen-passes` (0.2.0) |
 | `look-paper-edges` | component | a print on paper: cut out along any shape with a paper border, or a strip cut straight or torn, with white core and fibre | a collage POC, 2026-10-14 |
@@ -50,9 +51,9 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `render-bvh` | component | ray queries against triangles on the GPU: a binned SAH tree from positions and indices, WGSL closest-hit and any-hit; no shading | the Wallloom opening film's path tracer, its traversal only |
 | `render-gaussian-splats` | component | 3D Gaussian splats (.splat, .ply) rendered on host.gpu with a deterministic depth sort, as a premultiplied layer | research for 0.1.0 |
 | `render-gltf-read` | component | glTF 2.0 (.gltf + .bin, or .glb) read into plain data: each primitive's typed arrays, its node's world matrix, its material as stated; refuses Draco and other required extensions by name | the Wallloom opening film, which wrote it twice |
-| `render-image-textures` | component | PNG/JPEG decoded the same in Node and the browser, atlases for many cards, WebP and video frames to PNG once | product-studio's plumbing (no look) |
 | `render-srgb` | component | the sRGB transfer functions (IEC 61966-2-1), display values to linear light and back, in WGSL and on the CPU with the same values | written in seven films; private copies in `look-blur` and `look-vignette` |
 | `render-three-host` | component | three.js WebGPURenderer on host.gpu, deterministic, the frame as a GPU texture layer | product-studio's plumbing (no look) |
+| `render-three-textures` | component | images from `io.image` as three.js textures, the same pixels in Node and the browser, and atlases for many cards | product-studio's plumbing (no look) |
 | `review-av-timeline` | component | the sound as pictures and the picture's change per frame on one timeline; picture-to-sound offsets in ms | opening film's review method |
 | `review-picture-reuse` | component | the shots of a video that show a picture already seen, a crop, zoom or pan counting, as analysis data from `review-shots`' shots; ORB and a RANSAC homography in OpenCV | the taste-to-plugins film's no-repeated-pictures check |
 | `review-shots` | component | any video measured shot by shot as analysis data (cuts, dissolves included, camera move, levels, colour), with contact sheets; PySceneDetect, TransNet V2 (in numpy) and OpenCV | the taste-to-plugins film's reference measurements |
