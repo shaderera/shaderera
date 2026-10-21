@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { sha256 } from '@shaderera/core/host'
+import { sha256 } from '@shaderera/core'
 import { tempDir } from '../fixtures/temp.ts'
 import { buildForNode } from '../node/build.ts'
 import { openChild } from '../node/child.ts'
