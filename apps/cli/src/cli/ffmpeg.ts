@@ -35,6 +35,25 @@ const NVENC_CQ = 19
 /** Where hasNvenc keeps what it found: one ffmpeg (its file, mtime and version) and its sizes. */
 export const nvencFile = (): string => join(homedir(), '.shaderera', 'nvenc.json')
 
+/** The sizes nvencFile keeps for this ffmpeg (`key`); none for another or an unreadable file. */
+const keptSizes = (key: string): Record<string, boolean> => {
+  try {
+    const kept = JSON.parse(readFileSync(nvencFile(), 'utf8'))
+    return kept.ffmpeg === key ? kept.sizes : {}
+  } catch {
+    return {}
+  }
+}
+
+const keep = (key: string, sizes: Record<string, boolean>) => {
+  try {
+    mkdirSync(dirname(nvencFile()), { recursive: true })
+    writeFileSync(nvencFile(), JSON.stringify({ ffmpeg: key, sizes }))
+  } catch {
+    // Not kept: the next command asks again.
+  }
+}
+
 /** The ffmpeg the PATH runs, as its file, its mtime and its version: what an NVENC answer is of. */
 const ffmpegKey = (): string => {
   const version = requireFfmpeg()
@@ -58,6 +77,8 @@ const encodesNvenc = (size: string) =>
   })
 
 const nvenc = new Map<string, Promise<boolean>>()
+/** The sizes whose yes came from nvencFile, not from a test encode in this process. */
+const keptYes = new Set<string>()
 /**
  * Whether this ffmpeg can encode a frame this size with NVENC here (a GPU and driver it accepts;
  * NVENC refuses small frames, such as 32×16). Asked once per size and kept in nvencFile for this
@@ -78,27 +99,36 @@ export const hasNvenc = (
     } catch {
       return false
     }
-    const read = (): Record<string, boolean> => {
-      try {
-        const kept = JSON.parse(readFileSync(nvencFile(), 'utf8'))
-        return kept.ffmpeg === key ? kept.sizes : {}
-      } catch {
-        return {}
-      }
+    const kept = keptSizes(key)[size]
+    if (kept !== undefined && !o.fresh) {
+      if (kept) keptYes.add(size)
+      return kept
     }
-    const kept = read()[size]
-    if (kept !== undefined && !o.fresh) return kept
+    keptYes.delete(size)
     const has = await encodesNvenc(size)
-    try {
-      mkdirSync(dirname(nvencFile()), { recursive: true })
-      writeFileSync(nvencFile(), JSON.stringify({ ffmpeg: key, sizes: { ...read(), [size]: has } }))
-    } catch {
-      // Not kept: the next command asks again.
-    }
+    keep(key, { ...keptSizes(key), [size]: has })
     return has
   })()
   nvenc.set(size, asked)
   return asked
+}
+
+/**
+ * Drops a kept NVENC yes for this size, whose encode has just failed (a GPU or driver gone since):
+ * false when the yes was not a kept one. This process then answers no; the next one tests again.
+ */
+export const forgetNvenc = (width: number, height: number): boolean => {
+  const size = `${width}x${height}`
+  if (!keptYes.delete(size)) return false
+  nvenc.set(size, Promise.resolve(false))
+  try {
+    const key = ffmpegKey()
+    const { [size]: _, ...rest } = keptSizes(key)
+    keep(key, rest)
+  } catch {
+    // No ffmpeg to key it by: nothing kept to drop.
+  }
+  return true
 }
 
 /**
