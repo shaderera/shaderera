@@ -4,7 +4,7 @@ The repository went public at 0.1.0; 0.1.1 is the first release on npm. The thre
 (`@shaderera/core`, `shaderera`, `create-shaderera`) share one version. A release is checked as a
 user gets it: from packed tarballs, installed with npm in a fresh folder outside the monorepo.
 
-1. **Build and test.** `pnpm install`, `pnpm build`, `pnpm test`, `pnpm lint`.
+1. **Build and test.** `pnpm install`, `pnpm build`, `pnpm test:all`, `pnpm lint`.
 2. **Pack.**
    ```bash
    pnpm --filter @shaderera/core --filter shaderera --filter create-shaderera \

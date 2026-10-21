@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
+import { tempDir } from '../fixtures/temp.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
 const root = fileURLToPath(new URL('./fixtures/params/', import.meta.url))
@@ -18,7 +18,7 @@ test('--param and positional times read alike on every command that renders', ()
   assert.deepEqual(JSON.parse(inspect.stdout).result, { t: 0.5, grey: 200 })
   assert.equal(cli('inspect', '--time', '0.5').stdout.trim(), 't 0.5\ngrey 0')
 
-  const out = mkdtempSync(join(tmpdir(), 'shaderera-args-'))
+  const out = tempDir('args')
   const still = cli('still', '0.5', '--param', 'grey=200', '--out', out)
   assert.equal(still.status, 0, still.stderr)
   const png = decode(readFileSync(join(out, 'main-0.500.png')))
@@ -26,6 +26,7 @@ test('--param and positional times read alike on every command that renders', ()
 
   const check = cli('check', '--times', '2', '--param', 'grey=200')
   assert.equal(check.status, 0, check.stderr)
+  assert.match(check.stdout, /✓ deterministic: 2 timestamps/)
 })
 
 test('an unknown param is refused with the same message on every command', () => {
@@ -38,10 +39,7 @@ test('an unknown param is refused with the same message on every command', () =>
       `${command[0]}: ${r.stderr}`,
     )
   }
-})
-
-test('a render refused before the source opens saves no revision', () => {
-  cli('render', '--param', 'gray=1')
+  // The render, refused before the source opens, saved no revision.
   assert.equal(existsSync(join(root, 'versions')), false)
 })
 

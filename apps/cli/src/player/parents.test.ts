@@ -13,7 +13,7 @@ test('the port goes to an allowed origin only: the one ?parent= names, else the 
   assert.ok(isOrigin(site) && isOrigin('http://127.0.0.1:8787'))
   for (const not of [
     'https://shaderera.com/',
-    'https://shaderera.com/f/x',
+    'https://shaderera.com/film/x',
     'shaderera.com',
     '*',
     'null',

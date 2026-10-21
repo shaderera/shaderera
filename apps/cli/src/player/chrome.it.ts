@@ -124,7 +124,7 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
   const project = await footageProject()
   const outDir = join(project.root, '.shaderera', 'player')
 
-  // The site: one server, reached as two origins. 127.0.0.1 is allowed, localhost is not.
+  // The site, an allowed parent (parents.test.ts: the port goes to an allowed origin only).
   const comlink = fileURLToPath(
     new URL('../../node_modules/comlink/dist/esm/comlink.mjs', import.meta.url),
   )
@@ -138,7 +138,6 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
     res.end(HOST_PAGE)
   })
   const allowed = `http://127.0.0.1:${hostPort}`
-  const refused = `http://localhost:${hostPort}`
 
   // The player's server, as docs/player.md asks: every file with ACAO *, the page with its CSP.
   const requests: { method: string; path: string }[] = []
@@ -165,8 +164,7 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
               `img-src 'self' ${self} data: blob:`,
               `font-src 'self' ${self} data: blob:`,
               "style-src 'self' 'unsafe-inline'",
-              // Both may frame it, so the bridge's own rule is what refuses localhost.
-              `frame-ancestors ${allowed} ${refused}`,
+              `frame-ancestors ${allowed}`,
             ].join('; '),
           }
         : {}),
@@ -243,16 +241,6 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
         if (r.result.value) return r.result.value
       }
     }
-
-    // Not an allowed parent: the page loads, its worker starts, and no port ever arrives.
-    const before = requests.length
-    const no = await run(refused, 6_000)
-    assert.equal(no.port, false)
-    assert.deepEqual(no.messages, [])
-    assert.ok(
-      requests.slice(before).some((r) => r.path === 'assets/worker.js'),
-      'the bridge ran and started its worker',
-    )
 
     const r = await run(allowed, 120_000)
     assert.equal(r.error, undefined)

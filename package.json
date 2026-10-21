@@ -8,7 +8,9 @@
   },
   "scripts": {
     "build": "pnpm --filter @shaderera/core --filter shaderera --filter create-shaderera build",
-    "test": "pnpm -r --if-present test",
+    "test": "node scripts/test-temp.ts pnpm -r --if-present test",
+    "test:slow": "node scripts/test-temp.ts pnpm -r --if-present test:slow",
+    "test:all": "node scripts/test-temp.ts pnpm -r --if-present test:all",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "biome check ."
   },

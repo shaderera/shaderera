@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { claimProfile } from './browser.ts'
 
 test('one host holds the project profile; a stale lock is taken over; release frees only its own', () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-profile-'))
+  const root = tempDir('profile')
   const lock = join(root, '.shaderera', 'chrome.lock')
   const own = join(root, '.shaderera', 'chrome')
 

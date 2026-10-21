@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import { readingShort, review, reviewTimes } from './review.ts'
 
@@ -25,7 +25,7 @@ const film = () => {
 
 test('review (quick) on a film without shots or text: measured or unknown, never a fake pass', async () => {
   const { project, child } = film()
-  const outDir = mkdtempSync(join(tmpdir(), 'review-'))
+  const outDir = tempDir('review')
   try {
     const r = await review({ project, child, outDir, quick: true })
     assert.equal(r.version, 1)
@@ -54,7 +54,7 @@ test('review (quick) on a film without shots or text: measured or unknown, never
     assert.equal(by.alpha?.status, 'unknown')
     for (const c of r.checks) if (c.status === 'pass') assert.ok(c.measured, c.id)
     assert.ok(r.diagnostics.alpha.nonOpaque > 0.9)
-    // No audio(): no audio diagnostics, in every host (node/contract.test.ts).
+    // No audio(): no audio diagnostics, in every host (node/contract.it.ts).
     assert.equal(r.diagnostics.audio, null)
   } finally {
     await child.close()
@@ -63,7 +63,7 @@ test('review (quick) on a film without shots or text: measured or unknown, never
 
 test('review removes frames from an earlier run in its out dir, and nothing else', async () => {
   const { project, child } = film()
-  const outDir = mkdtempSync(join(tmpdir(), 'review-'))
+  const outDir = tempDir('review')
   const stale = ['07-0.95s.png', '07-0.95s.thumb.png']
   for (const f of [...stale, 'notes.txt']) writeFileSync(join(outDir, f), '')
   try {

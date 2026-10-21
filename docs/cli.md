@@ -479,7 +479,7 @@ shared film k3x9q2mfa7 version 3ff052ac4865: 33 of 33 files were new
 ```
 
 The address it prints is the film's page, the canvas with the film open, as the site answers it
-(else `<site>/f/<film>`).
+(else `https://shaderera.com/film/<film>`).
 
 **`fork`** takes a film's id, `<id>@<version>` (a version may be the start of one) or the address
 of its page, whose origin is then the site; without a version it takes the latest. It needs no
@@ -488,7 +488,7 @@ and nothing is written until all of them match; the folder must be new or empty.
 project's first `share` makes a new film, marked as forked from that version.
 
 ```
-$ npx shaderera fork https://shaderera.com/f/k3x9q2mfa7 my-rain
+$ npx shaderera fork https://shaderera.com/film/k3x9q2mfa7 my-rain
 forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 files, 2.1 MB, licence MIT
 ```
 

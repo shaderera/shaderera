@@ -1,6 +1,7 @@
 # Shaderera
 
-pnpm monorepo, Node 24: `pnpm install`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
+pnpm monorepo, Node 24: `pnpm install`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm test`
+(fast), `pnpm test:all` (with the slow `*.it.ts` tests, before a PR).
 The packages and docs are listed in [README.md](README.md) (Develop says what the tests need);
 terms are in [GLOSSARY.md](GLOSSARY.md); decisions in [docs/adr/](docs/adr/README.md).
 

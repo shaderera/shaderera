@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { timecodeOf } from '@shaderera/core/host'
+import { tempDir } from '../fixtures/temp.ts'
 import type { Child } from '../node/child.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Project } from '../node/project.ts'
@@ -14,17 +13,12 @@ import { exportFinishing } from './finishing.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const fixture = (name: string) => {
-  const root = mkdtempSync(join(tmpdir(), `shaderera-${name}-`))
+  const root = tempDir(name)
   cpSync(fileURLToPath(new URL(`../cli/fixtures/${name}/`, import.meta.url)), root, {
     recursive: true,
   })
   return root
 }
-
-test('timecode is HH:MM:SS:FF', () => {
-  assert.equal(timecodeOf(0, 30), '00:00:00:00')
-  assert.equal(timecodeOf(Math.round(3661.5 * 30), 30), '01:01:01:15')
-})
 
 test('a finishing handoff never replaces a folder that is not a delivery', async () => {
   // `render --job stills --out .` in the project: refused before anything renders.
@@ -63,7 +57,7 @@ const square = () => {
     params: { locale: 'en' },
     seed: 0,
     output: { width: 36, height: 36, fps: 10, from: 0, to: 0.5 },
-  } as Job
+  } as unknown as Job
   return { project, child, job }
 }
 

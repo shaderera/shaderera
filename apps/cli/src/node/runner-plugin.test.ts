@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { findProject } from './project.ts'
 import { SERVICE_PATH } from './runner-plugin.ts'
 import { HOST, startRunner } from './runner-server.ts'
@@ -11,7 +11,7 @@ import { HOST, startRunner } from './runner-server.ts'
 const tiny = fileURLToPath(new URL('./fixtures/tiny/', import.meta.url))
 
 test('a service request without the runner token is refused', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-token-'))
+  const root = tempDir('token')
   cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
   const { server: runner, port } = await startRunner(await findProject(root), {
     pkgDir: fileURLToPath(new URL('../..', import.meta.url)),

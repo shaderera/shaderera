@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
-import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { createServer, request as httpRequest } from 'node:http'
-import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { request as httpRequest } from 'node:http'
 import { basename, join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { saveToken } from '../cli/site.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
+import { call, nonce, page } from './fixtures/page.ts'
 import { startRelay } from './fixtures/relay.ts'
 import {
   CLOSE,
@@ -25,53 +25,22 @@ import { connectRelay } from './relay.ts'
 import { NOTICE, noticeOnce, setTelemetry, telemetryStatus } from './telemetry.ts'
 
 // The user's config (telemetry) and tokens (share) live in a home of the tests' own.
-const home = mkdtempSync(join(tmpdir(), 'shaderera-home-'))
+const home = tempDir('home')
 process.env.HOME = home
 process.env.USERPROFILE = home
 delete process.env.SHADERERA_TELEMETRY
 
 const SITE = 'https://shaderera.example'
-/** The nonce the in-process CLIs pair with; the CLI makes one of its own each run. */
-const nonce = makeNonce()
 const DEV = 'http://localhost:3000'
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
-const fixture = (root = mkdtempSync(join(tmpdir(), 'shaderera-studio-'))) => {
+const fixture = (root = tempDir('studio')) => {
   cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
   })
   return root
 }
-
-/** One request to the bridge, with the headers given (Node's fetch would not set Origin). */
-const call = (
-  port: number,
-  o: { method?: string; path: string; headers?: Record<string, string>; body?: unknown },
-) =>
-  new Promise<{ status: number; headers: Record<string, unknown>; body: Buffer }>((done, fail) => {
-    const req = httpRequest(
-      {
-        host: '127.0.0.1',
-        port,
-        method: o.method ?? 'GET',
-        path: o.path,
-        headers: {
-          ...o.headers,
-          ...(o.body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        },
-      },
-      (res) => {
-        const parts: Buffer[] = []
-        res.on('data', (p: Buffer) => parts.push(p))
-        res.on('end', () =>
-          done({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(parts) }),
-        )
-      },
-    )
-    req.on('error', fail)
-    req.end(o.body === undefined ? undefined : JSON.stringify(o.body))
-  })
 const asPage = (b: Bridge, origin = SITE) => ({
   Origin: origin,
   Authorization: `Bearer ${b.secret}`,
@@ -125,80 +94,17 @@ const events = (b: Bridge) => {
   }
 }
 
-/** The page's side of the relay, as the studio page does it, with WebCrypto. */
-const page = (relay: string, id: string) => {
-  const ws = new WebSocket(relayUrl(relay, id, 'page'))
-  const inbox: { type: string; [k: string]: unknown }[] = []
-  const waiting: { type: string; done: (m: (typeof inbox)[number]) => void }[] = []
-  ws.addEventListener('message', (e) => {
-    const m = JSON.parse(String(e.data))
-    const w = waiting.find((x) => x.type === m.type)
-    if (w) {
-      waiting.splice(waiting.indexOf(w), 1)
-      w.done(m)
-    } else inbox.push(m)
-  })
-  const next = (type: string) =>
-    new Promise<(typeof inbox)[number]>((done) => {
-      const at = inbox.findIndex((m) => m.type === type)
-      if (at >= 0) done(inbox.splice(at, 1)[0] as (typeof inbox)[number])
-      else waiting.push({ type, done })
-    })
-  const closed = new Promise<number>((done) => ws.addEventListener('close', (e) => done(e.code)))
-  const opened = new Promise<void>((done) => ws.addEventListener('open', () => done()))
-  return {
-    ws,
-    next,
-    closed,
-    opened,
-    send: (m: unknown) => ws.send(JSON.stringify(m)),
-    /**
-     * page-hello now and on every cli-joined, then the proof of `proof`; resolves with the session
-     * key and the bridge.
-     */
-    pair: async (proof = nonce) => {
-      const mine = await keyPair()
-      await opened
-      ws.send(JSON.stringify({ type: 'page-hello', pub: mine.pub }))
-      void next('cli-joined').then(() =>
-        ws.send(JSON.stringify({ type: 'page-hello', pub: mine.pub })),
-      )
-      const hello = await next('cli-hello')
-      const key = await sessionKey(mine.privateKey, hello.pub as string, id)
-      ws.send(JSON.stringify({ type: 'page-proof', ...(await seal(key, { nonce: proof })) }))
-      const sealed = (await next('bridge')) as unknown as { iv: string; box: string }
-      const bridge = await unseal<{ port: number; secret: string }>(key, sealed)
-      ws.send(JSON.stringify({ type: 'paired' }))
-      return { key, hello, bridge }
-    },
-  }
-}
-
-/** The page address `shaderera studio --no-open` prints, once it has: `<site>/studio/<id>#<nonce>`. */
-const addressOf = async (out: () => string, site: string, id: string) => {
-  for (let i = 0; i < 400; i++) {
-    const m = /^open +(\S+)$/m.exec(out())
-    if (m) {
-      const url = new URL(m[1] as string)
-      assert.equal(`${url.origin}${url.pathname}${url.search}`, `${site}/studio/${id}?from=web`)
-      return { nonce: url.hash.slice(1) }
-    }
-    await new Promise((r) => setTimeout(r, 25))
-  }
-  throw new Error(`no address in: ${out()}`)
-}
-
-let root: string
 let bridge: Bridge
 let relay: Awaited<ReturnType<typeof startRelay>>
-before(async () => {
-  root = fixture()
-  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
-  relay = await startRelay({ ttlMs: 300 })
-})
+// Closed before the folder goes: after hooks run in the order they were added.
 after(async () => {
   await bridge.close()
   await relay.close()
+})
+const root = fixture()
+before(async () => {
+  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
+  relay = await startRelay({ ttlMs: 300 })
 })
 
 test('a studio session id is 20 characters of the alphabet', () => {
@@ -551,7 +457,7 @@ test('/render renders on this machine into out/, and /render/<job>/file streams 
 })
 
 test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and the bridge lives on', async () => {
-  const thai = fixture(join(mkdtempSync(join(tmpdir(), 'shaderera-studio-')), 'ภาพยนตร์'))
+  const thai = fixture(join(tempDir('studio'), 'ภาพยนตร์'))
   const manifest = JSON.parse(readFileSync(join(thai, 'shaderera.json'), 'utf8'))
   manifest.variants['16:9'] = { params: { grey: 50 } }
   writeFileSync(join(thai, 'shaderera.json'), JSON.stringify(manifest))
@@ -711,131 +617,5 @@ test('telemetry: a config that cannot be read is off, and is never overwritten',
     assert.equal(readFileSync(file, 'utf8'), broken)
   } finally {
     writeFileSync(file, was)
-  }
-})
-
-test('shaderera studio --connect pairs with the page, and says so when the id expired', async () => {
-  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
-  // The CLI takes longer than the shared relay's 300 ms to start: a relay of its own.
-  const slow = await startRelay()
-  const start = (site: string, id: string) =>
-    spawn(
-      process.execPath,
-      [main, 'studio', '--connect', id, '--site', site, '--no-open', '--root', fixture()],
-      { env: { ...process.env, HOME: home, USERPROFILE: home } },
-    )
-  const id = makeId()
-  const p = page(slow.origin, id)
-  const cli = start(slow.origin, id)
-  let out = ''
-  cli.stdout.on('data', (d: Buffer) => {
-    out += d.toString()
-  })
-  cli.stderr.on('data', (d: Buffer) => {
-    out += d.toString()
-  })
-  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
-  const pairing = addressOf(() => out, slow.origin, id).then((address) => {
-    // The address the CLI prints: the page and the nonce in its fragment.
-    assert.notEqual(address.nonce, nonce)
-    return p.pair(address.nonce)
-  })
-  const paired = await Promise.race([pairing, exited.then(() => null)])
-  assert.ok(paired, out)
-  const { bridge: got, hello } = paired
-  assert.equal(hello.os, process.platform)
-  const info = await call(got.port, {
-    path: '/info',
-    headers: { Origin: slow.origin, Authorization: `Bearer ${got.secret}` },
-  })
-  assert.equal(info.status, 200)
-  for (let i = 0; i < 100 && !/paired/.test(out); i++) await new Promise((r) => setTimeout(r, 50))
-  assert.match(out, /paired/)
-  cli.kill('SIGINT')
-  await exited
-  p.ws.close()
-  await slow.close()
-
-  // An id whose page came and went long ago.
-  const old = makeId()
-  const gone = page(relay.origin, old)
-  await gone.opened
-  await new Promise((r) => setTimeout(r, 400))
-  const late = start(relay.origin, old)
-  let err = ''
-  late.stderr.on('data', (d: Buffer) => {
-    err += d.toString()
-  })
-  assert.equal(await new Promise((done) => late.on('exit', done)), 2)
-  assert.match(err, /expired/)
-  gone.ws.close()
-})
-
-test("shaderera studio --to: Share sends films there, not to the studio page's site", async () => {
-  // A films site of its own, the only one with a token: it records the calls and refuses them.
-  const seen: { path?: string; auth?: string }[] = []
-  const films = createServer((req, res) => {
-    seen.push({ path: req.url, auth: req.headers.authorization })
-    req.resume()
-    res.writeHead(503, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ error: 'the films site, as asked' }))
-  })
-  await new Promise<void>((done) => films.listen(0, '127.0.0.1', done))
-  const address = films.address()
-  const to = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`
-  saveToken(to, 'films-token')
-  const slow = await startRelay()
-  const id = makeId()
-  const p = page(slow.origin, id)
-  const project = fixture()
-  writeFileSync(join(project, 'package.json'), JSON.stringify({ license: 'MIT' }))
-  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
-  const cli = spawn(
-    process.execPath,
-    [
-      main,
-      'studio',
-      '--connect',
-      id,
-      '--site',
-      slow.origin,
-      '--to',
-      to,
-      '--no-open',
-      '--root',
-      project,
-    ],
-    { env: { ...process.env, HOME: home, USERPROFILE: home } },
-  )
-  let out = ''
-  cli.stdout.on('data', (d: Buffer) => {
-    out += d.toString()
-  })
-  cli.stderr.on('data', (d: Buffer) => {
-    out += d.toString()
-  })
-  const pairing = addressOf(() => out, slow.origin, id).then((a) => p.pair(a.nonce))
-  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
-  try {
-    const paired = await Promise.race([pairing, exited.then(() => null)])
-    assert.ok(paired, out)
-    const { bridge: got } = paired
-    const r = await call(got.port, {
-      method: 'POST',
-      path: '/share',
-      headers: { Origin: slow.origin, Authorization: `Bearer ${got.secret}` },
-      body: {},
-    })
-    assert.equal(r.status, 500, out)
-    assert.match(jsonOf(r).error, new RegExp(`on ${to}: 503 the films site, as asked`))
-    assert.ok(seen.length > 0, 'the films site was called')
-    assert.ok(seen.every((s) => s.path?.startsWith('/api/v1/') && s.auth === 'Bearer films-token'))
-    assert.match(out, new RegExp(`share to ${to}`))
-  } finally {
-    cli.kill('SIGINT')
-    await exited
-    p.ws.close()
-    await slow.close()
-    films.close()
   }
 })

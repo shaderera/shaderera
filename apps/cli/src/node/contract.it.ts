@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, mkdirSync, realpathSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { after, before, describe, test } from 'node:test'
 import type { Json } from '@shaderera/core'
 import { sampleClips } from '@shaderera/core/host'
+import { tempDir } from '../fixtures/temp.ts'
 import { buildForNode } from './build.ts'
 import type { Child } from './child.ts'
 import { captions, clips, FAILS_AT, paint } from './fixtures/contract/src/composition.ts'
@@ -20,7 +20,7 @@ import { findProject } from './project.ts'
  * composite on the GPU or as if they did (decision 0007). Needs a GPU and Chrome: without them the
  * host cases fail, they do not skip.
  */
-const root = join(mkdtempSync(join(tmpdir(), 'shaderera-contract-')), 'film')
+const root = join(tempDir('contract'), 'film')
 cpSync(join(import.meta.dirname, 'fixtures', 'contract'), root, { recursive: true })
 mkdirSync(join(root, 'node_modules'))
 symlinkSync(

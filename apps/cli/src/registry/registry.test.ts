@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { run } from './cli.ts'
 import { checkItem } from './item.ts'
 import { add, remove } from './project.ts'
@@ -14,7 +14,7 @@ import { search } from './search.ts'
 import { satisfies, validRange } from './semver.ts'
 import { newest, publish, resolve } from './store.ts'
 
-const temp = (name: string) => mkdtempSync(join(tmpdir(), `shaderera-plugins-${name}-`))
+const temp = (name: string) => tempDir(`plugins-${name}`)
 const write = (dir: string, files: { [path: string]: unknown }) => {
   for (const [path, body] of Object.entries(files)) {
     mkdirSync(join(dir, path, '..'), { recursive: true })
