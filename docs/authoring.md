@@ -62,7 +62,7 @@ What is on the shelf:
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
-  - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking;
+  - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking, the lines as text runs for review;
   - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
   - `render-three-host`: three.js on the host's GPU;
   - `render-three-textures`: images from `io.image` as three.js textures and atlases;

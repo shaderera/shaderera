@@ -53,7 +53,7 @@ resolving requirements only: no host reads it to render, so nothing in it may ch
   "version": "0.2.0",
   "licence": "MIT",
   "requires": {
-    "items": { "text-scramble": "^0.3.0", "text-fit": "^0.1.0", "format-safe-areas": "^0.3.0" }
+    "items": { "text-scramble": "^0.3.0", "text-fit": "^0.2.0", "format-safe-areas": "^0.3.0" }
   },
   "files": ["src/type/titles.ts"]
 }

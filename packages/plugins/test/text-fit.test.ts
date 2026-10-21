@@ -1,5 +1,6 @@
 // text-fit: copied into a project the way `add` lays it out, measured on a real canvas in a real
-// font, and on a stand-in context whose every character is 10 px wide, so lines are counted.
+// font, and on a stand-in context whose every character is 10 px wide, so lines are counted. The
+// runs it makes go through review, on the CLI's in-memory fixture, as a film's inspect.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -7,6 +8,8 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { Canvas, GlobalFonts } from '@napi-rs/canvas'
+import { memoryChild, memoryProject } from '../../../apps/cli/src/node/fixtures/memory-child.ts'
+import { review } from '../../../apps/cli/src/review/review.ts'
 
 const plugins = join(import.meta.dirname, '..')
 const project = join(plugins, 'out', 'text-fit')
@@ -18,7 +21,7 @@ for (const f of label.files) {
   mkdirSync(dirname(join(project, f)), { recursive: true })
   cpSync(join(plugins, 'text-fit', f), join(project, f))
 }
-const { fitSize, fitWidth, trackedWidth, wrap } = (await import(
+const { fitSize, fitWidth, textRuns, trackedWidth, wrap } = (await import(
   pathToFileURL(join(project, 'src/type/fit.ts')).href
 )) as typeof import('../text-fit/src/type/fit.ts')
 
@@ -98,4 +101,66 @@ test('text-fit: trackedWidth adds the tracking between graphemes', () => {
     Math.abs(ctx.measureText('SLOGAN').width - 10 - w) < 0.01,
     'as letterSpacing, less the last',
   )
+})
+
+test('text-fit: textRuns are the wrapped lines, measured, and pass the text fit of review', async () => {
+  const ctx = real()
+  ctx.font = '12px "Plex Sans"'
+  const font = '24px "Plex Sans"'
+  const copy = 'Built for the last mile, wrapped in a column and handed to review as text runs.'
+  ctx.font = font
+  const lines = wrap(ctx, copy, 300)
+  ctx.font = '12px "Plex Sans"'
+  const runs = textRuns(ctx, lines, [40, 30], { id: 'body', lineHeight: 32, width: 300, font })
+  assert.equal(ctx.font, '12px "Plex Sans"', 'the font is put back')
+  assert.ok(lines.length > 2)
+  ctx.font = font
+  assert.deepEqual(
+    runs,
+    lines.map((text, i) => ({
+      id: `body.${i}`,
+      text,
+      box: [40, 30 + i * 32, ctx.measureText(text).width, 32],
+      font,
+    })),
+  )
+
+  const project = memoryProject({ width: 640, height: 360 })
+  const child = memoryChild({ size: { width: 640, height: 360 }, inspect: () => ({ body: runs }) })
+  try {
+    const safeArea = { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 }
+    const r = await review({
+      project,
+      child,
+      outDir: join(plugins, 'out', 'text-fit-review'),
+      quick: true,
+      requirements: { version: 1, safeArea },
+    })
+    const fit = r.checks.find((c) => c.id === 'text-fit')
+    assert.equal(fit?.status, 'pass', fit?.detail)
+    assert.match(fit?.measured ?? '', new RegExp(`^${lines.length} runs at `))
+  } finally {
+    await child.close()
+  }
+})
+
+test('text-fit: textRuns align in the width, track, and skip blank lines', () => {
+  const runs = (align: 'left' | 'center' | 'right', tracking?: number) =>
+    textRuns(tens(), ['abc', '', 'a'], [100, 0], {
+      id: 't',
+      lineHeight: 20,
+      width: 60,
+      align,
+      tracking,
+    })
+  assert.deepEqual(
+    runs('right').map((r) => [r.id, r.box]),
+    [
+      ['t.0', [130, 0, 30, 20]],
+      ['t.2', [150, 40, 10, 20]],
+    ],
+  )
+  assert.deepEqual(runs('center')[0]?.box, [115, 0, 30, 20])
+  // 'abc' tracked 5: 30 + 2 gaps.
+  assert.deepEqual(runs('left', 5)[0]?.box, [100, 0, 40, 20])
 })
