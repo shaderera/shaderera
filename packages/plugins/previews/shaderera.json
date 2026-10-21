@@ -36,6 +36,7 @@
           "look-tonemap",
           "look-vignette",
           "motion-keyframes",
+          "motion-shot-list",
           "render-bvh",
           "render-gaussian-splats",
           "render-gltf-read",
@@ -423,6 +424,13 @@
       "label": "motion-keyframes",
       "params": {
         "item": "motion-keyframes",
+        "state": "default"
+      }
+    },
+    "motion-shot-list": {
+      "label": "motion-shot-list",
+      "params": {
+        "item": "motion-shot-list",
         "state": "default"
       }
     },

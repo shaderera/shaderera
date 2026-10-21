@@ -60,6 +60,7 @@ What is on the shelf:
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
+  - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
   - `render-three-host`: three.js on the host's GPU;
   - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
