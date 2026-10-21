@@ -55,8 +55,11 @@ export const probeVideo = (file: string): VideoInfo => {
   }
 }
 
-/** Decodes one file's frames in order with ffmpeg; a frame before the last one read restarts it. */
-export const videoReader = (file: string) => {
+/**
+ * Decodes one file's frames in order with ffmpeg. The last `keep()` frames decoded are kept, so a
+ * frame asked a little out of order is given again without decoding; one before them restarts it.
+ */
+export const videoReader = (file: string, keep: () => number = () => 1) => {
   const info = probeVideo(file)
   const size = info.width * info.height * 4
   let proc: ReturnType<typeof spawn> | undefined
@@ -66,6 +69,7 @@ export const videoReader = (file: string) => {
   let bytes = 0
   let waiting: (() => void) | undefined
   let ended = false
+  let ring: { index: number; bytes: Uint8Array }[] = []
   const start = (from: number) => {
     proc?.kill()
     // Software decode, every frame from `from` on, converted by the file's own colour tags.
@@ -119,10 +123,13 @@ export const videoReader = (file: string) => {
   const read = async (index: number): Promise<Uint8Array> => {
     if (!Number.isInteger(index) || index < 0 || index >= info.frames)
       throw new Error(`${file} has frames 0 to ${info.frames - 1}, not ${index}.`)
+    const kept = ring.find((f) => f.index === index)
+    if (kept) return kept.bytes
     if (!proc || index < next) start(index)
     for (;;) {
       while (bytes >= size) {
         const out = take()
+        ring = [{ index: next, bytes: out }, ...ring].slice(0, Math.max(1, keep()))
         if (next++ === index) return out
       }
       if (ended) throw new Error(`${file} ended before frame ${index}.`)
@@ -137,6 +144,7 @@ export const videoReader = (file: string) => {
   const stop = async () => {
     const mine = proc
     proc = undefined
+    ring = []
     chunks = []
     bytes = 0
     if (!mine || mine.exitCode !== null || mine.signalCode !== null) return
@@ -163,9 +171,21 @@ export const videoReader = (file: string) => {
 }
 
 /**
+ * The clips open in this process, each with the hosts using it. Several hosts of one render ask
+ * frames in turn, so one decoder serves them all, keeping two frames a host and one: a frame is
+ * decoded once, not once a host, and one asked a little late (another host's, or the frame a
+ * re-check inspects after the next was asked for) is still there.
+ */
+const shared = new Map<string, { reader: ReturnType<typeof videoReader>; users: Set<object> }>()
+/** The process ids of this process's clip decoders that run now. */
+export const clipDecoders = (): number[] =>
+  [...shared.values()].flatMap((v) => (v.reader.pid === undefined ? [] : [v.reader.pid]))
+
+/**
  * The services for one project: answers each request, or throws. `bakes` are the frames of each
  * bake, checked against its stamp before the source opened (project/bakes.ts): the only files
- * outside the project a host may read.
+ * outside the project a host may read. A clip has one decoder for every host of this process that
+ * opened it (`shared`), and it ends when the last of them closes it.
  */
 export const createServices = (root: string, bakes: BakeFrames = {}) => {
   const baked = (name: string) => {
@@ -175,15 +195,30 @@ export const createServices = (root: string, bakes: BakeFrames = {}) => {
     return frames
   }
   const cacheDir = join(root, '.shaderera', 'cache')
-  const videos = new Map<string, ReturnType<typeof videoReader>>()
+  // This host, and the clips it opened.
+  const me = {}
+  const mine = new Set<string>()
   const video = (path: string) => {
     const file = insideForRead(root, path)
-    let v = videos.get(file)
+    let v = shared.get(file)
     if (!v) {
-      v = videoReader(file)
-      videos.set(file, v)
+      const users = new Set<object>()
+      v = { users, reader: videoReader(file, () => 2 * users.size + 1) }
+      shared.set(file, v)
     }
-    return v
+    v.users.add(me)
+    mine.add(file)
+    return v.reader
+  }
+  const release = async (file: string) => {
+    const v = shared.get(file)
+    mine.delete(file)
+    if (!v) return
+    v.users.delete(me)
+    if (v.users.size === 0) {
+      shared.delete(file)
+      await v.reader.close()
+    }
   }
   const handle = async (r: ServiceRequest): Promise<unknown> => {
     switch (r.op) {
@@ -206,7 +241,7 @@ export const createServices = (root: string, bakes: BakeFrames = {}) => {
       case 'video-frame':
         return video(r.path).frame(r.index)
       case 'video-close':
-        await videos.get(insideForRead(root, r.path))?.close()
+        await release(insideForRead(root, r.path))
         return null
       case 'bake-open':
         return { frames: baked(r.name).length }
@@ -220,6 +255,6 @@ export const createServices = (root: string, bakes: BakeFrames = {}) => {
       }
     }
   }
-  return { handle, close: () => videos.forEach((v) => void v.close()) }
+  return { handle, close: () => [...mine].forEach((f) => void release(f)) }
 }
 export type Services = ReturnType<typeof createServices>
