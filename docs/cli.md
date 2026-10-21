@@ -303,8 +303,13 @@ Exit 1 if `--verify` finds a frame that differs. See [delivery.md](delivery.md#h
 the principal frames, writes them with a contact sheet, and runs the technical checks. The CLI and
 the `review` MCP tool run the same code (`src/review/review.ts`).
 
-- **Frames:** the source's `shots` (inspect, top level), the midpoint between consecutive shots
-  (labelled `transition`) and the last frame; without shots, 7 evenly spaced frames and the last.
+- **Frames:** the source's `shots` (inspect, top level) and the last frame; without shots, 7
+  evenly spaced frames and the last. A shot is a moment `{ id, at }` or a span
+  `{ id, start, end }` (on screen from `start` up to `end`; other fields are ignored, so
+  `motion-shot-list`'s `list.shots` can be returned as is). A moment's frame is `at`, and the
+  `transition` frame between two moments is their midpoint. A span's frame is the middle of the
+  part no neighbouring shot overlaps, and the `transition` frame is the middle of the overlap
+  with the next span; spans that meet at a hard cut have none.
   Each is a full-size PNG plus a thumb at most 1600 px long, in `<root>/out/review/` (a variant:
   `out/review/<variant>/`), with `contact-sheet.png`, labelled `t` and shot.
 - **Requirements:** `requirements.json` in the root, or `--requirements file` (below).

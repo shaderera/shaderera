@@ -16,7 +16,12 @@ export type TextRun = {
    */
   rendered?: { family: string; custom: boolean; glyphs: number }[]
 }
-export type Shot = { id?: string; at: number; label?: string }
+/**
+ * A shot from inspect: a moment `{ id, at }` or a span `{ id, start, end }` (on screen from `start`
+ * up to `end`). `at` is the time review looks at: for a span, the middle of the part no other shot
+ * overlaps.
+ */
+export type Shot = { id?: string; at: number; start?: number; end?: number; label?: string }
 
 const luma = (px: Uint8Array, k: number) =>
   0.2126 * (px[k] as number) + 0.7152 * (px[k + 1] as number) + 0.0722 * (px[k + 2] as number)
@@ -141,13 +146,31 @@ export const textRuns = (json: Json, out: TextRun[] = []): TextRun[] => {
   return out
 }
 
-/** The source's `shots` (top level), sorted by time; [] without them. */
+/** The source's `shots` (top level), `{ id, at }` or `{ id, start, end }`, sorted by time; [] without them. */
 export const shotsOf = (json: Json): Shot[] => {
   const shots = (json as { shots?: unknown } | null)?.shots
   if (!Array.isArray(shots)) return []
-  return shots
-    .filter((s): s is Shot => typeof (s as Shot)?.at === 'number')
-    .sort((a, b) => a.at - b.at)
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+  const out: Shot[] = []
+  for (const s of shots as Record<string, unknown>[]) {
+    if (!s || typeof s !== 'object') continue
+    const id = typeof s.id === 'string' ? { id: s.id } : {}
+    const label = typeof s.label === 'string' ? { label: s.label } : {}
+    if (num(s.start) && num(s.end) && s.end > s.start)
+      out.push({ ...id, ...label, at: s.start, start: s.start, end: s.end })
+    else if (num(s.at)) out.push({ ...id, ...label, at: s.at })
+  }
+  out.sort((a, b) => a.at - b.at)
+  // A span's `at`: the middle of the part the shots either side do not overlap.
+  out.forEach((s, i) => {
+    if (s.start === undefined || s.end === undefined) return
+    const before = out[i - 1]?.end
+    const after = out[i + 1]?.start
+    const from = before !== undefined && before > s.start ? Math.min(before, s.end) : s.start
+    const to = after !== undefined && after < s.end ? Math.max(after, from) : s.end
+    s.at = to > from ? (from + to) / 2 : (s.start + s.end) / 2
+  })
+  return out
 }
 
 export type Margins = { top: number; right: number; bottom: number; left: number }

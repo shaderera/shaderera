@@ -193,8 +193,6 @@ export const readingShort = (
 const judged = (declared: boolean, failing: boolean): Check['status'] =>
   declared ? (failing ? 'fail' : 'pass') : 'info'
 
-/** Frame times (snapped to frames) and labels: shots, midpoints between them and the last frame. */
-
 /** CSS generic families: naming one accepts whatever font the system picks. */
 const GENERIC = new Set([
   'serif',
@@ -212,6 +210,10 @@ const GENERIC = new Set([
   'fangsong',
 ])
 
+/**
+ * Frame times (snapped to frames) and labels: each shot, each transition (the overlap of two spans,
+ * else the midpoint between two moments) and the last frame.
+ */
 export const reviewTimes = (
   shots: readonly Shot[],
   fps: number,
@@ -225,7 +227,11 @@ export const reviewTimes = (
     shots.forEach((s, i) => {
       out.push({ t: snap(s.at), label: s.label ?? s.id ?? `shot ${i + 1}` })
       const next = shots[i + 1]
-      if (next) out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
+      if (!next) return
+      // Spans: the middle of their overlap, or no transition frame at a cut. Moments: the midpoint.
+      if (s.end !== undefined && next.start !== undefined) {
+        if (next.start < s.end) out.push({ t: snap((next.start + s.end) / 2), label: 'transition' })
+      } else out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
     })
   } else {
     for (let i = 0; i < 7; i++) out.push({ t: snap((i * duration) / 7), label: `${i + 1}/7` })

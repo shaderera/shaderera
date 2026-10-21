@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Requirements } from '../project/requirements.ts'
+import { shotsOf } from './measure.ts'
 import { readingShort, review, reviewTimes } from './review.ts'
 
 /** fixtures/mcp's film in memory: a red box that the camera slides left, inspected and pickable. */
@@ -79,6 +80,68 @@ test('review removes frames from an earlier run in its out dir, and nothing else
   } finally {
     await child.close()
   }
+})
+
+test('review takes shot spans from inspect: each shot where it is alone, the transition in the overlap', async () => {
+  const project = memoryProject()
+  // Shots as motion-shot-list places them: a 0.2 s dissolve from 0.4 to 0.6 s, extra fields kept.
+  const shots = [
+    { id: 'open', index: 0, dur: 0.6, transition: 0, start: 0, end: 0.6 },
+    { id: 'close', index: 1, dur: 0.6, transition: 0.2, start: 0.4, end: 1 },
+  ]
+  const child = memoryChild({
+    size: { width: 64, height: 36 },
+    frame: boxFrame(64, 36),
+    inspect: () => ({ shots }),
+  })
+  const outDir = tempDir('review')
+  try {
+    const r = await review({ project, child, outDir, quick: true })
+    assert.deepEqual(
+      r.frames.map((f) => [f.label, f.t]),
+      [
+        ['open', 0.2],
+        ['transition', 0.5],
+        ['close', 0.8],
+        ['last frame', 0.9],
+      ],
+    )
+  } finally {
+    await child.close()
+  }
+})
+
+test('review frames: moments keep the midpoint transition; spans at a hard cut have none', () => {
+  assert.deepEqual(
+    reviewTimes(
+      [
+        { id: 'a', at: 1 },
+        { id: 'b', at: 3 },
+      ],
+      10,
+      4,
+    ).map((f) => [f.label, f.t]),
+    [
+      ['a', 1],
+      ['transition', 2],
+      ['b', 3],
+      ['last frame', 3.9],
+    ],
+  )
+  const cut = shotsOf({
+    shots: [
+      { id: 'b', start: 2, end: 4 },
+      { id: 'a', start: 0, end: 2 },
+    ],
+  })
+  assert.deepEqual(
+    reviewTimes(cut, 10, 4).map((f) => [f.label, f.t]),
+    [
+      ['a', 1],
+      ['b', 3],
+      ['last frame', 3.9],
+    ],
+  )
 })
 
 test('reading time: the longest visible stretch of each text against a declared max(min, characters / rate)', () => {

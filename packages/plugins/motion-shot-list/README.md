@@ -41,6 +41,9 @@ A shot is `{ id, dur, transition?, src?, fps?, in?, speed?, hold? }`, in seconds
 - Before 0 it gives the first shot, past the end the last.
 - `frame` and `leaving` are left out when there is none, not `null`. `inspect` takes JSON only,
   so give it `at.shot.frame ?? null` and `at.leaving?.shot.id ?? null`.
+- `list.shots` is plain data, each shot with its `start` and `end`. Return it as is from
+  `inspect(t)` at the top level, `{ shots: list.shots, ... }`, and `shaderera review` looks at
+  each shot and at each transition's overlap (`docs/cli.md`).
 - `shotList` throws on a list that cannot play, naming the shot: a `dur` of 0, a transition
   longer than either shot or into the first one, three shots on screen at once.
 
