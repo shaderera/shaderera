@@ -313,8 +313,8 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
   against), its title and what it measured. A check that cannot be measured is never a pass.
 - **Only what is declared is judged.** Errors fail always: determinism, readback, missing glyphs,
   failed assets. Craft rules fail only when requirements.json sets them: `endHold`,
-  `readingTime`, `textOverlap`, `noBlankFrames`, `safeArea` (and exact `copy`, which must be inside
-  the frame). Without them those checks report what they measured as info. There are no defaults.
+  `readingTime`, `textOverlap`, `noBlankFrames`, `safeArea`, `captions` (and exact `copy`, which
+  must be inside the frame). Without them those checks report what they measured as info. There are no defaults.
 
 | Check | How it measures |
 |---|---|
@@ -331,6 +331,7 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 | `readback` | when `width * 4` is not a multiple of 256: the hero shot at W×H and at ceil(W/64)·64×H, mean luma difference on a common grid (limit 4); `--quick` skips it |
 | `alpha` | % non-opaque pixels in the principal frames; non-opaque is unknown (diagnostic) |
 | `timing` | each declared `timing` at its frames; none without a declaration |
+| `captions` | the subtitle sidecar (`captions()`): each caption's characters per second, duration, gap to the next, line count, longest line (characters are grapheme clusters, so a Thai syllable with its marks counts once) and overlaps; fails a caption over a declared `requirements.captions` limit; without one, the highest cps, most lines, longest line, shortest duration, smallest gap and overlapping pairs as info. A caption every export refuses (no finite end, such as an LRC cue's last line at `Infinity`) fails it always ([delivery.md](delivery.md#stems-and-captions)) |
 | `textless` | for a `textless` variant: text shown in inspect or the DOM fails it; text drawn without either cannot be seen, and the check says so |
 
 `requirements.json` (`"version": 1`) holds what the person declared, never the film:
@@ -342,6 +343,7 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 | `variants` | the variants that must be delivered, each checked like the main output |
 | `safeArea` | `{ top, right, bottom, left }` margins as fractions: what `text-fit` judges |
 | `endHold`, `readingTime`, `textOverlap`, `noBlankFrames` | the craft rules above; unset, they are info |
+| `captions` | `{ maxCps?, maxLineChars?, maxLines?, minDuration?, minGap? }`: limits on the subtitle sidecar, in grapheme clusters and seconds (an overlap is a negative gap); only the keys set are judged |
 | `timing` | `[{ path, at \| from + to, equals + tolerance \| min \| max \| changes }]`: values at inspect paths, at a time or over a window (every frame). `{ "path": "objects[id=logo].x", "at": 1, "equals": 100 }` lands the logo on the downbeat; `{ …, "from": 1, "to": 3, "changes": false }` holds it |
 | `placements` | the placement each output is delivered to, by variant ([placements](delivery.md#placements)) |
 | `locks` | what must not change: a file, an id, a time (`{ kind: 'time', at, id? }`) or an approved frame (`{ kind: 'frame', at }`). Nothing enforces it: an agent reads it before a change |
@@ -349,7 +351,9 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 
 The report (`--json`) also carries diagnostics, never verdicts: exposure per frame (mean luma, %
 clipped ≥ 250, % crushed ≤ 5), text contrast per run (WCAG ratio from the 10th and 90th luminance
-percentiles in its box), motion (% static samples) and audio (clips and their coverage).
+percentiles in its box), motion (% static samples), audio (clips and their coverage) and captions
+(each caption's `start`, `end`, `duration`, `cps`, `gap`, `lines`, `longestLine`, `overlaps`; null
+without `captions()`).
 
 ```
 ✓ blank frames · 0 of 49 samples (every 0.25 s) flat (luma std-dev < 1) outside the first and last 0.3 s

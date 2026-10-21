@@ -3,6 +3,8 @@ import { test } from 'node:test'
 import type { Json } from '@shaderera/core'
 import {
   blankTimes,
+  captionStats,
+  captionsOver,
   endHold,
   fontFamilies,
   frameStats,
@@ -106,4 +108,65 @@ test('the layout is still when text and camera are, whatever the light does', ()
   assert.notEqual(layoutSignature([{ ...run, box: [104, 200, 300, 40] }], camera), a)
   assert.notEqual(layoutSignature([{ ...run, opacity: 0.5 }], camera), a)
   assert.notEqual(layoutSignature([run], { ...camera, view: [1, 0, 0, 0.31] }), a)
+})
+
+/** Three captions: English, two lines of Thai (18 grapheme clusters, 22 UTF-16 units) and one overlapping it. */
+const CAPTIONS = [
+  { start: 0, end: 2, text: 'Hello world' },
+  { start: 2.5, end: 3.5, text: 'ส่งตรงจากสวน\nถึงบ้านคุณ' },
+  { start: 3.4, end: 5, text: 'Bye' },
+]
+
+test('captionStats: cps, duration, gap, lines and longest line in grapheme clusters, overlaps', () => {
+  const s = captionStats(CAPTIONS)
+  assert.deepEqual(
+    s.map((c) => [c.index, c.duration, c.cps, c.gap, c.lines, c.longestLine, c.overlaps]),
+    [
+      [0, 2, 5.5, 0.5, 1, 11, []],
+      [1, 1, 18, 3.4 - 3.5, 2, 11, [2]],
+      [2, 1.6, 3 / 1.6, null, 1, 3, [1]],
+    ],
+  )
+  assert.ok(s.every((c) => c.refused === undefined))
+})
+
+test('captionsOver: a declared maxCps fails exactly the caption over it; minGap fails an overlap', () => {
+  const s = captionStats(CAPTIONS)
+  assert.deepEqual(
+    captionsOver(s, { maxCps: 17 }).map((c) => [c.index, c.why]),
+    [[1, ['18 cps > 17']]],
+  )
+  assert.deepEqual(
+    captionsOver(s, { minGap: 0.08, maxLines: 1, maxLineChars: 10, minDuration: 1.5 }).map((c) => [
+      c.index,
+      c.why,
+    ]),
+    [
+      [0, ['a line of 11 characters > 10']],
+      [
+        1,
+        [
+          'a line of 11 characters > 10',
+          '2 lines > 1',
+          '1 s < 1.5 s',
+          'overlaps the next by 0.1 s',
+        ],
+      ],
+    ],
+  )
+  assert.deepEqual(captionsOver(s, {}), [])
+})
+
+test('captionStats: an LRC cue ending at Infinity is an open end, not a crash', () => {
+  const s = captionStats([
+    { start: 0, end: 1, text: 'one' },
+    { start: 1, end: Number.POSITIVE_INFINITY, text: 'last' },
+  ])
+  assert.deepEqual(s[1] && [s[1].end, s[1].duration, s[1].cps, s[1].gap], [null, null, null, null])
+  assert.match(s[1]?.refused ?? '', /no end \(end: Infinity, as an LRC/)
+  assert.equal(s[0]?.gap, 0)
+  assert.deepEqual(
+    captionsOver(s, { maxCps: 1, minDuration: 5 }).map((c) => c.index),
+    [0],
+  )
 })
