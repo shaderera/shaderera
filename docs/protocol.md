@@ -443,6 +443,11 @@ Captions in composition seconds; `\n` breaks a line. Every export writes them as
 sidecars, cut to its window; they are never drawn into the frame. Burned-in text is the film's own
 drawing.
 
+Each caption needs a finite start before its end. Cues read with `text-timed-cues` are captions as
+they are, once an LRC's last line, which ends at `Infinity`, is ended with the film; its README
+shows how. Review measures the captions against the limits requirements.json declares
+([delivery.md](delivery.md#stems-and-captions)).
+
 ### progressive and depth
 
 - **`final: false`** on a layer says "this is a preview, call me again". Final means converged by

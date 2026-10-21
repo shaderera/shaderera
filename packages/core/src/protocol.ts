@@ -400,6 +400,8 @@ export type AudioClip = {
 /**
  * One caption: text shown from `start` to `end`, in seconds of the composition. The host writes
  * the captions as SRT and WebVTT sidecars beside an export; they are never drawn into the frame.
+ * `end` is finite and after `start` (an LRC cue from `text-timed-cues` ends at `Infinity` until
+ * the film ends it). Review measures captions against requirements.json (docs/delivery.md).
  */
 export type Caption = {
   readonly start: number
