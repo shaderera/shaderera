@@ -288,7 +288,7 @@ export type CaptionLimits = {
   minGap?: number
 }
 
-/** One caption measured; `index` is its place in what `captions()` gave. */
+/** One caption measured; `index` is its number in what `captions()` gave, from 1 as SRT and WebVTT number cues. */
 export type CaptionStat = {
   index: number
   start: number
@@ -301,10 +301,29 @@ export type CaptionStat = {
   gap: number | null
   lines: number
   longestLine: number
-  /** The indexes of the other captions on screen at the same time. */
+  /** The numbers (`index`) of the other captions on screen at the same time. */
   overlaps: number[]
   /** Why every export refuses this caption (render and deliver write no sidecar with it). */
   refused?: string
+}
+
+const words = new Intl.Segmenter(undefined, { granularity: 'word' })
+
+/**
+ * Copy as a review quotes it: whitespace collapsed, and past `max` characters cut at the last word
+ * boundary that fits, with an ellipsis (Thai, written without spaces, still breaks between words).
+ */
+export const excerpt = (text: string, max: number) => {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat.length <= max) return flat
+  let cut = 0
+  for (const { index } of words.segment(flat)) {
+    if (index > max - 1) break
+    cut = index
+  }
+  // One word longer than max: no boundary to cut at, so quote it whole.
+  if (cut === 0) return flat
+  return `${flat.slice(0, cut).replace(/[\s\p{P}]+$/u, '')}…`
 }
 
 /** Grapheme clusters: a Thai syllable with its vowel and tone marks counts as what a reader sees. */
@@ -338,7 +357,7 @@ export const captionStats = (captions: readonly unknown[]): CaptionStat[] => {
               ? 'ends before it starts'
               : undefined
     return {
-      index,
+      index: index + 1,
       start,
       end,
       text,
