@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
@@ -11,6 +19,7 @@ import {
   restore,
   save,
   scan,
+  scanProject,
   undo,
 } from './revisions.ts'
 
@@ -147,4 +156,40 @@ test('a revision and an object are checked before they are trusted', () => {
   writeFileSync(join(root, 'src', 'a.ts'), 'edited\n')
   assert.throws(() => restore(root, base.id), /corrupt/)
   assert.equal(read(root, 'src/a.ts'), 'edited\n')
+})
+
+test('a scan hashes again only the files whose size, time or inode changed, never a racy one', () => {
+  const root = project()
+  const a = join(root, 'src', 'a.ts')
+  const b = join(root, 'src', 'b.ts')
+  // Times an hour old: well before the moment they are hashed.
+  const old = Date.now() / 1000 - 3600
+  utimesSync(a, old, old)
+  utimesSync(b, old, old)
+  const first = scanProject(root)
+  assert.deepEqual(first, scan(root))
+  assert.ok(existsSync(join(root, '.shaderera', 'hashes.json')))
+
+  // The same size and the same time: the remembered hash is used, so the file is not read.
+  writeFileSync(a, 'export const headline = "Two"\n')
+  utimesSync(a, old, old)
+  assert.equal(scanProject(root)['src/a.ts'], first['src/a.ts'])
+
+  // Another time: hashed again.
+  utimesSync(a, old + 1, old + 1)
+  assert.equal(scanProject(root)['src/a.ts'], scan(root)['src/a.ts'])
+
+  // Racy: modified in the tick it was hashed, then edited to the same size and time.
+  const now = Date.now() / 1000
+  utimesSync(b, now, now)
+  const racy = scanProject(root)
+  writeFileSync(b, 'export const color = "#000"\n')
+  utimesSync(b, now, now)
+  assert.notEqual(scanProject(root)['src/b.ts'], racy['src/b.ts'])
+  assert.equal(scanProject(root)['src/b.ts'], scan(root)['src/b.ts'])
+
+  // A broken store of hashes: everything is hashed, as without one.
+  writeFileSync(join(root, '.shaderera', 'hashes.json'), '{')
+  assert.deepEqual(scanProject(root), scan(root))
+  assert.equal(save(root).files['src/a.ts'], scan(root)['src/a.ts'])
 })

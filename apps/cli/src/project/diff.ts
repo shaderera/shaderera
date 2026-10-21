@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createTwoFilesPatch } from 'diff'
-import { changedFiles, type Files, fileAt, readRevision, scan } from './revisions.ts'
+import { changedFiles, type Files, fileAt, readRevision, scanProject } from './revisions.ts'
 
 const TEXT = /\.(ts|tsx|js|mjs|cjs|json|md|txt|css|html|svg|glsl|wgsl)$/i
 
@@ -15,7 +15,7 @@ export const diffRevisions = (
   b?: string,
 ): { added: string[]; removed: string[]; changed: string[]; patch: string } => {
   const from = readRevision(root, a).files
-  const to: Files = b ? readRevision(root, b).files : scan(root)
+  const to: Files = b ? readRevision(root, b).files : scanProject(root)
   const files = changedFiles(from, to)
   const textAt = (rev: string | undefined, path: string): string => {
     if (rev) return fileAt(root, rev, path)?.toString('utf8') ?? ''

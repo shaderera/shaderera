@@ -185,7 +185,10 @@ Every file says which revision made it. `render` saves the project first, as `jo
 files give the same id, so nothing new is saved when nothing changed); `render --job` uses the
 job's revision and saves nothing. The id is printed (`revision: <id>`) and written into the file
 as its `shaderera_revision` tag, which `ffprobe -show_entries format_tags` shows; `deliver` tags
-its files with their job's revision too.
+its files with their job's revision too. A save hashes again only the files whose size,
+modification time or inode changed since the last one (`.shaderera/hashes.json`, as git's index
+does), and always a file modified within 2 s of when it was last hashed: on a project of several GB
+of footage it takes a moment, not the time to read all of it.
 
 | Flag | Default |
 |---|---|

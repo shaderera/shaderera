@@ -11,6 +11,7 @@ import {
   readSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
@@ -210,6 +211,60 @@ const writeAtomic = (file: string, data: Uint8Array | string) => {
   renameSync(tmp, file)
 }
 
+/** Where the project's own hasher remembers what it hashed: this machine's, never in a revision. */
+const HASHES = join('.shaderera', 'hashes.json')
+/** How close to the moment it was hashed a file's time must be for it to be hashed again. */
+const RACY_NS = 2_000_000_000n
+
+/**
+ * A hasher for the project's files that hashes a file again only when its size, modification time
+ * (in ns) or inode changed since it was last hashed, as git's index does; `write()` keeps what it
+ * hashed in `.shaderera/hashes.json` for the next scan. A file modified within `RACY_NS` of the
+ * moment it was hashed is hashed again, since an edit in that same tick would leave its size and
+ * time as they were. A missing or unreadable file means every file is hashed.
+ */
+export const projectHasher = (root: string) => {
+  const file = join(root, HASHES)
+  type Entry = [size: string, mtime: string, ino: string, sha: string, hashed: string]
+  let known: { [file: string]: Entry } = {}
+  try {
+    known = (JSON.parse(readFileSync(file, 'utf8')) as { files: typeof known }).files ?? {}
+  } catch {}
+  const seen: { [file: string]: Entry } = {}
+  return {
+    hash: (full: string): string => {
+      const s = statSync(full, { bigint: true })
+      const path = slash(relative(root, full))
+      const was = known[path]
+      if (
+        was &&
+        was[0] === String(s.size) &&
+        was[1] === String(s.mtimeNs) &&
+        was[2] === String(s.ino) &&
+        s.mtimeNs + RACY_NS < BigInt(was[4])
+      ) {
+        seen[path] = was
+        return was[3]
+      }
+      const hashed = BigInt(Date.now()) * 1_000_000n
+      const sha = hashFile(full)
+      seen[path] = [String(s.size), String(s.mtimeNs), String(s.ino), sha, String(hashed)]
+      return sha
+    },
+    write: () => writeAtomic(file, JSON.stringify({ files: seen })),
+  }
+}
+
+/** The project's files as they are now, hashing only those changed since the last scan of it. */
+export const scanProject = (root: string, left?: Parameters<typeof scan>[1]): Files => {
+  const hasher = projectHasher(root)
+  const files = scan(root, left, undefined, hasher.hash)
+  try {
+    hasher.write()
+  } catch {}
+  return files
+}
+
 /**
  * Saves the working tree as a revision and returns it; the same files return the revision that
  * holds them, `existing`, with its own label and note (a new label is only logged, when given or
@@ -219,7 +274,7 @@ export const save = (
   root: string,
   o: { by: By; label?: string; note?: string } = { by: 'person' },
 ): Revision & { existing: boolean } => {
-  const files = scan(root)
+  const files = scanProject(root)
   const id = treeId(files)
   const objects = join(store(root), 'objects')
   mkdirSync(objects, { recursive: true })
