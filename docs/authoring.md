@@ -64,7 +64,8 @@ What is on the shelf:
   - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking;
   - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
   - `render-three-host`: three.js on the host's GPU;
-  - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
+  - `render-three-textures`: images from `io.image` as three.js textures and atlases;
+  - `image-to-png`: WebP, AVIF, GIF and video frames converted to PNG once (ffmpeg);
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;

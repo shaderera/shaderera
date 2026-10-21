@@ -129,7 +129,7 @@ it, before any frame.
 - `io.image` decodes PNG and JPEG in JavaScript (fast-png, jpeg-js) in both hosts, never with a
   canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the file's
   sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. Once per file in a host. Other formats
-  are converted to PNG once (the plugin `render-image-textures` has the tool).
+  are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with
   ffmpeg (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over;
   frames read in order stream. One decoder serves every Node host of a render: a frame is decoded
