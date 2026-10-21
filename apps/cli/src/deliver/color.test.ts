@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, statSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { ffmpegArgs, ffmpegSink, type Quality } from '../cli/ffmpeg.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { chartFrame, decodeFirstFrame, patchErrors, probeColor } from './fixtures/chart.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
-const dir = mkdtempSync(join(tmpdir(), 'shaderera-chart-'))
+const dir = tempDir('chart')
 
 const encode = async (args: string[], frames = 10) => {
   const { pixels } = chartFrame()

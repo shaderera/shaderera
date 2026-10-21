@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { createJob, openJob } from '../project/jobs.ts'
 import { review } from '../review/review.ts'
 import { openBrowserChild } from './browser.ts'
@@ -70,7 +70,7 @@ test('a hung source fails the call after timeoutMs and closes Chrome', async () 
 })
 
 test("a job opens in the manifest's host with its revision's own DOM, not the live one", async () => {
-  const root = join(mkdtempSync(join(tmpdir(), 'shaderera-dom-job-')), 'film')
+  const root = join(tempDir('dom-job'), 'film')
   cpSync(project.root, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
   const job = await createJob(root, { by: 'cli', name: 'dom' })
   assert.equal(job.host, 'browser')
@@ -128,7 +128,7 @@ test('the host measures the DOM text: boxes, opacity, and the fonts that drew it
     const r = await review({
       project,
       child,
-      outDir: mkdtempSync(join(tmpdir(), 'shaderera-dom-review-')),
+      outDir: tempDir('dom-review'),
       requirements: { version: 1, copy: [{ text: 'Open เปิด' }] },
       quick: true,
     })

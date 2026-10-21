@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import type { Child } from '../node/child.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Project } from '../node/project.ts'
@@ -13,7 +13,7 @@ import { exportFinishing } from './finishing.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const fixture = (name: string) => {
-  const root = mkdtempSync(join(tmpdir(), `shaderera-${name}-`))
+  const root = tempDir(name)
   cpSync(fileURLToPath(new URL(`../cli/fixtures/${name}/`, import.meta.url)), root, {
     recursive: true,
   })

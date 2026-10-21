@@ -290,6 +290,10 @@ Chrome: the ffmpeg tests skip without ffmpeg, but the GPU and browser-host tests
 GPU and Chrome (`CHROME` names another Chrome). A test that needs none of them goes in a
 `*.test.ts` file.
 
+The root `pnpm test`, `test:slow` and `test:all` point the temp folder at one of the run's own and
+fail if a test left a `shaderera-*` folder in it. A CLI test makes its temp folder with `tempDir`
+(`apps/cli/src/fixtures/temp.ts`), which removes it after the test.
+
 [CLAUDE.md](CLAUDE.md) is the short guide for agents working on this repository.
 `.claude/skills/` holds third-party engineering skills copied for contributors' agents (ponytail
 and mattpocock/skills, listed in [.claude/skills/SOURCES.md](.claude/skills/SOURCES.md));

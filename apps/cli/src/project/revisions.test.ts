@@ -2,16 +2,15 @@ import assert from 'node:assert/strict'
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   rmSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import {
   changedFiles,
   head,
@@ -25,7 +24,7 @@ import {
 } from './revisions.ts'
 
 const project = () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-rev-'))
+  const root = tempDir('rev')
   mkdirSync(join(root, 'src'))
   mkdirSync(join(root, 'node_modules', 'x'), { recursive: true })
   mkdirSync(join(root, 'out'))
@@ -111,7 +110,7 @@ test('materialize writes a frozen copy that later edits do not touch', () => {
 test('a revision never stores or writes through a link, so restore cannot reach outside the project', () => {
   const root = project()
   // An outside folder, linked into the project as a directory junction.
-  const outside = mkdtempSync(join(tmpdir(), 'shaderera-outside-'))
+  const outside = tempDir('outside')
   writeFileSync(join(outside, 'marker.txt'), 'original\n')
   symlinkSync(outside, join(root, 'linked'), 'junction')
   // An internal link to the project's own folder, which would be a cycle if followed.

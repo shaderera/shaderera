@@ -94,7 +94,7 @@ export const playerFiles = (dir: string): Files => {
  * loop (`media`, their files), makes the film when there is none yet, and posts `{ files, player,
  * licence, shaderera, poster?, loop? }`. A site that refuses a version without a player says so,
  * and that error is the share's. The url is the film's page: the response's `page`, else
- * `<site>/f/<film>`; never its `url`, which is the player's runner.
+ * shaderera.com's `/film/<film>`, the only film page; never its `url`, which is the player's runner.
  */
 export const send = async (o: {
   site: string
@@ -159,7 +159,7 @@ export const send = async (o: {
   return {
     film,
     version: made.version,
-    url: made.page ?? `${site}/f/${film}`,
+    url: made.page ?? `${DEFAULT_SITE}/film/${film}`,
     uploaded: missing.length,
     objects: fileOf.size,
   }

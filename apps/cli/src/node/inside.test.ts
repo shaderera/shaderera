@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import { inside, insideForRead } from './inside.ts'
 
 test('inside keeps paths in the project, also through links', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'shaderera-inside-'))
+  const dir = tempDir('inside')
   const root = join(dir, 'project')
   mkdirSync(join(root, 'src'), { recursive: true })
   writeFileSync(join(root, 'src', 'a.ts'), '')
@@ -21,7 +21,7 @@ test('inside keeps paths in the project, also through links', () => {
 })
 
 test('insideForRead also reads an installed package linked from a store, and nothing else', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'shaderera-inside-'))
+  const dir = tempDir('inside')
   const root = join(dir, 'project')
   const store = join(dir, 'store', 'node_modules', 'pkg')
   mkdirSync(join(root, 'node_modules'), { recursive: true })

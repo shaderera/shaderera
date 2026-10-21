@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { encode as encodePng } from 'fast-png'
 import jpeg from 'jpeg-js'
+import { tempDir } from '../fixtures/temp.ts'
 import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
 import { type Child, openChild } from './child.ts'
@@ -16,7 +16,7 @@ import { findProject } from './project.ts'
  * io.image, io.video and io.cache, in the Node host and the browser host:
  * the same bytes in both. Needs ffmpeg and Chrome; without them this fails, it does not skip.
  */
-const root = mkdtempSync(join(tmpdir(), 'shaderera-ports-'))
+const root = tempDir('ports')
 mkdirSync(join(root, 'src'))
 mkdirSync(join(root, 'assets'))
 // A 16-bit PNG with alpha, and a JPEG.

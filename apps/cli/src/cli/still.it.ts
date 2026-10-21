@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
+import { tempDir } from '../fixtures/temp.ts'
 
 test('still --compare: each t beside the other variant, with PSNR and mean ΔE, in text, --json and --sheet', () => {
   const main = fileURLToPath(new URL('./main.ts', import.meta.url))
   const root = fileURLToPath(new URL('./fixtures/params/', import.meta.url))
-  const out = mkdtempSync(join(tmpdir(), 'shaderera-compare-'))
+  const out = tempDir('compare')
   const still = (...args: string[]) =>
     spawnSync(process.execPath, [main, 'still', ...args, '--root', root, '--out', out], {
       encoding: 'utf8',
@@ -53,7 +53,7 @@ test('still --compare: each t beside the other variant, with PSNR and mean ΔE, 
 
 test('a variant named what a file name cannot hold (16:9, a/b) still writes into out/stills', () => {
   const main = fileURLToPath(new URL('./main.ts', import.meta.url))
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-names-'))
+  const root = tempDir('names')
   cpSync(fileURLToPath(new URL('./fixtures/mcp/', import.meta.url)), root, { recursive: true })
   const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
   const variants = { '16:9': { duration: 0.5 }, 'a/b': { duration: 0.5 } }

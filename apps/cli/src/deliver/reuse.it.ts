@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
@@ -36,7 +36,7 @@ export default open
 test('a job rendered from an earlier plan and its changed spans is the file a full render gives', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-reuse-'))
+  const root = tempDir('reuse')
   cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
     recursive: true,
   })
@@ -145,7 +145,7 @@ const sequential = (edit: number) => `export default ({ manifest }) => {
 test('a changed span of a sequential source reaches forward by its lookback', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
-  const root = mkdtempSync(join(tmpdir(), 'shaderera-reuse-'))
+  const root = tempDir('reuse')
   cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
     recursive: true,
   })
