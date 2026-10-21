@@ -32,4 +32,4 @@ return { captions: captions.inspect(t) }
 `u` how far its hold has gone, 0 to 1. Drawing is unchanged: `captions(ctx, W, H, t, frame)`.
 
 Keep the bang clear: put no caption over the biggest moment of the music. Built on
-`text-kinetic` and `format-safe-areas`, which `add` copies in with it.
+`text-scramble`, `text-fit` and `format-safe-areas`, which `add` copies in with it.

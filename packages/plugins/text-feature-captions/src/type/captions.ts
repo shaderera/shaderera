@@ -5,7 +5,8 @@
 
 import type { Json } from '@shaderera/core'
 import { type Platform, safeArea } from '../layout/frame.ts'
-import { decoded, fitSize, glitched, hollow } from './kinetic.ts'
+import { fitSize } from './fit.ts'
+import { decoded, glitched, hollow } from './scramble.ts'
 
 type Ctx = OffscreenCanvasRenderingContext2D
 

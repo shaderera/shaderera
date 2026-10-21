@@ -1,0 +1,24 @@
+{
+  "caption": "Sizes text to a width, wraps it into lines between words, Thai too, and measures it tracked.",
+  "states": [
+    {
+      "id": "all",
+      "label": "All"
+    },
+    {
+      "id": "fit",
+      "label": "Fit"
+    },
+    {
+      "id": "wrap",
+      "label": "Wrap"
+    },
+    {
+      "id": "track",
+      "label": "Track"
+    }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 2.9
+}

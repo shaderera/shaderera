@@ -60,6 +60,7 @@ What is on the shelf:
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
+  - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking;
   - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
   - `render-three-host`: three.js on the host's GPU;
   - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
@@ -76,7 +77,7 @@ What is on the shelf:
   - `asset-provenance`: where each outside file came from, the ASSETS.md table and the credits.
 - **Looks, motion and sound design** are added only when the person asks: `look-blur`,
   `look-screen-passes`, `look-paper-edges`, `look-row-glitch`, `look-film-grain`,
-  `look-tonemap`, `look-vignette`, `text-kinetic`, `text-feature-captions`, `text-code-wall`,
+  `look-tonemap`, `look-vignette`, `text-scramble`, `text-feature-captions`, `text-code-wall`,
   `text-glyph-morph`, `motion-keyframes`, `camera-keyframes`, `camera-shake`, `camera-ken-burns`,
   `format-safe-areas`, `format-broadcast-slate`, `audio-hall-ending`, `audio-voice-repace`.
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
