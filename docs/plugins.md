@@ -11,10 +11,10 @@ A person or their agent searches plugins, adds what fits, and owns the result as
 To write one, see [plugin-guide.md](plugin-guide.md). Every command is part of `shaderera`:
 
 ```
-npx shaderera search "glitch captions"         # full-text over names, descriptions and code
+npx shaderera search "glitch titles"           # full-text over names, descriptions and code
 npx shaderera search widenFov --type component # also --category c, --tag x, --json
-npx shaderera info text-feature-captions       # licence, what it copies and is built on, README
-npx shaderera add text-feature-captions        # copies its files, and what it is built on
+npx shaderera info text-glitch-titles          # licence, what it copies and is built on, README
+npx shaderera add text-glitch-titles           # copies its files, and what it is built on
 npx shaderera add @shaderera/music@^0.1        # a package plugin: installed, and required
 npx shaderera remove @shaderera/music          # uninstalled, and no longer required
 npx shaderera publish path/to/plugin --from <folder>

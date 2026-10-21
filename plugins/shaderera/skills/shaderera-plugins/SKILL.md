@@ -27,9 +27,9 @@ Search in the words of their need, not of a guessed name:
 
 ```
 npx shaderera search "beat sync"
-npx shaderera search "glitch captions" --type component
+npx shaderera search "glitch titles" --type component
 npx shaderera search widenFov             # code too: exported names, WGSL functions, doc comments
-npx shaderera info text-feature-captions  # licence, what it copies, what it is built on, how to use it
+npx shaderera info text-glitch-titles     # licence, what it copies, what it is built on, how to use it
 ```
 
 Show them what you found and let them choose. Always read `info` before adding. It ends with the
@@ -39,7 +39,7 @@ engine's licence is separate from any plugin's), and what it is built on.
 ## 2. When the person asks you to add one
 
 ```
-npx shaderera add text-feature-captions  # copies src/type/captions.ts, and what it is built on
+npx shaderera add text-glitch-titles     # copies src/type/titles.ts, and what it is built on
 npx shaderera add audio-beat-clock
 npx shaderera add font-ibm-plex-mono     # media: files under assets/
 ```

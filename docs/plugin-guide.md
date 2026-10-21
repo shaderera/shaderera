@@ -40,22 +40,22 @@ text-scramble/
 
 `shaderera.item.json` says what the plugin is and what it needs. It is for finding plugins and
 resolving requirements only: no host reads it to render, so nothing in it may change a frame.
-`text-feature-captions`:
+`text-glitch-titles`:
 
 ```json
 {
-  "name": "text-feature-captions",
+  "name": "text-glitch-titles",
   "type": "component",
-  "title": "Feature captions",
+  "title": "Glitch titles",
   "description": "Huge titles with a small note, several to a scene, swapping on the beat through ASCII noise, each placed anew in one of four layouts inside the safe area",
   "category": "Typography",
-  "tags": ["captions", "titles", "lower thirds", "glitch", "launch", "feature list", "kinetic typography"],
-  "version": "0.2.0",
+  "tags": ["titles", "title cards", "glitch", "launch", "feature list", "kinetic typography"],
+  "version": "0.1.0",
   "licence": "MIT",
   "requires": {
-    "items": { "text-scramble": "^0.1.0", "text-fit": "^0.1.0", "format-safe-areas": "^0.1.0" }
+    "items": { "text-scramble": "^0.1.0", "text-fit": "^0.1.0", "format-safe-areas": "^0.2.0" }
   },
-  "files": ["src/type/captions.ts"]
+  "files": ["src/type/titles.ts"]
 }
 ```
 
@@ -112,7 +112,7 @@ Put each file at the path a project should get it, since `add` copies it there:
 - fonts in `assets/fonts/`, with their licence text beside them;
 - data in the folder the tools read it from (`delivery/placements.json`).
 
-A plugin built on another imports it where that one lands: `text-feature-captions` has
+A plugin built on another imports it where that one lands: `text-glitch-titles` has
 `import { decoded } from './scramble.ts'` and requires `text-scramble`. `add` never replaces a file
 the project already has, so give files names that will not collide.
 

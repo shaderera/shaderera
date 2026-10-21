@@ -50,8 +50,8 @@
           "review-picture-reuse",
           "review-shots",
           "text-code-wall",
-          "text-feature-captions",
           "text-fit",
+          "text-glitch-titles",
           "text-glyph-morph",
           "text-glyph-outlines",
           "text-glyph-points",
@@ -530,41 +530,6 @@
         "state": "default"
       }
     },
-    "text-feature-captions": {
-      "label": "text-feature-captions · all",
-      "params": {
-        "item": "text-feature-captions",
-        "state": "all"
-      }
-    },
-    "text-feature-captions.edge": {
-      "label": "text-feature-captions · edge",
-      "params": {
-        "item": "text-feature-captions",
-        "state": "edge"
-      }
-    },
-    "text-feature-captions.split": {
-      "label": "text-feature-captions · split",
-      "params": {
-        "item": "text-feature-captions",
-        "state": "split"
-      }
-    },
-    "text-feature-captions.column": {
-      "label": "text-feature-captions · column",
-      "params": {
-        "item": "text-feature-captions",
-        "state": "column"
-      }
-    },
-    "text-feature-captions.spine": {
-      "label": "text-feature-captions · spine",
-      "params": {
-        "item": "text-feature-captions",
-        "state": "spine"
-      }
-    },
     "text-fit": {
       "label": "text-fit · all",
       "params": {
@@ -591,6 +556,41 @@
       "params": {
         "item": "text-fit",
         "state": "track"
+      }
+    },
+    "text-glitch-titles": {
+      "label": "text-glitch-titles · all",
+      "params": {
+        "item": "text-glitch-titles",
+        "state": "all"
+      }
+    },
+    "text-glitch-titles.edge": {
+      "label": "text-glitch-titles · edge",
+      "params": {
+        "item": "text-glitch-titles",
+        "state": "edge"
+      }
+    },
+    "text-glitch-titles.split": {
+      "label": "text-glitch-titles · split",
+      "params": {
+        "item": "text-glitch-titles",
+        "state": "split"
+      }
+    },
+    "text-glitch-titles.column": {
+      "label": "text-glitch-titles · column",
+      "params": {
+        "item": "text-glitch-titles",
+        "state": "column"
+      }
+    },
+    "text-glitch-titles.spine": {
+      "label": "text-glitch-titles · spine",
+      "params": {
+        "item": "text-glitch-titles",
+        "state": "spine"
       }
     },
     "text-glyph-morph": {

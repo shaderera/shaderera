@@ -58,10 +58,10 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `review-picture-reuse` | component | the shots of a video that show a picture already seen, a crop, zoom or pan counting, as analysis data from `review-shots`' shots; ORB and a RANSAC homography in OpenCV | the taste-to-plugins film's no-repeated-pictures check |
 | `review-shots` | component | any video measured shot by shot as analysis data (cuts, dissolves included, camera move, levels, colour), with contact sheets; PySceneDetect, TransNet V2 (in numpy) and OpenCV | the taste-to-plugins film's reference measurements |
 | `text-code-wall` | component | the project's own source as a scrolling, glitching wall under a claim | opening film |
-| `text-feature-captions` | component | big captions that swap through ASCII noise, in four layouts | opening film |
 | `text-fit` | component | text measured in a width on Canvas2D: the size that fits, greedy word wrap by Intl.Segmenter (Thai too), a line's width at a tracking | split from `text-kinetic`; fit, wrap and tracking several films wrote again |
 | `text-glyph-morph` | component | one glyph outline or word morphing into another, letter by letter or whole: contours resampled and paired, holes grown from points | the font previews' morph, made its own plugin |
 | `text-glyph-outlines` | component | a font's outlines as contours, fills and extruded solids (opentype.js, earcut): per glyph, deterministic | research for 0.1.0 |
+| `text-glitch-titles` | component | big title cards drawn into the frame, swapping through ASCII noise, in four layouts | opening film (was `text-feature-captions`) |
 | `text-glyph-points` | component | text as a point set, for particles that form words | opening film |
 | `text-scramble` | component | scramble, decode, band glitch: Canvas2D text primitives | opening film (was `text-kinetic`) |
 | `text-timed-cues` | component | lyrics and subtitles read from LRC, SRT, VTT and Whisper or STT JSON; the line and the word at render time | split from `audio-beat-clock`; later in-house films |

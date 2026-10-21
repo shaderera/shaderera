@@ -1,21 +1,21 @@
-// text-feature-captions: the plugin's captions on plain black, eight to a loop, one every two
-// beats at 160 BPM, its notes in Instrument Serif Italic as the house style sets them. Everything
-// in the picture is the plugin's: the titles, the notes, the running count, the hollow numeral,
-// the hairlines and the edge layout's ruler. In the 'all' state each caption is set in the next
-// of the four layouts (edge, split, column, spine); a state keeps every caption in one. The
-// captions run from a loop before to a loop after, so every change, the seam included, is the
-// plugin's swap through ASCII noise.
+// text-glitch-titles: the plugin's titles on plain black, eight to a loop, one every two beats
+// at 160 BPM, its notes in Instrument Serif Italic as the house style sets them. Everything in
+// the picture is the plugin's: the titles, the notes, the running count, the hollow numeral, the
+// hairlines and the edge layout's ruler. In the 'all' state each title is set in the next of the
+// four layouts (edge, split, column, spine); a state keeps every title in one. The titles run
+// from a loop before to a loop after, so every change, the seam included, is the plugin's swap
+// through ASCII noise.
 
 import { createHouse, SERIF } from '../../previews/src/house.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
-import type { Layout } from '../../previews/src/type/captions.ts'
-import { createCaptions } from '../../previews/src/type/captions.ts'
+import type { Layout } from '../../previews/src/type/titles.ts'
+import { createTitles } from '../../previews/src/type/titles.ts'
 
 const SWAP = (2 * 60) / 160
 const PICTURE = 904
 const ITEMS: [string, string][] = [
   ['HUGE TITLES', 'a small note beside each'],
-  ['ON THE BEAT', 'two beats a caption'],
+  ['ON THE BEAT', 'two beats a title'],
   ['THROUGH NOISE', 'every swap decodes in ASCII'],
   ['FOUR LAYOUTS', 'edge, split, column, spine'],
   ['SAFE AREA', 'inside the title-safe margins'],
@@ -31,17 +31,17 @@ const LAYOUTS: Record<string, Layout[]> = {
   spine: ['spine'],
 }
 
-const textFeatureCaptions: OpenPreview = async (host, stateId) => {
+const textGlitchTitles: OpenPreview = async (host, stateId) => {
   const layouts = LAYOUTS[stateId]
-  if (!layouts) throw new Error(`text-feature-captions has no state "${stateId}"`)
+  if (!layouts) throw new Error(`text-glitch-titles has no state "${stateId}"`)
   const { width, height, duration } = host.manifest
   const canvas = host.io.canvas(width, height)
   const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
   const theme = createHouse(host, ctx)
   const picture = host.io.canvas(width, PICTURE)
   const pctx = picture.getContext('2d') as OffscreenCanvasRenderingContext2D
-  const captions = createCaptions({
-    captions: [{ id: 'features', from: -duration, to: 2 * duration, items: ITEMS }],
+  const titles = createTitles({
+    titles: [{ id: 'features', from: -duration, to: 2 * duration, items: ITEMS }],
     fonts: { title: `"${FONT.monoBold}"`, small: `"${FONT.mono}"`, note: `"${SERIF}"` },
     swap: SWAP,
     layouts,
@@ -55,9 +55,9 @@ const textFeatureCaptions: OpenPreview = async (host, stateId) => {
 
   return {
     async render(t, o) {
-      // The captions above the caption band, as the README calls them, on a cleared layer.
+      // The titles above the caption band, as the README calls them, on a cleared layer.
       pctx.clearRect(0, 0, width, PICTURE)
-      captions(pctx, width, PICTURE, t, o.frame)
+      titles(pctx, width, PICTURE, t, o.frame)
       ctx.fillStyle = '#000'
       ctx.fillRect(0, 0, width, height)
       ctx.drawImage(picture, 0, 0)
@@ -79,15 +79,15 @@ const textFeatureCaptions: OpenPreview = async (host, stateId) => {
       const s = state(t)
       const [title, note] = ITEMS[s.index] ?? ['', '']
       return {
-        id: 'caption',
+        id: 'title',
         index: s.index,
         layout: s.layout,
         title,
         note,
-        captions: captions.inspect(t),
+        titles: titles.inspect(t),
       }
     },
   }
 }
 
-export default textFeatureCaptions
+export default textGlitchTitles
