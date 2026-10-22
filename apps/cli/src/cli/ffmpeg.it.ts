@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import {
   ffmpegArgs,
   hasEditList,
   hasHevcNvenc,
+  hasNvenc,
   hdr10Args,
   hdr10Problem,
   measureLoudness,
+  nvencFile,
   probe,
 } from './ffmpeg.ts'
 import { openMix } from './mix.ts'
@@ -55,6 +58,30 @@ test('the loudness of a film over ten minutes is measured', {
     assert.ok(loudness && loudness.integrated > -70, JSON.stringify(loudness))
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("NVENC's answer is kept in ~/.shaderera for this ffmpeg, believed after, and asked again fresh", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const home = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
+  process.env.HOME = process.env.USERPROFILE = tempDir('home')
+  try {
+    const has = await hasNvenc(1920, 1080)
+    const kept = JSON.parse(readFileSync(nvencFile(), 'utf8'))
+    assert.match(kept.ffmpeg, /ffmpeg version/)
+    assert.deepEqual(kept.sizes, { '1920x1080': has })
+    // NVENC refuses a 32×16 frame: a kept true is believed without a test encode...
+    writeFileSync(nvencFile(), JSON.stringify({ ...kept, sizes: { '32x16': true } }))
+    assert.equal(await hasNvenc(32, 16), true)
+    // ...and a fresh ask (doctor) encodes again, keeping the size it had.
+    assert.equal(await hasNvenc(32, 16, { fresh: true }), false)
+    assert.deepEqual(JSON.parse(readFileSync(nvencFile(), 'utf8')).sizes, { '32x16': false })
+    // Another ffmpeg's answers are not this one's.
+    writeFileSync(nvencFile(), JSON.stringify({ ffmpeg: 'another', sizes: { '30x16': true } }))
+    assert.equal(await hasNvenc(30, 16), false)
+  } finally {
+    Object.assign(process.env, home)
   }
 })
 

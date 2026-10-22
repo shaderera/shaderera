@@ -1,6 +1,16 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
-import { extname } from 'node:path'
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
+import { delimiter, dirname, extname, join } from 'node:path'
 import type { Sink } from '@shaderera/core'
 import { fpsFraction, matte } from '@shaderera/core/host'
 
@@ -22,30 +32,106 @@ const NVENC = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr
 /** NVENC's constant quality for a review, near x264's crf 18. */
 const NVENC_CQ = 19
 
-const nvenc = new Map<string, boolean>()
+/**
+ * Where hasNvenc keeps what it found: one ffmpeg (its file, mtime and version) and its sizes, for
+ * H.264 NVENC (the NVENC settings) only. HDR10's HEVC Main 10 is asked apart (hasHevcNvenc).
+ */
+export const nvencFile = (): string => join(homedir(), '.shaderera', 'nvenc.json')
+
+/** The sizes nvencFile keeps for this ffmpeg (`key`); none for another or an unreadable file. */
+const keptSizes = (key: string): Record<string, boolean> => {
+  try {
+    const kept = JSON.parse(readFileSync(nvencFile(), 'utf8'))
+    return kept.ffmpeg === key ? kept.sizes : {}
+  } catch {
+    return {}
+  }
+}
+
+const keep = (key: string, sizes: Record<string, boolean>) => {
+  try {
+    mkdirSync(dirname(nvencFile()), { recursive: true })
+    writeFileSync(nvencFile(), JSON.stringify({ ffmpeg: key, sizes }))
+  } catch {
+    // Not kept: the next command asks again.
+  }
+}
+
+/** The ffmpeg the PATH runs, as its file, its mtime and its version: what an NVENC answer is of. */
+const ffmpegKey = (): string => {
+  const version = requireFfmpeg()
+  const names = process.platform === 'win32' ? ['ffmpeg.exe', 'ffmpeg'] : ['ffmpeg']
+  for (const dir of (process.env.PATH ?? '').split(delimiter).filter(Boolean))
+    for (const name of names) {
+      const file = join(dir, name)
+      const stat = statSync(file, { throwIfNoEntry: false })
+      if (stat?.isFile()) return `${file} ${stat.mtimeMs} ${version}`
+    }
+  return version
+}
+
+/** Whether ffmpeg encodes a black 0.1 s at this size with NVENC, without blocking the thread. */
+const encodesNvenc = (size: string) =>
+  new Promise<boolean>((done) => {
+    const args = ['-loglevel', 'error', '-f', 'lavfi', '-i', `color=black:s=${size}:d=0.1`]
+    spawn('ffmpeg', [...args, ...NVENC, '-f', 'null', '-'], { stdio: 'ignore' })
+      .on('error', () => done(false))
+      .on('close', (code) => done(code === 0))
+  })
+
+const nvenc = new Map<string, Promise<boolean>>()
+/** The sizes whose yes came from nvencFile, not from a test encode in this process. */
+const keptYes = new Set<string>()
 /**
  * Whether this ffmpeg can encode a frame this size with NVENC here (a GPU and driver it accepts;
- * NVENC refuses small frames, such as 32×16), asked once per size.
+ * NVENC refuses small frames, such as 32×16). Asked once per size and kept in nvencFile for this
+ * ffmpeg (a 0.25 s test encode otherwise); `fresh` asks again (doctor). False without ffmpeg.
  */
-export const hasNvenc = (width: number, height: number): boolean => {
+export const hasNvenc = (
+  width: number,
+  height: number,
+  o: { fresh?: boolean } = {},
+): Promise<boolean> => {
   const size = `${width}x${height}`
-  if (!nvenc.has(size))
-    nvenc.set(
-      size,
-      spawnSync('ffmpeg', [
-        '-loglevel',
-        'error',
-        '-f',
-        'lavfi',
-        '-i',
-        `color=black:s=${size}:d=0.1`,
-        ...NVENC,
-        '-f',
-        'null',
-        '-',
-      ]).status === 0,
-    )
-  return nvenc.get(size) === true
+  const known = nvenc.get(size)
+  if (known && !o.fresh) return known
+  const asked = (async () => {
+    let key: string
+    try {
+      key = ffmpegKey()
+    } catch {
+      return false
+    }
+    const kept = keptSizes(key)[size]
+    if (kept !== undefined && !o.fresh) {
+      if (kept) keptYes.add(size)
+      return kept
+    }
+    keptYes.delete(size)
+    const has = await encodesNvenc(size)
+    keep(key, { ...keptSizes(key), [size]: has })
+    return has
+  })()
+  nvenc.set(size, asked)
+  return asked
+}
+
+/**
+ * Drops a kept NVENC yes for this size, whose encode has just failed (a GPU or driver gone since):
+ * false when the yes was not a kept one. This process then answers no; the next one tests again.
+ */
+export const forgetNvenc = (width: number, height: number): boolean => {
+  const size = `${width}x${height}`
+  if (!keptYes.delete(size)) return false
+  nvenc.set(size, Promise.resolve(false))
+  try {
+    const key = ffmpegKey()
+    const { [size]: _, ...rest } = keptSizes(key)
+    keep(key, rest)
+  } catch {
+    // No ffmpeg to key it by: nothing kept to drop.
+  }
+  return true
 }
 
 /**
@@ -552,13 +638,21 @@ export const hdr10Args = (o: {
   return args
 }
 
-/** Throws a clear message when ffmpeg is not on the PATH. */
-export const requireFfmpeg = () => {
-  if (spawnSync('ffmpeg', ['-version']).status !== 0) {
-    throw new Error(
-      'render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html',
-    )
+let version: string | undefined
+/**
+ * Throws a clear message when ffmpeg is not on the PATH; returns its version line. Asked once a
+ * process: every later call is free.
+ */
+export const requireFfmpeg = (): string => {
+  if (version === undefined) {
+    const r = spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' })
+    if (r.status !== 0)
+      throw new Error(
+        'render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html',
+      )
+    version = r.stdout.split(/\r?\n/)[0]?.trim() ?? ''
   }
+  return version
 }
 
 /**

@@ -42,6 +42,7 @@ import {
   type Encoder,
   ffmpegArgs,
   ffmpegSink,
+  forgetNvenc,
   type HdrEncoder,
   hasHevcNvenc,
   hasNvenc,
@@ -118,7 +119,7 @@ export const checkVideoOptions = (o: VideoOptions) => {
  * only after the last frame, so the frames go first into one lossless chunk beside the file
  * (`<out>.<pid>.chunks/`, removed after) and are encoded once from it, as `assemble` encodes a plan.
  */
-export const exportVideo = async (
+const exportOnce = async (
   { root, manifest }: Project,
   child: Child,
   o: VideoOptions & {
@@ -213,8 +214,8 @@ export const exportVideo = async (
       throw new Error(`${o.encoder} encodes HEVC for HDR10 (--hdr10); an SDR mp4 is H.264.`)
     encoder = prores
       ? 'prores'
-      : (o.encoder ?? (review && hasNvenc(width, height) ? 'nvenc' : 'x264'))
-    if (encoder === 'nvenc' && !hasNvenc(width, height))
+      : (o.encoder ?? (review && (await hasNvenc(width, height)) ? 'nvenc' : 'x264'))
+    if (encoder === 'nvenc' && !(await hasNvenc(width, height)))
       throw new Error(
         'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
       )
@@ -451,6 +452,28 @@ export const exportVideo = async (
 }
 
 /**
+ * When H.264 NVENC was picked from a kept yes (hasNvenc) and its ffmpeg fails, the yes is dropped
+ * and the film is rendered again once, with x264, saying so on stderr. Never for HDR10, whose HEVC
+ * NVENC is asked apart (hasHevcNvenc) and never kept.
+ */
+export const exportVideo: typeof exportOnce = async (project, child, o) => {
+  try {
+    return await exportOnce(project, child, o)
+  } catch (error) {
+    const { width, height } = project.manifest
+    const picked =
+      o.encoder === undefined &&
+      (o.codec ?? 'h264') === 'h264' &&
+      !(o.frames ? o.frames.input === 'p010' : child.has.p010 === true) &&
+      (o.quality ?? 'review') === 'review' &&
+      /^ffmpeg exited/.test((error as Error).message)
+    if (!picked || !forgetNvenc(width, height)) throw error
+    console.warn('! NVENC failed where it worked before: rendering again with x264.')
+    return exportOnce(project, child, o)
+  }
+}
+
+/**
  * The light of a preroll the source fills (an hdr10 render's), rendered once to be measured before
  * the encode starts; none for black.
  */
@@ -526,7 +549,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (loudness !== undefined && !Number.isFinite(loudness))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
   requireFfmpeg()
-  const root = (await findProject(typeof v.root === 'string' ? v.root : process.cwd())).root
+  const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
+  const root = located.root
   const job = typeof v.job === 'string' ? readJob(root, v.job) : undefined
   const given = Object.keys(DELIVERY_FLAGS).filter((k) => v[k as keyof typeof v] !== undefined)
   if (job && given.length > 0)
@@ -579,6 +603,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (frames === 0 || m.sequential) return 0
     return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
   }
+  // NVENC's answer comes beside the open (exportVideo asks for this size again, answered).
+  if ((video.codec ?? 'h264') === 'h264')
+    void hasNvenc(located.manifest.width, located.manifest.height)
   const { project, child, extra } = job
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)

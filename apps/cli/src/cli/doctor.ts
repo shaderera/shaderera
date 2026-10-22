@@ -196,7 +196,7 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
           : { fix: 'Use a full ffmpeg build (gyan.dev "full", or your package manager’s).' }),
       })
     }
-    const nvenc = hasNvenc(1920, 1080)
+    const nvenc = await hasNvenc(1920, 1080, { fresh: true })
     items.push({
       id: 'ffmpeg:h264_nvenc',
       status: nvenc ? 'ok' : 'warn',
