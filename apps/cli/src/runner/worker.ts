@@ -7,6 +7,7 @@ import type {
   Manifest,
   Matrices,
   Pick,
+  Range,
   SampledClip,
   Source,
 } from '@shaderera/core'
@@ -19,10 +20,16 @@ import {
   type GpuLayer,
   type GpuOutput,
   gpuCompositor,
+  type HdrCompositor,
+  type HdrOutput,
+  hdrCompositor,
+  type LightLevels,
   layerInfo,
+  lightChecked,
   openSource,
   over,
   paramDefaults,
+  rangeOf,
   type Seekable,
   type ShaderWatch,
   sampleClips,
@@ -48,6 +55,8 @@ export type Capabilities = {
   yuv: boolean
   /** The worker composites on the GPU and can return rgba64 (16 bits a channel). */
   deep: boolean
+  /** An hdr10 render: frames come as p010 (or rgb10), with their light levels; none in SDR. */
+  p010: boolean
 }
 export type RenderedLayer = { bitmap: ImageBitmap; name?: string; final?: boolean }
 
@@ -85,6 +94,8 @@ const counted = async <T>(run: () => Promise<T>): Promise<T> => {
 
 let source: Source | undefined
 let manifest: Manifest
+/** The open source's `host.range`. */
+let range: Range = 'sdr'
 /** The latest render's signal: a newer render aborts it, because a scrub made it stale. */
 let latest: AbortController | undefined
 /** The Studio's exploration camera: applied to preview renders only, kept across a reopen. */
@@ -97,6 +108,8 @@ let exporting = false
  * built the runner into its own worker sets the project's (`configureRunner`).
  */
 let files = '/'
+/** The variant this runner opens when `open` names none (configureRunner). */
+let runnerVariant: string | undefined
 let base = files
 const url = (path: string): string => `${base}${path.replace(/^\.?\//, '')}`
 
@@ -162,11 +175,17 @@ const ask: Ask = {
  *
  * Such a runner opens its own project only, never a saved revision.
  */
-export const configureRunner = (o: { files: string; ask?: Ask }): void => {
+export const configureRunner = (o: {
+  files: string
+  ask?: Ask
+  /** The variant `open` applies when it names none: the studio's `/runner?variant=`. */
+  variant?: string
+}): void => {
   if (!/^[a-z][a-z0-9+.-]*:.*\/$/i.test(o.files))
     throw new Error(`configureRunner: files is an absolute URL ending in /, not ${o.files}.`)
   files = base = o.files
   if (o.ask) Object.assign(ask, o.ask)
+  if (o.variant !== undefined) runnerVariant = o.variant
 }
 
 const io: Io = {
@@ -229,6 +248,25 @@ const compositorFor = async (): Promise<GpuCompositor | undefined> => {
   return compositor?.c
 }
 
+/** An hdr10 render's compositor (decision 0023), for the manifest's hdr10 it was made for. */
+let hdr: { gpu: GPUDevice; hdr10: unknown; c: HdrCompositor } | undefined
+const hdrFor = async (): Promise<HdrCompositor> => {
+  const gpu = await gpuDevice()
+  const { width, height, hdr10 } = manifest
+  // rangeOf gave hdr10 only for a manifest with hdr10, on a device.
+  if (!gpu || !hdr10) throw new Error("An hdr10 render needs WebGPU and the manifest's hdr10.")
+  const c = hdr?.c
+  if (hdr?.gpu !== gpu || hdr.hdr10 !== hdr10 || c?.width !== width || c?.height !== height) {
+    try {
+      c?.destroy()
+    } catch {
+      // Its device was lost: nothing to free.
+    }
+    hdr = { gpu, hdr10, c: hdrCompositor(gpu, width, height, hdr10) }
+  }
+  return hdr.c
+}
+
 const isTexture = (color: unknown): color is GPUTexture =>
   typeof GPUTexture !== 'undefined' && color instanceof GPUTexture
 
@@ -236,8 +274,11 @@ const isTexture = (color: unknown): color is GPUTexture =>
 const toGpuLayer = (layer: Layer, width: number, height: number): GpuLayer => {
   const color = layer.color
   const depth = layer.depth ? { depth: { data: layer.depth.data, soft: layer.depth.soft } } : {}
-  if (color instanceof Uint8Array || color instanceof Uint8ClampedArray || isTexture(color))
-    return { color, alpha: (layer as { alpha: GpuLayer['alpha'] }).alpha, ...depth }
+  if (color instanceof Uint8Array || color instanceof Uint8ClampedArray || isTexture(color)) {
+    // Only a float texture carries light (lightChecked).
+    const { alpha, light } = layer as { alpha: GpuLayer['alpha']; light?: GpuLayer['light'] }
+    return { color, alpha, ...depth, ...(light ? { light } : {}) }
+  }
   const w = 'displayWidth' in color ? color.displayWidth : color.width
   const h = 'displayHeight' in color ? color.displayHeight : color.height
   if (w === width && h === height) return { color, alpha: 'premultiplied', ...depth }
@@ -399,6 +440,8 @@ export type OpenOptions = {
   params?: { [key: string]: Json }
   /** The source's `host.seed` (a job's own); by default the manifest's, or 0. */
   seed?: number
+  /** The source's `host.range` (a job's own): `sdr` when absent. */
+  range?: Range
   /** A saved revision, opened from its frozen copy under .shaderera/revisions/: a render job. */
   revision?: string
   /** A variant from shaderera.json, applied to the manifest the source opens with. */
@@ -419,18 +462,21 @@ const api = {
         throw new Error('This runner opens its own project, not a saved revision.')
       base = o.revision ? `/.shaderera/revisions/${o.revision}/` : files
       const declared = checkManifest(await (await fetch(url('shaderera.json'))).json())
-      const variant = withVariant(declared, o.variant)
+      const variant = withVariant(declared, o.variant ?? runnerVariant)
       manifest = { ...variant.manifest, ...o.size }
       const module: unknown = o.revision
         ? await import(/* @vite-ignore */ url(declared.entry))
         : // @ts-expect-error: served by the runner plugin, which re-exports manifest.entry.
           await import('/__shaderera/entry.js')
+      const gpu = await gpuDevice()
+      range = rangeOf(manifest, o.range, gpu)
       const host = {
         manifest,
         params: o.params ?? { ...paramDefaults(manifest), ...variant.params },
         seed: o.seed ?? manifest.seed ?? 0,
+        range,
         io,
-        gpu: await gpuDevice(),
+        gpu,
       }
       // A revision's DOM is its own frozen file, beside its entry; never the live one.
       if (manifest.dom !== undefined)
@@ -455,8 +501,10 @@ const api = {
         sequential: manifest.sequential
           ? { checkpoint: (s as Seekable).stats().checkpoint }
           : false,
-        yuv: !!host.gpu && yuvFits(manifest.width, manifest.height),
-        deep: !!host.gpu,
+        // An hdr10 render has neither: it comes out as rgb10 or p010 only.
+        yuv: !!host.gpu && range === 'sdr' && yuvFits(manifest.width, manifest.height),
+        deep: !!host.gpu && range === 'sdr',
+        p010: range === 'hdr10',
       }
       if (explore) s.camera?.override?.(explore)
       return { manifest, capabilities }
@@ -485,7 +533,7 @@ const api = {
           }),
         )
         for (const layer of await depthTested(
-          finalOnly(flattenFrame(frame), intent, t),
+          lightChecked(finalOnly(flattenFrame(frame), intent, t), range),
           width,
           height,
         )) {
@@ -558,24 +606,29 @@ const api = {
     ),
   /**
    * The frame at t, POSTed to the runner server at `to` (the browser host's way home: one HTTP body
-   * instead of base64 over the DevTools protocol). Returns its layers' names, as the Node host does.
+   * instead of base64 over the DevTools protocol). Returns its layers' names, and an hdr10 render's
+   * light levels, as the Node host does.
    */
-  send: (t: number, intent: 'preview' | 'final', format: GpuOutput, to: string) =>
+  send: (t: number, intent: 'preview' | 'final', format: GpuOutput | HdrOutput, to: string) =>
     enqueue(false, () =>
       authored(async () => {
-        const { bytes, layers } = await composite(t, intent, format)
+        const { bytes, layers, light } = await composite(t, intent, format)
         const r = await fetch(to, { method: 'POST', body: bytes as Uint8Array<ArrayBuffer> })
         if (!r.ok) throw new Error(`The runner server refused the frame (${r.status}).`)
-        return layers
+        return { layers, ...(light ? { light } : {}) }
       }),
     ),
-  /** checkDeterminism in the browser host, through the authored camera: two orders, same output. */
+  /**
+   * checkDeterminism in the browser host, through the authored camera: two orders, same output (an
+   * hdr10 render's P010 bytes, whose every frame also passes the peak check).
+   */
   check: (times: readonly number[]) =>
     enqueue(false, () =>
       authored(() =>
         checkDeterminism({
           times,
-          render: async (t) => (await composite(t, 'final')).bytes,
+          render: async (t) =>
+            (await composite(t, 'final', range === 'hdr10' ? 'p010' : 'rgba')).bytes,
           inspect: opened().inspect
             ? async (t) => (await opened().inspect?.(t)) ?? null
             : undefined,
@@ -607,8 +660,12 @@ const authored = async <T>(run: () => Promise<T>): Promise<T> => {
 const composite = async (
   t: number,
   intent: 'preview' | 'final',
-  format: GpuOutput = 'rgba',
-): Promise<{ bytes: Uint8Array | Uint8ClampedArray; layers: ReturnType<typeof layerInfo>[] }> => {
+  format: GpuOutput | HdrOutput = 'rgba',
+): Promise<{
+  bytes: Uint8Array | Uint8ClampedArray
+  layers: ReturnType<typeof layerInfo>[]
+  light?: LightLevels
+}> => {
   const { width, height } = manifest
   const dom = await domAt(t)
   try {
@@ -621,8 +678,22 @@ const composite = async (
         ...(dom ? { dom } : {}),
       }),
     )
-    const layers = finalOnly(flattenFrame(frame), intent, t)
+    const layers = lightChecked(finalOnly(flattenFrame(frame), intent, t), range)
     const info = layers.map(layerInfo)
+    if (range === 'hdr10') {
+      if (format !== 'rgb10' && format !== 'p010')
+        throw new Error(
+          `An hdr10 render comes out as rgb10 or p010, not ${format}: nothing of it is composited in SDR.`,
+        )
+      const { bytes, light } = await (await hdrFor()).composite(
+        layers.map((l) => toGpuLayer(l, width, height)),
+        format,
+        frameAt(t, manifest.fps),
+      )
+      return { bytes, layers: info, light }
+    }
+    if (format === 'rgb10' || format === 'p010')
+      throw new Error(`${format} comes from an hdr10 render; this one is SDR.`)
     const c = await compositorFor()
     if (c)
       return {

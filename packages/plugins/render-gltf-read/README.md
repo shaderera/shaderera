@@ -15,8 +15,8 @@ model.unread                       // what the file has and this leaves out, for
 
 It reads only. Units, centring, scale, texture decoding and materials are the film's: draw the
 arrays with WebGPU, three.js (`render-three-host`) or anything else, and decode textures with
-`io.image` (`path`, relative to the project root) or `render-image-textures`' `decodeImage`
-(`bytes`, for an image inside a GLB or a data: URI). No packages.
+`io.image` (`path`, relative to the project root), or decode `bytes` (an image inside a GLB or a
+data: URI) with fast-png or jpeg-js. No packages.
 
 - One entry per node that draws a mesh, in scene order: a mesh two nodes use comes twice, with
   each node's matrix. The scene is the file's `scene`, else its first; a file with no scenes gives

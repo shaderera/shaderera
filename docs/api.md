@@ -30,8 +30,10 @@ stable entry. Adding or removing an export is therefore a visible change.
 | every type in `protocol.ts` | types | `Open`, `Host`, `Io`, `Source`, `RenderOptions`, `Frame`, `Layer`, `LayerInfo`, `Depth`, `Json`, `Manifest`, `Variant`, `Preroll`, `CameraCapability`, `Matrices`, `Mat4`, `Vec3`, `Pick`, `AudioClip`, `Pcm`, `Caption`, `CheckpointCapability`, `MountDom`, `DomView`, `DecodedImage`, `Footage`, `Bake`, `Baked`, … |
 | `flattenFrame(frame)` | function | a composition flattens what its children return |
 | `frameTimes(fps, from, to)`, `frameAt(t, fps)` | functions | one definition of a range's frames (t = i / fps) and of the frame index at t |
+| `parseFps(value)` | function | a rate as shaderera.json writes it (`30`, `29.97`, `"24000/1001"`) as an exact fraction `{ fps, num, den }`, or null |
+| `sha256(bytes)` | function | the SHA-256 of some bytes as lowercase hex, in the browser and in Node: how an analysis names its source |
 | `checkDeterminism`, `diffJson`, `diffPixels` | functions | the checks the CLI runs, for an embedding app's own tests |
-| `exportFrames`, `Sink` | function, type | the frame loop with backpressure for an app with its own encoder; `ahead` keeps several frames rendering at once, written in order |
+| `exportFrames`, `Sink`, `NotDeterministic` | function, type, class | the frame loop with backpressure for an app with its own encoder; `ahead` keeps several frames rendering at once, written in order; `skip` passes over the frames the sink already holds (a resumed export); a source that fails the determinism re-check throws `NotDeterministic` (its `failures`) |
 | `DeterminismReport`, `DeterminismFailure`, `JsonChange`, `PixelDiff` | types | results of the above |
 
 The behaviour in [determinism.md](determinism.md) (frame identity, sequential replay, readiness,
@@ -46,8 +48,11 @@ resources and passes. Stable only when consumers outside this repository need it
 ## `@shaderera/core/host`: internal
 
 What both hosts share (`checkManifest`, `withVariant`, `openSource`, `seekable`, `over`,
-`straight`, `matte`, `gpuCompositor`, `yuvFits`, `finalOnly`, `layerInfo`, `sha256`, `paramDefaults`,
-`fullDevice`, `timecodeOf`, `toSrt`, `toVtt`, …). A participant never imports it.
+`straight`, `matte`, `gpuCompositor`, `yuvFits`, `hdrCompositor`, `p010Fits`, `finalOnly`,
+`layerInfo`, `lightChecked`, `rangeOf`, `paramDefaults`, `fullDevice`, `timecodeOf`, `toSrt`,
+`toVtt`, …), and the float64 references the HDR compositor is held to (`rgb10Reference`,
+`p010Reference`, `lightReference`) and the numbers they share with the CLI (`CODE_LIGHT`,
+`peakCode`, `whiteOf`). A participant never imports it.
 
 ## `shaderera`: the commands are stable; the modules are internal
 
@@ -72,7 +77,7 @@ player, a site) that should stamp as the CLI does:
 ## Plugins: experimental
 
 The plugin commands are part of `shaderera`: `search`, `info`, `add`, `remove` and `publish`, reading
-plugins from `--from <dir|url>`, else `SHADERERA_PLUGINS`, else Shaderera's own at
+plugins from `--site <origin|url|dir>`, else `SHADERERA_SITE`'s `/r`, else Shaderera's own at
 `https://shaderera.com/r`. They, the folder layout and the label (`shaderera.item.json`; a
 package plugin: `"shaderera"` in its `package.json`) are in [plugins.md](plugins.md). They may
 change in any release.

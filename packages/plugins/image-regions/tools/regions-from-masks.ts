@@ -6,8 +6,8 @@
 //   node tools/regions-from-masks.ts assets/cat.jpg cat=masks/cat.png eye=masks/eye-l.png eye=masks/eye-r.png
 //   node tools/regions-from-masks.ts assets/cat.jpg cat=masks/cat.png --out regions/cat
 
+import { sha256 } from '@shaderera/core'
 import { decode } from 'fast-png'
-import { hex } from '../src/image/regions.ts'
 
 export type Masked = { label: string; mask: Uint8Array; width: number; height: number }
 export type Written = { json: string; files: { name: string; bytes: Uint8Array }[] }
@@ -114,7 +114,7 @@ export const regionsFromMasks = async (
         id,
         label: m.label,
         score: 1,
-        box: [x0, y0, w, h] as [number, number, number, number],
+        box: { x: x0, y: y0, width: w, height: h },
         centre: [Math.round((cx / sum) * 10) / 10, Math.round((cy / sum) * 10) / 10] as [
           number,
           number,
@@ -135,8 +135,8 @@ export const regionsFromMasks = async (
   })
   /** The pixels both regions hold, counted only where their boxes meet. */
   const shared = (a: (typeof regions)[number], b: (typeof regions)[number]) => {
-    const [ax, ay, aw, ah] = a.region.box
-    const [bx, by, bw, bh] = b.region.box
+    const { x: ax, y: ay, width: aw, height: ah } = a.region.box
+    const { x: bx, y: by, width: bw, height: bh } = b.region.box
     let both = 0
     for (let y = Math.max(ay, by); y < Math.min(ay + ah, by + bh); y++)
       for (let x = Math.max(ax, bx); x < Math.min(ax + aw, bx + bw); x++) {
@@ -160,7 +160,7 @@ export const regionsFromMasks = async (
       source: {
         path: image.path,
         bytes: image.bytes.length,
-        sha256: await hex(image.bytes),
+        sha256: await sha256(image.bytes),
         width: W,
         height: H,
       },

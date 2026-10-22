@@ -5,14 +5,15 @@
 // camera, and speaks core's camera contract. A tall variant opens the lens instead of losing the
 // sides of a shot designed for 16:9.
 
-import type { CameraCapability, Matrices } from '@shaderera/core'
-import { clamp, type Ease, type Key, lerp, path3, smooth, track, type V3 } from './keyframes.ts'
+import type { CameraCapability, Matrices, Vec3 } from '@shaderera/core'
+import { clamp, type Ease, lerp, smooth } from './eases.ts'
+import { type Key, path3, track } from './keyframes.ts'
 
 export type Shot = {
-  eye: V3
-  target: V3
-  /** Vertical field of view in degrees (see `lens` to work in millimetres). */
-  fov: number
+  eye: Vec3
+  target: Vec3
+  /** Vertical field of view in degrees (see `lensDeg` to work in millimetres). */
+  fovDeg: number
   /** Turn about the line of sight, in radians. */
   roll: number
   /**
@@ -33,15 +34,15 @@ export type Shot = {
 }
 
 export const shot = (
-  eye: V3,
-  target: V3 = [0, 0, 0],
-  fov = 40,
+  eye: Vec3,
+  target: Vec3 = [0, 0, 0],
+  fovDeg = 40,
   roll = 0,
   more: Partial<Shot> = {},
 ): Shot => ({
   eye,
   target,
-  fov,
+  fovDeg,
   roll,
   ...more,
 })
@@ -50,46 +51,52 @@ export const shot = (
  * The vertical field of view (degrees) of a lens of `mm` on 35 mm film, for a frame of `aspect`
  * (16:9 by default): what "a 35 mm lens" or "an 85 mm portrait" means in a prompt.
  */
-export const lens = (mm: number, aspect = 16 / 9, gauge = 35) =>
+export const lensDeg = (mm: number, aspect = 16 / 9, gauge = 35) =>
   (2 * Math.atan(gauge / Math.max(aspect, 1) / (2 * mm)) * 180) / Math.PI
 
 /** How much of the frame a subject fills, for `fit`: a wide shot, a medium shot, a close-up. */
 export const FILL = { wide: 0.35, medium: 0.6, close: 0.9 } as const
 
 /**
- * A shot that frames a subject (a sphere: `center`, `radius`) from a direction: `azimuth` degrees
- * round the vertical from +z, `elevation` degrees above the horizon. `fill` is how much of the
+ * A shot that frames a subject (a sphere: `center`, `radius`) from a direction: `azimuthDeg`
+ * degrees round the vertical from +z, `elevationDeg` degrees above the horizon. `fill` is how much of the
  * frame's shorter side the subject spans. The distance is exact for the lens and the frame.
  */
 export const fit = (o: {
-  center: V3
+  center: Vec3
   radius: number
-  azimuth?: number
-  elevation?: number
-  fov?: number
+  azimuthDeg?: number
+  elevationDeg?: number
+  fovDeg?: number
   aspect?: number
   fill?: number
   roll?: number
   shift?: readonly [number, number]
 }): Shot => {
-  const fov = o.fov ?? lens(35)
+  const fovDeg = o.fovDeg ?? lensDeg(35)
   const aspect = o.aspect ?? 16 / 9
-  const v = (fov * Math.PI) / 180
+  const v = (fovDeg * Math.PI) / 180
   const h = 2 * Math.atan(Math.tan(v / 2) * aspect)
   const half = Math.min(v, h) / 2
   const d = o.radius / Math.sin(half * clamp(o.fill ?? FILL.medium, 0.05, 0.99))
-  const az = ((o.azimuth ?? 0) * Math.PI) / 180
-  const el = ((o.elevation ?? 10) * Math.PI) / 180
-  const eye: V3 = [
+  const az = ((o.azimuthDeg ?? 0) * Math.PI) / 180
+  const el = ((o.elevationDeg ?? 10) * Math.PI) / 180
+  const eye: Vec3 = [
     o.center[0] + d * Math.cos(el) * Math.sin(az),
     o.center[1] + d * Math.sin(el),
     o.center[2] + d * Math.cos(el) * Math.cos(az),
   ]
-  return { eye, target: o.center, fov, roll: o.roll ?? 0, ...(o.shift ? { shift: o.shift } : {}) }
+  return {
+    eye,
+    target: o.center,
+    fovDeg,
+    roll: o.roll ?? 0,
+    ...(o.shift ? { shift: o.shift } : {}),
+  }
 }
 
 /** The bounding sphere of points or of a box's corners, for `fit`. */
-export const bounds = (points: readonly V3[]): { center: V3; radius: number } => {
+export const bounds = (points: readonly Vec3[]): { center: Vec3; radius: number } => {
   const lo: [number, number, number] = [Infinity, Infinity, Infinity]
   const hi: [number, number, number] = [-Infinity, -Infinity, -Infinity]
   for (const p of points)
@@ -97,35 +104,35 @@ export const bounds = (points: readonly V3[]): { center: V3; radius: number } =>
       lo[i] = Math.min(lo[i], p[i])
       hi[i] = Math.max(hi[i], p[i])
     }
-  const center: V3 = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]
+  const center: Vec3 = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]
   let radius = 0
   for (const p of points)
     radius = Math.max(radius, Math.hypot(p[0] - center[0], p[1] - center[1], p[2] - center[2]))
   return { center, radius }
 }
 
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-const scale = (a: V3, s: number): V3 => [a[0] * s, a[1] * s, a[2] * s]
-const mix3 = (a: V3, b: V3, u: number): V3 => [
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s]
+const mix3 = (a: Vec3, b: Vec3, u: number): Vec3 => [
   lerp(a[0], b[0], u),
   lerp(a[1], b[1], u),
   lerp(a[2], b[2], u),
 ]
-const cross = (a: V3, b: V3): V3 => [
+const cross = (a: Vec3, b: Vec3): Vec3 => [
   a[1] * b[2] - a[2] * b[1],
   a[2] * b[0] - a[0] * b[2],
   a[0] * b[1] - a[1] * b[0],
 ]
-const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-const len = (a: V3) => Math.hypot(a[0], a[1], a[2])
-const norm = (a: V3): V3 => {
+const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+const len = (a: Vec3) => Math.hypot(a[0], a[1], a[2])
+const norm = (a: Vec3): Vec3 => {
   const l = len(a)
   return l < 1e-12 ? [0, 0, 0] : [a[0] / l, a[1] / l, a[2] / l]
 }
 
 /** The eye's offset from the target, swung on an arc: the shorter way round, distance eased on a log scale. */
-const orbit = (a: V3, b: V3, u: number): V3 => {
+const orbit = (a: Vec3, b: Vec3, u: number): Vec3 => {
   const ra = len(a)
   const rb = len(b)
   if (ra < 1e-9 || rb < 1e-9) return mix3(a, b, u)
@@ -160,7 +167,7 @@ export const blendShots = (a: Shot, b: Shot, u: number): Shot => {
   return {
     eye,
     target,
-    fov: lerp(a.fov, b.fov, u),
+    fovDeg: lerp(a.fovDeg, b.fovDeg, u),
     roll: lerp(a.roll, b.roll, u),
     ...(shift ? { shift } : {}),
     ...(focus !== undefined ? { focus } : {}),
@@ -189,7 +196,7 @@ const forFrame = (s: Shot, t: number, aspect: number, o: CameraOptions): Shot =>
   const opening = typeof o.opening === 'function' ? o.opening(t) : (o.opening ?? 0.5)
   return {
     ...s,
-    fov: (widenFov((s.fov * Math.PI) / 180, aspect, opening, o.designed) * 180) / Math.PI,
+    fovDeg: (widenFov((s.fovDeg * Math.PI) / 180, aspect, opening, o.designed) * 180) / Math.PI,
   }
 }
 
@@ -219,35 +226,35 @@ export const cameraTrack = (keys: readonly Key<Shot>[], o: CameraOptions = {}) =
 }
 
 /**
- * One continuous move from `from` to `to` through all the shots, never stopping at the ones
+ * One continuous move from `start` to `end` through all the shots, never stopping at the ones
  * between: the eye and the target each travel a smooth curve at an even speed, with one ease over
  * the whole move. Held at the first shot before and the last after.
  */
 export const cameraPath = (
   shots: readonly Shot[],
-  from: number,
-  to: number,
+  start: number,
+  end: number,
   ease: Ease = smooth,
   o: CameraOptions = {},
 ) => {
   if (shots.length === 0) throw new Error('a camera path needs at least one shot')
   const eye = path3(
     shots.map((s) => s.eye),
-    from,
-    to,
+    start,
+    end,
     ease,
   )
   const target = path3(
     shots.map((s) => s.target),
-    from,
-    to,
+    start,
+    end,
     ease,
   )
-  const at = (i: number) => from + ((to - from) * i) / Math.max(1, shots.length - 1)
-  const fov = track(shots.map((s, i) => [at(i), s.fov] as Key<number>))
+  const at = (i: number) => start + ((end - start) * i) / Math.max(1, shots.length - 1)
+  const fovDeg = track(shots.map((s, i) => [at(i), s.fovDeg] as Key<number>))
   const roll = track(shots.map((s, i) => [at(i), s.roll] as Key<number>))
   return (t: number, aspect: number): Shot => {
-    const s = { eye: eye(t), target: target(t), fov: fov(t), roll: roll(t) }
+    const s = { eye: eye(t), target: target(t), fovDeg: fovDeg(t), roll: roll(t) }
     return forFrame(s, t, aspect, o)
   }
 }
@@ -258,7 +265,7 @@ type M4 = Float32Array
  * The camera's up direction with its roll. Looking straight down, "up" on screen eases to far (−z),
  * so a camera can pass over the top without flipping.
  */
-export const upOf = (c: Shot): V3 => {
+export const upOf = (c: Shot): Vec3 => {
   const f = norm(sub(c.target, c.eye))
   const k = clamp((Math.abs(f[1]) - 0.85) / 0.13)
   const s = k * k * (3 - 2 * k)
@@ -290,7 +297,7 @@ export const projectionMatrix = (c: Shot, aspect: number, near?: number, far?: n
   const d = len(sub(c.eye, c.target))
   const n = near ?? Math.max(0.01, d * 0.002)
   const fa = far ?? d * 40 + 200
-  const f = 1 / Math.tan((c.fov * Math.PI) / 360)
+  const f = 1 / Math.tan((c.fovDeg * Math.PI) / 360)
   const r = 1 / (n - fa)
   const sx = c.shift?.[0] ?? 0
   const sy = c.shift?.[1] ?? 0
@@ -368,7 +375,7 @@ export const applyToThree = (c: Shot, camera: ThreeCamera, aspect: number) => {
   camera.position.set(...c.eye)
   camera.up.set(...upOf(c))
   camera.lookAt(...c.target)
-  camera.fov = c.fov
+  camera.fov = c.fovDeg
   camera.aspect = aspect
   if (c.focus !== undefined) camera.focus = c.focus
   const [sx, sy] = c.shift ?? [0, 0]

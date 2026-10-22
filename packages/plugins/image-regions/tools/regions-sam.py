@@ -94,7 +94,7 @@ for prompt, score, soft in sorted(found, key=lambda f: (args.prompts.index(f[0])
     yy, xx = np.indices(weight.shape)
     cx = x0 + ((xx + 0.5) * weight).sum() / weight.sum()
     cy = y0 + ((yy + 0.5) * weight).sum() / weight.sum()
-    regions.append({'id': rid, 'label': prompt, 'score': round(score, 3), 'box': [x0, y0, x1 - x0, y1 - y0],
+    regions.append({'id': rid, 'label': prompt, 'score': round(score, 3), 'box': {'x': x0, 'y': y0, 'width': x1 - x0, 'height': y1 - y0},
                     'centre': [round(float(cx), 1), round(float(cy), 1)],
                     'mask': {'file': rid + '.u8', 'dtype': 'u8', 'channels': 1, 'width': x1 - x0,
                              'height': y1 - y0, 'rowStride': x1 - x0, 'at': [x0, y0]}})
@@ -108,7 +108,7 @@ area = {r['id']: int(hard[r['id']].sum()) for r in regions}
 
 
 def shared(r, q):
-    (ax, ay, aw, ah), (bx, by, bw, bh) = r['box'], q['box']
+    (ax, ay, aw, ah), (bx, by, bw, bh) = (tuple(b[k] for k in ('x', 'y', 'width', 'height')) for b in (r['box'], q['box']))
     x0, y0, x1, y1 = max(ax, bx), max(ay, by), min(ax + aw, bx + bw), min(ay + ah, by + bh)
     if x1 <= x0 or y1 <= y0:
         return 0
@@ -148,7 +148,7 @@ for i, r in enumerate(regions):
 for i, r in enumerate(regions):
     c = colours[i % len(colours)]
     draw = ImageDraw.Draw(check)
-    x, y, w, h = r['box']
+    x, y, w, h = (r['box'][k] for k in ('x', 'y', 'width', 'height'))
     draw.rectangle([x, y, x + w, y + h], outline=c + (255,), width=max(2, W // 400))
     draw.text((x + 4, y + 4), f"{r['id']} {r['score']}", fill=c + (255,))
 check.convert('RGB').save(os.path.join(out, 'check.png'))

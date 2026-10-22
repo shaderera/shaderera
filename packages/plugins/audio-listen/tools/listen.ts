@@ -19,7 +19,8 @@
 //         repeat for several
 // --out   the artifact (default: beside the recording, <name>.trims.json)
 
-import { hex, type Trim } from '../src/audio/trims.ts'
+import { sha256 } from '@shaderera/core'
+import type { Trim } from '../src/audio/trims.ts'
 
 /** The model, pinned to one revision and precision so every run reads the same weights. */
 const MODEL = {
@@ -425,7 +426,7 @@ if (import.meta.main) {
     source: {
       path,
       bytes: bytes.length,
-      sha256: await hex(bytes),
+      sha256: await sha256(bytes),
       seconds: Math.round((mono.length / RATE) * 1e6) / 1e6,
     },
     tool: {

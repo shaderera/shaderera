@@ -5,7 +5,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
 import type { Json, SampledClip } from '@shaderera/core'
-import { frameCount } from '@shaderera/core/host'
+import { CODE_LIGHT, frameCount, whiteOf } from '@shaderera/core/host'
 import { checkChild } from '../cli/check.ts'
 import type { Loudness } from '../cli/ffmpeg.ts'
 import { mixWav } from '../cli/mix.ts'
@@ -16,7 +16,11 @@ import { cmapCodePoints, missingGlyphs } from './cmap.ts'
 import {
   blankTimes,
   boxContrast,
+  type CaptionStat,
+  captionStats,
+  captionsOver,
   endHold,
+  excerpt,
   fontFamilies,
   frameStats,
   layoutSignature,
@@ -63,8 +67,15 @@ export type ReviewReport = {
     contrast: { id: string; t: number; ratio: number | null }[]
     motion: { samples: number; staticPercent: number | null }
     alpha: { nonOpaque: number }
+    /** Each caption measured, in order of start (seconds and grapheme clusters); null without captions(). */
+    captions: CaptionStat[] | null
     /** The clips heard (a src without sound is not), how much of the film they cover, and their mix's loudness (EBU R128). */
     audio: { clips: number; coverage: number; loudness: Loudness | null } | null
+    /**
+     * A film with `hdr10`: each principal frame's light in its hdr10 render (decision 0023), in
+     * cd/m², and the share of its pixels brighter than Graphics White; absent without `hdr10`.
+     */
+    hdr10?: { t: number; maxCll: number; maxFall: number; aboveWhite: number }[]
   }
   elapsedMs: number
 }
@@ -79,6 +90,34 @@ export type ReviewOptions = {
   times?: number[]
   /** Opens the same source at another size, for the readback check; without it, `unknown`. */
   reopen?: (size: { width: number; height: number }) => Promise<Child>
+  /**
+   * Opens the same source in an hdr10 range, for a film with `hdr10`: its light is reported as
+   * numbers, never shown (decision 0023). `child` is the SDR version, which the frames show.
+   */
+  hdr?: () => Promise<Child>
+}
+
+/**
+ * The light of a film's hdr10 render at each principal frame: MaxCLL and MaxFALL as the host
+ * measured them, and the share of pixels whose max(R',G',B') code is brighter than `white`.
+ */
+const hdrLight = async (hdr: Child, times: readonly number[], white: number) => {
+  const out: NonNullable<ReviewReport['diagnostics']['hdr10']> = []
+  for (const t of times) {
+    const r = await hdr.render(t, 'final', 'rgb10')
+    const codes = new Uint32Array(r.pixels.buffer, r.pixels.byteOffset, r.pixels.length / 4)
+    let above = 0
+    for (const w of codes)
+      if ((CODE_LIGHT[Math.max(w & 1023, (w >>> 10) & 1023, (w >>> 20) & 1023)] as number) > white)
+        above++
+    out.push({
+      t,
+      maxCll: round(r.light?.maxCll ?? 0, 2),
+      maxFall: round(r.light?.maxFall ?? 0, 2),
+      aboveWhite: round(codes.length ? above / codes.length : 0, 4),
+    })
+  }
+  return out
 }
 
 const THUMB = 1600
@@ -224,8 +263,6 @@ export const readingShort = (
 const judged = (declared: boolean, failing: boolean): Check['status'] =>
   declared ? (failing ? 'fail' : 'pass') : 'info'
 
-/** Frame times (snapped to frames) and labels: shots, midpoints between them and the last frame. */
-
 /** CSS generic families: naming one accepts whatever font the system picks. */
 const GENERIC = new Set([
   'serif',
@@ -275,6 +312,10 @@ export const previewTimes = (
   )
 }
 
+/**
+ * Frame times (snapped to frames) and labels: each shot, each transition (the overlap of two spans,
+ * else the midpoint between two moments) and the last frame.
+ */
 export const reviewTimes = (
   shots: readonly Shot[],
   fps: number,
@@ -288,7 +329,11 @@ export const reviewTimes = (
     shots.forEach((s, i) => {
       out.push({ t: snap(s.at), label: s.label ?? s.id ?? `shot ${i + 1}` })
       const next = shots[i + 1]
-      if (next) out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
+      if (!next) return
+      // Spans: the middle of their overlap, or no transition frame at a cut. Moments: the midpoint.
+      if (s.end !== undefined && next.start !== undefined) {
+        if (next.start < s.end) out.push({ t: snap((next.start + s.end) / 2), label: 'transition' })
+      } else out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
     })
   } else {
     const n = sheetFrames(duration)
@@ -494,7 +539,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         measured: `${short.length} texts shown for less than their reading time (sampled every 0.25 s; need max(${rule.min} s, characters / ${rule.charsPerSecond} per s))`,
         detail: short.length
           ? short
-              .map((r) => `${r.id} "${r.text.slice(0, 40)}": ${r.shown} s, need ${r.need} s`)
+              .map((r) => `${r.id} "${excerpt(r.text, 40)}": ${r.shown} s, need ${r.need} s`)
               .join('; ')
           : undefined,
       })
@@ -505,7 +550,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         title: 'reading time',
         status: 'info',
         measured: shortest
-          ? `shortest on screen: ${shortest.shown} s, ${shortest.id} "${shortest.text.slice(0, 40)}" (sampled every 0.25 s)`
+          ? `shortest on screen: ${shortest.shown} s, ${shortest.id} "${excerpt(shortest.text, 40)}" (sampled every 0.25 s)`
           : 'no visible text at the samples',
       })
     }
@@ -654,7 +699,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         : `no text in inspect or the DOM at ${textT.length} t (text drawn without either cannot be seen)`,
       ...(shown.length
         ? {
-            detail: [...new Set(shown.map((r) => `${r.id} "${r.text.slice(0, 30)}"`))]
+            detail: [...new Set(shown.map((r) => `${r.id} "${excerpt(r.text, 30)}"`))]
               .slice(0, 8)
               .join(', '),
             at: [...new Set(shown.map((r) => r.t))],
@@ -690,6 +735,56 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         at: failing.length ? [...new Set(failing.flatMap((r) => r.t))].slice(0, 50) : undefined,
       })
     }
+  }
+
+  // captions: the subtitle sidecar every export writes, measured; judged only on declared limits.
+  const cues = await child.captions()
+  const limits = req.captions
+  const captions = cues ? captionStats(cues) : null
+  if (!captions)
+    checks.push({
+      id: 'captions',
+      title: 'captions',
+      status: judged(limits !== undefined, true),
+      measured: 'no captions(): exports write no subtitle sidecar',
+      detail: limits ? 'requirements.json declares caption limits' : undefined,
+    })
+  else {
+    // A caption the export refuses is an error, declared or not: render and deliver stop on it.
+    const refused = captions.filter((c) => c.refused)
+    const over = limits ? captionsOver(captions, limits) : []
+    const timed = captions.filter((c) => !c.refused)
+    const most = (k: 'cps' | 'lines' | 'longestLine') =>
+      round(Math.max(0, ...timed.map((c) => c[k] ?? 0)), 2)
+    const least = (k: 'duration' | 'gap') => {
+      const v = timed.flatMap((c) => (c[k] === null ? [] : [c[k] as number]))
+      return v.length ? `${round(Math.min(...v))} s` : 'none'
+    }
+    const pairs = timed.reduce((n, c) => n + c.overlaps.filter((o) => o > (c.index ?? 0)).length, 0)
+    // The SRT's cue number, or for a caption no SRT carries, its place in captions() as render names it.
+    const say = (c: CaptionStat) =>
+      `${c.index === null ? `item ${c.item} of captions()` : `#${c.index}`} ${JSON.stringify(excerpt(c.text, 30))} at ${round(c.start)} s`
+    const measuredCaptions = `${captions.length} captions: at most ${most('cps')} cps, ${most('lines')} lines, ${most('longestLine')} characters a line (grapheme clusters); shortest ${least('duration')}, smallest gap ${least('gap')}; ${pairs} overlapping pairs${refused.length ? `; ${refused.length} refused by every export` : ''}`
+    const failing = [...refused, ...over]
+    checks.push({
+      id: 'captions',
+      title: 'captions',
+      status: refused.length ? 'fail' : judged(limits !== undefined, over.length > 0),
+      measured: limits
+        ? `${measuredCaptions}; ${over.length} over the declared limits (${Object.entries(limits)
+            .map(([k, v]) => `${k} ${v}`)
+            .join(', ')})`
+        : measuredCaptions,
+      detail: failing.length
+        ? [
+            ...refused.map((c) => `${say(c)}: ${c.refused}, which every export refuses`),
+            ...over.slice(0, 8).map((c) => `${say(c)}: ${c.why.join(', ')}`),
+          ].join('; ')
+        : undefined,
+      at: failing.length
+        ? [...new Set(failing.flatMap((c) => (Number.isNaN(c.start) ? [] : [round(c.start)])))]
+        : undefined,
+    })
   }
 
   checks.push({
@@ -746,6 +841,56 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
       })
     } finally {
       await other.close()
+    }
+  }
+
+  // hdr10: the film's HDR as numbers, at the principal frames (never shown: a PQ image read as
+  // sRGB would mislead).
+  let hdr10: ReviewReport['diagnostics']['hdr10']
+  const declared = o.project.manifest.hdr10
+  if (declared) {
+    const white = whiteOf(declared)
+    const peak = declared.mastering.peak
+    if (!o.hdr)
+      checks.push({
+        id: 'hdr10',
+        title: 'HDR10 light',
+        status: 'unknown',
+        detail: 'no hdr10 host to measure the HDR10 render with',
+      })
+    else {
+      // No GPU for an hdr10 host: unknown. A frame past the peak, or a layer's light it cannot
+      // carry: a failure.
+      const host = await o.hdr().catch((error: Error) => {
+        checks.push({ id: 'hdr10', title: 'HDR10 light', status: 'unknown', detail: error.message })
+        return undefined
+      })
+      if (host)
+        try {
+          const measured = await hdrLight(
+            host,
+            rendered.map((r) => r.t),
+            white,
+          )
+          hdr10 = measured
+          const most = (k: 'maxCll' | 'maxFall' | 'aboveWhite') =>
+            Math.max(0, ...measured.map((f) => f[k]))
+          checks.push({
+            id: 'hdr10',
+            title: 'HDR10 light',
+            status: 'info',
+            measured: `MaxCLL ${most('maxCll')} cd/m², MaxFALL ${most('maxFall')} cd/m², at most ${round(most('aboveWhite') * 100, 2)} % of pixels above Graphics White (${white} cd/m²) at ${measured.length} principal frames; mastering peak ${peak} cd/m²`,
+          })
+        } catch (error) {
+          checks.push({
+            id: 'hdr10',
+            title: 'HDR10 light',
+            status: 'fail',
+            detail: (error as Error).message,
+          })
+        } finally {
+          await host.close()
+        }
     }
   }
 
@@ -823,7 +968,15 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
           : null,
       },
       alpha: { nonOpaque: round(nonOpaque, 4) },
+      captions:
+        captions?.map((c) => ({
+          ...c,
+          duration: c.duration === null ? null : round(c.duration),
+          cps: c.cps === null ? null : round(c.cps, 2),
+          gap: c.gap === null ? null : round(c.gap),
+        })) ?? null,
       audio,
+      ...(hdr10 ? { hdr10 } : {}),
     },
     elapsedMs: Math.round(performance.now() - start),
   }

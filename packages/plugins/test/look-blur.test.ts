@@ -10,9 +10,13 @@ import { Canvas } from '@napi-rs/canvas'
 import type { Host } from '@shaderera/core'
 import { readTexture } from '@shaderera/core/gpu'
 import { create, globals } from 'webgpu'
-import { type BlurParams, createBlur } from '../look-blur/src/looks/blur.ts'
+import type { BlurParams } from '../look-blur/src/looks/blur.ts'
+import { layOut } from './lay-out.ts'
 
 Object.assign(globalThis, globals)
+const { createBlur } = (await layOut('look-blur')(
+  'src/looks/blur.ts',
+)) as typeof import('../look-blur/src/looks/blur.ts')
 
 // Dawn's instance must outlive every pending readback, so it is held here and not in the test.
 const gpu = create([])
@@ -82,7 +86,7 @@ test('look-blur: amount 0 is the source exactly, inside a window, a map and dept
     const out = await g.run(texture, {
       kind,
       radius: 20,
-      shapes: [{ x: 30, y: 16, w: 30, h: 30, amount: 0 }],
+      shapes: [{ x: 30, y: 16, width: 30, height: 30, amount: 0 }],
     })
     assert.ok(same(out, 30, 60, 16, 46), `${kind}: the window is untouched`)
     assert.ok(!same(out, 0, 20, 0, H), `${kind}: outside it is blurred`)

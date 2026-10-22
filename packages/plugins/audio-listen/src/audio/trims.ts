@@ -3,7 +3,7 @@
 // recording, and its peak, the loudest moment, so a film can land the peak on a hit point.
 // tools/listen.ts writes it with CLAP; the film reads data and runs no model.
 
-import type { Host } from '@shaderera/core'
+import { type Host, sha256 } from '@shaderera/core'
 
 /** One take: a stretch of the recording, best first. */
 export type Trim = {
@@ -41,12 +41,6 @@ export type Trims = {
   trims: Trim[]
 }
 
-/** The sha256 of the bytes, in hex: how a file names the recording or image it was made from. */
-export const hex = async (bytes: Uint8Array) => {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 /**
  * Reads a trims file, and refuses it when it is not one or when the recording it names has other
  * bytes than the ones heard: a replaced recording with old trims would play the wrong moments.
@@ -57,7 +51,7 @@ export const loadTrims = async (host: Host, path: string): Promise<Trims> => {
     throw new Error(
       `${path} is not a shaderera.analysis/1 sound-trims artifact; run its tool again`,
     )
-  if ((await hex(await host.io.read(doc.source.path))) !== doc.source.sha256)
+  if ((await sha256(await host.io.read(doc.source.path))) !== doc.source.sha256)
     throw new Error(`${path} was made from other bytes than ${doc.source.path}; run its tool again`)
   return doc
 }

@@ -4,8 +4,11 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createCanvas } from '@napi-rs/canvas'
 import type { Json } from '@shaderera/core'
+import { toSrt, windowCaptions } from '@shaderera/core/host'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
+import type { Requirements } from '../project/requirements.ts'
+import { shotsOf } from './measure.ts'
 import {
   pngWriter,
   previewTimes,
@@ -15,6 +18,55 @@ import {
   sheetFrames,
   toPng,
 } from './review.ts'
+
+test('a film with hdr10 is reviewed in SDR, its HDR10 render reported as numbers', async () => {
+  const hdr10 = {
+    graphicsWhite: 203,
+    mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' as const },
+    dither: 'none' as const,
+  }
+  const project = memoryProject({ hdr10 })
+  const size = { width: 64, height: 36 }
+  // An opaque white frame: every pixel at Graphics White, none above it.
+  const white = () => new Uint8Array(64 * 36 * 4).fill(255)
+  const child = memoryChild({ size, frame: white })
+  const outDir = join(tempDir('review-hdr'), 'review')
+  const r = await review({
+    project,
+    child,
+    outDir,
+    quick: true,
+    hdr: async () => memoryChild({ size, frame: white, hdr: { hdr10, fps: 10 } }),
+  })
+  const check = r.checks.find((c) => c.id === 'hdr10')
+  assert.equal(check?.status, 'info')
+  assert.match(
+    check?.measured ?? '',
+    /MaxCLL 20\d(\.\d+)? cd\/m², .* 0 % of pixels above Graphics White \(203 cd\/m²\)/,
+  )
+  assert.equal(r.diagnostics.hdr10?.length, r.frames.length)
+  assert.ok(r.diagnostics.hdr10?.every((f) => Math.abs(f.maxCll - 203) < 2 && f.aboveWhite === 0))
+  // Without an hdr10 host the light is not known; past the peak it fails.
+  const unknown = await review({ project, child, outDir, quick: true })
+  assert.equal(unknown.checks.find((c) => c.id === 'hdr10')?.status, 'unknown')
+  const dim = { ...hdr10, mastering: { ...hdr10.mastering, peak: 100 } }
+  const over = await review({
+    project,
+    child,
+    outDir,
+    quick: true,
+    hdr: async () => memoryChild({ size, frame: white, hdr: { hdr10: dim, fps: 10 } }),
+  })
+  const failed = over.checks.find((c) => c.id === 'hdr10')
+  assert.equal(failed?.status, 'fail')
+  assert.match(failed?.detail ?? '', /above the mastering display's peak of 100/)
+  // An SDR film has no such check.
+  const sdr = await review({ project: memoryProject(), child, outDir, quick: true })
+  assert.equal(
+    sdr.checks.some((c) => c.id === 'hdr10'),
+    false,
+  )
+})
 
 /** fixtures/mcp's film in memory: a red box that the camera slides left, inspected and pickable. */
 const film = () => {
@@ -61,6 +113,9 @@ test('review (quick) on a film without shots or text: measured or unknown, never
     assert.equal(by['end-hold']?.status, 'info')
     assert.match(by['end-hold']?.measured ?? '', /held at the end: pixels still/)
     assert.equal(by['blank-frames']?.status, 'info')
+    // No captions(): measured as info, with no subtitle sidecar to judge.
+    assert.equal(by.captions?.status, 'info')
+    assert.equal(r.diagnostics.captions, null)
     assert.equal(by.alpha?.status, 'unknown')
     for (const c of r.checks) if (c.status === 'pass') assert.ok(c.measured, c.id)
     assert.ok(r.diagnostics.alpha.nonOpaque > 0.9)
@@ -85,6 +140,68 @@ test('review removes frames from an earlier run in its out dir, and nothing else
   } finally {
     await child.close()
   }
+})
+
+test('review takes shot spans from inspect: each shot where it is alone, the transition in the overlap', async () => {
+  const project = memoryProject()
+  // Shots as motion-shot-list places them: a 0.2 s dissolve from 0.4 to 0.6 s, extra fields kept.
+  const shots = [
+    { id: 'open', index: 0, dur: 0.6, transition: 0, start: 0, end: 0.6 },
+    { id: 'close', index: 1, dur: 0.6, transition: 0.2, start: 0.4, end: 1 },
+  ]
+  const child = memoryChild({
+    size: { width: 64, height: 36 },
+    frame: boxFrame(64, 36),
+    inspect: () => ({ shots }),
+  })
+  const outDir = tempDir('review')
+  try {
+    const r = await review({ project, child, outDir, quick: true })
+    assert.deepEqual(
+      r.frames.map((f) => [f.label, f.t]),
+      [
+        ['open', 0.2],
+        ['transition', 0.5],
+        ['close', 0.8],
+        ['last frame', 0.9],
+      ],
+    )
+  } finally {
+    await child.close()
+  }
+})
+
+test('review frames: moments keep the midpoint transition; spans at a hard cut have none', () => {
+  assert.deepEqual(
+    reviewTimes(
+      [
+        { id: 'a', at: 1 },
+        { id: 'b', at: 3 },
+      ],
+      10,
+      4,
+    ).map((f) => [f.label, f.t]),
+    [
+      ['a', 1],
+      ['transition', 2],
+      ['b', 3],
+      ['last frame', 3.9],
+    ],
+  )
+  const cut = shotsOf({
+    shots: [
+      { id: 'b', start: 2, end: 4 },
+      { id: 'a', start: 0, end: 2 },
+    ],
+  })
+  assert.deepEqual(
+    reviewTimes(cut, 10, 4).map((f) => [f.label, f.t]),
+    [
+      ['a', 1],
+      ['b', 3],
+      ['last frame', 3.9],
+    ],
+  )
 })
 
 test('reading time: the longest visible stretch of each text against a declared max(min, characters / rate)', () => {
@@ -209,6 +326,95 @@ test('review on a 5-minute film renders a tenth of the samples and still reads a
     assert.match(by['text-fit']?.measured ?? '', /^1 runs/)
     assert.ok(renders < 150, `${renders} preview renders`)
     assert.equal(r.frames.length, 25)
+  } finally {
+    await child.close()
+  }
+})
+
+test('captions: measured as info; a declared maxCps fails exactly the caption over it', async () => {
+  const captions = [
+    { start: 0, end: 0.5, text: 'Hi' },
+    { start: 0.5, end: 0.9, text: 'ส่งตรงจากสวน' },
+    { start: 6.6, end: 9.6, text: 'This third caption runs far too long to read' },
+  ]
+  const project = memoryProject()
+  const child = memoryChild({ size: { width: 64, height: 36 }, captions })
+  const outDir = tempDir('review')
+  try {
+    const run = async (requirements?: Requirements) =>
+      (await review({ project, child, outDir, quick: true, requirements })).checks.find(
+        (c) => c.id === 'captions',
+      )
+    const info = await run()
+    assert.equal(info?.status, 'info')
+    assert.match(
+      info?.measured ?? '',
+      /^3 captions: at most 27.5 cps, 1 lines, 44 characters a line/,
+    )
+    // 11 grapheme clusters in 0.4 s: 27.5 cps; "Hi" is 4 cps.
+    const judged = await run({ version: 1, captions: { maxCps: 20 } })
+    assert.equal(judged?.status, 'fail')
+    assert.match(judged?.detail ?? '', /^#2 "ส่งตรงจากสวน" at 0.5 s: 27.5 cps > 20$/)
+    assert.deepEqual(judged?.at, [0.5])
+    // Numbered from 1 as in the SRT; the quote ends on a whole word.
+    const third = await run({ version: 1, captions: { maxCps: 10 } })
+    assert.match(
+      third?.detail ?? '',
+      /; #3 "This third caption runs far…" at 6.6 s: 14.667 cps > 10$/,
+    )
+    const open = memoryChild({
+      size: { width: 64, height: 36 },
+      captions: [{ start: 0, end: Number.POSITIVE_INFINITY, text: 'last line' }],
+    })
+    try {
+      const r = await review({ project, child: open, outDir, quick: true })
+      const c = r.checks.find((x) => x.id === 'captions')
+      assert.equal(c?.status, 'fail')
+      assert.match(c?.detail ?? '', /no end \(end: Infinity.*which every export refuses/)
+      assert.equal(r.diagnostics.captions?.[0]?.end, null)
+    } finally {
+      await open.close()
+    }
+  } finally {
+    await child.close()
+  }
+})
+
+test('captions: review, render and the SRT number an out-of-order list with a blank the same way', async () => {
+  const captions = [
+    { start: 2, end: 3, text: 'Second' },
+    { start: 1, end: 1.5, text: '  ' },
+    { start: 0, end: 1, text: 'First' },
+  ]
+  const srt = toSrt(windowCaptions(captions, 0, 10))
+  assert.match(srt, /^1\n.*\nFirst\n\n2\n.*\nSecond\n$/)
+  const bad = [...captions, { start: 4, end: Number.POSITIVE_INFINITY, text: 'Last' }]
+  assert.throws(() => windowCaptions(bad, 0, 10), /^Error: Item 4 of captions\(\) needs/)
+  const project = memoryProject()
+  const child = memoryChild({ size: { width: 64, height: 36 }, captions: bad })
+  const outDir = tempDir('review')
+  try {
+    const r = await review({
+      project,
+      child,
+      outDir,
+      quick: true,
+      requirements: { version: 1, captions: { maxCps: 1, minDuration: 2 } },
+    })
+    const detail = r.checks.find((c) => c.id === 'captions')?.detail ?? ''
+    // The blank is not in the SRT and is not judged; the refused caption is named as render names it.
+    assert.match(detail, /^item 4 of captions\(\) "Last" at 4 s: no end/)
+    assert.match(detail, /; #1 "First" at 0 s: 5 cps > 1, 1 s < 2 s; #2 "Second" at 2 s: /)
+    assert.doesNotMatch(detail, /item 2/)
+    assert.deepEqual(
+      r.diagnostics.captions?.map((c) => [c.index, c.item]),
+      [
+        [1, 3],
+        [null, 2],
+        [2, 1],
+        [null, 4],
+      ],
+    )
   } finally {
     await child.close()
   }

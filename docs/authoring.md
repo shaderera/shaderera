@@ -57,12 +57,20 @@ What is on the shelf:
 - **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
   plumbing again, and says so:
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
+  - `motion-eases`: eases, clamp, lerp, the progress of t through a span, an envelope over hits;
+  - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
+  - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking, the lines as text runs for review;
+  - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
   - `render-three-host`: three.js on the host's GPU;
-  - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
+  - `render-three-textures`: images from `io.image` as three.js textures and atlases;
+  - `image-to-png`: WebP, AVIF, GIF and video frames converted to PNG once (ffmpeg);
+  - `render-canvas-texture`: a Canvas2D canvas or RGBA bytes as a GPU texture for a WGSL pass;
+  - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
+  - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;
   - `image-regions`: named regions of a photograph (mask, box, centre), from SAM 3.1 or painted masks;
   - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;
   - `render-bvh`: ray queries against a mesh's triangles on the GPU, closest hit and any hit;
@@ -74,7 +82,7 @@ What is on the shelf:
   - `asset-provenance`: where each outside file came from, the ASSETS.md table and the credits.
 - **Looks, motion and sound design** are added only when the person asks: `look-blur`,
   `look-screen-passes`, `look-paper-edges`, `look-row-glitch`, `look-film-grain`,
-  `look-tonemap`, `look-vignette`, `text-kinetic`, `text-feature-captions`, `text-code-wall`,
+  `look-tonemap`, `look-vignette`, `text-scramble`, `text-glitch-titles`, `text-code-wall`,
   `text-glyph-morph`, `motion-keyframes`, `camera-keyframes`, `camera-shake`, `camera-ken-burns`,
   `format-safe-areas`, `format-broadcast-slate`, `audio-hall-ending`, `audio-voice-repace`.
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
@@ -154,6 +162,30 @@ command that prints nothing looks frozen.
   approved variant: `npx shaderera still 4 16.9 --variant final --compare animatic --sheet`. It
   writes each pair side by side with PSNR and mean ΔE; it measures and never judges, so look at
   the pairs and say what differs.
+
+## HDR10
+
+A film that computes more light than SDR shows can deliver HDR10 as well, when the person asks
+for it. It opts in with an `hdr10` block in `shaderera.json`; the mastering display is the one the
+person graded on, so ask for it rather than choosing one:
+
+```json
+"hdr10": { "mastering": { "peak": 1000, "min": 0.0001, "primaries": "p3-d65" }, "dither": "tpdf" }
+```
+
+The source then reads `host.range`. In `hdr10` its float `GPUTexture` layers declare their light
+(`light: { transfer: 'linear', primaries: 'bt2020' }`, linear 1.0 at 203 cd/m²); canvases and
+bytes stay SDR and are placed at Graphics White. In `sdr` the film tone-maps its own light, with
+its own code or a plugin, and returns no layer with `light`: the SDR version is the film's own
+render, never derived from the HDR one. Look at the SDR render; read the HDR one as numbers.
+
+```sh
+npx shaderera check --hdr10
+npx shaderera deliver --hdr10 --sdr --master
+```
+
+That makes the HDR10 master (HEVC Main 10, or ProRes with `--format`) and the film's own SDR
+render beside it. It needs ffmpeg 9.0 and WebGPU; `docs/delivery.md`, "HDR10", has the rest.
 
 ## Before you finish
 

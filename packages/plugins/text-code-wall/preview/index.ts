@@ -15,7 +15,7 @@ const WALL = 32 * SIXTEENTH
 
 const WALLS: { files: string[]; claim: string[]; note: string }[] = [
   {
-    files: ['src/type/code-wall.ts', 'src/type/kinetic.ts', 'src/house.ts'],
+    files: ['src/type/code-wall.ts', 'src/type/scramble.ts', 'src/house.ts'],
     claim: ['EVERYTHING', 'IS SOURCE CODE'],
     note: '160 BPM, a jump on every 1/16',
   },
@@ -39,8 +39,8 @@ const textCodeWall: OpenPreview = async (host, stateId) => {
   const walls = WALLS.map((w, i) =>
     createCodeWall({
       files: files[i] ?? [],
-      from: i * WALL,
-      to: (i + 1) * WALL,
+      start: i * WALL,
+      end: (i + 1) * WALL,
       step: SIXTEENTH,
       claim: w.claim,
       // The default note names every path in full, wider than the hole at this size.
@@ -70,12 +70,13 @@ const textCodeWall: OpenPreview = async (host, stateId) => {
       for (const wall of walls) wall(wallCtx, width, PICTURE, t, o.frame)
       ctx.drawImage(wallCanvas, 0, 0)
       theme.wash(width)
-      // The labels and the note sit in holes cut out of the wall, as the claim does.
+      // The labels and the note sit in holes cut out of the wall, as the claim does, with room
+      // round them so no code runs up against a label.
       ctx.fillStyle = '#000'
-      ctx.fillRect(width - 260, 10, 260, 66)
-      ctx.fillRect(40, 110, 80, 26)
-      ctx.fillRect(40, 842, 250, 48)
-      ctx.fillRect(width - 420, 836, 420, 46)
+      ctx.fillRect(width - 290, 0, 290, 92)
+      ctx.fillRect(24, 96, 120, 50)
+      ctx.fillRect(24, 830, 290, PICTURE - 830)
+      ctx.fillRect(width - 440, 822, 440, PICTURE - 822)
       // The note, between walls blank (each wall's rows drop out before the next arrives).
       if (t >= (notes[s.wall]?.from ?? 0) && t < (notes[s.wall]?.to ?? 0))
         theme.notes(notes, t, o.frame, 1032, 870)

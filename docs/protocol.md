@@ -69,9 +69,11 @@ type Layer =
   | ({
       color: Uint8Array | Uint8ClampedArray | GPUTexture
       alpha: 'premultiplied' | 'straight' | 'opaque'
+      light?: Light            // an HDR layer: a GPUTexture of rgba16float or rgba32float
     } & LayerInfo)
 
 type LayerInfo = { name?: string; final?: boolean; depth?: Depth }
+type Light = { transfer: 'linear' | 'pq'; primaries: 'bt709' | 'bt2020' }
 ```
 
 A frame is one layer or a **flat** bottom-to-top array. The host composites the stack with
@@ -90,6 +92,12 @@ A Frame is one Layer or a flat array of Layers; nesting is not part of the proto
 - **A texture stays on the GPU.** `color` may be a `GPUTexture` of `host.gpu` at the frame's size
   with `TEXTURE_BINDING` in its usage. The host composites it with no copy; an `-srgb` format is
   encoded back to sRGB. It declares its alpha like bytes.
+- **A layer is SDR unless it declares `light`**: sRGB code values, whatever its format. Only in a
+  film with [`hdr10`](#hdr10) may an `rgba16float` or `rgba32float` texture declare the light it
+  carries: `linear` is BT.2100's FP16 scale (1.0 is 203 cd/m²), `pq` is PQ code values from 0 to
+  1, in BT.709 or BT.2020 primaries. A `light` on any other layer is an error, and so is one in an
+  SDR render (`host.range` is `sdr`), naming the layer: the film maps its own light down to SDR
+  there, with its own code or the `look-tonemap` plugin, and the host never clamps it.
 - **`name`** labels the layer, **`final: false`** marks a progressive preview, and **`depth`**
   places its pixels ([below](#progressive-and-depth)). None of these is creative structure.
 - In the Node host a layer is a canvas, RGBA bytes or a `GPUTexture`; `ImageBitmap` and
@@ -104,8 +112,9 @@ type Host = {
   manifest: Manifest
   params: { [key: string]: Json }
   seed: number                 // manifest.seed, or 0
+  range: 'sdr' | 'hdr10'       // the job's: sdr unless it asks for hdr10
   io: Io
-  gpu?: GPUDevice              // offered when the host has WebGPU; never required
+  gpu?: GPUDevice              // offered when the host has WebGPU; required for hdr10
 }
 
 type Io = {
@@ -129,7 +138,7 @@ it, before any frame.
 - `io.image` decodes PNG and JPEG in JavaScript (fast-png, jpeg-js) in both hosts, never with a
   canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the file's
   sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. Once per file in a host. Other formats
-  are converted to PNG once (the plugin `render-image-textures` has the tool).
+  are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with
   ffmpeg (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over;
   frames read in order stream. One decoder serves every Node host of a render: a frame is decoded
@@ -179,6 +188,7 @@ it, before any frame.
 | `variants` | no | named outputs (below) |
 | `preroll`, `timecode`, `textless` | no | for a broadcast delivery ([delivery.md](delivery.md#broadcast-preroll-timecode-textless)) |
 | `bakes` | no | frames made outside the host, by name ([below](#bakes)) |
+| `hdr10` | no | the film opts into HDR10 ([below](#hdr10)) |
 | `$schema` | no | editor help |
 
 Any other key is an error:
@@ -206,6 +216,35 @@ and its params over the defaults (`withVariant` in `@shaderera/core/host`); the 
 itself out from that manifest, so a variant is a designed output, never a crop of another.
 Revisions and jobs, which freeze a variant, params and a source for export, live above the
 protocol, in the CLI ([cli.md](cli.md#versions-and-jobs)).
+
+### HDR10
+
+```json
+"hdr10": {
+  "graphicsWhite": 203,
+  "mastering": { "peak": 1000, "min": 0.0001, "primaries": "p3-d65" },
+  "dither": "tpdf"
+}
+```
+
+A film opts into HDR10 with this block; without it every render is SDR, as before. A job may then
+ask for `range: "hdr10"`, and the source reads it as `host.range`. The film's SDR version is a
+second render with `range: "sdr"`, where the film maps its own light down. Only a value a standard
+names has a default:
+
+- `graphicsWhite`, in cd/m²: where an SDR layer's white goes in an HDR frame. 203 when absent,
+  BT.2408's Graphics White.
+- `mastering`, required: the display the film was graded on (SMPTE ST 2086): `peak` and `min` in
+  cd/m², `primaries` `p3-d65`, `bt2020` or `bt709`. The standard describes a display but names
+  none, and only the person knows which one they graded on. A common one is P3-D65 at 1000 cd/m².
+- `dither`, required: `tpdf` or `none`, before the 10-bit quantisation. No standard names one.
+
+An `hdr10` render needs a `GPUDevice` in every host: the Node host without the project's `webgpu`
+composites with Skia, in SDR only, and refuses it.
+
+```
+shaderera.json: hdr10.mastering is required: the display the film was graded on, { peak, min, primaries } (SMPTE ST 2086 describes one but names none; P3-D65 at 1000 cd/m² is common)
+```
 
 ### Bakes
 
@@ -274,13 +313,13 @@ never as a pass.
 
 | Capability | You implement | CLI | MCP |
 |---|---|---|---|
-| render | `render(t, options)` | `render`, `still`, `check` (pixels) | `render_frame`, `export`, `diff` (pixels) |
-| inspect | `inspect(t)` returning JSON | `inspect`, `check` (inspect + pixels), `review` | `inspect`, `diff` (state) |
+| render | `render(t, options)` | `render`, `still`, `check` (pixels) | `render_frame`, `still`, `render`, `compare` (pixels) |
+| inspect | `inspect(t)` returning JSON | `inspect`, `check` (inspect + pixels), `review` | `inspect`, `compare` (state) |
 | `id` / `source` | an `id` on object literals in the inspect JSON; `"stamp": true` for `source` | `source` lines in `inspect` | `get_source`, `pick`'s `source` |
 | pick | `pick(t, x, y)` → `{ id, point? }` | — | `pick` |
 | camera | `camera.get(t)` → `Matrices`; `camera.override(m \| null)` | — | `get_camera`; `render_frame`'s `camera` |
-| audio | `audio()` → `AudioClip[]` | `render` mixes it | `export` |
-| captions | `captions()` → `Caption[]` | SRT and WebVTT beside every export | `export` |
+| audio | `audio()` → `AudioClip[]` | `render` mixes it | `render` |
+| captions | `captions()` → `Caption[]` | SRT and WebVTT beside every export | `render` |
 | progressive | layers with `final: false` | — | `render_frame` reports `layers[].final` |
 | checkpoint | `checkpoint.save()` / `restore(state)` on a `sequential` source | a jump back restores one instead of replaying ([checkpoints](determinism.md#checkpoints)) | the same |
 | depth | `layer.depth` | every command depth-tests layers that carry it | every tool |
@@ -442,6 +481,11 @@ async captions() {
 Captions in composition seconds; `\n` breaks a line. Every export writes them as SRT and WebVTT
 sidecars, cut to its window; they are never drawn into the frame. Burned-in text is the film's own
 drawing.
+
+Each caption needs a finite start before its end. Cues read with `text-timed-cues` are captions as
+they are, once an LRC's last line, which ends at `Infinity`, is ended with the film; its README
+shows how. Review measures the captions against the limits requirements.json declares
+([delivery.md](delivery.md#stems-and-captions)).
 
 ### progressive and depth
 

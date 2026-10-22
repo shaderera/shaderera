@@ -3,7 +3,14 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { basename, join } from 'node:path'
-import { after, before, test } from 'node:test'
+import {
+  after,
+  before,
+  test as nodeTest,
+  type TestContext,
+  type TestFn,
+  type TestOptions,
+} from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
@@ -29,6 +36,12 @@ const home = tempDir('home')
 process.env.HOME = home
 process.env.USERPROFILE = home
 delete process.env.SHADERERA_TELEMETRY
+
+// `node --test` waits forever by default: a test that hangs fails by itself, not the whole run.
+const test = (name: string, a: TestFn | TestOptions, b?: TestFn) =>
+  typeof a === 'function'
+    ? nodeTest(name, { timeout: 60_000 }, a)
+    : nodeTest(name, { timeout: 60_000, ...a }, b)
 
 const SITE = 'https://shaderera.example'
 const DEV = 'http://localhost:3000'
@@ -103,7 +116,7 @@ after(async () => {
 })
 const root = fixture()
 before(async () => {
-  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
+  bridge = await startBridge({ root, api: SITE, site: SITE, origins: [SITE, DEV], settleMs: 50 })
   relay = await startRelay({ ttlMs: 300 })
 })
 
@@ -116,7 +129,16 @@ test('a studio session id is 20 characters of the alphabet', () => {
   assert.match(makeNonce(), /^[\w-]{22}$/)
 })
 
-test('the CLI pairs through the relay, and only the page can open the bridge it sends', async () => {
+/**
+ * Closes the relay sides a test opened when it ends, passed or failed: a paired CLI left open
+ * rejoins the closed relay for as long as the process runs, so the file would never end.
+ */
+const closeAtEnd = (t: TestContext, ...sides: ({ close: () => unknown } | { ws: WebSocket })[]) =>
+  t.after(async () => {
+    for (const side of sides) await ('ws' in side ? side.ws.close() : side.close())
+  })
+
+test('the CLI pairs through the relay, and only the page can open the bridge it sends', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
   const paired = p.pair()
@@ -133,6 +155,7 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
       cliPaired = true
     },
   })
+  closeAtEnd(t, cli, p)
   const { hello, bridge: got } = await paired
   assert.deepEqual(
     { version: hello.version, os: hello.os, telemetry: hello.telemetry },
@@ -161,7 +184,7 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
   assert.equal((await p.next('cli-left')).type, 'cli-left')
 })
 
-test('a page without the nonce the CLI opened never gets the bridge or an answer', async () => {
+test('a page without the nonce the CLI opened never gets the bridge or an answer', async (t) => {
   const id = makeId()
   const stranger = page(relay.origin, id)
   await stranger.opened
@@ -172,6 +195,7 @@ test('a page without the nonce the CLI opened never gets the bridge or an answer
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli, stranger)
   await stranger.next('cli-joined')
   const mine = await keyPair()
   stranger.send({ type: 'page-hello', pub: mine.pub })
@@ -193,13 +217,12 @@ test('a page without the nonce the CLI opened never gets the bridge or an answer
   assert.equal(relay.sessions.get(id)?.paired, false)
   // The page the CLI opened, in its place, pairs.
   const opened = page(relay.origin, id)
+  closeAtEnd(t, opened)
   const { bridge: got } = await opened.pair()
   assert.equal(got.secret, bridge.secret)
-  cli.close()
-  opened.ws.close()
 })
 
-test('before pairing, a reloaded page pairs in place of the first, and a second CLI is refused', async () => {
+test('before pairing, a reloaded page pairs in place of the first, and a second CLI is refused', async (t) => {
   const id = makeId()
   const first = page(relay.origin, id)
   await first.opened
@@ -210,6 +233,7 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli, first)
   await first.next('cli-joined')
   first.send({ type: 'page-hello', pub: (await keyPair()).pub })
   await first.next('cli-hello')
@@ -223,14 +247,12 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
   assert.equal((await other.closed).code, CLOSE.used)
   // The page reloads: a new page-hello, a new key, the same bridge.
   const reloaded = page(relay.origin, id)
+  closeAtEnd(t, reloaded)
   const { bridge: got } = await reloaded.pair()
   assert.equal(got.secret, bridge.secret)
-  cli.close()
-  first.ws.close()
-  reloaded.ws.close()
 })
 
-test('a paired CLI the relay drops rejoins with its token; closing it ends the session', async () => {
+test('a paired CLI the relay drops rejoins with its token; closing it ends the session', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
   const pairing = p.pair()
@@ -249,6 +271,7 @@ test('a paired CLI the relay drops rejoins with its token; closing it ends the s
     onPaired: () => cliPaired(),
     onRelay: (back) => heard.push(back),
   })
+  closeAtEnd(t, cli, p)
   const { key } = await pairing
   await paired
   // The relay cuts the CLI's socket (a deploy, the network): the CLI comes back by itself.
@@ -270,9 +293,10 @@ test('a paired CLI the relay drops rejoins with its token; closing it ends the s
   assert.deepEqual(await cli.closed, { code: 1000, paired: true })
 })
 
-test('an id no CLI paired with in time is expired', async () => {
+test('an id no CLI paired with in time is expired', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
+  closeAtEnd(t, p)
   await p.opened
   await new Promise((r) => setTimeout(r, 400))
   const cli = connectRelay({
@@ -282,10 +306,10 @@ test('an id no CLI paired with in time is expired', async () => {
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli)
   const end = await cli.closed
   assert.equal(end.code, CLOSE.expired)
   assert.equal(end.paired, false)
-  p.ws.close()
 })
 
 test('the bridge answers only the allowed origins carrying the secret', async () => {
@@ -461,7 +485,7 @@ test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and 
   const manifest = JSON.parse(readFileSync(join(thai, 'shaderera.json'), 'utf8'))
   manifest.variants['16:9'] = { params: { grey: 50 } }
   writeFileSync(join(thai, 'shaderera.json'), JSON.stringify(manifest))
-  const b = await startBridge({ root: thai, to: SITE, origins: [SITE], settleMs: 50 })
+  const b = await startBridge({ root: thai, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
   try {
     const sse = events(b)
     await sse.opened
@@ -503,6 +527,81 @@ test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and 
   }
 })
 
+test('a film in two ratios: /info gives their sizes, /runner frames each, /render does both', async () => {
+  const two = fixture()
+  const manifest = JSON.parse(readFileSync(join(two, 'shaderera.json'), 'utf8'))
+  manifest.variants = {
+    '16:9': { width: 32, height: 18 },
+    '9:16': { width: 18, height: 32, duration: 0.5 },
+  }
+  writeFileSync(join(two, 'shaderera.json'), JSON.stringify(manifest))
+  const b = await startBridge({ root: two, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
+  try {
+    const info = jsonOf(await call(b.port, { path: '/info', headers: asPage(b) }))
+    assert.deepEqual(info.film.sizes, {
+      '16:9': { width: 32, height: 18, duration: 1, fps: 10 },
+      '9:16': { width: 18, height: 32, duration: 0.5, fps: 10 },
+    })
+    // The variants stay in shaderera.json's own shape.
+    assert.deepEqual(info.film.variants, manifest.variants)
+
+    // One frame a variant: the runner page gets the name, and the bridge knows every one.
+    const runner = (variant: string) =>
+      call(b.port, { path: `/runner?s=${b.secret}&variant=${encodeURIComponent(variant)}` })
+    const framed = await runner('9:16')
+    assert.equal(framed.status, 302)
+    const location = new URL(String(framed.headers.location))
+    assert.equal(location.searchParams.get('variant'), '9:16')
+    assert.equal((await fetch(location)).status, 200)
+    const unknown = await runner('4:5')
+    assert.equal(unknown.status, 400)
+    assert.match(jsonOf(unknown).error, /no variant "4:5"/)
+
+    // Several variants at once: one job each, in the order asked.
+    const sse = events(b)
+    await sse.opened
+    const asked = await call(b.port, {
+      method: 'POST',
+      path: '/render',
+      headers: asPage(b),
+      body: { format: 'png', variants: ['9:16', '16:9'], t: 0.25 },
+    })
+    assert.equal(asked.status, 200, asked.body.toString())
+    const { jobs } = jsonOf(asked) as { jobs: string[] }
+    assert.equal(jobs.length, 2)
+    for (const job of jobs) {
+      const end = await sse.next(
+        (e) => e.type === 'job' && e.id === job && (e.state === 'done' || e.state === 'failed'),
+      )
+      assert.equal(end.type === 'job' && end.state, 'done', JSON.stringify(end))
+    }
+    sse.close()
+    const sizes = []
+    for (const [k, job] of jobs.entries()) {
+      const name = `${basename(two)}-${k === 0 ? '9_16' : '16_9'}-${job}.png`
+      const png = readFileSync(join(two, 'out', 'studio', name))
+      sizes.push([png.readUInt32BE(16), png.readUInt32BE(20)])
+    }
+    assert.deepEqual(sizes, [
+      [18, 32],
+      [32, 18],
+    ])
+
+    // Every name is checked before a job is queued; variant and variants do not go together.
+    for (const body of [
+      { format: 'png', variants: ['16:9', '4:5'] },
+      { format: 'png', variants: [] },
+      { format: 'png', variants: '16:9' },
+      { format: 'png', variant: '16:9', variants: ['9:16'] },
+    ]) {
+      const bad = await call(b.port, { method: 'POST', path: '/render', headers: asPage(b), body })
+      assert.equal(bad.status, 400, JSON.stringify(body))
+    }
+  } finally {
+    await b.close()
+  }
+})
+
 test('/render makes an mp4 with ffmpeg', { skip: !ffmpeg && 'no ffmpeg' }, async () => {
   const job = await renderJob({ format: 'mp4', params: { grey: 200 } })
   const file = await call(bridge.port, { path: `/render/${job}/file`, headers: asPage(bridge) })
@@ -512,6 +611,8 @@ test('/render makes an mp4 with ffmpeg', { skip: !ffmpeg && 'no ffmpeg' }, async
 })
 
 test('/share without a login says how to log in', async () => {
+  // A project that can be shared: its licence is checked before the token.
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ license: 'MIT' }))
   const r = await call(bridge.port, {
     method: 'POST',
     path: '/share',
@@ -522,7 +623,7 @@ test('/share without a login says how to log in', async () => {
   assert.deepEqual(jsonOf(r), { error: 'login', command: 'npx shaderera login' })
 })
 
-test('through the relay: sealed requests, sealed events and a file', async () => {
+test('through the relay: sealed requests, sealed events and a file', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
   const pairing = p.pair()
@@ -533,6 +634,7 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli, p)
   const { key } = await pairing
   const rpc = async (rid: string, request: unknown) => {
     p.send({ type: 'rpc', id: rid, ...(await seal(key, request)) })
@@ -551,13 +653,13 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
   // Events follow through the relay once the page uses it.
   const file = join(root, 'src', 'composition.ts')
   writeFileSync(file, `${readFileSync(file, 'utf8')}\n// through the relay\n`)
+  // Under load the bridge may still owe the `changed` of an earlier test's write (/share's
+  // package.json); wait for the one with this edit's revision.
+  const revision = treeId(scan(root))
   for (;;) {
     const m = (await p.next('event')) as unknown as { iv: string; box: string }
     const e = await unseal<StudioEvent>(key, m)
-    if (e.type === 'changed') {
-      assert.equal(e.revision, treeId(scan(root)))
-      break
-    }
+    if (e.type === 'changed' && e.revision === revision) break
   }
 
   const started = await rpc('3', {
@@ -580,8 +682,6 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
   assert.match(String(sent.name), new RegExp(`-${job}\\.png$`))
   const bytes = Buffer.from(sent.base64 as string, 'base64')
   assert.deepEqual([...bytes.subarray(1, 4)], [...Buffer.from('PNG')])
-  cli.close()
-  p.ws.close()
 })
 
 test('telemetry: one notice, off by config or by SHADERERA_TELEMETRY=0', () => {

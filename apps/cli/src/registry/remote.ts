@@ -29,30 +29,38 @@ const get = async (url: string): Promise<Buffer> => {
   return Buffer.from(await r.arrayBuffer())
 }
 
-/** The versions `spec` resolves to and every item and extension it requires, each once. */
-const closure = (index: Index, spec: string): [string, string][] => {
+/**
+ * The versions `specs` resolve to and every item and extension they require, each once, chosen
+ * as `add` chooses them: the named ones first, so a range given on the command line wins.
+ */
+const closure = (index: Index, specs: readonly string[]): [string, string][] => {
   const out: [string, string][] = []
   const seen = new Set<string>()
-  const visit = (want: string) => {
+  const take = (want: string) => {
     const { name, range } = parseSpec(want)
     const entry = index.items[name]
-    if (seen.has(name) || !entry) return
+    if (seen.has(name) || !entry) return null
     seen.add(name)
     const version = newest(Object.keys(entry.versions), range)
     const v = version ? entry.versions[version] : undefined
-    if (!version || !v) return
+    if (!version || !v) return null
     out.push([name, version])
+    return v
+  }
+  const visit = (v: Index['items'][string]['versions'][string] | null) => {
+    if (!v) return
     const { extensions, items } = v.item.requires
     for (const [n, r] of [...Object.entries(extensions ?? {}), ...Object.entries(items ?? {})])
-      visit(`${n}@${r}`)
+      visit(take(`${n}@${r}`))
   }
-  visit(spec)
+  for (const v of specs.map(take)) visit(v)
   return out
 }
 
 /** The versions a command reads files of: the rest only needs the index and search.json. */
 const wanted = (index: Index, command: string, args: readonly string[]): [string, string][] => {
-  if ((command === 'add' || command === 'info') && args[0]) return closure(index, args[0])
+  if (command === 'add') return closure(index, args)
+  if (command === 'info' && args[0]) return closure(index, [args[0]])
   return []
 }
 

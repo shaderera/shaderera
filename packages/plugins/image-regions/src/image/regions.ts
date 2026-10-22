@@ -3,7 +3,10 @@
 // them once, apart from rendering (tools/regions-sam.py, tools/regions-from-masks.ts, or any tool
 // that writes the same files); the film reads data and runs no model.
 
-import type { Host } from '@shaderera/core'
+import { type Host, sha256 } from '@shaderera/core'
+
+/** A rectangle in pixels: its top-left corner and its size. */
+export type Rect = { x: number; y: number; width: number; height: number }
 
 /** One region, in the source image's pixels (origin top-left, rows downward). */
 export type Region = {
@@ -13,8 +16,8 @@ export type Region = {
   label: string
   /** The analyser's confidence, 0..1; 1 for a mask a person made. */
   score: number
-  /** [x, y, width, height]. */
-  box: [number, number, number, number]
+  /** The mask's bounding box. */
+  box: Rect
   /** The mask's centre of mass. */
   centre: [number, number]
   /** The id of the smallest region that holds this one (an eye's head, a head's cat). */
@@ -44,12 +47,6 @@ export type Regions = {
   dir: string
 }
 
-/** The sha256 of the bytes, in hex: how a file names the recording or image it was made from. */
-export const hex = async (bytes: Uint8Array) => {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 /**
  * Reads `<dir>/regions.json`, and refuses it when it is not a regions artifact or when the image it
  * names has other bytes than the ones measured: a changed photograph with old regions would put
@@ -62,7 +59,11 @@ export const loadRegions = async (host: Host, dir: string): Promise<Regions> => 
     throw new Error(
       `${path} is not a shaderera.analysis/1 regions artifact; run its analyser again`,
     )
-  if ((await hex(await host.io.read(doc.source.path))) !== doc.source.sha256)
+  if (doc.regions.some((q) => Array.isArray(q.box)))
+    throw new Error(
+      `${path} gives boxes as [x, y, width, height], as before 0.2.0; run its analyser again`,
+    )
+  if ((await sha256(await host.io.read(doc.source.path))) !== doc.source.sha256)
     throw new Error(
       `${dir} was measured from other bytes than ${doc.source.path}; run its analyser again`,
     )

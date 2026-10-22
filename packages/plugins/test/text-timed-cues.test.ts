@@ -6,7 +6,8 @@ import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
-import type { Host } from '@shaderera/core'
+import type { Host, Source } from '@shaderera/core'
+import { windowCaptions } from '@shaderera/core/host'
 
 const plugins = join(import.meta.dirname, '..')
 const project = join(plugins, 'out', 'text-timed-cues')
@@ -162,4 +163,25 @@ test('text-timed-cues: loadTimedText reads a project file by its extension, trim
   const cues = await loadTimedText(host, 'lyrics/song.lrc', { trim: 8 })
   assert.equal(cueAt(cues, 2.2)?.text, 'drop now')
   assert.equal(wordAt(cues, 2.6)?.text, 'now')
+})
+
+test("text-timed-cues: the README's captions(), an LRC's last line ended with the film", async () => {
+  const host = { manifest: { duration: 8 } } as unknown as Host
+  const lyrics = parseLrc('[00:01.00]one\n[00:04.00]two\n[00:09.00]after the end')
+  // As the README writes it.
+  const source = {
+    async captions() {
+      const end = host.manifest.duration
+      return lyrics.filter((c) => c.start < end).map((c) => ({ ...c, end: Math.min(c.end, end) }))
+    },
+  } satisfies Pick<Source, 'captions'>
+  const captions = await source.captions()
+  assert.deepEqual(
+    windowCaptions(captions, 0, 8).map((c) => [c.start, c.end, c.text]),
+    [
+      [1, 4, 'one'],
+      [4, 8, 'two'],
+    ],
+  )
+  assert.throws(() => windowCaptions(parseLrc('[00:01.00]last'), 0, 8), /start before its end/)
 })

@@ -7,6 +7,36 @@ import { checkChild } from './check.ts'
 const manifest = { fps: 10, duration: 1, width: 64, height: 36 } as Manifest
 const size = { width: 64, height: 36 }
 
+const hdr10 = {
+  graphicsWhite: 203,
+  mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' as const },
+  dither: 'tpdf' as const,
+}
+
+test('an hdr10 check hashes P010, reports the light, and fails a frame past the peak', async () => {
+  const film = memoryChild({ size, frame: boxFrame(64, 36), hdr: { hdr10, fps: 10 } })
+  assert.equal(film.has.p010, true)
+  assert.equal(film.has.yuv, false)
+  const ok = await checkChild(film, manifest, { times: 4 })
+  assert.deepEqual(ok.failures, [])
+  // An opaque red box over transparent black: BT.709 red at Graphics White is R 0.627 × 203 in BT.2020.
+  assert.ok(ok.light && Math.abs(ok.light.maxCll - 0.6274 * 203) < 2, JSON.stringify(ok.light))
+  assert.ok(ok.light.maxFall > 0 && ok.light.maxFall < ok.light.maxCll)
+  assert.deepEqual(ok.previewVsFinal, { mean: 0, max: 0, at: ok.previewVsFinal.at })
+  // A display whose peak is below that red: the frame passes it.
+  const dim = { ...hdr10, mastering: { ...hdr10.mastering, peak: 100 } }
+  const over = memoryChild({ size, frame: boxFrame(64, 36), hdr: { hdr10: dim, fps: 10 } })
+  await assert.rejects(
+    checkChild(over, manifest, { times: 2 }),
+    /above the mastering display's peak of 100 cd\/m²/,
+  )
+  // An hdr10 host gives nothing in SDR.
+  await assert.rejects(
+    film.render(0, 'final'),
+    /An hdr10 render comes out as rgb10 or p010, not rgba/,
+  )
+})
+
 test('a check of fewer than two timestamps is refused: it could never fail', async () => {
   const child = memoryChild({ size })
   for (const times of [0, 1, Number.NaN, 2.5])

@@ -6,7 +6,7 @@
 // the back-to-front order the plugin sorts every frame.
 
 import { createHouse, type Word } from '../../previews/src/house.ts'
-import { lens, matricesOf, type Shot } from '../../previews/src/motion/camera.ts'
+import { lensDeg, matricesOf, type Shot } from '../../previews/src/motion/camera.ts'
 import type { OpenPreview } from '../../previews/src/preview.ts'
 import { createSplatRenderer, type Splats } from '../../previews/src/render/splats.ts'
 
@@ -143,7 +143,7 @@ const renderGaussianSplats: OpenPreview = async (host, stateId) => {
     return {
       eye: [dist * Math.sin(az), h, dist * Math.cos(az)],
       target: [0, 0, 0],
-      fov: lens(50, 1),
+      fovDeg: lensDeg(50, 1),
       roll: 0,
       // The subject sits in the middle of the picture above the caption.
       shift: [0, 0.082],

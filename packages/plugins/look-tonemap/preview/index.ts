@@ -1,13 +1,14 @@
 // look-tonemap: a plain exposure chart in linear light, eight bands (seven hues and white), each
 // from 6 stops under middle grey to 6 over across the frame, through the plugin's WGSL in the
-// preview's own output shader, which encodes it to sRGB as a film would. The exposure breathes
-// 1.5 stops either way over the loop. In the 'all' state the curve cuts at 3 s: PBR Neutral, then
-// AgX; a state holds one. The curve is the big word top left; a red tick marks where the input
+// preview's own output shader, which encodes it to sRGB with render-srgb as a film would. The
+// exposure breathes 1.5 stops either way over the loop. In the 'all' state the curve cuts at 3 s:
+// PBR Neutral, then AgX; a state holds one. The curve is the big word top left; a red tick marks where the input
 // reaches 1.0, where an untone-mapped frame would clip.
 
 import { createHouse, L, R, RED, type Word } from '../../previews/src/house.ts'
 import { TONEMAP_WGSL } from '../../previews/src/looks/tonemap.wgsl.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
+import { SRGB_WGSL } from '../../previews/src/render/srgb.wgsl.ts'
 
 type Segment = { id: string; word: string; note: string; curve: 0 | 1 }
 
@@ -25,18 +26,13 @@ const SEGMENTS: Segment[] = [
 /** The chart: its box in px and its range in stops around middle grey. */
 const CHART = { x: L, y: 170, w: R - L, h: 560, ev: 6 }
 
-const SHADER = /* wgsl */ `${TONEMAP_WGSL}
+const SHADER = /* wgsl */ `${SRGB_WGSL}${TONEMAP_WGSL}
 struct Chart { box: vec4f, a: vec4f }  // x, y, w, h (px); stops either side, exposure, curve, 0
 @group(0) @binding(0) var<uniform> u: Chart;
 
 @vertex fn fullVs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
   let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
   return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
-}
-
-fn toSrgb(c: vec3f) -> vec3f {
-  let x = clamp(c, vec3f(0.0), vec3f(1.0));
-  return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
 }
 
 @fragment fn chartFs(@builtin(position) pos: vec4f) -> @location(0) vec4f {

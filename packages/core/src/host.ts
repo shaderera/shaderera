@@ -11,8 +11,18 @@ export {
 export { sampleTimes } from './determinism.ts'
 export { fullDevice } from './device.ts'
 export { gainAt, sampleClips } from './gain.ts'
-export { sha256 } from './hash.ts'
-export { checkManifest, withVariant } from './manifest.ts'
+export {
+  CODE_LIGHT,
+  type LightLevels,
+  lightReference,
+  p010Reference,
+  peakCode,
+  type ReferenceLayer,
+  rgb10Reference,
+  whiteOf,
+} from './hdr.ts'
+export { type HdrCompositor, type HdrOutput, hdrCompositor, p010Fits } from './hdr-compositor.ts'
+export { checkManifest, GRAPHICS_WHITE, withVariant } from './manifest.ts'
 export { openSource } from './open.ts'
 export { matte, over, type RgbaLayer, straight } from './over.ts'
 export { paramDefaults } from './params.ts'
@@ -24,12 +34,11 @@ export {
   seekable,
 } from './sequential.ts'
 export { formatShaderError, type Locate, type ShaderWatch, watchShaders } from './shaders.ts'
-export { finalOnly, layerInfo } from './stack.ts'
+export { finalOnly, layerInfo, lightChecked, rangeOf } from './stack.ts'
 export {
   dropFrame,
   fpsFraction,
   frameCount,
   framesOfTimecode,
-  parseFps,
   timecodeOf,
 } from './time.ts'

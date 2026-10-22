@@ -1,6 +1,6 @@
 /**
  * What a command found, in one shape for every command (T2, decision 0011): `--json` prints them in
- * an envelope an agent reads without parsing prose. Commands add findings as they go; main.ts adds
+ * an envelope an agent reads without parsing prose. Commands add findings as they go; run.ts adds
  * the error that stopped a command.
  */
 export type Finding = {
@@ -33,7 +33,7 @@ export const EXIT = { ok: 0, failed: 1, error: 2 } as const
 
 export const findings: Finding[] = []
 
-/** Records a finding (main.ts prints them with --json). */
+/** Records a finding (run.ts prints them with --json). */
 export const found = (f: Finding) => {
   findings.push(f)
 }
@@ -49,7 +49,7 @@ export const errorFinding = (e: unknown): Finding => {
       ? 'usage'
       : shader
         ? 'shader'
-        : /needs ffmpeg|ffprobe cannot|no GPU adapter|cannot encode with NVENC|Chrome/.test(message)
+        : /needs ffmpeg|ffprobe cannot|GPU adapter|cannot encode with|Chrome/.test(message)
           ? 'environment'
           : /not deterministic/.test(message)
             ? 'determinism'

@@ -1,8 +1,7 @@
 # Install Shaderera with your agent
 
 Copy the prompt below into your coding agent. It checks that Node.js 24 or newer and ffmpeg are
-installed, installs the Shaderera skills, starts a film project and gives the agent its MCP
-server. It installs only what is missing, and only with tools your machine already has.
+installed, installs the Shaderera skills and the MCP server, and starts a film project. It installs only what is missing, and only with tools your machine already has.
 
 It works in any agent that can run a terminal command:
 
@@ -52,11 +51,14 @@ Verify:
 Run `node --version` and `ffmpeg -version` again. Continue only if Node.js is 24 or higher and
 ffmpeg runs. Open a new terminal first if PATH changed.
 
-Install the skills:
+Install the skills and the MCP server:
 - In Claude Code, install the Claude Code plugin: run
   `claude plugin marketplace add shaderera/shaderera`, then
-  `claude plugin install shaderera@shaderera`. Tell the person to run `/reload-plugins`.
-- In any other agent: run `npx skills add shaderera/shaderera -g -y`.
+  `claude plugin install shaderera@shaderera`. It has the skills and the `shaderera` MCP server.
+  Tell the person to run `/reload-plugins`.
+- In any other agent: run `npx skills add shaderera/shaderera -g -y`, then add a stdio MCP server
+  named `shaderera` whose command is `npx -y shaderera mcp`, the way your agent adds MCP servers.
+  It starts in any folder and finds the project on each call.
 
 Start a film project:
 Ask the person where the project should go and what to call it. The default is a folder named
@@ -67,11 +69,7 @@ Ask the person where the project should go and what to call it. The default is a
   npx shaderera doctor
   npx shaderera check
 `doctor` must not report anything an mp4 render needs as missing, and `check` must pass.
-
-Give yourself eyes:
-Add a stdio MCP server named `shaderera` that runs `npx shaderera mcp` in the project folder,
-the way your agent adds MCP servers. In Claude Code, from the project folder:
-`claude mcp add shaderera -- npx shaderera mcp`
+The project has a `.mcp.json` with the same MCP server, for agents that read one.
 
 Success message:
 Tell the person they are set up, where the project is, and what to do next:
