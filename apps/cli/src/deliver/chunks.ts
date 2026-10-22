@@ -271,60 +271,168 @@ export const renderChunk = async (
 }
 
 /**
- * Every chunk's record, checked: present, its file unchanged since it was rendered, rendered for
- * this plan's job, frames and input, and (unless `mixedHosts`) every chunk rendered by the same kind of host, since
- * another GPU or driver may round pixels differently and a seam would show. A reused chunk's record
- * is the earlier plan's chunk it is cut from: rendered for the job it names, still the file it was
- * when reused, and never on another kind of host, `mixedHosts` or not.
+ * Where a chunk of a plan stands: `done` (its record and file are there, rendered for this plan),
+ * `verified` (done, and the file's sha256 checked again), `changed` (the file differs from its
+ * record), `stale` (the record is of another job or plan), `partial` (not rendered, but a render
+ * of it stopped part way and left a `.partial`) or `missing`.
  */
-export const checkChunks = (plan: Plan, dir: string, mixedHosts = false): ChunkRecord[] => {
+export type ChunkStatus = 'done' | 'verified' | 'changed' | 'stale' | 'partial' | 'missing'
+
+export type ChunkState = {
+  index: number
+  file: string
+  frames: number
+  status: ChunkStatus
+  /** The record beside the file, when there is one. */
+  record?: ChunkRecord
+  /** `.partial` files a render of this chunk left. */
+  partials: string[]
+  /** For a reused chunk: the earlier plan's folder and job. */
+  reused?: { plan: string; job: string }
+  /** Why the chunk cannot be assembled as it is. */
+  problem?: string
+  /** The command that renders it again. */
+  fix?: string
+}
+
+/** The command that renders chunk `index` of the plan in `dir`. */
+export const renderCommand = (plan: Pick<Plan, 'job'>, dir: string, index: number) =>
+  `shaderera render --job ${plan.job} --chunk ${index} --plan ${resolve(dir)}`
+
+/**
+ * Every chunk of the plan in `dir` and where it stands, without throwing. With `verify` each
+ * file's sha256 is checked against its record (`verified` or `changed`); without, a chunk whose
+ * record and file are there and match the plan is `done`. A reused chunk's record is the earlier
+ * plan's chunk it is cut from: rendered for the job it names and still the file it was when reused.
+ */
+export const chunkStates = (plan: Plan, dir: string, verify = false): ChunkState[] => {
   const hashes = new Map<string, string>()
   const hashOf = (file: string) => hashes.get(file) ?? hashes.set(file, hashFile(file)).get(file)
-  const records = plan.chunks.map((c) => {
+  const names = existsSync(dir) ? readdirSync(dir) : []
+  return plan.chunks.map((c): ChunkState => {
     const file = chunkFile(dir, c)
-    if (c.reused) {
-      const from = `job ${c.reused.job}'s plan (${resolve(dir, c.reused.plan)})`
-      if (!existsSync(`${file}.json`) || !existsSync(file))
-        throw new Error(`Chunk ${c.index} reuses ${c.file} of ${from}, which is gone.`)
-      const r = JSON.parse(readFileSync(`${file}.json`, 'utf8')) as ChunkRecord
-      if (
-        r.jobId !== c.reused.jobId ||
-        r.sha256 !== c.reused.sha256 ||
-        r.input !== plan.input ||
-        c.reused.first + c.frames > r.frames
-      )
-        throw new Error(
-          `${c.file} of ${from} is no longer the chunk that chunk ${c.index} reuses: render with --reuse again.`,
-        )
-      if (hashOf(file) !== r.sha256) throw new Error(`${file} changed after it was rendered.`)
-      return r
+    const partials = c.reused
+      ? []
+      : names
+          .filter((f) => f.startsWith(`${c.file}.`) && f.endsWith('.partial.mkv'))
+          .map((f) => join(dir, f))
+    const base = { index: c.index, file, frames: c.frames, partials }
+    let record: ChunkRecord | undefined
+    try {
+      if (existsSync(file)) record = JSON.parse(readFileSync(`${file}.json`, 'utf8')) as ChunkRecord
+    } catch {
+      // No record, or one cut short: the chunk is not rendered.
     }
-    if (!existsSync(`${file}.json`) || !existsSync(file))
-      throw new Error(
-        `Chunk ${c.index} is not rendered: shaderera render --job ${plan.job} --chunk ${c.index}`,
+    if (c.reused) {
+      const reused = { plan: resolve(dir, c.reused.plan), job: c.reused.job }
+      const from = `job ${c.reused.job}'s plan (${reused.plan})`
+      if (!record)
+        return {
+          ...base,
+          reused,
+          status: 'missing',
+          problem: `Chunk ${c.index} reuses ${c.file} of ${from}, which is gone.`,
+        }
+      if (
+        record.jobId !== c.reused.jobId ||
+        record.sha256 !== c.reused.sha256 ||
+        record.input !== plan.input ||
+        c.reused.first + c.frames > record.frames
       )
-    const r = JSON.parse(readFileSync(`${file}.json`, 'utf8')) as ChunkRecord
+        return {
+          ...base,
+          reused,
+          record,
+          status: 'stale',
+          problem: `${c.file} of ${from} is no longer the chunk that chunk ${c.index} reuses: render with --reuse again.`,
+        }
+      if (!verify) return { ...base, reused, record, status: 'done' }
+      return hashOf(file) === record.sha256
+        ? { ...base, reused, record, status: 'verified' }
+        : {
+            ...base,
+            reused,
+            record,
+            status: 'changed',
+            problem: `${file} changed after it was rendered.`,
+          }
+    }
+    const fix = renderCommand(plan, dir, c.index)
+    if (!record)
+      return {
+        ...base,
+        status: partials.length > 0 ? 'partial' : 'missing',
+        problem: `Chunk ${c.index} is not rendered${partials.length > 0 ? ' (a render of it stopped part way)' : ''}`,
+        fix,
+      }
     // A plan made again in this folder, or for a replaced job, leaves chunks of another plan.
     if (
-      r.jobId !== plan.jobId ||
-      r.input !== plan.input ||
-      r.from !== c.from ||
-      r.to !== c.to ||
-      r.frames !== c.frames
+      record.jobId !== plan.jobId ||
+      record.input !== plan.input ||
+      record.from !== c.from ||
+      record.to !== c.to ||
+      record.frames !== c.frames
     )
-      throw new Error(
-        `${c.file} was rendered for another plan (job ${r.jobId}, ${r.frames} frames from ${r.from} s, as ${r.input}): render it again: shaderera render --job ${plan.job} --chunk ${c.index}`,
-      )
-    if (hashFile(file) !== r.sha256) throw new Error(`${c.file} changed after it was rendered.`)
-    return r
+      return {
+        ...base,
+        record,
+        status: 'stale',
+        problem: `${c.file} was rendered for another plan (job ${record.jobId}, ${record.frames} frames from ${record.from} s, as ${record.input}): render it again`,
+        fix,
+      }
+    if (!verify) return { ...base, record, status: 'done' }
+    return hashFile(file) === record.sha256
+      ? { ...base, record, status: 'verified' }
+      : {
+          ...base,
+          record,
+          status: 'changed',
+          problem: `${c.file} changed after it was rendered`,
+          fix,
+        }
   })
+}
+
+/** A chunk's problem as a line, with the command that fixes it. */
+const problemLine = (s: ChunkState) => `${s.problem}${s.fix ? `: ${s.fix}` : ''}`
+
+/**
+ * Every chunk's record, checked (chunkStates with `verify`): present, its file unchanged since it
+ * was rendered, rendered for this plan's job, frames and input, and (unless `mixedHosts`) every
+ * chunk rendered by the same kind of host, since another GPU or driver may round pixels
+ * differently and a seam would show. A reused chunk is never on another kind of host,
+ * `mixedHosts` or not. Throws once with every problem, each with the command that fixes it.
+ */
+export const checkChunks = (plan: Plan, dir: string, mixedHosts = false): ChunkRecord[] => {
+  const states = chunkStates(plan, dir, true)
+  const problems = states.flatMap((s) => (s.problem ? [problemLine(s)] : []))
+  const records = states.flatMap((s) => (s.record ? [s.record] : []))
   const hosts = new Set(records.map((r) => JSON.stringify(r.host)))
   const reused = plan.chunks.some((c) => c.reused)
   if (hosts.size > 1 && (!mixedHosts || reused))
-    throw new Error(
+    problems.push(
       `The chunks were rendered by ${hosts.size} different hosts (${[...hosts].join(' | ')}): another GPU or driver may round pixels differently. Render them on one kind of machine${reused ? ', the kind that rendered the frames reused' : ', or assemble with --mixed-hosts'}.`,
     )
+  if (problems.length === 1) throw new Error(problems[0])
+  if (problems.length > 1)
+    throw new Error(
+      `${problems.length} problems in the plan in ${resolve(dir)}:\n${problems.map((p) => `  - ${p}`).join('\n')}`,
+    )
   return records
+}
+
+/** Frames done of the plan's total, and seconds left at the pace its rendered chunks recorded. */
+export const progressOf = (plan: Plan, states: readonly ChunkState[]) => {
+  const ok = (s: ChunkState) => s.status === 'done' || s.status === 'verified'
+  const total = plan.chunks.reduce((n, c) => n + c.frames, 0)
+  const done = states.filter(ok).reduce((n, s) => n + s.frames, 0)
+  // The pace of chunks rendered for this plan (a changed file took its time all the same);
+  // reused frames took no time here.
+  const timed = states.filter((s) => (ok(s) || s.status === 'changed') && !s.reused)
+  const frames = timed.reduce((n, s) => n + s.frames, 0)
+  const seconds = timed.reduce((n, s) => n + (s.record?.seconds ?? 0), 0)
+  const left = states.filter((s) => !ok(s) && !s.reused).reduce((n, s) => n + s.frames, 0)
+  return { done, total, eta: left === 0 ? 0 : frames > 0 ? (seconds / frames) * left : null }
 }
 
 /**

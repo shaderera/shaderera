@@ -283,6 +283,25 @@ Exit 1 when any output fails, after rendering the rest. See [delivery.md](delive
 frames however many. `plan` refuses a folder that holds another job's plan or chunks, naming that
 job and a fresh `--out`; planning the same job again in its folder replaces its plan.
 
+`shaderera plan --status --plan <dir> [--verify] [--json]` (or `--job <name>` for its default
+folder) lists each chunk as `done` (its record and file are there), `verified` (with `--verify`,
+the file's sha256 checked again), `changed` (with `--verify`, the file differs from its record),
+`stale` (rendered for another job or plan), `partial` (a render of it stopped part way) or
+`missing`, with the `render --chunk` command for each that is not done, then the frames done of
+the total and the time left at the pace the rendered chunks recorded (on one machine). `--json`
+gives the same as `result`: `frames` {done, total}, `eta` in seconds (null before any chunk is
+rendered) and `chunks`. `assemble` lists every problem it finds before it starts, each with the
+command that fixes it.
+
+```
+$ shaderera plan --status --plan out/spot.plan
+/path/to/project/out/spot.plan/plan.json: job spot, 3 chunks
+  chunk   0  done      4 frames in 12.0 s
+  chunk   1  missing   3 frames  → shaderera render --job spot --chunk 1 --plan /path/to/project/out/spot.plan
+  chunk   2  partial   3 frames  → shaderera render --job spot --chunk 2 --plan /path/to/project/out/spot.plan
+4/10 frames done, about 18 s of rendering left at the recorded pace
+```
+
 After a small edit, `shaderera render --job <new> --reuse <earlier plan> --changed <from>-<to>[,…]
 [--fix] [--plan dir]` writes a plan of the new job (by default `out/<new>.plan`) that renders only
 the changed spans, in seconds, and takes every other frame from the earlier plan's chunks; then

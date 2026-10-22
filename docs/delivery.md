@@ -312,10 +312,13 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
   machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
   heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
+- `plan --status --plan <dir> [--verify]` says which chunks are done, missing, stale (of another
+  job or plan) or partial (stopped part way), with the command that renders each, the frames done
+  and the time left ([cli.md](cli.md#plan-render---chunk-assemble)).
 - `assemble` refuses a missing or changed chunk, and chunks from different kinds of host (another
-  GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`. It
-  encodes the chunks once in order, with the sound, captions, stems, preroll and timecode of the
-  whole window.
+  GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`, and
+  lists every such problem at once, each with the command that fixes it. It encodes the chunks
+  once in order, with the sound, captions, stems, preroll and timecode of the whole window.
 - Measured on 2026-10-12: a job rendered in 3 chunks (out of order) and assembled is the same file,
   byte for byte, as the job rendered in one go, for an mp4 and for ProRes 422 HQ and 4444 (the mov
   muxer runs with `+bitexact`, and PCM packets are 1024 samples each). A sequential source renders
