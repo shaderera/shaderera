@@ -3,13 +3,14 @@
 // 0–1. Khronos PBR Neutral and AgX, each as its reference has it. For a swatch, a palette picked to
 // match the picture, or a test; the film's frame goes through the WGSL.
 
-export type Rgb = readonly [number, number, number]
+/** A colour in linear light (Rec.709/sRGB primaries), not display values. */
+export type LinearRgb = readonly [number, number, number]
 
 /**
  * Khronos PBR Neutral (KhronosGroup/ToneMapping, PBR_Neutral): colours below the shoulder pass
  * through as they are; the highlights roll off to white and desaturate.
  */
-export const pbrNeutral = (rgb: Rgb): [number, number, number] => {
+export const pbrNeutral = (rgb: LinearRgb): [number, number, number] => {
   const start = 0.8 - 0.04
   const desaturation = 0.15
   const x = Math.min(rgb[0], rgb[1], rgb[2])
@@ -27,8 +28,8 @@ export const pbrNeutral = (rgb: Rgb): [number, number, number] => {
 }
 
 // WGSL's mat3x3f(c0, c1, c2) is by columns, as these are: M·v = c0·v.x + c1·v.y + c2·v.z.
-type M3 = readonly [Rgb, Rgb, Rgb]
-const mul = (m: M3, v: Rgb): [number, number, number] => [
+type M3 = readonly [LinearRgb, LinearRgb, LinearRgb]
+const mul = (m: M3, v: LinearRgb): [number, number, number] => [
   m[0][0] * v[0] + m[1][0] * v[1] + m[2][0] * v[2],
   m[0][1] * v[0] + m[1][1] * v[1] + m[2][1] * v[2],
   m[0][2] * v[0] + m[1][2] * v[1] + m[2][2] * v[2],
@@ -77,7 +78,7 @@ const contrast = (x: number) => {
  * inset, a log2 encoding from -12.47393 to 4.026069 EV, the sigmoid, the outset, and the 2.2 power
  * that turns the sigmoid's display values back into linear light.
  */
-export const agx = (rgb: Rgb): [number, number, number] => {
+export const agx = (rgb: LinearRgb): [number, number, number] => {
   const c = mul(INSET, mul(SRGB_TO_2020, rgb)).map((v) =>
     contrast(clamp01((Math.log2(Math.max(v, 1e-10)) - MIN_EV) / (MAX_EV - MIN_EV))),
   ) as [number, number, number]

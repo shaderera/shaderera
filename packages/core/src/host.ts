@@ -11,7 +11,6 @@ export {
 export { sampleTimes } from './determinism.ts'
 export { fullDevice } from './device.ts'
 export { gainAt, sampleClips } from './gain.ts'
-export { sha256 } from './hash.ts'
 export { checkManifest, withVariant } from './manifest.ts'
 export { openSource } from './open.ts'
 export { matte, over, type RgbaLayer, straight } from './over.ts'
@@ -30,6 +29,5 @@ export {
   fpsFraction,
   frameCount,
   framesOfTimecode,
-  parseFps,
   timecodeOf,
 } from './time.ts'

@@ -188,7 +188,7 @@ const imageRegions: OpenPreview = async (host, stateId) => {
           q.mask.height * s,
         )
         ctx.globalAlpha = 1
-        const [bx, by, bw, bh] = q.box
+        const { x: bx, y: by, width: bw, height: bh } = q.box
         ctx.strokeStyle = now ? RED : 'rgba(255,255,255,0.35)'
         ctx.lineWidth = now ? 2 : 1
         ctx.strokeRect(X(bx) - 0.5, Y(by) - 0.5, bw * s + 1, bh * s + 1)
@@ -212,13 +212,14 @@ const imageRegions: OpenPreview = async (host, stateId) => {
           ctx.stroke()
           ctx.setLineDash([])
         }
-        const label = `${current.id}  [${current.box.join(' ')}]`
+        const { x, y, width, height } = current.box
+        const label = `${current.id}  [${[x, y, width, height].join(' ')}]`
         ctx.font = `14px ${mono}`
         ctx.textAlign = 'left'
         ctx.textBaseline = 'alphabetic'
         const lw = ctx.measureText(label).width + 12
-        const lx = Math.min(R - lw, Math.max(L, X(current.box[0]) - 1))
-        const ly = Y(current.box[1]) - 22
+        const lx = Math.min(R - lw, Math.max(L, X(current.box.x) - 1))
+        const ly = Y(current.box.y) - 22
         ctx.fillStyle = RED
         ctx.fillRect(lx, ly, lw, 20)
         ctx.fillStyle = '#000'

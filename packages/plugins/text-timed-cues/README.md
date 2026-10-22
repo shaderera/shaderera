@@ -24,3 +24,22 @@ It gives times only: how a line looks and moves is the film's code.
   first word to its last, with its `text`; `wordAt` gives the words.
 - `parseLrc`, `parseSrt`, `parseTimedJson` and `parseTimedText(path, source)` read text you already
   have; `trimCues(cues, s)` shifts every time by `-s`.
+
+## As the film's captions
+
+A `Cue` is already a `Caption`, so `captions()` can return the cues as they are, and every export
+writes them as SRT and WebVTT sidecars. Only an LRC's last line needs one thing first: its `end` is
+`Infinity`, which review fails and the exports refuse, so end it with the film:
+
+```ts
+// in the source
+async captions() {
+  const end = host.manifest.duration
+  return lyrics.filter((c) => c.start < end).map((c) => ({ ...c, end: Math.min(c.end, end) }))
+}
+```
+
+Review measures the captions (characters per second, duration, gap, lines, overlaps) but judges
+them only against the limits `requirements.json` declares, such as
+`{ "version": 1, "captions": { "maxCps": 17, "maxLines": 2 } }`; see the `shaderera` package's
+`docs/delivery.md`, Stems and captions.

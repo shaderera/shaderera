@@ -23,7 +23,7 @@ region. All in the source image's pixels, origin top-left:
 - `id` is `<label>-<n>`, the label in lowercase letters, digits and dashes (it names the mask's
   file), n counting from the highest score; `label` is the word as asked for (or given); `score`
   is the analyser's confidence (1 for a painted mask);
-- `box` is `[x, y, width, height]`, `centre` the mask's centre of mass;
+- `box` is `{ x, y, width, height }`, `centre` the mask's centre of mass;
 - `parent` is the smallest other region holding 90% of this one: an eyeball's eye, an eye's head;
 - `mask` is u8 coverage 0–255 over the rectangle at `mask.at`, `width × height`, `rowStride` apart:
   any shape, with holes, separate pieces and soft edges as the analyser found them.

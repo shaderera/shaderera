@@ -1,0 +1,21 @@
+{
+  "name": "motion-random",
+  "type": "component",
+  "title": "Seeded random",
+  "description": "Deterministic random numbers from a seed: a PCG hash of an integer to 32 bits or to 0–1, the same hash as WGSL functions for a shader, and a seeded mulberry32 stream",
+  "category": "Animation & Camera",
+  "tags": [
+    "random",
+    "seed",
+    "hash",
+    "pcg",
+    "mulberry32",
+    "noise",
+    "deterministic",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/motion/random.ts", "src/motion/random.wgsl.ts"]
+}

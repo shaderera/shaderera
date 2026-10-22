@@ -16,8 +16,8 @@
     "ffmpeg",
     "audio conform"
   ],
-  "version": "0.1.1",
+  "version": "0.2.0",
   "licence": "MIT",
-  "requires": { "shaderera": ">=0.1.0", "items": { "text-timed-cues": "^0.1.1" } },
+  "requires": { "shaderera": ">=0.1.5", "items": { "text-timed-cues": "^0.1.1" } },
   "files": ["tools/voice-repace.ts", "src/audio/repace.ts"]
 }

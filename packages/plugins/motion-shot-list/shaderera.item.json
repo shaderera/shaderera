@@ -1,0 +1,25 @@
+{
+  "name": "motion-shot-list",
+  "type": "component",
+  "title": "Shot list",
+  "description": "Film time to shots: the shot or two on screen at t, each one's local time and progress, the transition's progress, the source frame (floored, speed, freeze and reverse, exact at NTSC rates) and when each footage may be closed; times only, it draws nothing",
+  "category": "Animation & Camera",
+  "tags": [
+    "shots",
+    "edit",
+    "cuts",
+    "transitions",
+    "dissolve",
+    "footage",
+    "source frame",
+    "speed ramp",
+    "freeze frame",
+    "reverse",
+    "ntsc",
+    "timing"
+  ],
+  "version": "0.1.3",
+  "licence": "MIT",
+  "requires": { "shaderera": ">=0.1.5" },
+  "files": ["src/motion/shot-list.ts"]
+}

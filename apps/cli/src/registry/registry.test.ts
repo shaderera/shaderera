@@ -199,13 +199,13 @@ test('the shaderera range is checked too', () => {
 
 test('an item built on other items brings them in once, and never replaces what the project has', () => {
   const registry = temp('reg')
-  const item = (name: string, file: string, items?: { [n: string]: string }) =>
+  const item = (name: string, version: string, file: string, items?: { [n: string]: string }) =>
     write(temp(name), {
       'shaderera.item.json': {
         name,
         type: 'component',
         category: 'Typography',
-        version: '0.1.0',
+        version,
         licence: 'MIT',
         ...(items ? { requires: { items } } : {}),
         files: [file],
@@ -213,24 +213,30 @@ test('an item built on other items brings them in once, and never replaces what 
       [file]: `export const ${name.replace(/-/g, '')} = 1\n`,
       'README.md': `How to use ${name}.\n`,
     })
-  publish(item('text-kinetic', 'src/type/kinetic.ts'), registry)
-  publish(item('captions', 'src/type/captions.ts', { 'text-kinetic': '^0.1.0' }), registry)
-  publish(item('text-code-wall', 'src/type/code-wall.ts', { 'text-kinetic': '^0.1.0' }), registry)
+  publish(item('text-scramble', '0.3.0', 'src/type/scramble.ts'), registry)
+  publish(
+    item('text-glitch-titles', '0.2.0', 'src/type/titles.ts', { 'text-scramble': '^0.3.0' }),
+    registry,
+  )
+  publish(
+    item('text-code-wall', '0.3.0', 'src/type/code-wall.ts', { 'text-scramble': '^0.3.0' }),
+    registry,
+  )
   const root = project()
-  const first = add(root, registry, 'captions')
-  assert.ok(existsSync(join(root, 'src', 'type', 'kinetic.ts')))
+  const first = add(root, registry, 'text-glitch-titles')
+  assert.ok(existsSync(join(root, 'src', 'type', 'scramble.ts')))
   assert.equal(first.length, 2)
-  writeFileSync(join(root, 'src', 'type', 'kinetic.ts'), '// changed by hand\n')
+  writeFileSync(join(root, 'src', 'type', 'scramble.ts'), '// changed by hand\n')
   const second = add(root, registry, 'text-code-wall')
   assert.equal(second.length, 1)
   assert.equal(
-    readFileSync(join(root, 'src', 'type', 'kinetic.ts'), 'utf8'),
+    readFileSync(join(root, 'src', 'type', 'scramble.ts'), 'utf8'),
     '// changed by hand\n',
   )
   // the README is published (info prints it) and searched, but never copied into the project
-  assert.ok(existsSync(join(registry, 'items', 'captions', '0.1.0', 'README.md')))
+  assert.ok(existsSync(join(registry, 'items', 'text-glitch-titles', '0.2.0', 'README.md')))
   assert.ok(!existsSync(join(root, 'README.md')))
-  assert.equal(search(registry, 'How to use captions')[0]?.name, 'captions')
+  assert.equal(search(registry, 'How to use text-glitch-titles')[0]?.name, 'text-glitch-titles')
 })
 
 test('an item that imports npm packages installs them, unless the project has them', () => {
@@ -492,5 +498,82 @@ test("--site names where plugins come from: a site's /r, a URL's own path, or a 
   assert.equal(
     registryDir(),
     `${process.env.SHADERERA_SITE ? new URL(process.env.SHADERERA_SITE).origin : 'https://shaderera.com'}/r`,
+  )
+})
+
+const quiet = async (command: string, argv: string[]): Promise<string[]> => {
+  const printed: string[] = []
+  const log = console.log
+  console.log = (s: string) => printed.push(s)
+  try {
+    await run(command, argv)
+  } finally {
+    console.log = log
+  }
+  return printed
+}
+
+test('add takes several names: all of them are copied, or none when one does not resolve', async () => {
+  const registry = temp('reg')
+  publish(piece('frame', ['src/frame.ts']), registry)
+  publish(piece('top', ['src/top.ts'], { requires: { items: { frame: '^0.1.0' } } }), registry)
+  publish(piece('side', ['src/side.ts']), registry)
+  const root = project()
+  const printed = await quiet('add', ['top', 'side', 'frame', '--site', registry, '--root', root])
+  for (const f of ['frame', 'top', 'side']) assert.ok(existsSync(join(root, 'src', `${f}.ts`)))
+  assert.equal(printed.at(-1), 'added top, side, frame')
+
+  const other = project()
+  await assert.rejects(
+    quiet('add', ['side', 'gone', '--site', registry, '--root', other]),
+    /gone is not a plugin in/,
+  )
+  assert.ok(!existsSync(join(other, 'src', 'side.ts')))
+  // A name the project already has is refused like one alone.
+  await assert.rejects(
+    quiet('add', ['side', 'top', '--site', registry, '--root', root]),
+    /already has src\/side\.ts, src\/top\.ts/,
+  )
+})
+
+test('remove takes several names, and refuses them all when one is not a package plugin', () => {
+  const root = write(project(), {
+    'shaderera.item.json': { requires: { extensions: { '@x/one': '^1.0.0', '@x/two': '^1.0.0' } } },
+  })
+  const uninstalled: string[] = []
+  const uninstall = (_r: string, name: string) => void uninstalled.push(name)
+  assert.throws(() => remove(root, ['@x/one', 'copied'], { uninstall }), /copied is not a package/)
+  assert.deepEqual(uninstalled, [])
+  remove(root, ['@x/one', '@x/two'], { uninstall })
+  assert.deepEqual(uninstalled, ['@x/one', '@x/two'])
+})
+
+test('publish takes several folders; one that fails is named, and the rest are published', async () => {
+  const registry = temp('reg')
+  const empty = temp('empty')
+  await assert.rejects(
+    quiet('publish', [
+      piece('one', ['src/one.ts']),
+      empty,
+      piece('two', ['src/two.ts']),
+      '--site',
+      registry,
+    ]),
+    (e: Error) => /published 2 of 3; 1 failed/.test(e.message) && e.message.includes(empty),
+  )
+  assert.equal(resolve(registry, 'one').item.name, 'one')
+  assert.equal(resolve(registry, 'two').item.name, 'two')
+})
+
+test('an extra argument is never ignored, and a folder of plugin sources says to publish it first', async () => {
+  const registry = temp('reg')
+  publish(piece('one', ['src/one.ts']), registry)
+  await assert.rejects(quiet('info', ['one', 'two', '--site', registry]), /one plugin at a time/)
+
+  const sources = temp('sources')
+  write(sources, { 'look-x/shaderera.item.json': { name: 'look-x' } })
+  await assert.rejects(
+    quiet('add', ['look-x', '--site', sources, '--root', project()]),
+    /holds plugin sources, not published plugins.*npx shaderera publish .*--site <folder>/,
   )
 })

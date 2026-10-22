@@ -1,0 +1,7 @@
+{
+  "caption": "Turns light into the values a screen shows and back again, by the sRGB standard, the same in your shader and on the CPU.",
+  "states": [{ "id": "default", "label": "Default" }],
+  "default": "default",
+  "audio": false,
+  "poster": 1.5
+}

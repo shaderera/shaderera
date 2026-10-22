@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Placement } from '../deliver/placement.ts'
+import type { CaptionLimits } from '../review/measure.ts'
 import type { Timing } from '../review/timing.ts'
 
 /**
@@ -41,6 +42,12 @@ export type Requirements = {
   textOverlap?: number
   /** No flat frame outside the first and last 0.3 s: review's `blank-frames` check fails on one. */
   noBlankFrames?: true
+  /**
+   * Limits on the subtitle sidecar (`captions()`): characters per second, characters in a line
+   * and lines (grapheme clusters), and the shortest duration and gap in seconds. Review's
+   * `captions` check fails a caption over a declared one; unset, they are measured as info.
+   */
+  captions?: CaptionLimits
   /**
    * Timings the author checks against inspect: a value at a path at a time (`at`) or over a
    * window (`from`, `to`), equal to, at least or at most a value, or holding still or moving
@@ -159,7 +166,7 @@ type GateCheck = {
  * The checks a project's requirements need to pass. Every project: it builds and opens, its
  * requirements read, it renders the same twice, its assets load. Then what it asks for: a format,
  * exact copy (with its glyphs, inside the frame or the safe area), a safe area, an end hold, a
- * reading time, a text overlap limit, no blank frames. Nothing else is judged (decision 0011).
+ * reading time, a text overlap limit, no blank frames, caption limits. Nothing else is judged (decision 0011).
  */
 export const requiredChecks = (r: Requirements): Set<string> =>
   new Set([
@@ -174,6 +181,7 @@ export const requiredChecks = (r: Requirements): Set<string> =>
     ...(r.readingTime ? ['reading'] : []),
     ...(r.textOverlap !== undefined ? ['text-overlap'] : []),
     ...(r.noBlankFrames ? ['blank-frames'] : []),
+    ...(r.captions ? ['captions'] : []),
     ...(r.timing?.length ? ['timing'] : []),
     ...(r.placement ? ['placement'] : []),
   ])

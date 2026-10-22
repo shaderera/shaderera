@@ -11,7 +11,7 @@ const color = vignette.apply(frame, { amount: 0.4, start: 0.35 })
 return [{ color, alpha: 'opaque' }]
 ```
 
-- `amount` (0.4): how far the corners go towards `colour`, 0–1.
+- `amount` (0.4): how far the corners go towards `color`, 0–1.
 - `start` (0.35): where the falloff begins, 0 at the centre and 1 at the corners (or at the edge
   of `size`).
 - `roundness` (1): 1 a circle; 0 an ellipse of the frame's proportions, which reaches the long
@@ -20,7 +20,7 @@ return [{ color, alpha: 'opaque' }]
 - `size`: the radii in px of an ellipse the falloff ends at, in place of the frame's corners;
   outside it everything is `amount` of the way, and at [0, 0] it is closed. `roundness` is then
   unused.
-- `colour` (black): what the edges go towards, as display values; white for a faded print.
+- `color` (black): what the edges go towards, as display values; white for a faded print.
 
 A spotlight is a vignette with a `size`: the picture dims but for a soft ellipse round a box.
 Move `centre` and `size` with `motion-keyframes` to carry it from spot to spot, and take

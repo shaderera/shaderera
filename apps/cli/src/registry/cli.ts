@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
+import { ITEM_FILE } from './item.ts'
 import { add, findRoot, remove } from './project.ts'
 import { isUrl, mirror } from './remote.ts'
 import { search } from './search.ts'
@@ -10,14 +11,28 @@ import { parseSpec, publish, readIndex, registryDir, resolve } from './store.ts'
 export const COMMANDS = ['add', 'search', 'info', 'remove', 'publish'] as const
 
 export const usage = `Plugins:
-  add <name>[@range] [--force]               copy a plugin into this project (a package is installed)
+  add <name>[@range]... [--force]            copy plugins into this project (a package is installed)
   search <words> [--type t] [--category c] [--tag x] [--json]   full-text over names, descriptions and code
   info <name>[@range] [--json]               what it is, its licence, what it copies, how to use it
-  remove <name>                              uninstall a package plugin (copied files are yours: delete them)
-  publish [dir] --site <folder> [--force]    put a plugin into a folder of plugins
+  remove <name>...                           uninstall package plugins (copied files are yours: delete them)
+  publish [dir]... --site <folder> [--force] put plugins into a folder of plugins
 
 Plugins come from a site's /r: --site <origin>, else SHADERERA_SITE, else https://shaderera.com/r;
 or from a folder of plugins: --site <dir>.`
+
+/**
+ * A folder of plugin sources (each with its label) where a folder of published plugins was
+ * wanted: the catalog itself, say. It has no index.json, so every name would be "not a plugin".
+ */
+const sourcesHint = (dir: string): string | null => {
+  if (existsSync(join(dir, 'index.json')) || !existsSync(dir)) return null
+  const sources = readdirSync(dir, { withFileTypes: true }).some(
+    (e) => e.isDirectory() && existsSync(join(dir, e.name, ITEM_FILE)),
+  )
+  return sources
+    ? `${dir} holds plugin sources, not published plugins (it has no index.json). Publish them into a folder first, then add from that: npx shaderera publish ${dir}/<plugin>... --site <folder> (see "Where plugins come from" in docs/plugins.md)`
+    : null
+}
 
 /** Runs one plugin command; `argv` is what follows it. */
 export const run = async (command: string, argv: readonly string[]): Promise<number> => {
@@ -42,6 +57,10 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
   const source = registryDir(v.site)
   if (command === 'publish' && isUrl(source))
     throw new Error(`publish writes to a folder, not ${source}: pass --site <dir>`)
+  if (command !== 'publish' && !isUrl(source)) {
+    const hint = sourcesHint(source)
+    if (hint) throw new Error(hint)
+  }
   const registry = isUrl(source) ? await mirror(source, command, args) : source
   const root = () => findRoot(v.root ?? process.cwd())
   const print = (lines: string[]) => {
@@ -75,7 +94,8 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
       }
       case 'info': {
         const spec = args[0]
-        if (!spec) throw new Error('Usage: shaderera info <name>[@range]')
+        if (!spec || args.length > 1)
+          throw new Error('Usage: shaderera info <name>[@range] (one plugin at a time)')
         const found = resolve(registry, spec)
         const versions = Object.keys(
           readIndex(registry).items[parseSpec(spec).name]?.versions ?? {},
@@ -121,19 +141,36 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
         ])
       }
       case 'add': {
-        if (!args[0]) throw new Error('Usage: shaderera add <name>[@range]')
-        return print(add(root(), registry, args[0], { force: v.force ?? false }))
+        if (args.length === 0) throw new Error('Usage: shaderera add <name>[@range]...')
+        const done = add(root(), registry, args, { force: v.force ?? false })
+        return print(args.length > 1 ? [...done, `added ${args.join(', ')}`] : done)
       }
       case 'remove': {
-        if (!args[0]) throw new Error('Usage: shaderera remove <name>')
-        return print(remove(root(), args[0]))
+        if (args.length === 0) throw new Error('Usage: shaderera remove <name>...')
+        return print(remove(root(), args))
       }
       case 'publish': {
-        const r = publish(args[0] ?? process.cwd(), registry, { force: v.force ?? false })
-        return print([
-          `published ${r.item.name}@${r.item.version} to ${registry} (sha256 ${r.sha256.slice(0, 12)})`,
-          ...r.warnings.map((w) => `  ! ${w}`),
-        ])
+        // Each folder in turn: one that fails does not stop the rest, and is named at the end.
+        const dirs = args.length > 0 ? args : [process.cwd()]
+        const failed: string[] = []
+        for (const dir of dirs) {
+          try {
+            const r = publish(dir, registry, { force: v.force ?? false })
+            print([
+              `published ${r.item.name}@${r.item.version} to ${registry} (sha256 ${r.sha256.slice(0, 12)})`,
+              ...r.warnings.map((w) => `  ! ${w}`),
+            ])
+          } catch (e) {
+            if (dirs.length === 1) throw e
+            failed.push(`${dir}: ${(e as Error).message}`)
+          }
+        }
+        if (dirs.length === 1) return 0
+        const published = dirs.length - failed.length
+        if (failed.length === 0) return print([`published ${published} of ${dirs.length}`])
+        throw new Error(
+          `published ${published} of ${dirs.length}; ${failed.length} failed:\n  ${failed.join('\n  ')}`,
+        )
       }
       default:
         console.log(usage)

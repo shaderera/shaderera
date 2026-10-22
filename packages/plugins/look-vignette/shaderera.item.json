@@ -5,7 +5,8 @@
   "description": "A vignette over a finished frame, one WebGPU pass: the edges towards black or any colour in linear light, round, following the frame's shape or an ellipse of a given size, from any centre",
   "category": "Looks",
   "tags": ["vignette", "lens", "falloff", "edges", "finishing", "post", "shader", "wgsl"],
-  "version": "0.1.1",
+  "version": "0.2.1",
   "licence": "MIT",
+  "requires": { "items": { "render-canvas-texture": "^0.1.0", "render-srgb": "^0.1.0" } },
   "files": ["src/looks/vignette.ts", "src/looks/vignette.wgsl.ts"]
 }
