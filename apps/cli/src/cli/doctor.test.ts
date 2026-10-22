@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { limitsLine, shareItem, signInItem } from './doctor.ts'
+import { gpuItem, hdr10Item, limitsLine, shareItem, signInItem } from './doctor.ts'
 import { saveToken } from './site.ts'
 
 test('limitsLine names the limits films run into, in MB and pixels', () => {
@@ -18,6 +18,44 @@ test('limitsLine names the limits films run into, in MB and pixels', () => {
     }),
     'buffers to 2048 MB, storage binding 128 MB, textures to 16384 px, 2048 layers',
   )
+})
+
+test('doctor warns on a software adapter, says what to check, and passes a GPU', () => {
+  const swiftShader = gpuItem('browser', {
+    vendor: 'google',
+    architecture: 'swiftshader',
+    device: '',
+    description: '',
+    isFallbackAdapter: true,
+  })
+  assert.equal(swiftShader.status, 'warn')
+  assert.equal(swiftShader.detail, 'software, SwiftShader: google swiftshader (browser host)')
+  assert.match(swiftShader.fix ?? '', /--software-gpu.*driver.*--disable-gpu/)
+  const warp = gpuItem(
+    'node',
+    {
+      vendor: 'microsoft',
+      architecture: 'warp',
+      device: 'microsoft-basic-render-driver',
+      description: 'D3D12 driver version 10.0.26100.9711',
+      isFallbackAdapter: true,
+    },
+    { features: ['float32-filterable'], limits: { maxTextureDimension2D: 16384 } },
+  )
+  assert.equal(warp.status, 'warn')
+  assert.match(
+    warp.detail,
+    /^software, WARP \(Microsoft Basic Render Driver\): microsoft warp D3D12/,
+  )
+  assert.match(warp.fix ?? '', /Vulkan ICD/)
+  assert.deepEqual(warp.limits, { maxTextureDimension2D: 16384 })
+  assert.deepEqual(gpuItem('browser', { vendor: 'nvidia', architecture: 'blackwell' }), {
+    id: 'gpu',
+    status: 'ok',
+    detail: 'nvidia blackwell (browser host)',
+    needed: true,
+  })
+  assert.equal(gpuItem('node', null).status, 'missing')
 })
 
 test('doctor says whether this machine is signed in, as whom, and whether the project can be shared', async () => {
@@ -73,4 +111,17 @@ test('doctor says whether this machine is signed in, as whom, and whether the pr
   writeFileSync(join(root, 'package.json'), JSON.stringify({}))
   assert.equal(shareItem(root).status, 'warn')
   assert.match(shareItem(root).detail, /no licence/)
+})
+
+test('doctor says whether ffmpeg can make HDR10: 9.0 or later, SDR on older', () => {
+  const old = hdr10Item(
+    'HDR10 needs ffmpeg 9.0 or later (for -mastering_display and -content_light); this is ffmpeg version 8.1.1. SDR renders work on it.',
+    false,
+  )
+  assert.equal(old.status, 'warn')
+  assert.equal(old.needed, false)
+  assert.match(old.fix ?? '', /ffmpeg 9\.0/)
+  const ok = hdr10Item(undefined, true)
+  assert.equal(ok.status, 'ok')
+  assert.match(ok.detail, /ffmpeg 9\.0 or later.*NVIDIA HEVC/)
 })

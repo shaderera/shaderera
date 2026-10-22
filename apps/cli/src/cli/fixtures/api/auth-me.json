@@ -1,0 +1,22 @@
+{
+  "route": "GET /auth/me",
+  "about": "whoami: whose this machine's token is, and until when.",
+  "request": {
+    "method": "GET",
+    "path": "/auth/me",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "handle": "ana",
+      "name": "studio-mac",
+      "expiresAt": 1798934400000
+    }
+  }
+}

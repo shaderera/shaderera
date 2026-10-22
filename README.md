@@ -284,12 +284,15 @@ download flag).
 The fast tests are the `*.test.ts` files. The slow ones, `*.it.ts` (`pnpm test:slow`, which builds
 the CLI first), launch Chrome, Dawn, ffmpeg or the CLI as a child. They need ffmpeg, a GPU and
 Chrome: the ffmpeg tests skip without ffmpeg, but the GPU and browser-host tests fail without a
-GPU and Chrome (`CHROME` names another Chrome). A test that needs none of them goes in a
+GPU and Chrome (`CHROME` names another Chrome). `apps/cli/src/node/packed.it.ts` also packs the
+CLI and installs it with npm, so it needs npm's registry. A test that needs none of them goes in a
 `*.test.ts` file.
 
 The root `pnpm test`, `test:slow` and `test:all` point the temp folder at one of the run's own and
 fail if a test left a `shaderera-*` folder in it. A CLI test makes its temp folder with `tempDir`
-(`apps/cli/src/fixtures/temp.ts`), which removes it after the test.
+(`apps/cli/src/fixtures/temp.ts`), which removes it after the test, and runs a command with `cli`
+(`apps/cli/src/fixtures/cli.ts`), in its own process: one test starts `bin/shaderera.js` as a
+child.
 
 [CLAUDE.md](CLAUDE.md) is the short guide for agents working on this repository.
 `.claude/skills/` holds third-party engineering skills copied for contributors' agents (ponytail

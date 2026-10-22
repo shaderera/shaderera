@@ -7,6 +7,7 @@ import { diffJson, diffPixels, type Json, type Matrices, sha256 } from '@shadere
 import { describeCamera } from '../camera/describe.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { encodePng } from '../deliver/png.ts'
+import { refuseSoftware } from '../node/adapter.ts'
 import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
@@ -146,14 +147,21 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'check',
-    'Like `shaderera check`: renders sampled t twice in two orders; returns failures and preview vs final.',
-    { times: num, seed: num },
+    'Like `shaderera check`: renders sampled t twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels.',
+    { times: num, seed: num, hdr10: { type: 'boolean' } },
     [],
   ],
   [
     'render',
-    'Like `shaderera render`: writes an mp4 (out: inside the project) with ffmpeg, refusing a source that is not deterministic; returns the file, frame count and seconds. With job (a name from the job tool), renders that frozen job instead of the working tree.',
-    { from: num, to: num, out: str, job: str },
+    'Like `shaderera render`: writes an mp4 (out: inside the project) with ffmpeg, refusing a source that is not deterministic; returns the file, frame count and seconds. With job (a name from the job tool), renders that frozen job instead of the working tree. hdr10: true makes an HDR10 mp4 (HEVC Main 10) of a film with hdr10 in shaderera.json, and returns its measured light levels; a job asks for it when it is made. A host on a software GPU (SwiftShader, llvmpipe, WARP: 10–100× slower) is refused unless softwareGpu: true.',
+    {
+      from: num,
+      to: num,
+      out: str,
+      job: str,
+      hdr10: { type: 'boolean' },
+      softwareGpu: { type: 'boolean' },
+    },
     [],
   ],
   [
@@ -170,7 +178,7 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'job',
-    'Like `shaderera job`: freezes a render job: a revision (the project is saved first unless revision is given), a variant from shaderera.json, params over the defaults, an optional window. Returns the job.',
+    'Like `shaderera job`: freezes a render job: a revision (the project is saved first unless revision is given), a variant from shaderera.json, params over the defaults, an optional window. hdr10: true makes a job that renders an HDR10 mp4 (shaderera.json needs hdr10). Returns the job.',
     {
       variant: str,
       params: obj,
@@ -179,6 +187,7 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
       label: str,
       from: num,
       to: num,
+      hdr10: { type: 'boolean' },
     },
     [],
   ],
@@ -284,7 +293,7 @@ export const createServer = (
               const data =
                 k === 1
                   ? png(r.pixels, width, height)
-                  : toPng(r.pixels, width, height, IMAGE).toString('base64')
+                  : (await toPng(r.pixels, width, height, IMAGE)).toString('base64')
               return [text, { type: 'text', text: JSON.stringify(size) }, image(data)]
             }
             const part = crop(r.pixels, manifest, region, a.scale ?? 1)
@@ -315,7 +324,7 @@ export const createServer = (
           const frames = []
           for (const t of times)
             frames.push({ t, label: variant ?? 'main', pixels: await final(c, t) })
-          const sheet = contactSheet(frames, manifest.width, manifest.height)
+          const sheet = await contactSheet(frames, manifest.width, manifest.height)
           return [
             { type: 'text', text: JSON.stringify({ times }) },
             image(sheet.toString('base64')),
@@ -354,17 +363,37 @@ export const createServer = (
           if (typeof found.value.source !== 'string') throw new Error(`${a.id} has no source.`)
           return { path: found.path, ...sourceAt(root, found.value.source) }
         }
-        case 'check':
-          return checkChild(c, manifest, { times: a.times ?? 20, seed: a.seed })
+        case 'check': {
+          // The hdr10 render is its own host, closed with the call.
+          const hdr = a.hdr10 === true ? await open({ ...flags, root, hdr10: true }) : undefined
+          try {
+            return await checkChild(hdr?.child ?? c, manifest, {
+              times: a.times ?? 20,
+              seed: a.seed,
+            })
+          } finally {
+            await hdr?.child.close()
+          }
+        }
         case 'render': {
           const out = typeof a.out === 'string' ? inside(root, a.out) : undefined
-          if (typeof a.job !== 'string')
-            return exportVideo(opened.project, c, {
-              from: a.from,
-              to: a.to,
-              out,
-              revision: save(root, { by: 'agent' }).id,
-            })
+          if (typeof a.job !== 'string') {
+            const hdr = a.hdr10 === true ? await open({ ...flags, root, hdr10: true }) : undefined
+            try {
+              const host = hdr?.child ?? c
+              await refuseSoftware(host, a.softwareGpu === true, 'softwareGpu: true')
+              return await exportVideo(hdr?.project ?? opened.project, host, {
+                from: a.from,
+                to: a.to,
+                out,
+                revision: save(root, { by: 'agent' }).id,
+              })
+            } finally {
+              await hdr?.child.close()
+            }
+          }
+          if (a.hdr10 !== undefined)
+            throw new Error('A job froze its range: make a job with hdr10: true instead.')
           const job = readJob(root, a.job)
           if (job.delivery.format === 'png')
             throw new Error(
@@ -374,6 +403,7 @@ export const createServer = (
           const video = videoOptionsOf(job.delivery)
           const frozen = await openJob(root, job)
           try {
+            await refuseSoftware(frozen.child, a.softwareGpu === true, 'softwareGpu: true')
             return await exportVideo(frozen.project, frozen.child, {
               ...video,
               from: job.output.from,
@@ -390,14 +420,17 @@ export const createServer = (
           return save(root, { by: 'agent', label: a.label, note: a.note })
         case 'versions':
           return { head: head(root), log: log(root), jobs: listJobs(root) }
-        case 'job':
+        case 'job': {
+          const { hdr10, ...given } = a
           return await createJob(root, {
             by: 'agent',
             host: flags.host,
             variant: flags.variant,
-            ...a,
+            ...given,
+            ...(hdr10 === true ? { range: 'hdr10' as const } : {}),
             replace: false,
           })
+        }
         case 'review': {
           // A variant gets its own child; the session's child is the server's own variant.
           const mine =
@@ -414,6 +447,9 @@ export const createServer = (
               }),
               quick: a.quick === true,
               reopen: async (size) => (await open({ ...flags, root, variant }, size)).child,
+              ...(target.project.manifest.hdr10
+                ? { hdr: async () => (await open({ ...flags, root, variant, hdr10: true })).child }
+                : {}),
             })
             const file = (path: string) => image(readFileSync(path).toString('base64'))
             return [

@@ -57,7 +57,9 @@ export type Requirements = {
   /**
    * The placement each output is delivered to, by variant name (`main` is the manifest's own
    * format): `deliver` checks the file against it (container, codec, size, rate, length, bytes,
-   * bitrate, audio, loudness, edit list) and review judges text against its safe area.
+   * bitrate, audio, loudness, edit list, transfer, bit depth, HDR10 metadata) and review judges
+   * text against its safe area. The SDR render beside an HDR10 one (`deliver --hdr10 --sdr`) takes
+   * `<variant>:sdr` (`main:sdr`), and no placement without one.
    */
   placements?: { [output: string]: Placement }
   /** This output's placement: set by outputRequirements from `placements`. */
@@ -119,10 +121,12 @@ export const outputRequirements = (
     duration: number
     /** A textless version: no copy is asked of it. */
     textless?: boolean
+    /** The SDR render beside an HDR10 one: its placement is `<variant>:sdr`. */
+    sdr?: boolean
   },
 ): Requirements => ({
   ...req,
-  ...placementOf(req, output.variant),
+  ...placementOf(req, `${output.variant ?? 'main'}${output.sdr ? ':sdr' : ''}`),
   ...(req.copy
     ? {
         copy: output.textless
@@ -145,8 +149,8 @@ export const outputRequirements = (
 })
 
 /** An output's placement, and its safe area when the requirements set none of their own. */
-const placementOf = (req: Requirements, variant?: string): Partial<Requirements> => {
-  const placement = req.placements?.[variant ?? 'main']
+const placementOf = (req: Requirements, key: string): Partial<Requirements> => {
+  const placement = req.placements?.[key]
   if (!placement) return {}
   return {
     placement,

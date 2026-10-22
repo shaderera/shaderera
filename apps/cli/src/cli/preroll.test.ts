@@ -34,6 +34,11 @@ test('a preroll is whole frames before the programme; the file timecode counts b
 test('black is opaque in every input format, and the source fills a preroll at negative t', async () => {
   assert.deepEqual([...blackFrame('rgba', 1, 1)], [0, 0, 0, 255])
   assert.deepEqual([...new Uint16Array(blackFrame('rgba64', 1, 1).buffer)], [0, 0, 0, 65535])
+  // P010, an hdr10 render's: Y' 64 and Cb, Cr 512 (narrow range black) in the top ten bits.
+  assert.deepEqual(
+    [...new Uint16Array(blackFrame('p010', 2, 2).buffer)].map((w) => w >> 6),
+    [64, 64, 64, 64, 512, 512],
+  )
   assert.deepEqual([...blackFrame('yuv420p', 2, 2)], [16, 16, 16, 16, 128, 128])
   const written: number[] = []
   const sink: Sink = { write: async (p) => void written.push(p[0] as number), end: async () => {} }

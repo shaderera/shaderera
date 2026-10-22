@@ -1,6 +1,6 @@
 import type { Manifest, Sink } from '@shaderera/core'
 import { framesOfTimecode, timecodeOf } from '@shaderera/core/host'
-import type { Input } from './ffmpeg.ts'
+import type { FrameInput } from '../deliver/chunks.ts'
 
 /**
  * The time before the programme a manifest (or variant) declares, in whole frames before the
@@ -12,8 +12,16 @@ export const prerollOf = (manifest: Manifest) => {
 }
 
 /** One opaque black frame in the encoder's input format. */
-export const blackFrame = (input: Input | 'rgba', width: number, height: number): Uint8Array => {
+export const blackFrame = (input: FrameInput, width: number, height: number): Uint8Array => {
   const pixels = width * height
+  if (input === 'p010') {
+    // An hdr10 render's: narrow range Y' 64 and Cb, Cr 512 in the top ten bits of each word.
+    const words = new Uint16Array((pixels * 3) / 2).fill(512 << 6)
+    words.fill(64 << 6, 0, pixels)
+    return new Uint8Array(words.buffer)
+  }
+  // An hdr10 render's R'G'B' codes: PQ black is code 0.
+  if (input === 'rgb10') return new Uint8Array(pixels * 4)
   if (input === 'yuv420p') {
     // Limited range: Y 16, Cb and Cr 128.
     const out = new Uint8Array((pixels * 3) / 2).fill(128)
@@ -43,6 +51,12 @@ export const fileTimecode = (manifest: Manifest, from: number, prerollFrames: nu
   return timecodeOf((((programme - prerollFrames) % day) + day) % day, fps)
 }
 
+/** The frame times of a preroll before `from`: negative for an export from 0. */
+export const prerollTimes = (o: { frames: number; from: number; fps: number }): number[] => {
+  const first = Math.round(o.from * o.fps) - o.frames
+  return Array.from({ length: o.frames }, (_, k) => (first + k) / o.fps)
+}
+
 /**
  * Writes the preroll's frames into a sink before the programme's: black, or the source's own at
  * the frame times before `from` (negative t for an export from 0). Aborts the sink on a failure.
@@ -58,10 +72,9 @@ export const writePreroll = async (
     render: (t: number) => Promise<Uint8Array | Uint8ClampedArray>
   },
 ) => {
-  const first = Math.round(o.from * o.fps) - o.frames
+  const times = prerollTimes(o)
   try {
-    for (let k = 0; k < o.frames; k++)
-      await sink.write(o.fill === 'source' ? await o.render((first + k) / o.fps) : o.black())
+    for (const t of times) await sink.write(o.fill === 'source' ? await o.render(t) : o.black())
   } catch (error) {
     await sink.abort?.()
     throw error

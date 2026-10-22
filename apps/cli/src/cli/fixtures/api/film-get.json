@@ -1,0 +1,50 @@
+{
+  "route": "GET /films/{film}",
+  "about": "fork: a film and its versions, newest first, read without a token. fork reads id, title, owner, latestVersion and versions[].id and .licence.",
+  "request": {
+    "method": "GET",
+    "path": "/films/2phicdywpg",
+    "headers": {
+      "Authorization": null
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "id": "2phicdywpg",
+      "title": "neon-rain",
+      "owner": "ana",
+      "latestVersion": "5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+      "forkedFrom": null,
+      "poster": "293b9207228b7854bc3ccb2959ebea1583e066d41983124a5b381d6fdf6575f8",
+      "loop": "254637f72efcddb6a545bccbd0c3bb84e6393647deb5fd344de6584ccc1e743c",
+      "posterUrl": "https://api.shaderera.com/api/v1/versions/5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188/poster",
+      "loopUrl": "https://api.shaderera.com/api/v1/versions/5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188/loop",
+      "licence": "MIT",
+      "createdAt": 1792656000000,
+      "updatedAt": 1792656000000,
+      "meta": null,
+      "playable": true,
+      "player": "https://shadererausercontent.com",
+      "versions": [
+        {
+          "id": "5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+          "licence": "MIT",
+          "size": 77,
+          "shaderera": "0.1.5",
+          "createdAt": 1792656000000,
+          "playable": true
+        }
+      ]
+    }
+  },
+  "optional": [
+    "response.body.poster",
+    "response.body.loop",
+    "response.body.posterUrl",
+    "response.body.loopUrl"
+  ]
+}
