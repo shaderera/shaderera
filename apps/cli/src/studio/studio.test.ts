@@ -3,7 +3,14 @@ import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { basename, join } from 'node:path'
-import { after, before, test } from 'node:test'
+import {
+  after,
+  before,
+  test as nodeTest,
+  type TestContext,
+  type TestFn,
+  type TestOptions,
+} from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
@@ -29,6 +36,12 @@ const home = tempDir('home')
 process.env.HOME = home
 process.env.USERPROFILE = home
 delete process.env.SHADERERA_TELEMETRY
+
+// `node --test` waits forever by default: a test that hangs fails by itself, not the whole run.
+const test = (name: string, a: TestFn | TestOptions, b?: TestFn) =>
+  typeof a === 'function'
+    ? nodeTest(name, { timeout: 60_000 }, a)
+    : nodeTest(name, { timeout: 60_000, ...a }, b)
 
 const SITE = 'https://shaderera.example'
 const DEV = 'http://localhost:3000'
@@ -116,7 +129,16 @@ test('a studio session id is 20 characters of the alphabet', () => {
   assert.match(makeNonce(), /^[\w-]{22}$/)
 })
 
-test('the CLI pairs through the relay, and only the page can open the bridge it sends', async () => {
+/**
+ * Closes the relay sides a test opened when it ends, passed or failed: a paired CLI left open
+ * rejoins the closed relay for as long as the process runs, so the file would never end.
+ */
+const closeAtEnd = (t: TestContext, ...sides: ({ close: () => unknown } | { ws: WebSocket })[]) =>
+  t.after(async () => {
+    for (const side of sides) await ('ws' in side ? side.ws.close() : side.close())
+  })
+
+test('the CLI pairs through the relay, and only the page can open the bridge it sends', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
   const paired = p.pair()
@@ -133,6 +155,7 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
       cliPaired = true
     },
   })
+  closeAtEnd(t, cli, p)
   const { hello, bridge: got } = await paired
   assert.deepEqual(
     { version: hello.version, os: hello.os, telemetry: hello.telemetry },
@@ -161,7 +184,7 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
   assert.equal((await p.next('cli-left')).type, 'cli-left')
 })
 
-test('a page without the nonce the CLI opened never gets the bridge or an answer', async () => {
+test('a page without the nonce the CLI opened never gets the bridge or an answer', async (t) => {
   const id = makeId()
   const stranger = page(relay.origin, id)
   await stranger.opened
@@ -172,6 +195,7 @@ test('a page without the nonce the CLI opened never gets the bridge or an answer
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli, stranger)
   await stranger.next('cli-joined')
   const mine = await keyPair()
   stranger.send({ type: 'page-hello', pub: mine.pub })
@@ -193,13 +217,12 @@ test('a page without the nonce the CLI opened never gets the bridge or an answer
   assert.equal(relay.sessions.get(id)?.paired, false)
   // The page the CLI opened, in its place, pairs.
   const opened = page(relay.origin, id)
+  closeAtEnd(t, opened)
   const { bridge: got } = await opened.pair()
   assert.equal(got.secret, bridge.secret)
-  cli.close()
-  opened.ws.close()
 })
 
-test('before pairing, a reloaded page pairs in place of the first, and a second CLI is refused', async () => {
+test('before pairing, a reloaded page pairs in place of the first, and a second CLI is refused', async (t) => {
   const id = makeId()
   const first = page(relay.origin, id)
   await first.opened
@@ -210,6 +233,7 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli, first)
   await first.next('cli-joined')
   first.send({ type: 'page-hello', pub: (await keyPair()).pub })
   await first.next('cli-hello')
@@ -223,14 +247,12 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
   assert.equal((await other.closed).code, CLOSE.used)
   // The page reloads: a new page-hello, a new key, the same bridge.
   const reloaded = page(relay.origin, id)
+  closeAtEnd(t, reloaded)
   const { bridge: got } = await reloaded.pair()
   assert.equal(got.secret, bridge.secret)
-  cli.close()
-  first.ws.close()
-  reloaded.ws.close()
 })
 
-test('a paired CLI the relay drops rejoins with its token; closing it ends the session', async () => {
+test('a paired CLI the relay drops rejoins with its token; closing it ends the session', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
   const pairing = p.pair()
@@ -249,6 +271,7 @@ test('a paired CLI the relay drops rejoins with its token; closing it ends the s
     onPaired: () => cliPaired(),
     onRelay: (back) => heard.push(back),
   })
+  closeAtEnd(t, cli, p)
   const { key } = await pairing
   await paired
   // The relay cuts the CLI's socket (a deploy, the network): the CLI comes back by itself.
@@ -270,7 +293,7 @@ test('a paired CLI the relay drops rejoins with its token; closing it ends the s
   assert.deepEqual(await cli.closed, { code: 1000, paired: true })
 })
 
-test('a page that reloads is not closed; one that does not come back is', async () => {
+test('a page that reloads is not closed; one that does not come back is', async (t) => {
   const id = makeId()
   const heard: string[] = []
   const hear = async (n: number) => {
@@ -288,16 +311,19 @@ test('a page that reloads is not closed; one that does not come back is', async 
     pageBackMs: 100,
     onPage: (state) => heard.push(state),
   })
+  closeAtEnd(t, cli, first)
   await first.next('cli-joined')
   // Closed, and nothing comes back in time.
   first.ws.close()
   assert.deepEqual(await hear(1), ['closed'])
   // Before pairing, a reload says hello again in time.
   const second = page(relay.origin, id)
+  closeAtEnd(t, second)
   await second.opened
   second.ws.close()
   await second.closed
   const third = page(relay.origin, id)
+  closeAtEnd(t, third)
   const { bridge: got } = await third.pair()
   assert.deepEqual(await hear(2), ['closed', 'reloaded'])
   // Paired, a reload resumes without a hello: its request to the bridge is the page back.
@@ -313,12 +339,12 @@ test('a page that reloads is not closed; one that does not come back is', async 
   // And no `closed` follows it.
   await new Promise((r) => setTimeout(r, 150))
   assert.deepEqual(heard, ['closed', 'reloaded', 'reloaded'])
-  await cli.close()
 })
 
-test('an id no CLI paired with in time is expired', async () => {
+test('an id no CLI paired with in time is expired', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
+  closeAtEnd(t, p)
   await p.opened
   await new Promise((r) => setTimeout(r, 400))
   const cli = connectRelay({
@@ -328,10 +354,10 @@ test('an id no CLI paired with in time is expired', async () => {
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli)
   const end = await cli.closed
   assert.equal(end.code, CLOSE.expired)
   assert.equal(end.paired, false)
-  p.ws.close()
 })
 
 test('the bridge answers only the allowed origins carrying the secret', async () => {
@@ -645,7 +671,7 @@ test('/share without a login says how to log in', async () => {
   assert.deepEqual(jsonOf(r), { error: 'login', command: 'npx shaderera login' })
 })
 
-test('through the relay: sealed requests, sealed events and a file', async () => {
+test('through the relay: sealed requests, sealed events and a file', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
   const pairing = p.pair()
@@ -656,6 +682,7 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
   })
+  closeAtEnd(t, cli, p)
   const { key } = await pairing
   const rpc = async (rid: string, request: unknown) => {
     p.send({ type: 'rpc', id: rid, ...(await seal(key, request)) })
@@ -674,13 +701,13 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
   // Events follow through the relay once the page uses it.
   const file = join(root, 'src', 'composition.ts')
   writeFileSync(file, `${readFileSync(file, 'utf8')}\n// through the relay\n`)
+  // Under load the bridge may still owe the `changed` of an earlier test's write (/share's
+  // package.json); wait for the one with this edit's revision.
+  const revision = treeId(scan(root))
   for (;;) {
     const m = (await p.next('event')) as unknown as { iv: string; box: string }
     const e = await unseal<StudioEvent>(key, m)
-    if (e.type === 'changed') {
-      assert.equal(e.revision, treeId(scan(root)))
-      break
-    }
+    if (e.type === 'changed' && e.revision === revision) break
   }
 
   const started = await rpc('3', {
@@ -703,8 +730,6 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
   assert.match(String(sent.name), new RegExp(`-${job}\\.png$`))
   const bytes = Buffer.from(sent.base64 as string, 'base64')
   assert.deepEqual([...bytes.subarray(1, 4)], [...Buffer.from('PNG')])
-  cli.close()
-  p.ws.close()
 })
 
 test('telemetry: one notice, off by config or by SHADERERA_TELEMETRY=0', () => {
