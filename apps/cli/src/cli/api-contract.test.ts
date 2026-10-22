@@ -5,6 +5,7 @@ import { createServer, type IncomingHttpHeaders } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { after, test } from 'node:test'
+import { shadereraVersion } from '../deliver/environment.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import {
   type Fixture,
@@ -374,16 +375,17 @@ test('a 426 names the version the API needs', async () => {
   const { minimum } = fixture('error-426').response.body as { minimum: string }
   await assert.rejects(
     call(old.api, 'POST', '/uploads/missing', { token: TOKEN.token, json: { hashes: [] } }),
-    (e: Error) => e.message.includes(': 426 ') && e.message.includes(`update to ${minimum}`),
+    (e: Error) =>
+      e.message ===
+      `shaderera ${shadereraVersion()} is too old for ${old.api}: update to ${minimum} or later (npx shaderera@latest …)`,
   )
 })
 
-test('every request names the CLI and its version: User-Agent shaderera/<version>', {
-  todo: 'site.ts call() and healthOf() send no User-Agent yet (#214)',
-}, async () => {
+test('every request names the CLI and its version: User-Agent shaderera/<version>', async () => {
   const s = await fakeApi('health', 'auth-me')
   saveToken(s.api, TOKEN.token)
   await healthOf(s.api)
   await whoIs(s.api)
-  for (const q of s.sent) assert.match(q.headers['user-agent'] ?? '', /^shaderera\/\d+\.\d+\.\d+/)
+  assert.ok(s.sent.length > 0)
+  for (const q of s.sent) assert.equal(q.headers['user-agent'], `shaderera/${shadereraVersion()}`)
 })

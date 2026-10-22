@@ -38,7 +38,12 @@ const fakeSite = async () => {
     string,
     { id: string; title: string; forkedFrom: string | null; versions: Version[] }
   >()
-  const requests: { method: string; path: string; auth: string | undefined }[] = []
+  const requests: {
+    method: string
+    path: string
+    auth: string | undefined
+    agent: string | undefined
+  }[] = []
   const corrupt = new Set<string>()
   /** Like the app's API: a version needs a built player; its response has the film's `page`. */
   const options = {
@@ -60,7 +65,12 @@ const fakeSite = async () => {
     const body = Buffer.concat(parts)
     const path = (req.url ?? '').replace(/^\/api\/v1/, '')
     const method = req.method ?? ''
-    requests.push({ method, path, auth: req.headers.authorization })
+    requests.push({
+      method,
+      path,
+      auth: req.headers.authorization,
+      agent: req.headers['user-agent'],
+    })
     const writes = method !== 'GET'
     if (writes && req.headers.authorization !== `Bearer ${TOKEN}`)
       return json(res, 401, { error: 'A token is needed.' })
@@ -253,6 +263,11 @@ test('share sends what a revision holds less secrets and its built player, only 
   for (const q of s.requests.filter((q) => q.path !== '/films/health'))
     assert.equal(q.auth, `Bearer ${s.TOKEN}`, `${q.method} ${q.path} carries the token`)
   assert.doesNotMatch(r.stdout, new RegExp(s.TOKEN))
+  const { version } = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  )
+  for (const q of s.requests)
+    assert.equal(q.agent, `shaderera/${version}`, `${q.method} ${q.path} names the CLI`)
 
   // The player, built into .shaderera/player and sent beside the source.
   assert.ok(sent)
@@ -653,6 +668,26 @@ test('an API answer that is not JSON shows its status and first line, never the 
     `shaderera: GET /films/film1 on ${api}: 404 (not the films API's answer) <!doctype html>`,
   )
   assert.doesNotMatch(r.stderr, /xxxx|<body>/)
+})
+
+test('an API that answers 426 says, in one line, that this CLI is too old and what to update to', async () => {
+  const old = createServer((_req, res) => {
+    res.writeHead(426, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'This client is too old.', minimum: '9.0.0' }))
+  })
+  await new Promise<void>((done) => old.listen(0, '127.0.0.1', done))
+  after(() => old.close())
+  const api = `http://127.0.0.1:${(old.address() as AddressInfo).port}`
+  const { version } = JSON.parse(
+    readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+  )
+  const home = temp('home')
+  const r = await cli(home, home, 'fork', 'film1', '--api', api)
+  assert.equal(r.status, 2)
+  assert.equal(
+    r.stderr.trim(),
+    `shaderera: shaderera ${version} is too old for ${api}: update to 9.0.0 or later (npx shaderera@latest …)`,
+  )
 })
 
 test("a share stops before uploading when it can't read the API's limits; a dry run warns and says limitsChecked: false", async () => {
