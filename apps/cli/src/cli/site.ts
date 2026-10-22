@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -45,6 +46,16 @@ export const apiOf = (given?: string): string =>
 /** ` --api <api>` when it is not the default: what a hint adds to a command. */
 export const apiFlag = (api: string): string => (api === DEFAULT_API ? '' : ` --api ${api}`)
 
+/** How to sign in to `api`: what an error adds, once (the API's own 401s name no command). */
+export const signInHint = (api: string): string => `Sign in: npx shaderera login${apiFlag(api)}`
+
+/**
+ * The client id of Shaderera's GitHub OAuth App (shaderera org, Device Flow enabled), which
+ * `login` signs in with (GitHub's device flow). It is public. `SHADERERA_GITHUB_CLIENT_ID`
+ * overrides it.
+ */
+export const GITHUB_CLIENT_ID = 'Ov23ctejZ1KS8i5SbAO7'
+
 /** Where tokens are kept, one per API: `~/.shaderera/tokens.json`, readable by its owner only. */
 export const tokensFile = (): string => join(homedir(), '.shaderera', 'tokens.json')
 
@@ -65,6 +76,20 @@ export const saveToken = (api: string, token: string): string => {
     },
   )
   return file
+}
+
+/** Forgets the token for `api`: false when there was none. */
+export const removeToken = (api: string): boolean => {
+  const tokens = readTokens()
+  if (!(api in tokens)) return false
+  delete tokens[api]
+  writeFileSync(
+    tokensFile(),
+    `${JSON.stringify(tokens, null, 2)}
+`,
+    { mode: 0o600 },
+  )
+  return true
 }
 
 /**
@@ -135,7 +160,7 @@ export const call = async (
   } catch {
     message = `(not the films API's answer) ${firstLine(text)}`.trim()
   }
-  const login = r.status === 401 ? ` Log in: shaderera login --token <token>${apiFlag(api)}` : ''
+  const login = r.status === 401 ? ` ${signInHint(api)}` : ''
   // A 429 says when a retry can pass.
   const retry = Number(r.headers.get('Retry-After'))
   const later = r.status === 429 && retry > 0 ? ` Try again in ${Math.ceil(retry)} s.` : ''
@@ -161,6 +186,17 @@ export const healthOf = async (api: string): Promise<{ parents: string[] }> => {
   } catch {
     return { parents: [] }
   }
+}
+
+/** Opens `url` in the person's default browser; a failure to is only a missed convenience. */
+export const openBrowser = (url: string) => {
+  const [command, args] =
+    process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '""', url]]
+      : [process.platform === 'darwin' ? 'open' : 'xdg-open', [url]]
+  spawn(command as string, args as string[], { stdio: 'ignore', detached: true })
+    .on('error', () => {})
+    .unref()
 }
 
 /** `n` bytes for a person: 1.2 MB, 340 KB, 12 B. */

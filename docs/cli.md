@@ -18,7 +18,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`bake`](#bake) | run a bake's command and stamp the frames it made outside the host |
 | [`doctor`](#doctor) | what this machine and project have and lack |
 | [`search`, `info`, `add`, `remove`, `publish`](#plugins) | find, copy in, remove and publish plugins |
-| [`login`, `share`, `fork`](#shadereracom-login-share-fork) | send a film to shaderera.com, and fork one from there |
+| [`login`, `whoami`, `logout`, `share`, `fork`](#shadereracom-login-whoami-logout-share-fork) | send a film to shaderera.com, and fork one from there |
 | [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
@@ -427,7 +427,7 @@ copied plugin's files are the project's own code: to stop using one, delete them
 name. `--site <dir>` wants a folder of published plugins: a folder of plugin sources is refused,
 with the publish step to run first.
 
-## shaderera.com: `login`, `share`, `fork`
+## shaderera.com: `login`, `whoami`, `logout`, `share`, `fork`
 
 A film can be shared on shaderera.com, where it plays in the viewer's browser, and anyone can fork
 a shared film into a project of their own. These three commands and [`studio`](#studio-telemetry)
@@ -445,9 +445,41 @@ They talk to two origins, each reached over https (plain http only on this machi
 
 | Command | What it does |
 |---|---|
-| `login --token <token> [--api origin]` | keeps the token for that API in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
+| `login [--api origin] [--no-open]` | signs in with GitHub and keeps this machine's token for that API in `~/.shaderera/tokens.json` (readable by you only). It never prints a token |
+| `login --token <token> [--api origin]` | keeps a token given by hand, in the same file |
+| `whoami [--api origin] [--json]` | who this machine is signed in as, the name the API knows it by, and until when; exits 1 when it is not signed in |
+| `logout [--api origin] [--all]` | signs this machine out (`--all`: every machine of yours) and forgets its token |
 | `share [--film id] [--title t] [--no-media] [--yes] [--api origin] [--site origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
 | `fork <film\|url>[@version] [dir] [--api origin] [--site origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
+
+**`login`** signs in with GitHub's device flow:
+
+1. It prints a code and opens `https://github.com/login/device` in your browser (`--no-open`
+   only prints the address).
+2. You enter the code and approve. GitHub asks for no permissions: the API sees your public
+   profile only.
+3. `login` sends GitHub's token once to the API (`POST /api/v1/auth/github`) with this machine's
+   name (its host name). The API answers with a token for this machine, your handle (your GitHub
+   login) and when the token stops working (90 days). `login` keeps that token, and never keeps
+   GitHub's.
+
+```
+$ npx shaderera login
+Enter the code WDJB-MJHT at https://github.com/login/device
+opening https://github.com/login/device
+Signed in as ana: this machine as "studio-mac", until 2027-01-19
+```
+
+Each machine has its own token: signing in on a second one keeps the first signed in, and
+signing in again on the same one replaces its token. `logout` signs this machine out at the API
+(`--all` signs out every machine, say for a lost laptop) and then forgets the token; a token the
+API no longer takes is forgotten too, and one the API cannot be reached for is kept, to sign out
+later. `whoami` asks the API whose the token is (`GET /api/v1/auth/me`).
+
+The sign-in uses the client id of Shaderera's GitHub OAuth App, built into `shaderera`, or
+`SHADERERA_GITHUB_CLIENT_ID` when it is set. Until that App exists, `login` without `--token`
+says so and stops, and `--token` is the way in; an API without its GitHub App set up answers
+`503`, and `login` says the same.
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
 [above](#versions-and-jobs)), and nothing else:
@@ -488,7 +520,8 @@ checked against its sha256 as it is read.
   else the folder's name; later shares make new versions of it. `--film <id>` shares to a film
   you own, and is noted for next time.
 - **The token** is the one `login` kept for that API. It goes only in the request's
-  `Authorization` header.
+  `Authorization` header. Without one, or when the API refuses it, the error ends
+  `Sign in: npx shaderera login`.
 - **An error** names the call, the API, the status and the API's own sentence. An answer that is
   not the API's JSON (a proxy's or a site's page) shows only its first line.
 

@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
@@ -9,18 +8,7 @@ import { closeText, connectRelay } from '../studio/relay.ts'
 import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
 import { common } from './args.ts'
 import { EXIT } from './findings.ts'
-import { apiOf, siteOf } from './site.ts'
-
-/** Opens `url` in the person's default browser; a failure to is only a missed convenience. */
-const openBrowser = (url: string) => {
-  const [command, args] =
-    process.platform === 'win32'
-      ? ['cmd', ['/c', 'start', '""', url]]
-      : [process.platform === 'darwin' ? 'open' : 'xdg-open', [url]]
-  spawn(command as string, args as string[], { stdio: 'ignore', detached: true })
-    .on('error', () => {})
-    .unref()
-}
+import { apiOf, openBrowser, siteOf } from './site.ts'
 
 /**
  * `shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...

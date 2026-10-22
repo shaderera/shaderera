@@ -3,7 +3,7 @@
 A film's web player is its runner (the page and worker where the browser host runs the source)
 built as static files for that one film. Any static host can serve it, and a page on another
 origin can play it in a sandboxed frame. `shaderera share` builds it on your machine into
-`.shaderera/player/` and sends it beside the source ([cli.md](cli.md#shadereracom-login-share-fork)).
+`.shaderera/player/` and sends it beside the source ([cli.md](cli.md#shadereracom-login-whoami-logout-share-fork)).
 The site stores and serves it and builds nothing.
 
 ## What it holds

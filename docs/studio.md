@@ -24,8 +24,8 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
   default, else `SHADERERA_SITE`, as for `share`. It is https, or plain http on this machine only
   (`localhost`, `127.0.0.1`).
 - **`--api <origin>`** is the films API Share sends films to, as `share --api`:
-  `https://api.shaderera.com` by default, else `SHADERERA_API`. Your login for it is
-  `shaderera login --token <token> --api <origin>`.
+  `https://api.shaderera.com` by default, else `SHADERERA_API`. You sign in to it with
+  `shaderera login --api <origin>`.
 - **`--origin <origin>`** (repeatable) adds a page origin the bridge answers, for developing the
   page on another origin than the relay's.
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
@@ -227,13 +227,13 @@ A job that is not done gets `409`. An unknown one gets `404`.
 
 ### `POST /share {title?}` → `{film, version, url}`
 
-Runs `shaderera share` as you, with your own login (`shaderera login`), to `--api`. Pressing
+Runs `shaderera share` as you, with your own sign-in (`npx shaderera login`), to `--api`. Pressing
 Share in the page is the confirmation. A new film is titled `title`, else as `share` titles it.
 `url` is the film's page, as `share` prints it; a poster or loop that did not render is a `warn`
 log line.
 
-- **Not logged in** (no token for `--api`, or it refused the token): `401` with
-  `{error:"login", command:"npx shaderera login"}`.
+- **Not signed in** (no token for `--api`, or it refused the token): `401` with
+  `{error:"login", command:"npx shaderera login"}`. The page shows the command to run.
 - **Anything else** that stops the share (no licence, a player that does not build, the API
   unreachable): `500` with `{error}`.
 

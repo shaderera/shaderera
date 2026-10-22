@@ -172,7 +172,7 @@ for a library of your own, see [docs/plugin-guide.md](docs/plugin-guide.md).
 shared film into a new folder as an ordinary project:
 
 ```bash
-npx shaderera login --token <token>
+npx shaderera login                      # sign in with GitHub (or --token <token>)
 npx shaderera share                      # a new film, then new versions of it
 npx shaderera fork https://shaderera.com/film/<film> my-film
 ```
@@ -183,7 +183,7 @@ which `share` builds on your machine ([docs/player.md](docs/player.md)). `share`
 They talk to the films API at `https://api.shaderera.com` (`--api <origin>` or `SHADERERA_API`
 names another) and name film pages on `https://shaderera.com` (`--site`, `SHADERERA_SITE`). All
 of it is in
-[docs/cli.md](docs/cli.md#shadereracom-login-share-fork).
+[docs/cli.md](docs/cli.md#shadereracom-login-whoami-logout-share-fork).
 
 `npx shaderera studio` opens the studio, a page on shaderera.com that previews, renders and shares
 the project on your machine through a local bridge on 127.0.0.1
@@ -243,7 +243,7 @@ hands ffmpeg the result.
 | `shaderera doctor` | what this machine has and lacks |
 | `shaderera mcp` | the same operations as MCP tools over stdio |
 | `shaderera search` / `info` / `add` / `remove` / `publish` | plugins ([docs/plugins.md](docs/plugins.md)) |
-| `shaderera login` / `share` / `fork` | send a film to shaderera.com, and fork one from there |
+| `shaderera login` / `whoami` / `logout` / `share` / `fork` | send a film to shaderera.com, and fork one from there |
 
 Every flag is in [docs/cli.md](docs/cli.md), and the MCP tools are in [docs/mcp.md](docs/mcp.md).
 
