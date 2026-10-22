@@ -569,9 +569,17 @@ The address it prints is the film's page, the canvas with the film open, as the 
 **`fork`** takes a film's id, `<id>@<version>` (a version may be the start of one) or the address
 of its page on the site (`https://shaderera.com/film/<id>`), which it looks up on the API (a page
 of any other origin is refused); without a version it takes the latest. It needs no
-token and sends none. Every path is checked as a revision's is, every file against its sha256,
-and nothing is written until all of them match; the folder must be new or empty. The new
-project's first `share` makes a new film, marked as forked from that version.
+token and sends none. It downloads 8 files at a time. Every path is checked as a revision's is,
+every file against its sha256, and nothing is written until all of them match; the folder must be
+new or empty. The new project's first `share` makes a new film, marked as forked from that version.
+
+- **Where it came from** is written into the new project's source, so a share sends it on:
+  package.json gets `forkedFrom` (`film`, `title`, `owner`, `version`, `licence` and `page`, the
+  film's page on the site), and README.md (made when the film has none) ends with a line such as
+  `Forked from "neon-rain" by ana (https://shaderera.com/film/k3x9q2mfa7), version <its id>, licence MIT.`
+- **The licence** stays the film's: package.json's `license` is what the owner chose. A film that
+  is `All rights reserved` (`UNLICENSED`) is still forked, with a warning that the owner keeps
+  every right, so ask them before sharing, publishing or reusing any of it.
 
 ```
 $ npx shaderera fork https://shaderera.com/film/k3x9q2mfa7 my-rain
@@ -581,7 +589,7 @@ forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 file
 With `--json`, `share`'s result is `api`, `film`, `created`, `version`, `url`, `files`, `bytes`,
 `player` (`{ files, bytes }`), `parents`, `uploaded`, `notSent`, `poster` and `loop` (their bytes,
 or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`, `owner`,
-`version`, `licence`, `files` and `bytes`.
+`version`, `licence`, `files`, `bytes`, `forkedFrom` and `warnings`.
 
 ## `studio`, `telemetry`
 
