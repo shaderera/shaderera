@@ -139,6 +139,7 @@ export const removePartials = (
     const pid = Number(f.slice(name.length + 1, f.length - suffix.length))
     if (!Number.isInteger(pid) || pid === process.pid) continue
     const file = join(dirname(out), f)
-    if ((all || !alive(pid)) && !keep(file)) rmSync(file, { force: true })
+    // A folder too: a plain HDR10 render's chunk (exportVideo).
+    if ((all || !alive(pid)) && !keep(file)) rmSync(file, { force: true, recursive: true })
   }
 }

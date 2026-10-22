@@ -245,7 +245,22 @@ export const deliverBatch = async (
           ),
           ...(more ? { more } : {}),
         })
-        report = await review({ project, child, outDir: join(jobDir, 'review'), requirements })
+        // An hdr10 job's review looks at its SDR version and reads its HDR10 render's light as
+        // numbers (decision 0023).
+        const hosts = { trusted: o.trusted, timeoutMs: o.timeoutMs }
+        const sdr =
+          job.range === 'hdr10' ? await openJob(root, job, { ...hosts, range: 'sdr' }) : undefined
+        try {
+          report = await review({
+            project,
+            child: sdr?.child ?? child,
+            outDir: join(jobDir, 'review'),
+            requirements,
+            ...(sdr ? { hdr: async () => (await openJob(root, job, hosts)).child } : {}),
+          })
+        } finally {
+          await sdr?.child.close()
+        }
         if (requirements.placement) {
           const p = checkPlacement(requirements.placement, file, video.probe, video.loudness)
           report.checks.push({
