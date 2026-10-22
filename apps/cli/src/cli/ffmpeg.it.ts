@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import {
@@ -91,6 +91,12 @@ test("A GPU encoder's answer is kept in ~/.shaderera for this ffmpeg, believed a
     const other = { ffmpeg: 'another', answers: { 'nvenc 30x16': true } }
     writeFileSync(encodersFile(), JSON.stringify(other))
     assert.equal(await canEncode('nvenc', 30, 16), false)
+    // The nvenc.json of #219's builds (never released) is ignored, left as it is.
+    const old = join(dirname(encodersFile()), 'nvenc.json')
+    const key = JSON.parse(readFileSync(encodersFile(), 'utf8')).ffmpeg
+    writeFileSync(old, JSON.stringify({ ffmpeg: key, sizes: { '28x16': true } }))
+    assert.equal(await canEncode('nvenc', 28, 16), false)
+    assert.ok(existsSync(old))
   } finally {
     Object.assign(process.env, home)
   }
