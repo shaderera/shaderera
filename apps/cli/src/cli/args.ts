@@ -102,6 +102,8 @@ export const parseParam = (kv: string): [string, Json] => {
  * bake the manifest declares is checked against its stamp first, and refused when stale
  * (project/bakes.ts); its frames are what the source's io.bake reads. `extra` says how many more
  * hosts the run needs (from the manifest it renders): they open at once with the first, in `extra`.
+ * `--hdr10` opens the source in an hdr10 range (`host.range`, decision 0023): refused without the
+ * manifest's `hdr10` or a GPUDevice.
  */
 export const open = async (
   flags: {
@@ -111,6 +113,7 @@ export const open = async (
     timeout?: unknown
     host?: unknown
     param?: unknown
+    hdr10?: unknown
   },
   size?: { width: number; height: number },
   extra: (manifest: Manifest) => number = () => 0,
@@ -128,6 +131,7 @@ export const open = async (
     params,
     ...(name ? { variant: name } : {}),
     ...(size ? { size } : {}),
+    ...(flags.hdr10 === true ? { range: 'hdr10' as const } : {}),
     bakes,
     ...childOptions(flags),
     build: async () => ({ project: variant, entryFile: await buildForNode(variant) }),

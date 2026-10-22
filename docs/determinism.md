@@ -189,8 +189,9 @@ The optional `checkpoint: { save(), restore(state) }` of a sequential source.
 A frame is a flat stack composited `over` (depth-tested where layers carry depth); raw bytes
 declare `straight`, `premultiplied` or `opaque`. Both hosts return straight RGBA; a PNG keeps it
 byte for byte, and an mp4 shows it matted over black. Output is 8-bit sRGB, display-referred
-(16 bits for a master where the GPU composites); HDR and scene-linear stay inside a renderer
-([delivery.md](delivery.md#higher-precision-hdr-scene-linear-exr-aovs)).
+(16 bits for a master where the GPU composites). A film that opts in delivers HDR10
+([delivery.md](delivery.md#hdr10)); scene-linear light stays inside a renderer
+([delivery.md](delivery.md#higher-precision-scene-linear-exr-aovs)).
 
 A host with a GPU composites on it: the browser host, and the Node host of a project with
 `webgpu`. It works in floats, so a byte may differ by 1–2 from the CPU's `over`. Without a GPU,

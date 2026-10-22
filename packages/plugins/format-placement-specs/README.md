@@ -16,6 +16,7 @@ safe area.
 |---|---|
 | `meta-reels-ads` | mp4 or mov, H.264, 9:16, up to 15 min and 4 GB, **no edit list** (render with `--no-edit-list`), Meta's safe zone 14 % top, 35 % bottom, 6 % sides |
 | `youtube-1080p30-sdr` | 8 Mb/s or more (render with `--bitrate 8M` for flat films), 48 or 96 kHz |
+| `youtube-hdr` | mp4, mov or mkv; HEVC, VP9, AV1, ProRes, DNxHR or H.264; **PQ or HLG at 10 or 12 bits** (`deliver --hdr10`, for a film with `hdr10` in shaderera.json); the mastering display and MaxCLL/MaxFALL present. YouTube only recommends that metadata (it assumes a Sony BVM-X300 without): remove `hdrMetadata` to accept a file without it |
 | `amazon-streaming-tv` | mp4 H.264 16:9 at 1920×1080 or more, 23.976–29.97 fps, spot lengths, 500 MB, **15 Mb/s or more** (`--bitrate 15M`), AAC stereo |
 | `eu-broadcast-r128` | -23 LUFS ±0.5, true peak -1 dBTP (`--loudness=-23`) |
 | `us-broadcast-a85` | -24 LKFS ±2, true peak -2 dBTP (`--loudness=-24`) |

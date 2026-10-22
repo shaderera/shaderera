@@ -6,10 +6,14 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   bitsPerSecond,
+  contentLightArg,
   FfmpegError,
   ffmpegArgs,
+  ffmpegRelease,
   ffmpegSink,
   hasEditList,
+  hdr10Args,
+  masteringDisplayArg,
   matte64,
   probe,
   requireFrames,
@@ -206,4 +210,75 @@ test('hasEditList reads box headers only: a 64-bit mdat is skipped, the elst aft
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+/** The common P3-D65 1000 cd/m² mastering display. */
+const P3_1000 = {
+  red: [0.68, 0.32],
+  green: [0.265, 0.69],
+  blue: [0.15, 0.06],
+  white: [0.3127, 0.329],
+  peak: 1000,
+  min: 0.0001,
+} as const
+const hdr = { ...base, display: P3_1000, levels: { maxCLL: 799.2, maxFALL: 200 } }
+
+test('the mastering display and light levels in ffmpeg 9.0’s units; the levels rounded up', () => {
+  assert.equal(
+    masteringDisplayArg(P3_1000),
+    'G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1)',
+  )
+  assert.equal(contentLightArg({ maxCLL: 799.2, maxFALL: 200 }), '800,200')
+})
+
+test('hdr10Args: HEVC Main 10 as hvc1, tagged HDR10, the metadata on the input', () => {
+  const line = hdr10Args({ ...hdr, input: 'p010' }).join(' ')
+  assert.ok(
+    line.includes(
+      '-pix_fmt p010le -s 64x36 -r 10 -mastering_display G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,1) -content_light 800,200 -i -',
+    ),
+  )
+  assert.ok(
+    line.includes(
+      '-vf setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=smpte2084:range=tv -colorspace bt2020nc -color_primaries bt2020 -color_trc smpte2084 -color_range tv -chroma_sample_location topleft',
+    ),
+  )
+  assert.ok(line.includes('-c:v libx265 -profile:v main10 -preset medium -crf 20'))
+  assert.ok(line.includes('-x265-params hdr10-opt=1:repeat-headers=1'))
+  assert.ok(line.includes('-tag:v hvc1'))
+  const master = hdr10Args({ ...hdr, input: 'yuv420p10le', quality: 'master' }).join(' ')
+  assert.ok(master.includes('-pix_fmt yuv420p10le') && master.includes('-preset slow -crf 16'))
+  const nvenc = hdr10Args({ ...hdr, input: 'p010', encoder: 'nvenc' }).join(' ')
+  assert.ok(nvenc.includes('-c:v hevc_nvenc -profile:v main10'))
+  assert.ok(nvenc.includes('-bsf:v hevc_metadata=chroma_sample_loc_type=2 -tag:v hvc1'))
+  const vt = hdr10Args({ ...hdr, input: 'p010', encoder: 'videotoolbox' }).join(' ')
+  assert.ok(vt.includes('-c:v hevc_videotoolbox -profile:v main10'))
+  for (const encoder of ['nvenc', 'videotoolbox'] as const)
+    assert.throws(
+      () => hdr10Args({ ...hdr, input: 'p010', encoder, quality: 'master' }),
+      /master is encoded with x265/,
+    )
+})
+
+test('hdr10Args: ProRes from the 10-bit PQ R’G’B’ codes with the BT.2020 matrix; inputs checked', () => {
+  const hq = hdr10Args({ ...hdr, out: 'o.mov', input: 'rgb10', codec: 'prores-hq' }).join(' ')
+  assert.ok(hq.includes('-pix_fmt x2bgr10le') && hq.includes('-content_light 800,200'))
+  assert.ok(hq.includes('scale=out_color_matrix=bt2020:out_range=tv,format=yuv422p10le,setparams'))
+  assert.ok(hq.includes('-color_trc smpte2084 -color_range tv -c:v prores_ks -profile:v 3'))
+  const full = hdr10Args({ ...hdr, out: 'o.mov', input: 'rgb10', codec: 'prores-4444' })
+  assert.ok(full.join(' ').includes('format=yuv444p10le') && !full.includes('-alpha_bits'))
+  assert.throws(() => hdr10Args({ ...hdr, input: 'rgb10' }), /p010 or yuv420p10le/)
+  assert.throws(() => hdr10Args({ ...hdr, input: 'p010', codec: 'prores-hq' }), /rgb10/)
+})
+
+test('ffmpegRelease reads the release in ffmpeg -version, and none from a snapshot build', () => {
+  assert.deepEqual(ffmpegRelease('ffmpeg version 9.0.2-full_build-www.gyan.dev Copyright'), {
+    major: 9,
+    minor: 0,
+  })
+  assert.deepEqual(ffmpegRelease('ffmpeg version n8.1.1 Copyright (c) 2000-2026'), {
+    major: 8,
+    minor: 1,
+  })
+  assert.equal(ffmpegRelease('ffmpeg version N-121234-gabcdef0123 Copyright'), undefined)
 })
