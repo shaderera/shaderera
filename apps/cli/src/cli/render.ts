@@ -10,9 +10,10 @@ import { renderReusing } from '../deliver/reuse.ts'
 import { refuseSoftware } from '../node/adapter.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
-import { frameError, openHosts } from '../node/open-host.ts'
+import { frameError, openHosts, reopening } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
+import { retriesOf, withRetries } from '../node/retry.ts'
 import {
   DELIVERY_FLAGS,
   deliveryOf,
@@ -31,6 +32,7 @@ import {
   type Codec,
   containerOf,
   type Encoder,
+  FfmpegError,
   ffmpegArgs,
   ffmpegSink,
   forgetNvenc,
@@ -325,7 +327,7 @@ const exportOnce = async (
  * When NVENC was picked from a kept yes (hasNvenc) and its ffmpeg fails, the yes is dropped and
  * the film is rendered again once, with x264, saying so on stderr.
  */
-export const exportVideo: typeof exportOnce = async (project, child, o) => {
+const exportFallingBack: typeof exportOnce = async (project, child, o) => {
   try {
     return await exportOnce(project, child, o)
   } catch (error) {
@@ -342,9 +344,53 @@ export const exportVideo: typeof exportOnce = async (project, child, o) => {
 }
 
 /**
+ * An encoder failure a second try may not repeat: ffmpeg stalled, or exited with 0 while frames
+ * were still coming (a demuxer out of memory ends its input), out of memory (AVERROR(ENOMEM): -12;
+ * 244 as a POSIX exit status), crashed (a Windows NTSTATUS, 0xC0000000 up) or was ended by a
+ * signal. Any other code (a bad option, a missing file) fails the same way again.
+ */
+export const transientEncoder = (error: unknown): boolean => {
+  if (!(error instanceof FfmpegError)) return false
+  if (error.reason === 'stall') return true
+  const c = error.code
+  return (
+    c === null ||
+    c === 0 ||
+    c === -12 ||
+    c === 244 ||
+    // Signed, as FfmpegError holds it: 0xC0000000 to 0xC0FFFFFF.
+    (c >= -0x40000000 && c < -0x3f000000)
+  )
+}
+
+/**
+ * Exports the film (exportOnce, with exportFallingBack's NVENC fallback). With `retries`, an
+ * encode that fails transiently (transientEncoder) is done again from the start, up to that many
+ * times (withRetries): the frames are rendered again (or read again from a plan's chunks), and
+ * give the same bytes.
+ */
+export const exportVideo = async (
+  project: Project,
+  child: Child,
+  o: Parameters<typeof exportOnce>[2] & { retries?: number },
+): ReturnType<typeof exportOnce> => {
+  const { retries = 0, ...rest } = o
+  return withRetries(() => exportFallingBack(project, child, rest), {
+    retries,
+    transient: transientEncoder,
+    what: 'The encode',
+    how: 'from the first frame',
+    ...(o.signal ? { signal: o.signal } : {}),
+  })
+}
+
+/**
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
- * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc] [--no-audio] [--loudness LUFS]`.
+ * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc] [--no-audio] [--loudness LUFS]
+ * [--retries n]`. --retries: a frame a host failed transiently (crashed, timed out, lost its
+ * device) is rendered again on a reopened host, and a transient encoder failure encodes again,
+ * up to n times each, with backoff (none by default).
  * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
  * mix to that integrated loudness by one constant gain; the true peak is reported, never limited. --workers: how many hosts
  * render frames at once (defaultWorkers; 1 for a sequential source). --encoder: by default NVENC
@@ -380,6 +426,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       fix: { type: 'boolean' },
       loudness: { type: 'string' },
       'software-gpu': { type: 'boolean' },
+      retries: { type: 'string' },
       ...DELIVERY_FLAGS,
     },
     { command: 'render', times: false },
@@ -388,6 +435,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const loudness = v.loudness === undefined ? undefined : Number(v.loudness)
   if (loudness !== undefined && !Number.isFinite(loudness))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
+  const retries = retriesOf(v.retries)
   requireFfmpeg()
   const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
   const root = located.root
@@ -441,21 +489,29 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // NVENC's answer comes beside the open (exportVideo asks for this size again, answered).
   if ((video.codec ?? 'h264') === 'h264')
     void hasNvenc(located.manifest.width, located.manifest.height)
-  const { project, child, extra } = job
+  const opened = job
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)
-  const hosts = [child, ...extra] as const
+  const { project } = opened
   // On a software adapter, refused unless accepted, before anything is saved.
-  await refuseSoftware(child, v['software-gpu'] === true).catch(async (error) => {
-    await Promise.all(hosts.map((h) => h.close()))
+  await refuseSoftware(opened.child, v['software-gpu'] === true).catch(async (error) => {
+    await Promise.all([opened.child, ...opened.extra].map((h) => h.close()))
     throw error
   })
+  // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
+  const stop = new AbortController()
+  // --retries: a host that fails a frame transiently is reopened and renders it again.
+  const retrying = (h: Child) =>
+    retries > 0
+      ? reopening(h, opened.more, { retries, fps: project.manifest.fps, signal: stop.signal })
+      : h
+  const child = retrying(opened.child)
+  const extra = opened.extra.map(retrying)
+  const hosts = [child, ...extra] as const
   // What the output is traced to: the job's revision, or the working tree saved now (the same
   // files give the same id, so an unchanged project saves nothing new). Saved once the source
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
   const revision = job?.revision ?? save(root, { by: 'cli' }).id
-  // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
-  const stop = new AbortController()
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
   // The progress line goes to a terminal, or to a reader that asks (--progress);
   // piped into a log, it would be one line per frame.
@@ -566,6 +622,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       onFrame,
       signal: stop.signal,
       revision,
+      retries,
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
     console.log(

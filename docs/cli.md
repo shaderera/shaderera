@@ -190,7 +190,19 @@ finished film kept that way stays, and the render names it. A host error fails t
 its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
-memory. This holds for `render`, `render --chunk` and `deliver`; nothing is retried.
+memory. This holds for `render`, `render --chunk` and `deliver`.
+
+Nothing is retried unless asked. With `--retries <n>`, `render` (and `render --chunk`) retries a
+frame whose host failed in a way a fresh host may not repeat: the host process crashed or exited,
+it took longer than `--timeout`, its Chrome closed, or its GPU device was lost or out of memory.
+The host is closed, another opened, and the frame rendered again, up to n times a frame. A source's
+own error or a shader that does not compile is not retried. `render` and `assemble` also encode
+again from the first frame, up to n times, when ffmpeg stalls, runs out of memory or crashes (an
+`AVERROR(ENOMEM)` exit, an exit with 0 while frames were still coming, a Windows crash code or a
+signal); a bad option or a missing file is not retried. Each retry waits 0.5 s, then twice as long each time, and says why on stderr
+(`! Frame 214 (t 7.133 s) failed: … Retry 1/2, on a reopened host, in 0.5 s.`); after the last,
+the first error is the one shown. A source gives the same bytes at a time on any host
+([determinism.md](determinism.md)), so a retried frame is the frame an uninterrupted render gives.
 A png job is the exception: a run that fails keeps its finished frames in `<dir>.partial`, and
 `render --job` again continues from the first missing one
 ([the finishing handoff](delivery.md#the-finishing-handoff-png--wav)).
@@ -224,6 +236,7 @@ of footage it takes a moment, not the time to read all of it.
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
 | `--software-gpu` | off: a host on a software GPU is refused ([below](#a-software-gpu)). On: it renders, and says so on stderr |
+| `--retries <n>` | 0: a transient host or encoder failure fails the render. n: retried up to n times with backoff ([above](#render)) |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:
@@ -307,7 +320,8 @@ An output whose host is on a software GPU fails unless `--software-gpu`, as in
 
 `shaderera plan --job <name> [--chunks 4] [--out dir]`, then `shaderera render --job <name>
 --chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
-[--mixed-hosts] [--no-audio] [--loudness=LUFS]`: the same file as one `render --job`. See
+[--mixed-hosts] [--no-audio] [--loudness=LUFS] [--retries n]`: the same file as one `render --job`
+(`--retries` as in [`render`](#render)). See
 [delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's frames go round
 `--workers` hosts on its machine (the same default as `render`), and its file holds the same
 frames however many. `plan` refuses a folder that holds another job's plan or chunks, naming that

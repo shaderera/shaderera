@@ -1,16 +1,18 @@
 import { join, resolve } from 'node:path'
 import { checkChunks, chunkFrames, readPlan } from '../deliver/chunks.ts'
 import { findProject } from '../node/project.ts'
+import { retriesOf } from '../node/retry.ts'
 import { openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 import { loudnessLine, probeLine } from './ffmpeg.ts'
 import { exportVideo, extensionOf } from './render.ts'
 
 /**
- * `shaderera assemble --plan <dir> [--out file] [--mixed-hosts] [--no-audio] [--loudness=LUFS]`:
- * encodes a plan's rendered chunks once, in order, with the whole window's sound, captions and
+ * `shaderera assemble --plan <dir> [--out file] [--mixed-hosts] [--no-audio] [--loudness=LUFS]
+ * [--retries n]`: encodes a plan's rendered chunks once, in order, with the whole window's sound, captions and
  * preroll, as `render --job` would on one machine. Refuses a chunk that is missing or changed, and
- * chunks from different kinds of host unless --mixed-hosts.
+ * chunks from different kinds of host unless --mixed-hosts. --retries: an encode that fails
+ * transiently (a stall, out of memory, a crash) is done again from the first chunk, up to n times.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {
@@ -19,7 +21,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     'mixed-hosts': { type: 'boolean' },
     'no-audio': { type: 'boolean' },
     loudness: { type: 'string' },
+    retries: { type: 'string' },
   })
+  const retries = retriesOf(v.retries)
   if (typeof v.plan !== 'string') throw new Error('assemble needs --plan <dir>.')
   const dir = resolve(v.plan)
   const plan = readPlan(dir)
@@ -44,6 +48,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           : join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
       quality: job.delivery.quality,
       revision: job.revision,
+      retries,
       audio: v['no-audio'] !== true,
       ...(loudness === undefined ? {} : { loudness }),
       frames: {

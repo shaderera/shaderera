@@ -8,11 +8,11 @@ Commands:
   inspect <t> [--path a.b] [--json]          print the source's state at t
   check [--times 50] [--seed 1]              render each t twice in two orders and compare
   still <t>... [--every s] [--sheet] [--diff] [--compare variant] [--out dir] [--json]   stills of any moment, and a contact sheet
-  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--crf 18] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--software-gpu]   export an mp4 or a ProRes mov (a png job: frames + audio.wav + delivery.json)
+  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--crf 18] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--software-gpu] [--retries n]   export an mp4 or a ProRes mov (a png job: frames + audio.wav + delivery.json)
   deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS] [--name batch] [--job j]... [--replace] [--software-gpu]   campaign batch into out/deliveries/<batch>/
   plan --job j [--chunks 4] [--out dir]        split a job into chunks any machine renders (render --job j --chunk i)
   plan --status --plan dir [--verify]        which chunks of a plan are done, missing, stale, partial or claimed
-  assemble --plan dir [--out file]           encode a plan's chunks once, with the sound
+  assemble --plan dir [--out file] [--retries n]   encode a plan's chunks once, with the sound
   handoff <job> [--verify] [--clean-install]   frozen project + job + REPRODUCE.md in out/handoff/<job>/
   review [--out dir] [--requirements file] [--quick] [--json]   frames, a contact sheet and technical checks
   bake [name...]                             run a bake's command and stamp the frames it made
