@@ -12,6 +12,7 @@ import {
   type Job,
   manifestAt,
   openJob,
+  safeName,
   videoOptionsOf,
 } from '../project/jobs.ts'
 import {
@@ -127,7 +128,8 @@ export const batchJobs = async (
   const jobs: Job[] = []
   for (const variant of variants)
     for (const locale of locales) {
-      const name = [o.batch, variant ?? 'main', locale].filter(Boolean).join('-')
+      // A variant may be named what a job name cannot hold (16:9).
+      const name = [o.batch, safeName(variant ?? 'main'), locale].filter(Boolean).join('-')
       const job = (range: Range | undefined, suffix = '') =>
         createJob(root, {
           by: 'cli',
