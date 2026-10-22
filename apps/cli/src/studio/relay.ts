@@ -6,7 +6,17 @@
 import { timingSafeEqual } from 'node:crypto'
 import { open } from 'node:fs/promises'
 import type { Bridge, StudioEvent } from './bridge.ts'
-import { CLOSE, keyPair, relayUrl, seal, sealBytes, sessionKey, unseal } from './pairing.ts'
+import {
+  CLOSE,
+  keyPair,
+  mismatch,
+  PROTOCOL,
+  relayUrl,
+  seal,
+  sealBytes,
+  sessionKey,
+  unseal,
+} from './pairing.ts'
 
 type Message = { type?: string; [key: string]: unknown }
 
@@ -15,7 +25,8 @@ const sameNonce = (given: string, nonce: string) => {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-export type RelayEnd = { code: number; paired: boolean }
+/** How the relay ended for the CLI; `error` when the CLI itself gave up (a newer page). */
+export type RelayEnd = { code: number; paired: boolean; error?: string }
 
 /**
  * A file's chunk through the relay, in bytes: its frame (base64url, with the GCM tag and the JSON
@@ -69,6 +80,11 @@ export const connectRelay = (o: {
    * (`reloaded`): a reload is not a close.
    */
   onPage?: (state: 'closed' | 'reloaded') => void
+  /**
+   * The page's hello names another protocol (mismatch's line). An older page may still reload
+   * into the current one, so the CLI waits; for a newer one this CLI is too old, and it ends.
+   */
+  onMismatch?: (m: { update: 'page' | 'cli'; text: string }) => void
   /** The relay dropped the CLI (`false`), or let it back in (`true`). */
   onRelay?: (back: boolean) => void
   /** For tests: the delay before the nth rejoin. */
@@ -91,6 +107,9 @@ export const connectRelay = (o: {
   let key: CryptoKey | undefined
   let paired = false
   let stopEvents: (() => void) | undefined
+  let error: string | undefined
+  // The protocol of the last page that said a mismatched hello: said once, not on every hello.
+  let told: number | undefined
   // A page that left: closed when this runs out, reloaded when it is seen again before.
   let away: NodeJS.Timeout | undefined
   const pageBack = () => {
@@ -157,8 +176,24 @@ export const connectRelay = (o: {
       // One key pair for the CLI's life: a page-hello sent again gives the same key, and a new
       // page's (it reloaded before pairing) a new one.
       mine ??= await keyPair()
+      // The CLI says its protocol either way, so a page that differs can say so too.
+      const theirs = typeof m.protocol === 'number' ? m.protocol : 0
+      if (theirs !== PROTOCOL) {
+        offered = undefined
+        send({ type: 'cli-hello', pub: mine.pub, protocol: PROTOCOL, ...o.hello })
+        const said = mismatch(theirs)
+        if (told !== theirs) o.onMismatch?.(said)
+        told = theirs
+        if (said.update === 'cli') {
+          // This CLI cannot pair with that page, now or after a reload: it ends.
+          error = said.text
+          stopped = true
+          ws.close(1000)
+        }
+        return
+      }
       offered = await sessionKey(mine.privateKey, m.pub, o.id)
-      send({ type: 'cli-hello', pub: mine.pub, ...o.hello })
+      send({ type: 'cli-hello', pub: mine.pub, protocol: PROTOCOL, ...o.hello })
     } else if (
       m.type === 'page-proof' &&
       offered &&
@@ -257,7 +292,8 @@ export const connectRelay = (o: {
       // The relay's own codes (4001–4004) and 1000 are its answer; anything else, once paired, is
       // a drop, and the CLI comes back with its token. The keys stay: the page goes on.
       const answer = e.code === 1000 || (e.code >= 4000 && e.code < 5000)
-      if (stopped || answer || !paired || !token) return finish({ code: e.code, paired })
+      if (stopped || answer || !paired || !token)
+        return finish({ code: e.code, paired, ...(error ? { error } : {}) })
       if (tries === 0) o.onRelay?.(false)
       timer = setTimeout(join, (o.delay ?? rejoinDelay)(tries++))
     })

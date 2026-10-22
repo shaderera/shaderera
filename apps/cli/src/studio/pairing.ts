@@ -39,8 +39,25 @@ export const relayUrl = (site: string, id: string, role: 'cli' | 'page'): string
 /** The relay's close codes. `ended`: a resume token once the session is over. */
 export const CLOSE = { expired: 4001, used: 4002, taken: 4003, ended: 4004 } as const
 
+/** The protocol this CLI speaks: `protocol` in both hellos (a hello without one is v0). */
+export const PROTOCOL = 1
+
 /** HKDF's info: names the protocol's version, so a v1 key never opens a v0 box. */
-export const INFO = 'shaderera-studio-v1'
+export const INFO = `shaderera-studio-v${PROTOCOL}`
+
+/**
+ * What to say when the page's hello names another protocol than this CLI's: which side is older
+ * and what to update, in one line. `update` is the side to update.
+ */
+export const mismatch = (page: number): { update: 'page' | 'cli'; text: string } => {
+  const versions = `The studio page speaks protocol v${page} and this CLI v${PROTOCOL}`
+  return page < PROTOCOL
+    ? { update: 'page', text: `${versions}: reload the page to get the current one.` }
+    : {
+        update: 'cli',
+        text: `${versions}: update the CLI (npm i shaderera@latest) and run shaderera studio again.`,
+      }
+}
 
 const utf8 = new TextEncoder()
 

@@ -24,6 +24,7 @@ import {
   keyPair,
   makeId,
   makeNonce,
+  PROTOCOL,
   relayUrl,
   seal,
   sessionKey,
@@ -200,7 +201,7 @@ test('a page without the nonce the CLI opened never gets the bridge or an answer
   closeAtEnd(t, cli, stranger)
   await stranger.next('cli-joined')
   const mine = await keyPair()
-  stranger.send({ type: 'page-hello', pub: mine.pub })
+  stranger.send({ type: 'page-hello', pub: mine.pub, protocol: PROTOCOL })
   const hello = await stranger.next('cli-hello')
   const key = await sessionKey(mine.privateKey, hello.pub as string, id)
   // Another nonce; the nonce under a key that is not its hello's; a request with no proof; paired.
@@ -237,7 +238,7 @@ test('before pairing, a reloaded page pairs in place of the first, and a second 
   })
   closeAtEnd(t, cli, first)
   await first.next('cli-joined')
-  first.send({ type: 'page-hello', pub: (await keyPair()).pub })
+  first.send({ type: 'page-hello', pub: (await keyPair()).pub, protocol: PROTOCOL })
   await first.next('cli-hello')
   const other = connectRelay({
     site: relay.origin,
@@ -342,6 +343,49 @@ test('a page that reloads is not closed; one that does not come back is', async 
   // And no `closed` follows it.
   await new Promise((r) => setTimeout(r, 1200))
   assert.deepEqual(heard, ['closed', 'reloaded', 'reloaded'])
+})
+
+test('a page of another protocol is told which side to update, and never gets the bridge', async (t) => {
+  const id = makeId()
+  const said: { update: string; text: string }[] = []
+  const p = page(relay.origin, id)
+  await p.opened
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+    onMismatch: (m) => said.push(m),
+  })
+  closeAtEnd(t, cli, p)
+  await p.next('cli-joined')
+  // A v0 page (no protocol in its hello): the page is older, and the CLI waits for a reload.
+  const mine = await keyPair()
+  p.send({ type: 'page-hello', pub: mine.pub })
+  const hello = await p.next('cli-hello')
+  assert.equal(hello.protocol, PROTOCOL)
+  assert.equal(said.length, 1)
+  assert.equal(said[0]?.update, 'page')
+  assert.match(said[0]?.text ?? '', /protocol v0 and this CLI v1: reload the page/)
+  // Its proof is never taken: no bridge.
+  const key = await sessionKey(mine.privateKey, hello.pub as string, id)
+  p.send({ type: 'page-proof', ...(await seal(key, { nonce })) })
+  // Said once, not on every hello.
+  p.send({ type: 'page-hello', pub: mine.pub })
+  await p.next('cli-hello')
+  assert.equal(said.length, 1)
+  // A newer page: this CLI is older, says to update, and ends.
+  p.send({ type: 'page-hello', pub: mine.pub, protocol: PROTOCOL + 1 })
+  const end = await cli.closed
+  assert.equal(said[1]?.update, 'cli')
+  assert.match(end.error ?? '', /npm i shaderera@latest/)
+  assert.equal(end.paired, false)
+  const bridged = await Promise.race([
+    p.next('bridge').then(() => true),
+    new Promise((r) => setTimeout(() => r(false), 100)),
+  ])
+  assert.equal(bridged, false)
 })
 
 test('an id no CLI paired with in time is expired', async (t) => {

@@ -86,6 +86,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     bridge,
     hello: { version: shadereraVersion(), os: process.platform, telemetry: telemetryStatus().on },
     onPaired: () => say('paired', {}, 'paired: the studio page drives this project. Ctrl-C stops.'),
+    onMismatch: (m) => say('mismatch', m, m.text, true),
     // A reload rejoins within a few seconds: only a page that does not is closed.
     onPage: (state) =>
       state === 'closed'
@@ -106,7 +107,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   let error: string | undefined
   if (end && !end.paired) {
     // Never paired: there is no page to serve.
-    error = closeText(end.code, site, id)
+    error = end.error ?? closeText(end.code, site, id)
     code = EXIT.error
   } else if (end) {
     // Paired already: the page talks to the bridge directly, which keeps serving.
