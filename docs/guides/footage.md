@@ -49,6 +49,10 @@ page, stop: use another source, or ask the person for the file.
   segments kept.
 - Trim to the segment used, and note it:
   `ffmpeg -ss <from> -t <seconds> -i source.mp4 -an -c:v libx264 -crf 18 assets/footage/<name>.mp4`
+- When the person marked the segments themselves, in LosslessCut or another editor, ask for them
+  as CSV: one `start,end,label` line per segment, in seconds of the file they marked (LosslessCut's
+  own CSV, per its docs, 2026-10-22). A line with no end is a marker, not a segment. Trim each
+  segment from that same file and record it with `--segment <start>,<end>`.
 - Look for burned-in logos, subtitles and watermarks, and for a label saying the clip is
   AI-generated (Pixabay shows one on the page). Crop them out or leave the clip, and note what you
   did in its record (Record, below).
