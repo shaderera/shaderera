@@ -2,7 +2,7 @@
 // page over the relay, as the page does it, with WebCrypto.
 import assert from 'node:assert/strict'
 import { request as httpRequest } from 'node:http'
-import { keyPair, makeNonce, relayUrl, seal, sessionKey, unseal } from '../pairing.ts'
+import { keyPair, makeNonce, PROTOCOL, relayUrl, seal, sessionKey, unseal } from '../pairing.ts'
 
 /** The nonce the in-process CLIs pair with; the CLI makes one of its own each run. */
 export const nonce = makeNonce()
@@ -70,10 +70,9 @@ export const page = (relay: string, id: string) => {
     pair: async (proof = nonce) => {
       const mine = await keyPair()
       await opened
-      ws.send(JSON.stringify({ type: 'page-hello', pub: mine.pub }))
-      void next('cli-joined').then(() =>
-        ws.send(JSON.stringify({ type: 'page-hello', pub: mine.pub })),
-      )
+      const helloFrame = JSON.stringify({ type: 'page-hello', pub: mine.pub, protocol: PROTOCOL })
+      ws.send(helloFrame)
+      void next('cli-joined').then(() => ws.send(helloFrame))
       const hello = await next('cli-hello')
       const key = await sessionKey(mine.privateKey, hello.pub as string, id)
       ws.send(JSON.stringify({ type: 'page-proof', ...(await seal(key, { nonce: proof })) }))

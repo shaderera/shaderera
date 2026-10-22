@@ -6,20 +6,23 @@ import { type LightLevels, toSrt, toVtt, windowCaptions } from '@shaderera/core/
 import {
   chunkFrames,
   type FrameInput,
+  isHdr,
   makePlan,
   mostLight,
   readPlan,
   renderChunk,
 } from '../deliver/chunks.ts'
 import { removePartials } from '../deliver/claim.ts'
+import { preflightChunk, preflightPng } from '../deliver/disk.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
 import { refuseSoftware } from '../node/adapter.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
-import { frameError, openHosts } from '../node/open-host.ts'
+import { frameError, openHosts, reopening } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
+import { retriesOf, withRetries } from '../node/retry.ts'
 import {
   checkHdr10Delivery,
   DELIVERY_FLAGS,
@@ -37,13 +40,17 @@ import {
   bitsPerSecond,
   CODECS,
   type Codec,
+  canEncode,
   containerOf,
+  ENCODERS,
   type Encoder,
+  FfmpegError,
   ffmpegArgs,
   ffmpegSink,
+  forgetEncoder,
   type HdrEncoder,
+  hardwareEncoder,
   hasHevcNvenc,
-  hasNvenc,
   hdr10Args,
   type Input,
   type Loudness,
@@ -111,12 +118,13 @@ export const checkVideoOptions = (o: VideoOptions) => {
  * host that composites on the GPU hands ffmpeg yuv420p for H.264 and 16-bit RGBA for ProRes.
  * A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file.
  *
- * Hosts that render `hdr10` (`has.p010`, decision 0023) make an HDR10 mp4: HEVC Main 10 with the
- * manifest's mastering display and the light levels measured from every frame. The levels are known
+ * Hosts that render `hdr10` (`has.p010`, decision 0023) make an HDR10 mp4 (HEVC Main 10 from P010)
+ * or mov (ProRes from the R'G'B' codes) with the manifest's mastering display and the light levels
+ * measured from every frame. The levels are known
  * only after the last frame, so the frames go first into one lossless chunk beside the file
  * (`<out>.<pid>.chunks/`, removed after) and are encoded once from it, as `assemble` encodes a plan.
  */
-export const exportVideo = async (
+const exportOnce = async (
   { root, manifest }: Project,
   child: Child,
   o: VideoOptions & {
@@ -134,8 +142,9 @@ export const exportVideo = async (
      */
     hosts?: readonly Child[]
     /**
-     * By default NVENC for a review where this machine has it, x264 for a master or without; for
-     * HDR10, NVIDIA's HEVC for a review where it works here, x265 for a master or without.
+     * By default a GPU's H.264 encoder for a review where this machine has one, x264 for a master
+     * or without; for HDR10, NVIDIA's HEVC for a review where it works here, x265 for a master or
+     * without.
      */
     encoder?: Encoder | HdrEncoder
     /** `false`: no audio stream, whatever the source's clips (a silent DOOH placement, say). */
@@ -163,7 +172,7 @@ export const exportVideo = async (
   frames: number
   seconds: number
   workers: number
-  /** `x264`, `nvenc`, or `prores` for a mov; `x265` or `nvenc` (HEVC) for HDR10. */
+  /** `x264`, a GPU encoder, or `prores` for a mov; `x265` or `nvenc` (HEVC) for HDR10. */
   encoder: Encoder | HdrEncoder | 'prores'
   /**
    * Bits a channel the frames reached the encoder with: 16 from the GPU compositor for ProRes, 10
@@ -189,7 +198,7 @@ export const exportVideo = async (
   const codec = o.codec ?? 'h264'
   const prores = codec !== 'h264'
   // The hosts render hdr10, or the frames rendered already are an hdr10 render's.
-  const hdr = o.frames ? o.frames.input === 'p010' : child.has.p010 === true
+  const hdr = o.frames ? isHdr(o.frames.input) : child.has.p010 === true
   const review = (o.quality ?? 'review') === 'review'
   const { width, height } = manifest
   let encoder: Encoder | HdrEncoder | 'prores'
@@ -197,22 +206,28 @@ export const exportVideo = async (
     checkHdr10Delivery({ format: prores ? codec : 'mp4', bitrate: o.bitrate, maxrate: o.maxrate })
     requireHdr10Ffmpeg()
     if (!manifest.hdr10) throw new Error('An hdr10 render needs the hdr10 block in shaderera.json.')
-    if (o.encoder === 'x264')
-      throw new Error('x264 encodes H.264: an HDR10 mp4 is HEVC, encoded with x265 or nvenc.')
-    encoder = o.encoder ?? (review && hasHevcNvenc(width, height) ? 'nvenc' : 'x265')
+    if (o.encoder === 'x264' || o.encoder === 'qsv' || o.encoder === 'amf')
+      throw new Error(
+        `${o.encoder} encodes H.264: an HDR10 mp4 is HEVC, encoded with x265 or nvenc.`,
+      )
+    encoder = prores
+      ? 'prores'
+      : (o.encoder ?? (review && hasHevcNvenc(width, height) ? 'nvenc' : 'x265'))
     if (encoder === 'nvenc' && !hasHevcNvenc(width, height))
       throw new Error(
         'This ffmpeg cannot encode 10-bit HEVC with NVENC here (no NVIDIA GPU, or no driver for it).',
       )
   } else {
-    if (o.encoder === 'x265' || o.encoder === 'videotoolbox')
-      throw new Error(`${o.encoder} encodes HEVC for HDR10 (--hdr10); an SDR mp4 is H.264.`)
+    if (o.encoder === 'x265')
+      throw new Error('x265 encodes HEVC for HDR10 (--hdr10); an SDR mp4 is H.264.')
+    const rated = Boolean(o.bitrate || o.maxrate)
     encoder = prores
       ? 'prores'
-      : (o.encoder ?? (review && hasNvenc(width, height) ? 'nvenc' : 'x264'))
-    if (encoder === 'nvenc' && !hasNvenc(width, height))
+      : (o.encoder ??
+        (review ? ((await hardwareEncoder(width, height, { rated })) ?? 'x264') : 'x264'))
+    if (encoder !== 'prores' && encoder !== 'x264' && !(await canEncode(encoder, width, height)))
       throw new Error(
-        'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
+        `This ffmpeg cannot encode with ${encoder} here (no such GPU, or no driver for it).`,
       )
   }
   requireFfmpeg()
@@ -263,6 +278,8 @@ export const exportVideo = async (
     if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1, workers)
     const hosts = [child, ...(o.hosts ?? opened)] as [Child, ...Child[]]
     let rendered = o.frames
+    // An hdr10 render's frames: P010 for HEVC, the R'G'B' codes for ProRes.
+    const hdrInput = prores ? 'rgb10' : 'p010'
     if (hdr && !rendered) {
       // What renders of this out that died left of their chunks.
       removePartials(out, '.chunks')
@@ -272,12 +289,12 @@ export const exportVideo = async (
           id: o.revision,
           output: { width, height, fps: manifest.fps, from, to },
         },
-        'p010',
+        hdrInput,
         1,
       )
       const record = await renderChunk(hosts, plan, 0, chunks, o.onFrame, o.signal)
       rendered = {
-        input: 'p010',
+        input: hdrInput,
         count: record.frames,
         read: () => chunkFrames(plan, chunks),
         ...(record.light ? { light: record.light } : {}),
@@ -307,7 +324,12 @@ export const exportVideo = async (
           display: masteringOf((manifest.hdr10 as NonNullable<Manifest['hdr10']>).mastering),
           light: mostLight([
             ...(rendered?.light ? [rendered.light] : []),
-            ...(await prerollLight(child, { ...preroll, from, fps: manifest.fps })),
+            ...(await prerollLight(child, {
+              ...preroll,
+              from,
+              fps: manifest.fps,
+              input: hdrInput,
+            })),
           ]),
         }
       : undefined
@@ -324,10 +346,10 @@ export const exportVideo = async (
           quality: o.quality,
           crf: o.crf,
           audio,
-          input: 'p010',
+          input: hdrInput,
+          ...(prores ? { codec } : { encoder: encoder as HdrEncoder }),
           display: hdr10.display,
           levels: { maxCLL: hdr10.light.maxCll, maxFALL: hdr10.light.maxFall },
-          encoder: encoder as HdrEncoder,
           ...(o.editList === false ? { editList: false } : {}),
           revision: o.revision,
         })
@@ -383,10 +405,13 @@ export const exportVideo = async (
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
     if (hdr10)
-      requireHdr10(out, probed, hdr10.display, {
-        maxCLL: hdr10.light.maxCll,
-        maxFALL: hdr10.light.maxFall,
-      })
+      requireHdr10(
+        out,
+        probed,
+        hdr10.display,
+        { maxCLL: hdr10.light.maxCll, maxFALL: hdr10.light.maxFall },
+        prores ? codec : 'hevc',
+      )
     const loudness = mix.clips.length > 0 ? measureLoudness(partial) : null
     try {
       renameSync(partial, out)
@@ -414,7 +439,7 @@ export const exportVideo = async (
       seconds: (performance.now() - start) / 1000,
       workers: hosts.length,
       encoder,
-      bits: input === 'rgba64' ? 16 : input === 'p010' ? 10 : 8,
+      bits: input === 'rgba64' ? 16 : isHdr(input) ? 10 : 8,
       ...(hdr10 ? { light: hdr10.light } : {}),
       loudness,
       ...(mix.level ? { gainDb: mix.level.gainDb } : {}),
@@ -437,17 +462,98 @@ export const exportVideo = async (
 }
 
 /**
+ * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg refuses
+ * (encoderRefused), the yes is dropped and the film is rendered again once, with the next encoder
+ * found (x264 at the last), saying so on stderr. Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never
+ * kept.
+ */
+const exportFallingBack: typeof exportOnce = async (project, child, o) => {
+  const { width, height } = project.manifest
+  const auto =
+    o.encoder === undefined &&
+    (o.codec ?? 'h264') === 'h264' &&
+    !(o.frames ? o.frames.input === 'p010' : child.has.p010 === true) &&
+    (o.quality ?? 'review') === 'review'
+  const picked = auto
+    ? await hardwareEncoder(width, height, { rated: Boolean(o.bitrate || o.maxrate) })
+    : undefined
+  try {
+    return await exportOnce(project, child, o)
+  } catch (error) {
+    if (!picked || !encoderRefused(error)) throw error
+    if (!forgetEncoder(picked, width, height)) throw error
+    console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
+    return exportOnce(project, child, o)
+  }
+}
+
+/**
+ * An encoder ffmpeg that exited with a code other than 0: the encoder itself may have refused (a
+ * GPU or driver gone). Not a stall, a signal or an exit with 0 while frames still came (ffmpeg's
+ * input ended early): those go to `--retries` only (transientEncoder).
+ */
+export const encoderRefused = (error: unknown): boolean =>
+  error instanceof FfmpegError && error.reason === 'exit' && error.code !== null && error.code !== 0
+
+/**
+ * An encoder failure a second try may not repeat: ffmpeg stalled, or exited with 0 while frames
+ * were still coming (a demuxer out of memory ends its input), out of memory (AVERROR(ENOMEM): -12;
+ * 244 as a POSIX exit status), crashed (a Windows NTSTATUS, 0xC0000000 up) or was ended by a
+ * signal. Any other code (a bad option, a missing file) fails the same way again.
+ */
+export const transientEncoder = (error: unknown): boolean => {
+  if (!(error instanceof FfmpegError)) return false
+  if (error.reason === 'stall') return true
+  const c = error.code
+  return (
+    c === null ||
+    c === 0 ||
+    c === -12 ||
+    c === 244 ||
+    // Signed, as FfmpegError holds it: 0xC0000000 to 0xC0FFFFFF.
+    (c >= -0x40000000 && c < -0x3f000000)
+  )
+}
+
+/**
+ * Exports the film (exportOnce, with exportFallingBack's GPU encoder fallback). With `retries`, an
+ * encode that fails transiently (transientEncoder) is done again from the start, up to that many
+ * times (withRetries): the frames are rendered again (or read again from a plan's chunks), and
+ * give the same bytes.
+ */
+export const exportVideo = async (
+  project: Project,
+  child: Child,
+  o: Parameters<typeof exportOnce>[2] & { retries?: number },
+): ReturnType<typeof exportOnce> => {
+  const { retries = 0, ...rest } = o
+  return withRetries(() => exportFallingBack(project, child, rest), {
+    retries,
+    transient: transientEncoder,
+    what: 'The encode',
+    how: 'from the first frame',
+    ...(o.signal ? { signal: o.signal } : {}),
+  })
+}
+
+/**
  * The light of a preroll the source fills (an hdr10 render's), rendered once to be measured before
  * the encode starts; none for black.
  */
 const prerollLight = async (
   child: Child,
-  o: { frames: number; fill: 'black' | 'source'; from: number; fps: number },
+  o: {
+    frames: number
+    fill: 'black' | 'source'
+    from: number
+    fps: number
+    input: 'p010' | 'rgb10'
+  },
 ): Promise<LightLevels[]> => {
   if (o.fill !== 'source') return []
   const light: LightLevels[] = []
   for (const t of prerollTimes(o)) {
-    const r = await child.render(t, 'final', 'p010')
+    const r = await child.render(t, 'final', o.input)
     if (r.light) light.push(r.light)
   }
   return light
@@ -456,14 +562,18 @@ const prerollLight = async (
 /**
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
- * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc|x265] [--no-audio] [--loudness LUFS]
- * [--hdr10]`. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023) of a film whose shaderera.json
- * has `hdr10`, rendered on the GPU through one lossless chunk; a job asks for it when it is made
- * (`shaderera job --hdr10`).
+ * [--progress] [--trusted] [--workers n] [--encoder name] [--no-audio] [--loudness LUFS]
+ * [--hdr10] [--force] [--retries n]`. --force: a chunk or png job that the disk-space preflight
+ * (deliver/disk.ts) refuses goes ahead. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023), or a ProRes mov with --format,
+ * of a film whose shaderera.json has `hdr10`, rendered on the GPU through one lossless chunk; a job
+ * asks for it when it is made
+ * (`shaderera job --hdr10`). --retries: a frame a host failed transiently (crashed, timed out, lost its
+ * device) is rendered again on a reopened host, and a transient encoder failure encodes again,
+ * up to n times each, with backoff (none by default).
  * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
  * mix to that integrated loudness by one constant gain; the true peak is reported, never limited. --workers: how many hosts
- * render frames at once (defaultWorkers; 1 for a sequential source). --encoder: by default NVENC
- * for a review where this machine has it, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
+ * render frames at once (defaultWorkers; 1 for a sequential source). --encoder (ENCODERS, or x265
+ * for --hdr10): by default a GPU encoder for a review where this machine has one, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
  * window; the working tree does not matter. A png job writes the finishing handoff into
  * out/<job>/ (frames, audio.wav, delivery.json) instead of an mp4. `--job --chunk i [--plan dir]`
  * renders one chunk of a plan; `--job --reuse <plan> --changed <from>-<to>[,…] [--fix] [--plan dir]`
@@ -471,8 +581,12 @@ const prerollLight = async (
  * (renderReusing).
  */
 const encoderOf = (value: unknown): Encoder | 'x265' => {
-  if (value === 'x264' || value === 'nvenc' || value === 'x265') return value
-  throw new Error(`--encoder is x264 or nvenc (x265 or nvenc for --hdr10), not ${String(value)}.`)
+  if (value === 'x265') return value
+  const found = ENCODERS.find((e) => e === value)
+  if (found) return found
+  throw new Error(
+    `--encoder is one of ${ENCODERS.join(', ')} (x265, nvenc or videotoolbox for --hdr10), not ${String(value)}.`,
+  )
 }
 
 export const run = async (argv: readonly string[]): Promise<number> => {
@@ -495,7 +609,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       fix: { type: 'boolean' },
       loudness: { type: 'string' },
       'software-gpu': { type: 'boolean' },
+      force: { type: 'boolean' },
       hdr10: { type: 'boolean' },
+      retries: { type: 'string' },
       ...DELIVERY_FLAGS,
     },
     { command: 'render', times: false },
@@ -504,8 +620,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const loudness = v.loudness === undefined ? undefined : Number(v.loudness)
   if (loudness !== undefined && !Number.isFinite(loudness))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
+  const retries = retriesOf(v.retries)
   requireFfmpeg()
-  const root = (await findProject(typeof v.root === 'string' ? v.root : process.cwd())).root
+  const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
+  const root = located.root
   const job = typeof v.job === 'string' ? readJob(root, v.job) : undefined
   const given = Object.keys(DELIVERY_FLAGS).filter((k) => v[k as keyof typeof v] !== undefined)
   if (job && given.length > 0)
@@ -558,21 +676,32 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (frames === 0 || m.sequential) return 0
     return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
   }
-  const { project, child, extra } = job
+  // The GPU encoders' answers come beside the open (exportVideo asks again, answered).
+  if ((video.codec ?? 'h264') === 'h264')
+    void hardwareEncoder(located.manifest.width, located.manifest.height)
+  const opened = job
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)
-  const hosts = [child, ...extra] as const
+  const { project } = opened
   // On a software adapter, refused unless accepted, before anything is saved.
-  await refuseSoftware(child, v['software-gpu'] === true).catch(async (error) => {
-    await Promise.all(hosts.map((h) => h.close()))
+  await refuseSoftware(opened.child, v['software-gpu'] === true).catch(async (error) => {
+    await Promise.all([opened.child, ...opened.extra].map((h) => h.close()))
     throw error
   })
+  // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
+  const stop = new AbortController()
+  // --retries: a host that fails a frame transiently is reopened and renders it again.
+  const retrying = (h: Child) =>
+    retries > 0
+      ? reopening(h, opened.more, { retries, fps: project.manifest.fps, signal: stop.signal })
+      : h
+  const child = retrying(opened.child)
+  const extra = opened.extra.map(retrying)
+  const hosts = [child, ...extra] as const
   // What the output is traced to: the job's revision, or the working tree saved now (the same
   // files give the same id, so an unchanged project saves nothing new). Saved once the source
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
   const revision = job?.revision ?? save(root, { by: 'cli' }).id
-  // Ctrl-C stops a video render between frames, so it fails like any other: no .partial is left.
-  const stop = new AbortController()
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
   // The progress line goes to a terminal, or to a reader that asks (--progress);
   // piped into a log, it would be one line per frame.
@@ -624,6 +753,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       const plan = readPlan(dir)
       if (plan.jobId !== job.id)
         throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
+      const force = v.force === true
+      await preflightChunk(child, plan, Number(v.chunk), dir, {
+        sequential: project.manifest.sequential,
+        force,
+      })
       process.once('SIGINT', interrupt)
       process.once('SIGTERM', interrupt)
       const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame, stop.signal).finally(
@@ -635,8 +769,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       return 0
     }
     if (job?.delivery.format === 'png') {
+      const dir = typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', job.name)
+      const force = v.force === true
+      await preflightPng(child, job, dir, { sequential: project.manifest.sequential, force })
       const done = await exportFinishing(project, child, job, {
-        dir: typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', job.name),
+        dir,
         requirements: outputRequirements(readRequirements(root), {
           variant: job.variant,
           ...job.output,
@@ -683,6 +820,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       onFrame,
       signal: stop.signal,
       revision,
+      retries,
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
     console.log(

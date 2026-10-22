@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { tempDir } from '../fixtures/temp.ts'
 import {
+  canEncode,
+  encodersFile,
   ffmpegArgs,
+  hardwareEncoder,
   hasEditList,
   hasHevcNvenc,
   hdr10Args,
@@ -55,6 +59,62 @@ test('the loudness of a film over ten minutes is measured', {
     assert.ok(loudness && loudness.integrated > -70, JSON.stringify(loudness))
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("A GPU encoder's answer is kept in ~/.shaderera for this ffmpeg, believed after, and asked again fresh", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const home = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
+  process.env.HOME = process.env.USERPROFILE = tempDir('home')
+  try {
+    // Every GPU encoder is asked, and the first that works is the review's.
+    const found = await hardwareEncoder(1920, 1080)
+    const kept = JSON.parse(readFileSync(encodersFile(), 'utf8'))
+    assert.match(kept.ffmpeg, /ffmpeg version/)
+    assert.deepEqual(Object.keys(kept.answers).sort(), [
+      'amf 1920x1080',
+      'nvenc 1920x1080',
+      'qsv 1920x1080',
+      'videotoolbox 1920x1080',
+    ])
+    assert.equal(
+      found,
+      ['nvenc', 'qsv', 'amf', 'videotoolbox'].find((e) => kept.answers[`${e} 1920x1080`]),
+    )
+    // NVENC refuses a 32×16 frame: a kept true is believed without a test encode...
+    const yes = { 'nvenc 32x16': true }
+    writeFileSync(encodersFile(), JSON.stringify({ ...kept, answers: yes }))
+    assert.equal(await canEncode('nvenc', 32, 16), true)
+    // ...and a fresh ask (doctor) encodes again, keeping the answer it had.
+    assert.equal(await canEncode('nvenc', 32, 16, { fresh: true }), false)
+    const after = JSON.parse(readFileSync(encodersFile(), 'utf8')).answers
+    assert.deepEqual(after, { 'nvenc 32x16': false })
+    // Another ffmpeg's answers are not this one's.
+    const other = { ffmpeg: 'another', answers: { 'nvenc 30x16': true } }
+    writeFileSync(encodersFile(), JSON.stringify(other))
+    assert.equal(await canEncode('nvenc', 30, 16), false)
+    // The nvenc.json of #219's builds (never released) is ignored, left as it is.
+    const old = join(dirname(encodersFile()), 'nvenc.json')
+    const key = JSON.parse(readFileSync(encodersFile(), 'utf8')).ffmpeg
+    writeFileSync(old, JSON.stringify({ ffmpeg: key, sizes: { '28x16': true } }))
+    assert.equal(await canEncode('nvenc', 28, 16), false)
+    assert.ok(existsSync(old))
+  } finally {
+    Object.assign(process.env, home)
+  }
+})
+
+test("HDR10's HEVC NVENC is asked apart: its answer is never kept in encoders.json", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const home = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
+  process.env.HOME = process.env.USERPROFILE = tempDir('home')
+  try {
+    hasHevcNvenc(1920, 1080)
+    assert.equal(existsSync(encodersFile()), false)
+  } finally {
+    Object.assign(process.env, home)
   }
 })
 
@@ -152,7 +212,7 @@ for (const c of HEVC)
   })
 
 for (const codec of ['prores-hq', 'prores-4444'] as const)
-  test(`HDR10 ${codec} from 16-bit PQ R'G'B'A: tagged, the display and levels in the mov's boxes`, {
+  test(`HDR10 ${codec} from the hosts' 10-bit PQ R'G'B' codes: tagged, the display and levels in the mov's boxes`, {
     skip: hdr10Skip,
   }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'shaderera-hdr10-'))
@@ -161,16 +221,18 @@ for (const codec of ['prores-hq', 'prores-4444'] as const)
       const args = hdr10Args({
         ...hdrBase,
         out,
-        input: 'rgba64',
+        input: 'rgb10',
         codec,
         display: P3_1000,
         levels: LEVELS,
       })
-      const r = spawnSync('ffmpeg', args, { input: frames(dir, 'rgba64le') })
+      const r = spawnSync('ffmpeg', args, { input: frames(dir, 'x2bgr10le') })
       assert.equal(r.status, 0, String(r.stderr))
       const v = probe(out).video
       assert.equal(v?.codec, 'prores')
       assert.equal(v?.frames, 10)
+      // 4444 without an alpha plane: the frame came matted.
+      assert.equal(v?.pixFmt, codec === 'prores-hq' ? 'yuv422p10le' : 'yuv444p12le')
       assert.deepEqual(v?.color, {
         matrix: 'bt2020nc',
         primaries: 'bt2020',

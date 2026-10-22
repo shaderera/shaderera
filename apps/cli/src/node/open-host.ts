@@ -3,6 +3,7 @@ import { openBrowserChild } from './browser.ts'
 import { type Child, openChild } from './child.ts'
 import type { HostName } from './host-of.ts'
 import type { Project } from './project.ts'
+import { withRetries } from './retry.ts'
 import type { BakeFrames } from './services.ts'
 
 /** What a run opens a source with, whichever host runs it. */
@@ -116,4 +117,86 @@ export const openHosts = async (
     throw way ? new Error(`${message}${way}`, { cause: error }) : error
   }
   return ok
+}
+
+/** A host gone (crashed, killed after a timeout, its Chrome closed), not a source's own error. */
+const GONE =
+  /The source process (has )?exited|The source took longer than|The browser host took longer than|The browser host's Chrome closed/
+
+/**
+ * A host failure a fresh host may not repeat: the host gone (GONE) or its GPU device lost or out
+ * of memory (DEVICE). A source's own throw or a shader that does not compile fails again.
+ */
+export const transientHost = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error)
+  return GONE.test(message) || DEVICE.test(message)
+}
+
+/**
+ * `first` as a host whose frame render, on a transient failure (transientHost), closes it, opens
+ * another from `more` and renders the frame again, up to `retries` times (withRetries). Its other
+ * calls go to the host open now. A source gives the same bytes at t on any host (determinism), so
+ * a retried frame is the frame an uninterrupted render gives. Close it instead of `first`.
+ */
+export const reopening = (
+  first: Child,
+  more: () => Promise<Child>,
+  o: { retries: number; fps: number; delayMs?: number; signal?: AbortSignal },
+): Child => {
+  let host = first
+  // Which host the calls go to: a call that failed on an earlier one reopens nothing.
+  let generation = 0
+  let ready: Promise<void> = Promise.resolve()
+  const reopen = (failed: number) => {
+    if (failed === generation) {
+      generation++
+      const old = host
+      ready = (async () => {
+        await old.close().catch(() => {})
+        host = await more()
+      })()
+    }
+    return ready
+  }
+  const current = async () => {
+    await ready
+    return host
+  }
+  return {
+    has: first.has,
+    render: (t, intent, format) => {
+      let at = generation
+      return withRetries(
+        async () => {
+          const h = await current()
+          at = generation
+          return h.render(t, intent, format)
+        },
+        {
+          retries: o.retries,
+          transient: transientHost,
+          what: `Frame ${Math.round(t * o.fps)} (t ${t} s)`,
+          how: 'on a reopened host',
+          before: () => reopen(at),
+          ...(o.delayMs !== undefined ? { delayMs: o.delayMs } : {}),
+          ...(o.signal ? { signal: o.signal } : {}),
+        },
+      )
+    },
+    inspect: async (t) => (await current()).inspect(t),
+    pick: async (t, x, y) => (await current()).pick(t, x, y),
+    camera: async (t) => (await current()).camera(t),
+    override: async (m) => (await current()).override(m),
+    audio: async () => (await current()).audio(),
+    captions: async () => (await current()).captions(),
+    fonts: async () => (await current()).fonts(),
+    identity: async () => (await current()).identity(),
+    clock: async () => (await current()).clock(),
+    seeks: async () => (await current()).seeks(),
+    text: async (t) => (await current()).text(t),
+    close: async () => {
+      await ready.catch(() => {})
+      await host.close()
+    },
+  }
 }

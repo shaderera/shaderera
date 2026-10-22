@@ -29,6 +29,9 @@ type Placement = {
   sampleRates?: number[]
   minChannels?: number
   loudness?: { integrated: number; tolerance: number; maxTruePeak: number }
+  transfer?: string[]
+  bitDepth?: number[]
+  hdrMetadata?: 'required'
 }
 
 const L = AREA.left
@@ -44,6 +47,7 @@ const LUFS = { lo: -32, hi: -14 }
 const SHORT: Record<string, string> = {
   'meta-reels-ads': 'META REELS',
   'youtube-1080p30-sdr': 'YOUTUBE',
+  'youtube-hdr': 'YOUTUBE HDR',
   'amazon-streaming-tv': 'AMAZON CTV',
   'eu-broadcast-r128': 'EU R128',
   'us-broadcast-a85': 'US A/85',
@@ -61,11 +65,13 @@ const defining = (p: Placement) =>
     ? 'SILENT'
     : p.loudness
       ? `${p.loudness.integrated} LUFS`.replace('-', '−')
-      : p.minBitrate
-        ? `≥ ${mbs(p.minBitrate)}`
-        : p.maxBitrate
-          ? `≤ ${mbs(p.maxBitrate)}`
-          : (p.aspect ?? 'ANY')
+      : p.bitDepth
+        ? `${p.bitDepth.join('/')} BIT HDR`
+        : p.minBitrate
+          ? `≥ ${mbs(p.minBitrate)}`
+          : p.maxBitrate
+            ? `≤ ${mbs(p.maxBitrate)}`
+            : (p.aspect ?? 'ANY')
 
 const formatPlacementSpecs: OpenPreview = async (host, stateId) => {
   if (stateId !== 'default') throw new Error(`format-placement-specs has no state "${stateId}"`)

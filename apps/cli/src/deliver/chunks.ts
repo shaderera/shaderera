@@ -20,9 +20,14 @@ import { claim, holder, readClaim, removePartials } from './claim.ts'
 
 /**
  * The frames a host hands over and a chunk stores: an SDR encoder's input, or an hdr10 render's
- * P010 (10-bit Y'CbCr 4:2:0 of PQ codes, decision 0023).
+ * P010 (10-bit Y'CbCr 4:2:0 of PQ codes, for HEVC) or `rgb10` (its 10-bit PQ R'G'B' codes, for
+ * ProRes), decision 0023.
  */
-export type FrameInput = Input | 'p010'
+export type FrameInput = Input | 'p010' | 'rgb10'
+
+/** Whether frames are an hdr10 render's: they come with their light levels. */
+export const isHdr = (input: FrameInput): input is 'p010' | 'rgb10' =>
+  input === 'p010' || input === 'rgb10'
 
 /**
  * A job split into chunks of whole frames: each chunk can render on any machine that has the
@@ -80,13 +85,26 @@ export type ChunkRecord = {
 /**
  * FFV1 in Matroska: lossless for every input, the bytes in are the bytes out. P010 is stored as
  * `yuv420p10le` (FFV1 has no P010), the same 10-bit samples unpacked: decoded back to P010, every
- * byte is the host's again.
+ * byte is the host's again. `rgb10` is stored as `gbrp10le`: decoded back, every 10-bit code is the
+ * host's again, and ffmpeg sets the word's two unused top bits.
  */
-const FFV1 = { yuv420p: 'yuv420p', rgba: 'bgra', rgba64: 'rgba64le', p010: 'yuv420p10le' } as const
-const RAW = { yuv420p: 'yuv420p', rgba: 'rgba', rgba64: 'rgba64le', p010: 'p010le' } as const
+export const FFV1 = {
+  yuv420p: 'yuv420p',
+  rgba: 'bgra',
+  rgba64: 'rgba64le',
+  p010: 'yuv420p10le',
+  rgb10: 'gbrp10le',
+} as const
+export const RAW = {
+  yuv420p: 'yuv420p',
+  rgba: 'rgba',
+  rgba64: 'rgba64le',
+  p010: 'p010le',
+  rgb10: 'x2bgr10le',
+} as const
 
 /** Bytes of one frame in an input format. */
-const frameBytes = (input: FrameInput, width: number, height: number) =>
+export const frameBytes = (input: FrameInput, width: number, height: number) =>
   input === 'yuv420p'
     ? (width * height * 3) / 2
     : input === 'p010'
@@ -100,12 +118,14 @@ export const mostLight = (levels: readonly LightLevels[]): LightLevels => ({
 })
 
 /**
- * The frames a job's hosts hand over: what the final encoder reads (an hdr10 job's P010; yuv420p
- * or 16-bit RGBA from the GPU compositor, else RGBA).
+ * The frames a job's hosts hand over: what the final encoder reads (an hdr10 job's P010 for HEVC,
+ * its R'G'B' codes for ProRes; yuv420p or 16-bit RGBA from the GPU compositor, else RGBA).
  */
 export const inputOf = (job: Job, child: Child): FrameInput =>
   child.has.p010
-    ? 'p010'
+    ? videoOptionsOf(job.delivery).codec === 'h264'
+      ? 'p010'
+      : 'rgb10'
     : videoOptionsOf(job.delivery).codec === 'h264'
       ? child.has.yuv
         ? 'yuv420p'
@@ -239,9 +259,9 @@ export const renderChunk = async (
     throw new Error('This plan hands frames over as yuv420p, made on the GPU: this host has none.')
   if (plan.input === 'rgba64' && !hosts.every((h) => h.has.deep))
     throw new Error('This plan hands frames over at 16 bits, made on the GPU: this host has none.')
-  if (plan.input === 'p010' && !hosts.every((h) => h.has.p010))
+  if (isHdr(plan.input) && !hosts.every((h) => h.has.p010))
     throw new Error(
-      'This plan hands frames over as HDR10 P010: this host does not render the job in hdr10.',
+      `This plan hands frames over as HDR10 ${plan.input}: this host does not render the job in hdr10.`,
     )
   mkdirSync(dir, { recursive: true })
   const out = join(dir, chunk.file)
@@ -325,8 +345,8 @@ const renderClaimed = async (
       signal,
       ahead: hosts.length * 2,
     })
-    if (plan.input === 'p010' && light.length < frames)
-      throw new Error(`Chunk ${index}'s host gave no light levels with its P010 frames.`)
+    if (isHdr(plan.input) && light.length < frames)
+      throw new Error(`Chunk ${index}'s host gave no light levels with its ${plan.input} frames.`)
     if (frames !== chunk.frames)
       throw new Error(`Chunk ${index} rendered ${frames} frames; the plan has ${chunk.frames}.`)
     const record: ChunkRecord = {
@@ -339,7 +359,7 @@ const renderClaimed = async (
       sha256: hashFile(partial),
       seconds: (performance.now() - start) / 1000,
       host: await child.identity(),
-      ...(plan.input === 'p010' ? { light: mostLight(light) } : {}),
+      ...(isHdr(plan.input) ? { light: mostLight(light) } : {}),
     }
     writeFileSync(temp, `${JSON.stringify(record, null, 1)}\n`)
     if (!ours())
@@ -519,7 +539,7 @@ export const checkChunks = (plan: Plan, dir: string, mixedHosts = false): ChunkR
   const problems = states.flatMap((s) => (s.problem ? [problemLine(s)] : []))
   const records = states.flatMap((s) => (s.record ? [s.record] : []))
   // An HDR10 file declares the light its chunks measured: a chunk without it cannot be assembled.
-  if (plan.input === 'p010')
+  if (isHdr(plan.input))
     for (const s of states)
       if (s.record && !s.record.light)
         problems.push(
