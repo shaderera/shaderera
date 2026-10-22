@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { inputOf, makePlan } from '../deliver/chunks.ts'
+import { inputOf, makePlan, refuseOtherPlan } from '../deliver/chunks.ts'
 import { findProject } from '../node/project.ts'
 import { openJob, readJob } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
@@ -9,6 +9,7 @@ import { childOptions, parse } from './args.ts'
  * `shaderera plan --job <name> [--chunks 4] [--out dir]`: splits a job's frames into chunks that
  * any machine with the project at the job's revision renders (`render --job <name> --chunk <i>`),
  * then `assemble` encodes them once. Opens the job once, to see the frames its host hands over.
+ * Refuses a folder that holds another job's plan or chunks; the same job's is planned again.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {
@@ -26,6 +27,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const count = v.chunks === undefined ? 4 : Number(v.chunks)
   if (!(Number.isInteger(count) && count >= 1))
     throw new Error('--chunks is a whole number from 1.')
+  const dir = typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', `${job.name}.plan`)
+  // Before the job opens: another job's plan there is refused, untouched.
+  refuseOtherPlan(dir, job)
   const { child } = await openJob(root, job, childOptions(v))
   let input: ReturnType<typeof inputOf>
   try {
@@ -35,7 +39,6 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     await child.close()
   }
   const plan = makePlan(job, input, count)
-  const dir = typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', `${job.name}.plan`)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'plan.json'), `${JSON.stringify(plan, null, 1)}\n`)
   console.log(

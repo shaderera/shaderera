@@ -280,7 +280,8 @@ Exit 1 when any output fails, after rendering the rest. See [delivery.md](delive
 [--mixed-hosts] [--no-audio] [--loudness=LUFS]`: the same file as one `render --job`. See
 [delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's frames go round
 `--workers` hosts on its machine (the same default as `render`), and its file holds the same
-frames however many.
+frames however many. `plan` refuses a folder that holds another job's plan or chunks, naming that
+job and a fresh `--out`; planning the same job again in its folder replaces its plan.
 
 After a small edit, `shaderera render --job <new> --reuse <earlier plan> --changed <from>-<to>[,…]
 [--fix] [--plan dir]` writes a plan of the new job (by default `out/<new>.plan`) that renders only

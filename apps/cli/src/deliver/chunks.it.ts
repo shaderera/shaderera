@@ -36,6 +36,14 @@ test('chunks rendered apart and assembled give the very file one render gives', 
   assert.equal(a.status, 0, a.stderr)
   assert.match(a.stdout, /10 frames from 3 chunks/)
   assert.equal(sha(together), sha(single), 'the same bytes')
+  // Another job's plan never goes into this plan's folder: its plan and chunks stay as they were.
+  assert.equal(cli(root, 'job', '--name', 'q', '--format', 'prores-hq').status, 0)
+  const before = readFileSync(join(plan, 'plan.json'), 'utf8')
+  const other = cli(root, 'plan', '--job', 'q', '--out', plan)
+  assert.equal(other.status, 2, other.stderr)
+  assert.match(other.stderr, /holds job p's plan \(3 chunk\(s\) rendered\).*--out .*q\.plan/)
+  assert.equal(readFileSync(join(plan, 'plan.json'), 'utf8'), before)
+  assert.equal(cli(root, 'assemble', '--plan', plan, '--out', together).status, 0)
   // A chunk changed after it was rendered is refused.
   writeFileSync(join(plan, 'chunk-001.mkv'), 'x')
   assert.match(cli(root, 'assemble', '--plan', plan).stderr, /chunk-001\.mkv changed/)
