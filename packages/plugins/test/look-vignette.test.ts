@@ -6,8 +6,12 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createVignette } from '../look-vignette/src/looks/vignette.ts'
 import { grey, openFrame } from './frame.ts'
+import { layOut } from './lay-out.ts'
+
+const { createVignette } = (await layOut('look-vignette')(
+  'src/looks/vignette.ts',
+)) as typeof import('../look-vignette/src/looks/vignette.ts')
 
 const W = 160
 const H = 90
@@ -40,7 +44,7 @@ test('look-vignette: amount, shape, colour, centre and size', async () => {
   )
 
   const black = g.frame(() => grey(0))
-  const light = await g.read(vignette.apply(black.texture, { amount: 0.8, colour: [1, 1, 1] }))
+  const light = await g.read(vignette.apply(black.texture, { amount: 0.8, color: [1, 1, 1] }))
   assert.ok(g.at(light, 0, 0) > 200 && g.at(light, W / 2, H / 2) === 0, 'towards white')
 
   const moved = await g.read(

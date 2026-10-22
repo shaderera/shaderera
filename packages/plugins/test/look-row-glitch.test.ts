@@ -4,8 +4,12 @@
 
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createRowGlitch } from '../look-row-glitch/src/looks/row-glitch.ts'
 import { openFrame } from './frame.ts'
+import { layOut } from './lay-out.ts'
+
+const { createRowGlitch } = (await layOut('look-row-glitch')(
+  'src/looks/row-glitch.ts',
+)) as typeof import('../look-row-glitch/src/looks/row-glitch.ts')
 
 const W = 96
 const H = 64

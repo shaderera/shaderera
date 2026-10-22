@@ -8,3 +8,4 @@ dist-*
 .claude/worktrees/
 .venv-adapters/
 .claude/settings.local.json
+packages/plugins/previews/versions/

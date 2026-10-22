@@ -148,7 +148,28 @@ without a group go to `ungrouped`.
 
 Captions (`captions()`, [protocol.md](protocol.md#captions)) are written as `<name>.srt` and
 `<name>.vtt` beside every export (in a png handoff, `captions.srt` and `captions.vtt`), cut to the
-export window.
+export window. Every caption needs a finite start before its end: an export refuses an LRC cue's
+last line, whose `end` is `Infinity` (`text-timed-cues`), so give it an end first.
+
+Review measures the sidecar in its `captions` check and the `captions` diagnostics, since much
+viewing is muted. For each caption:
+
+- characters per second: grapheme clusters, spaces included, line breaks not;
+- duration, and the gap to the next caption (negative when they overlap);
+- line count and the longest line, in grapheme clusters, so a Thai syllable with its vowel and
+  tone marks counts once;
+- the other captions it overlaps, by number: review numbers captions from 1, as the SRT does.
+
+Nothing is judged unless requirements.json declares limits (decision 0011):
+
+```json
+{ "version": 1, "captions": { "maxCps": 17, "maxLineChars": 42, "maxLines": 2, "minDuration": 0.833, "minGap": 0.083 } }
+```
+
+Only the keys set are judged, and each fails just the captions over it. The numbers in the example
+are a common broadcast style, not a default: take them from the placement's spec. A caption every
+export refuses (no finite start or end, or an end before its start) fails the check always,
+declared or not.
 
 ## The finishing handoff (PNG + WAV)
 

@@ -150,7 +150,7 @@ Plugins are code that earlier films proved, like npm for clips. `add` copies a p
 into your project, where it becomes your code to change. Shaderera's own plugins are built from
 [`packages/plugins/`](packages/plugins/README.md), MIT, named `<category>-<thing>`:
 `audio-beat-clock`, `camera-keyframes`, `format-safe-areas`, `render-three-host`,
-`text-feature-captions`, `look-screen-passes`, four fonts, and more.
+`text-glitch-titles`, `look-screen-passes`, four fonts, and more.
 
 `shaderera` reads Shaderera's own at `https://shaderera.com/r` unless you point it elsewhere. In a
 film:

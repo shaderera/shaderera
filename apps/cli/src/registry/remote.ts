@@ -29,8 +29,8 @@ const get = async (url: string): Promise<Buffer> => {
   return Buffer.from(await r.arrayBuffer())
 }
 
-/** The versions `spec` resolves to and every item and extension it requires, each once. */
-const closure = (index: Index, spec: string): [string, string][] => {
+/** The versions `specs` resolve to and every item and extension they require, each once. */
+const closure = (index: Index, specs: readonly string[]): [string, string][] => {
   const out: [string, string][] = []
   const seen = new Set<string>()
   const visit = (want: string) => {
@@ -46,13 +46,14 @@ const closure = (index: Index, spec: string): [string, string][] => {
     for (const [n, r] of [...Object.entries(extensions ?? {}), ...Object.entries(items ?? {})])
       visit(`${n}@${r}`)
   }
-  visit(spec)
+  for (const spec of specs) visit(spec)
   return out
 }
 
 /** The versions a command reads files of: the rest only needs the index and search.json. */
 const wanted = (index: Index, command: string, args: readonly string[]): [string, string][] => {
-  if ((command === 'add' || command === 'info') && args[0]) return closure(index, args[0])
+  if (command === 'add') return closure(index, args)
+  if (command === 'info' && args[0]) return closure(index, [args[0]])
   return []
 }
 

@@ -3,13 +3,7 @@
 // [-0.5, 0.5], y up, centred. Feed them to particles that form a word, a logo or a line.
 
 import type { Host } from '@shaderera/core'
-
-const hash = (v: number) => {
-  const s = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0
-  const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0
-  return ((w >>> 22) ^ w) >>> 0
-}
-const rnd = (v: number) => hash(v) / 4294967296
+import { rnd } from '../motion/random.ts'
 
 export type GlyphPoints = {
   /** x, y pairs in text widths. */

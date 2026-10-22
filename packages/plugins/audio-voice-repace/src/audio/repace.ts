@@ -3,7 +3,7 @@
 // recording onto the re-paced one. tools/voice-repace.ts writes it beside the new audio; the film
 // reads data and runs no ffmpeg.
 
-import type { Host } from '@shaderera/core'
+import { type Host, sha256 } from '@shaderera/core'
 
 /** What the map file holds. */
 export type TimeMap = {
@@ -21,12 +21,6 @@ export type TimeMap = {
   knots: [number, number][]
 }
 
-/** The sha256 of the bytes, in hex: how a file names the recording or image it was made from. */
-export const hex = async (bytes: Uint8Array) => {
-  const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 /**
  * Reads a time map, and refuses it when it is not one or when the recording it names has other
  * bytes than the ones re-paced: a re-recorded voice with an old map would put every cut off its word.
@@ -35,7 +29,7 @@ export const loadTimeMap = async (host: Host, path: string): Promise<TimeMap> =>
   const doc = JSON.parse(new TextDecoder().decode(await host.io.read(path))) as TimeMap
   if (doc.format !== 'shaderera.analysis/1' || doc.kind !== 'time-map')
     throw new Error(`${path} is not a shaderera.analysis/1 time-map artifact; run its tool again`)
-  if ((await hex(await host.io.read(doc.source.path))) !== doc.source.sha256)
+  if ((await sha256(await host.io.read(doc.source.path))) !== doc.source.sha256)
     throw new Error(`${path} was made from other bytes than ${doc.source.path}; run its tool again`)
   return doc
 }

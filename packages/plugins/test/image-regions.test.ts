@@ -81,7 +81,7 @@ test('image-regions: painted masks become regions with boxes, centres and parent
       ['eye-2', 'eye-0'],
     ],
   )
-  assert.deepEqual(region(r, 'eye-1').box, [24, 8, 10, 6])
+  assert.deepEqual(region(r, 'eye-1').box, { x: 24, y: 8, width: 10, height: 6 })
   assert.deepEqual(region(r, 'eye-1').centre, [29, 11])
   assert.deepEqual(region(r, 'eye-1').mask.at, [24, 8])
   // The innermost eyes: the eyeball stands for the left eye, the right eye for itself.
@@ -110,6 +110,14 @@ test('image-regions: refuses regions measured from other bytes, or that are not 
   await assert.rejects(
     loadRegions(hostOf(other), 'regions/face'),
     /not a shaderera\.analysis\/1 regions artifact/,
+  )
+  const tuples = new Map(files)
+  const doc = JSON.parse(new TextDecoder().decode(files.get('regions/face/regions.json')))
+  for (const q of doc.regions) q.box = [q.box.x, q.box.y, q.box.width, q.box.height]
+  tuples.set('regions/face/regions.json', new TextEncoder().encode(JSON.stringify(doc)))
+  await assert.rejects(
+    loadRegions(hostOf(tuples), 'regions/face'),
+    /gives boxes as \[x, y, width, height\], as before 0\.2\.0; run its analyser again/,
   )
   const short = new Map(files)
   short.set('regions/face/eye-2.u8', new Uint8Array(3))

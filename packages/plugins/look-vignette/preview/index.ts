@@ -37,7 +37,7 @@ const SEGMENTS: Segment[] = [
     id: 'white',
     word: 'WHITE',
     note: 'towards any colour, here white',
-    params: { amount: 0.8, start: 0.25, colour: [1, 1, 1] },
+    params: { amount: 0.8, start: 0.25, color: [1, 1, 1] },
   },
   {
     id: 'spotlight',
