@@ -425,10 +425,24 @@ canvas or byte layer is 8-bit to begin with, and **changing the encoder cannot r
 layer never had**. None of it is HDR: an "HDR" tag on an SDR composite would be a lie, and there is
 no scene-linear light in it to put in an EXR.
 
+**HDR10 is decided, not built.** [Decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)
+(decided 2026-10-22) sets out how it will work:
+- a film opts in, and its GPU layers declare linear or PQ light in BT.2020;
+- 8-bit layers are decoded as sRGB and placed at a graphics white (203 nits by default, after
+  ITU-R BT.2408);
+- the film keeps its own tone mapping and its own SDR render;
+- the master is HEVC Main 10 in an mp4, with the mastering display and MaxCLL/MaxFALL measured
+  on the GPU, chroma sited top-left as BT.2100 states;
+- ffmpeg 9.0 is needed only for an HDR10 film (SDR stays tested on 8.1.1);
+- films that do not opt in do not change.
+
+Until it is built, what follows holds.
+
 What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
 channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance
-houses and post facilities transcode a ProRes master to them (The Post Flow, 2026-08-24); nor HEVC,
-whose encoders carry patent-pool royalties (Access Advance). Scene-linear compositing would be a
+houses and post facilities transcode a ProRes master to them (The Post Flow, 2026-08-24). HEVC
+is not written today. Its encoders carry patent-pool royalties (Access Advance), but Shaderera
+ships no encoder: it drives the person's own ffmpeg, so decision 0023 allows HEVC for HDR10. Scene-linear compositing would be a
 protocol change (`over` in linear light), not an encoder setting.
 
 The honest routes today:

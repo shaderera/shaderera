@@ -1,8 +1,7 @@
 # 0022: A plan's chunks on a rented GPU machine
 
-2026-10-22. Proposed, for the owner to approve before any code (#294). The owner settled the
-command, the image, the volume, telemetry, the frame report, the second provider and the budget
-on 2026-10-22; the text below follows those answers.
+2026-10-22. The owner decided (#294): the command, the image, the volume, telemetry, the frame
+report, the second provider and the budget, as below.
 
 **Context.** A long film at 4K renders for hours on one machine. A plan's chunks already render
 anywhere and assemble into the file one render makes (`plan`, `render --job --chunk`, `assemble`,
