@@ -132,7 +132,7 @@ export const eachVariant = async <
         {
           variants: runs.map((r) => ({
             variant: nameOf(r.variant),
-            ...(r.result === undefined ? { error: r.lines.join('\n') } : r.result),
+            ...(r.error !== undefined ? { error: r.error } : r.result),
           })),
           ...together?.result,
         },
