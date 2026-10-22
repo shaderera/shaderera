@@ -1,11 +1,19 @@
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes } from '@shaderera/core'
 import { ffmpegSink, type Input, requireFfmpeg } from '../cli/ffmpeg.ts'
 import type { Child, HostIdentity } from '../node/child.ts'
 import { frameError } from '../node/open-host.ts'
-import { type Job, videoOptionsOf } from '../project/jobs.ts'
+import { type Job, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { hashFile } from '../project/revisions.ts'
 
 /**
@@ -133,6 +141,40 @@ export const readPlan = (dir: string): Plan => {
   if (plan.shaderera !== 'plan/1')
     throw new Error(`${file} is not a plan of this Shaderera (plan/1).`)
   return plan
+}
+
+/** The chunk records in a plan folder (`chunk-NNN.mkv.json`), by file name. */
+const chunkRecordsIn = (dir: string): string[] =>
+  existsSync(dir) ? readdirSync(dir).filter((f) => /^chunk-\d+\.mkv\.json$/.test(f)) : []
+
+/**
+ * Refuses to write a plan of `job` into `dir` when the folder holds another job's plan, or (with no
+ * plan) chunks rendered for another job: writing over it loses that plan, and its chunks could no
+ * longer be assembled. A plan of the same job (by name, so a replaced job too) is made again in
+ * place, as before.
+ */
+export const refuseOtherPlan = (dir: string, job: Pick<Job, 'name' | 'id'>) => {
+  const chunks = chunkRecordsIn(dir)
+  let other: string | undefined
+  if (existsSync(join(dir, 'plan.json'))) {
+    const plan = readPlan(dir)
+    if (plan.job !== job.name) other = `job ${plan.job}'s plan`
+  } else {
+    const ids = new Set(
+      chunks.map((f) => (JSON.parse(readFileSync(join(dir, f), 'utf8')) as ChunkRecord).jobId),
+    )
+    ids.delete(job.id)
+    const [id] = ids
+    if (id !== undefined) other = `chunks of another job (${id.slice(0, 8)})`
+  }
+  if (other === undefined) return
+  // A folder beside it named after this job, that holds nothing yet.
+  const name = safeName(job.name)
+  let fresh = join(dirname(dir), `${name}.plan`)
+  for (let n = 2; existsSync(fresh); n++) fresh = join(dirname(dir), `${name}-${n}.plan`)
+  throw new Error(
+    `${dir} holds ${other}${chunks.length ? ` (${chunks.length} chunk(s) rendered)` : ''}: planning job ${job.name} there would lose it. Give this plan its own folder: --out ${fresh}`,
+  )
 }
 
 /**
