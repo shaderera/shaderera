@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -161,7 +162,19 @@ test('assemble encodes another delivery of the job from the same chunks', {
   ok(cli(root, 'render', '--job', 'm', '--loudness=-20'))
   assert.equal(sha(assembled), sha(rendered), 'the same bytes as render --job m')
 
-  // A job of another revision is refused.
+  // A chunk a live render holds (claimed, its record not yet written) is refused for another
+  // delivery too, as for the plan's own job.
+  const record = join(plan, 'chunk-001.mkv.json')
+  renameSync(record, `${record}.held`)
+  const claimed = join(plan, 'chunk-001.mkv.claim')
+  const claim = { host: hostname(), pid: process.pid, at: new Date().toISOString(), token: 't' }
+  writeFileSync(claimed, JSON.stringify(claim))
+  const held = cli(root, 'assemble', '--plan', plan, '--job', 'm', '--out', assembled)
+  assert.equal(held.status, 2, held.stderr)
+  assert.match(held.stderr, /chunk-001\.mkv is being rendered by/)
+  rmSync(claimed)
+  renameSync(`${record}.held`, record)
+
   writeFileSync(src, composition({ box: '#f80', gain: 1, caption: 'Hello' }))
   ok(cli(root, 'job', '--name', 'other', '--master'))
   assert.match(
