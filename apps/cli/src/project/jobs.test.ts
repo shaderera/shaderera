@@ -117,3 +117,27 @@ test('a job name never changes meaning: different delivery gets its own job, a t
   writeFileSync(file, readFileSync(file, 'utf8').replace('"png"', '"mp4"'))
   assert.throws(() => readJob(root, 'approved'), /changed by hand/)
 })
+
+test('a job asks for hdr10 only for a film with hdr10, and an SDR job keeps its id', async () => {
+  const root = project()
+  const sdr = await createJob(root, { by: 'cli' })
+  assert.equal('range' in sdr, false)
+  // Asking for sdr is the same job.
+  const asked = await createJob(root, { by: 'cli', revision: sdr.revision, range: 'sdr' })
+  assert.equal(asked.id, sdr.id)
+  await assert.rejects(
+    createJob(root, { by: 'cli', revision: sdr.revision, range: 'hdr10' }),
+    /needs the hdr10 block in shaderera\.json/,
+  )
+  const file = join(root, 'shaderera.json')
+  const manifest = JSON.parse(readFileSync(file, 'utf8'))
+  const hdr10 = { mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' }, dither: 'tpdf' }
+  writeFileSync(file, JSON.stringify({ ...manifest, hdr10 }))
+  const hdr = await createJob(root, { by: 'cli', range: 'hdr10' })
+  assert.equal(hdr.range, 'hdr10')
+  assert.deepEqual(readJob(root, hdr.name), hdr)
+  // The film's SDR version is the same revision without the range: another job.
+  const second = await createJob(root, { by: 'cli', revision: hdr.revision })
+  assert.notEqual(second.id, hdr.id)
+  assert.equal('range' in second, false)
+})

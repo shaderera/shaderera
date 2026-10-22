@@ -18,6 +18,7 @@ test('the stable, experimental and internal entries export exactly what docs/api
   ])
   assert.deepEqual(await keys('./gpu.ts'), ['readBuffer', 'readTexture'])
   assert.deepEqual(await keys('./host.ts'), [
+    'GRAPHICS_WHITE',
     'checkManifest',
     'dropFrame',
     'finalOnly',
@@ -28,11 +29,18 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'fullDevice',
     'gainAt',
     'gpuCompositor',
+    'hdrCompositor',
     'layerInfo',
+    'lightChecked',
+    'lightReference',
     'matte',
     'openSource',
     'over',
+    'p010Fits',
+    'p010Reference',
     'paramDefaults',
+    'rangeOf',
+    'rgb10Reference',
     'sampleClips',
     'sampleTimes',
     'seekable',
