@@ -40,7 +40,7 @@ export const relayUrl = (site: string, id: string, role: 'cli' | 'page'): string
 export const CLOSE = { expired: 4001, used: 4002, taken: 4003, ended: 4004 } as const
 
 /** HKDF's info: names the protocol's version, so a v1 key never opens a v0 box. */
-export const INFO = 'shaderera-studio-v0'
+export const INFO = 'shaderera-studio-v1'
 
 const utf8 = new TextEncoder()
 
@@ -97,6 +97,42 @@ export const seal = async (
   )
   return { iv: toBase64url(iv), box: toBase64url(new Uint8Array(box)) }
 }
+
+/**
+ * Bytes sealed as they are (a file's chunk), with `aad` bound to them: a box opens only under the
+ * same `aad`, so the relay can neither reorder chunks nor move one to another request.
+ */
+export const sealBytes = async (
+  key: CryptoKey,
+  bytes: Uint8Array,
+  aad: string,
+): Promise<{ iv: string; box: string }> => {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const box = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: utf8.encode(aad) },
+    key,
+    bytes as Uint8Array<ArrayBuffer>,
+  )
+  return { iv: toBase64url(iv), box: toBase64url(new Uint8Array(box)) }
+}
+
+/** The bytes `sealBytes` sealed under `aad`; throws when anything does not match. */
+export const unsealBytes = async (
+  key: CryptoKey,
+  m: { iv: string; box: string },
+  aad: string,
+): Promise<Uint8Array> =>
+  new Uint8Array(
+    await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: fromBase64url(m.iv) as Uint8Array<ArrayBuffer>,
+        additionalData: utf8.encode(aad),
+      },
+      key,
+      fromBase64url(m.box) as Uint8Array<ArrayBuffer>,
+    ),
+  )
 
 /** The JSON value a sealed box holds; throws when the key, iv or box do not match. */
 export const unseal = async <T = unknown>(

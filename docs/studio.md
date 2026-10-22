@@ -5,7 +5,8 @@ project is on your own machine. It drives `shaderera studio`, the local bridge, 
 your machine for as long as the command runs. The project, its code and its renders stay on your
 machine until you share the film.
 
-This is protocol v0: the contract between the studio page and the bridge.
+This is protocol v1: the contract between the studio page and the bridge. v1 sends a file
+through the relay in chunks; v0 sent it in one frame, and the two do not pair (the key's `info`).
 
 ```
 npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
@@ -96,7 +97,7 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
    - `telemetry` is false when telemetry is turned off.
 5. **Both sides derive one key.** ECDH gives 256 bits, which go through HKDF-SHA-256 with:
    - `salt` = the id's UTF-8 bytes;
-   - `info` = `"shaderera-studio-v0"`.
+   - `info` = `"shaderera-studio-v1"`.
 
    The result is an AES-256-GCM key.
 6. **The page proves the nonce: `{type:"page-proof", iv, box}`.**
@@ -285,15 +286,23 @@ blocks local access)".
 | From | Frame | The box holds |
 |---|---|---|
 | page | `{type:"rpc", id, iv, box}` | `{method, path, body?}`: `path` as above, without `s` |
-| CLI | `{type:"rpc-result", id, iv, box}` | JSON: `{status, body}`; a file: `{status, type, name, base64}` |
+| CLI | `{type:"rpc-result", id, iv, box}` | JSON: `{status, body}`; a file's head: `{status, type, name, size, chunks}` |
+| CLI | `{type:"rpc-chunk", id, seq, iv, box}` | a file's bytes `seq` (0, 1, …), as they are, not JSON (below) |
 | CLI | `{type:"event", iv, box}` | the same event JSON as on `/events` |
 
 - **`id`** is the page's own string, echoed in the result.
 - **Events** go through the relay once the page has sent its first `rpc`.
-- **A file comes in one frame** in v0. A large file through the relay will need chunking later.
+- **A file comes in chunks.** The Worker takes WebSocket messages of 32 MiB at most, and a film's
+  mp4 or mov is often larger. After the head, the CLI sends `chunks` frames `rpc-chunk`, in order,
+  each holding up to 512 KiB of the file (a frame stays under 1 MiB). A chunk's box is the bytes
+  sealed with AES-GCM under the session key and a fresh iv, with the additional data
+  `"<id>:<seq>"`, so a chunk opens only in its own place: the relay can neither reorder chunks nor
+  move one to another request. The page joins them in order; their length is `size`. A file that
+  cannot be read is `{status:500, body:{error}}` with no chunks. A page that hears no chunk for a
+  while gives up on the file.
 - **`/runner` is not available through the relay**: a frame cannot go through it. It answers
-  `400`. The preview needs the direct connection; the page says so, and Export and Share still
-  work.
+  `400`. The preview needs the direct connection to 127.0.0.1; the page says so, and Export (any
+  size, in chunks) and Share still work.
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
 
 ## Telemetry
