@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
 import { tempDir } from '../fixtures/temp.ts'
+import { labelSize } from '../review/variant-sheet.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
 const root = fileURLToPath(new URL('./fixtures/ratios/', import.meta.url))
@@ -61,7 +62,7 @@ test('still, check and review take several variants: one host each, grouped, the
   assert.equal(check.status, 0, check.stderr)
   assert.match(
     check.stdout,
-    /^main:\n {2}✓ deterministic.*\n.*\n16:9:\n {2}✓ deterministic.*\n.*\n9:16:\n {2}✓ deterministic/,
+    /^main = 16:9\n16:9:\n {2}✓ deterministic.*\n.*\n9:16:\n {2}✓ deterministic/,
   )
 
   // The text runs inside a 5% safe area in both layouts; a 30% one fails each, named by variant.
@@ -115,8 +116,13 @@ test('still --sheet with several variants: one sheet, a row per moment, the vari
   // No sheet of each variant's own: the one sheet holds them.
   assert.ok(!existsSync(join(out, '16_9-sheet.png')))
   const png = decode(readFileSync(sheet))
-  // Each at 720 px high: 1280 + 405 wide with 8 px between, two rows with their labels.
-  assert.deepEqual([png.width, png.height], [8 + 1280 + 8 + 405 + 8, 8 + 2 * (720 + 22 + 8)])
+  // Each at 720 px high: 1280 + 405 wide with 8 px between, two rows with their labels: 24 px
+  // type (3% of 720 is 22, but 24 stays 14 px when the sheet is shown 1024 px wide), padded to 44.
+  assert.equal(labelSize(720, 1709), 24)
+  assert.ok((24 * 1024) / 1709 >= 14)
+  assert.equal(labelSize(200, 400), 14)
+  assert.equal(labelSize(2000, 1000), 60)
+  assert.deepEqual([png.width, png.height], [1709, 8 + 2 * (720 + 44 + 8)])
   // The safe area requirements.json declares is drawn on the sheet (dashed, #38d6ff)…
   let safe = 0
   const channels = png.channels

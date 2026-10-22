@@ -13,7 +13,13 @@ export type VariantFrames = {
 /** The height every frame is shown at: the tallest frame's, at most this. */
 const HEIGHT = 720
 const PAD = 8
-const LABEL = 22
+
+/**
+ * The label's font size: about 3% of the row height, at least 14 px, and at least 14 px still when
+ * the sheet is scaled down to 1024 px wide (the size an agent is most often shown it at).
+ */
+export const labelSize = (rowHeight: number, sheetWidth: number) =>
+  Math.max(14, Math.round(rowHeight * 0.03), Math.ceil((14 * sheetWidth) / 1024))
 
 /**
  * The variants side by side: a row per moment, each variant's frame scaled to the same height and
@@ -26,10 +32,11 @@ export const variantSheet = (variants: readonly VariantFrames[]): Promise<Buffer
   const times = [...new Set(variants.flatMap((v) => v.frames.map((f) => f.t)))].sort(
     (a, b) => a - b,
   )
-  const sheet = createCanvas(
-    PAD + widths.reduce((sum, w) => sum + w + PAD, 0),
-    PAD + times.length * (height + LABEL + PAD),
-  ).getContext('2d')
+  const width = PAD + widths.reduce((sum, w) => sum + w + PAD, 0)
+  const font = labelSize(height, width)
+  const inset = Math.round(font * 0.4)
+  const label = font + 2 * inset
+  const sheet = createCanvas(width, PAD + times.length * (height + label + PAD)).getContext('2d')
   sheet.fillStyle = '#16181c'
   sheet.fillRect(0, 0, sheet.canvas.width, sheet.canvas.height)
   let x = PAD
@@ -37,7 +44,7 @@ export const variantSheet = (variants: readonly VariantFrames[]): Promise<Buffer
     const w = widths[i] as number
     const full = createCanvas(v.width, v.height).getContext('2d')
     for (const f of v.frames) {
-      const y = PAD + times.indexOf(f.t) * (height + LABEL + PAD)
+      const y = PAD + times.indexOf(f.t) * (height + label + PAD)
       const image = full.createImageData(v.width, v.height)
       image.data.set(f.pixels)
       full.putImageData(image, 0, 0)
@@ -59,12 +66,20 @@ export const variantSheet = (variants: readonly VariantFrames[]): Promise<Buffer
         )
         sheet.restore()
       }
-      sheet.fillStyle = '#e6e8ec'
-      sheet.font = '14px sans-serif'
+      // White on black under the frame, padded: legible at any scale the sheet is shown at.
+      sheet.fillStyle = '#000000'
+      sheet.fillRect(x, y + height, w, label)
+      sheet.fillStyle = '#ffffff'
+      sheet.font = `bold ${font}px Arial, Helvetica, "DejaVu Sans", sans-serif`
+      sheet.textBaseline = 'middle'
       const text = `${v.name}  ${f.t.toFixed(3)} s  ${v.width}×${v.height}`
+      const fits = (s: string) => sheet.measureText(s).width <= w - 2 * inset
       let shown = text
-      while (shown.length > 4 && sheet.measureText(shown).width > w) shown = shown.slice(0, -2)
-      sheet.fillText(shown === text ? text : `${shown}…`, x, y + height + 16)
+      if (!fits(text)) {
+        while (shown.length > 1 && !fits(`${shown}…`)) shown = shown.slice(0, -1)
+        shown = `${shown}…`
+      }
+      sheet.fillText(shown, x + inset, y + height + label / 2)
     }
     x += w + PAD
   })

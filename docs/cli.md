@@ -33,7 +33,9 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
   `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
   `main` names the manifest's own output, as in `deliver`.
 - **Several variants** (`check`, `still`, `review`): `--variant 16:9,9:16`, or `--variants
-  16:9,9:16`, or `--variants all` (`main` and every variant the manifest declares). Each variant
+  16:9,9:16`, or `--variants all` (`main` and every variant the manifest declares; main is left out when a variant has its
+  width, height, fps, duration and params, and `main = <variant>` is printed once, `main` in
+  `--json`). Each variant
   opens its own host and they run at once. The lines are printed under each variant's name, in
   the order given; with `--json` the result is `{ "variants": [{ "variant": "16:9", ... }] }`, each
   entry the command's own result (or `error`), and each finding names its variant as `output`. One
