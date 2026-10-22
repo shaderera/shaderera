@@ -294,7 +294,10 @@ export const startBridge = async (o: {
     }
     if (route === 'GET /runner') {
       const variant = url.searchParams.get('variant')
-      if (variant !== null && !Object.hasOwn((await findProject(root)).manifest.variants ?? {}, variant))
+      if (
+        variant !== null &&
+        !Object.hasOwn((await findProject(root)).manifest.variants ?? {}, variant)
+      )
         return json(400, { error: `shaderera.json has no variant "${variant}"` })
       const query = new URLSearchParams(url.search)
       query.delete('s')
