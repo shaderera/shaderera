@@ -183,6 +183,9 @@ its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU devic
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
 memory. This holds for `render`, `render --chunk` and `deliver`; nothing is retried.
+A png job is the exception: a run that fails keeps its finished frames in `<dir>.partial`, and
+`render --job` again continues from the first missing one
+([the finishing handoff](delivery.md#the-finishing-handoff-png--wav)).
 The file must hold every frame rendered; one ffmpeg finished short is refused.
 
 Every file says which revision made it. `render` saves the project first, as `job` does (the same
