@@ -97,6 +97,8 @@ let exporting = false
  * built the runner into its own worker sets the project's (`configureRunner`).
  */
 let files = '/'
+/** The variant this runner opens when `open` names none (configureRunner). */
+let runnerVariant: string | undefined
 let base = files
 const url = (path: string): string => `${base}${path.replace(/^\.?\//, '')}`
 
@@ -162,11 +164,17 @@ const ask: Ask = {
  *
  * Such a runner opens its own project only, never a saved revision.
  */
-export const configureRunner = (o: { files: string; ask?: Ask }): void => {
+export const configureRunner = (o: {
+  files: string
+  ask?: Ask
+  /** The variant `open` applies when it names none: the studio's `/runner?variant=`. */
+  variant?: string
+}): void => {
   if (!/^[a-z][a-z0-9+.-]*:.*\/$/i.test(o.files))
     throw new Error(`configureRunner: files is an absolute URL ending in /, not ${o.files}.`)
   files = base = o.files
   if (o.ask) Object.assign(ask, o.ask)
+  if (o.variant !== undefined) runnerVariant = o.variant
 }
 
 const io: Io = {
@@ -419,7 +427,7 @@ const api = {
         throw new Error('This runner opens its own project, not a saved revision.')
       base = o.revision ? `/.shaderera/revisions/${o.revision}/` : files
       const declared = checkManifest(await (await fetch(url('shaderera.json'))).json())
-      const variant = withVariant(declared, o.variant)
+      const variant = withVariant(declared, o.variant ?? runnerVariant)
       manifest = { ...variant.manifest, ...o.size }
       const module: unknown = o.revision
         ? await import(/* @vite-ignore */ url(declared.entry))

@@ -141,7 +141,7 @@ network access.
 ```json
 {
   "version": "0.1.5",
-  "film": { "title": "…", "manifest": { … }, "variants": { … }, "schema": { … } },
+  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
   "telemetry": true
 }
 ```
@@ -150,14 +150,23 @@ network access.
 - `manifest` is shaderera.json as the CLI and the runner read it.
 - `variants` is shaderera.json's `variants`, in its own shape (`{}` when there are none): name →
   `{ label?, width?, height?, duration?, fps?, params? }`.
+- `sizes` is each variant's output as a host opens it, the film's own values filled in: name →
+  `{ width, height, duration, fps }` (`{}` when there are none). The page lays out one frame a
+  variant from it.
 - `schema` is shaderera.json's `params` schema, or `null`.
 - Each request reads the project again, so an agent's edit to shaderera.json shows.
 
-### `GET /runner?s=<secret>&parent=<page origin>`
+### `GET /runner?s=<secret>&parent=<page origin>[&variant=<name>]`
 
 The project's runner page, for the page to frame with packages/ui's `connect({ runnerUrl })`. That
 frame is sandboxed with `allow-scripts` alone, and the page talks to the runner worker over the
 port the frame posts, as with the web player.
+
+- **`variant`** names a variant in shaderera.json's `variants`: that frame's runner opens the film
+  as that variant whenever `open` names none (an `open` that names one still wins). Without it,
+  the runner opens the film itself. An unknown name is `400`. The page frames one runner a variant
+  to show them side by side, and drives them on one timeline itself; each frame is a runner of
+  its own.
 
 - **The bridge redirects (`302`) to the runner page**, keeping the query but `s`. The runner page
   is served by the project's own Vite, on another port of 127.0.0.1, under a path that is itself a
@@ -199,12 +208,17 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 - **Job states** are `queued`, `running`, `done` and `failed`. `done` and `failed` end a job.
   `progress` runs from 0 to 1.
 
-### `POST /render {variant?, params?, format, t?}` → `{job}`
+### `POST /render {variant? | variants?, params?, format, t?}` → `{job}` or `{jobs}`
 
 Renders on your machine, with the CLI's own hosts and ffmpeg, one job at a time in the order
 asked.
 
-- **`variant`** is a name in shaderera.json's `variants`. Leave it out for the film itself.
+- **`variant`** is a name in shaderera.json's `variants`. Leave it out for the film itself. The
+  answer is `{job}`.
+- **`variants`** is a list of those names, for several at once, in place of `variant` (not with
+  it). Every name is checked first: an unknown one is `400` and nothing is queued. The answer is
+  `{jobs}`, one job a name (a name given twice renders once), queued in the order given, each
+  with its own `job` events and file. `params`, `format` and `t` apply to every one.
 - **`params`** go over the defaults and the variant's. An undeclared name fails the job.
 - **`format`** is one of:
   - `"mp4"`: H.264, the same file `shaderera render` makes;
@@ -254,7 +268,8 @@ blocks local access)".
 - **Events** go through the relay once the page has sent its first `rpc`.
 - **A file comes in one frame** in v0. A large file through the relay will need chunking later.
 - **`/runner` is not available through the relay**: a frame cannot go through it. It answers
-  `400`.
+  `400`. The preview needs the direct connection; the page says so, and Export and Share still
+  work.
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
 
 ## Telemetry
