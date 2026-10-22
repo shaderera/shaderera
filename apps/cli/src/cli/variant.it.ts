@@ -71,7 +71,7 @@ test('still, check and review take several variants: one host each, grouped, the
     JSON.stringify({ version: 1, safeArea: { top: 0.3, right: 0.3, bottom: 0.3, left: 0.3 } }),
   )
   const review = cli('review', '--variant', '16:9,9:16', '--quick', '--out', out, '--json')
-  assert.equal(review.status, 0, review.stderr)
+  assert.equal(review.status, 0, review.stderr || review.stdout)
   const reviews = JSON.parse(review.stdout).result.variants
   assert.deepEqual(
     reviews.map((r: { variant: string; manifest: { width: number } }) => [
