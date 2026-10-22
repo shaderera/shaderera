@@ -87,6 +87,7 @@ for (const [name, open] of [
         sequential: false,
         yuv: true,
         deep: true,
+        p010: false,
       })
     })
 

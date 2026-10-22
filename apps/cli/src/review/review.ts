@@ -5,7 +5,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
 import type { Json, SampledClip } from '@shaderera/core'
-import { frameCount } from '@shaderera/core/host'
+import { CODE_LIGHT, frameCount, whiteOf } from '@shaderera/core/host'
 import { checkChild } from '../cli/check.ts'
 import type { Loudness } from '../cli/ffmpeg.ts'
 import { mixWav } from '../cli/mix.ts'
@@ -71,6 +71,11 @@ export type ReviewReport = {
     captions: CaptionStat[] | null
     /** The clips heard (a src without sound is not), how much of the film they cover, and their mix's loudness (EBU R128). */
     audio: { clips: number; coverage: number; loudness: Loudness | null } | null
+    /**
+     * A film with `hdr10`: each principal frame's light in its hdr10 render (decision 0023), in
+     * cd/m², and the share of its pixels brighter than Graphics White; absent without `hdr10`.
+     */
+    hdr10?: { t: number; maxCll: number; maxFall: number; aboveWhite: number }[]
   }
   elapsedMs: number
 }
@@ -85,6 +90,34 @@ export type ReviewOptions = {
   times?: number[]
   /** Opens the same source at another size, for the readback check; without it, `unknown`. */
   reopen?: (size: { width: number; height: number }) => Promise<Child>
+  /**
+   * Opens the same source in an hdr10 range, for a film with `hdr10`: its light is reported as
+   * numbers, never shown (decision 0023). `child` is the SDR version, which the frames show.
+   */
+  hdr?: () => Promise<Child>
+}
+
+/**
+ * The light of a film's hdr10 render at each principal frame: MaxCLL and MaxFALL as the host
+ * measured them, and the share of pixels whose max(R',G',B') code is brighter than `white`.
+ */
+const hdrLight = async (hdr: Child, times: readonly number[], white: number) => {
+  const out: NonNullable<ReviewReport['diagnostics']['hdr10']> = []
+  for (const t of times) {
+    const r = await hdr.render(t, 'final', 'rgb10')
+    const codes = new Uint32Array(r.pixels.buffer, r.pixels.byteOffset, r.pixels.length / 4)
+    let above = 0
+    for (const w of codes)
+      if ((CODE_LIGHT[Math.max(w & 1023, (w >>> 10) & 1023, (w >>> 20) & 1023)] as number) > white)
+        above++
+    out.push({
+      t,
+      maxCll: round(r.light?.maxCll ?? 0, 2),
+      maxFall: round(r.light?.maxFall ?? 0, 2),
+      aboveWhite: round(codes.length ? above / codes.length : 0, 4),
+    })
+  }
+  return out
 }
 
 const THUMB = 1600
@@ -763,6 +796,56 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     }
   }
 
+  // hdr10: the film's HDR as numbers, at the principal frames (never shown: a PQ image read as
+  // sRGB would mislead).
+  let hdr10: ReviewReport['diagnostics']['hdr10']
+  const declared = o.project.manifest.hdr10
+  if (declared) {
+    const white = whiteOf(declared)
+    const peak = declared.mastering.peak
+    if (!o.hdr)
+      checks.push({
+        id: 'hdr10',
+        title: 'HDR10 light',
+        status: 'unknown',
+        detail: 'no hdr10 host to measure the HDR10 render with',
+      })
+    else {
+      // No GPU for an hdr10 host: unknown. A frame past the peak, or a layer's light it cannot
+      // carry: a failure.
+      const host = await o.hdr().catch((error: Error) => {
+        checks.push({ id: 'hdr10', title: 'HDR10 light', status: 'unknown', detail: error.message })
+        return undefined
+      })
+      if (host)
+        try {
+          const measured = await hdrLight(
+            host,
+            rendered.map((r) => r.t),
+            white,
+          )
+          hdr10 = measured
+          const most = (k: 'maxCll' | 'maxFall' | 'aboveWhite') =>
+            Math.max(0, ...measured.map((f) => f[k]))
+          checks.push({
+            id: 'hdr10',
+            title: 'HDR10 light',
+            status: 'info',
+            measured: `MaxCLL ${most('maxCll')} cd/m², MaxFALL ${most('maxFall')} cd/m², at most ${round(most('aboveWhite') * 100, 2)} % of pixels above Graphics White (${white} cd/m²) at ${measured.length} principal frames; mastering peak ${peak} cd/m²`,
+          })
+        } catch (error) {
+          checks.push({
+            id: 'hdr10',
+            title: 'HDR10 light',
+            status: 'fail',
+            detail: (error as Error).message,
+          })
+        } finally {
+          await host.close()
+        }
+    }
+  }
+
   // alpha
   const nonOpaque = Math.max(...rendered.map((r) => frameStats(r.pixels).nonOpaque))
   checks.push({
@@ -845,6 +928,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
           gap: c.gap === null ? null : round(c.gap),
         })) ?? null,
       audio,
+      ...(hdr10 ? { hdr10 } : {}),
     },
     elapsedMs: Math.round(performance.now() - start),
   }

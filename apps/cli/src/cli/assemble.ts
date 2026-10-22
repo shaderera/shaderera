@@ -1,18 +1,19 @@
 import { join, resolve } from 'node:path'
-import { checkChunks, chunkFrames, readPlan } from '../deliver/chunks.ts'
+import { checkChunks, chunkFrames, mostLight, readPlan } from '../deliver/chunks.ts'
 import { assembledInput, assembledJob } from '../deliver/reexport.ts'
 import { findProject } from '../node/project.ts'
 import { openJob, videoOptionsOf } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 import { loudnessLine, probeLine } from './ffmpeg.ts'
-import { exportVideo, extensionOf } from './render.ts'
+import { exportVideo, extensionOf, lightLine } from './render.ts'
 
 /**
  * `shaderera assemble --plan <dir> [--out file] [--mixed-hosts] [--no-audio] [--loudness=LUFS]
  * [--job name] [--crf n]`: encodes a plan's rendered chunks once, in order, with the whole window's
  * sound, captions and preroll, as `render --job` would on one machine. Refuses a chunk that is
  * missing or changed, and chunks from different kinds of host unless --mixed-hosts. --job: another
- * delivery of the plan's job from the same chunks (assembledJob).
+ * delivery of the plan's job from the same chunks (assembledJob). An hdr10 plan's file declares the
+ * most light any of its chunks measured (decision 0023).
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {
@@ -52,10 +53,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         input: plan.input,
         count: plan.chunks.reduce((n, c) => n + c.frames, 0),
         read: () => chunkFrames(plan, dir),
+        ...(plan.input === 'p010'
+          ? { light: mostLight(records.flatMap((r) => (r.light ? [r.light] : []))) }
+          : {}),
       },
     })
     console.log(`${done.out}\n${done.frames} frames from ${records.length} chunks`)
     console.log(`file: ${probeLine(done.probe)}`)
+    if (done.light) console.log(`light: ${lightLine(done.light)}`)
     if (done.loudness) console.log(`audio: ${loudnessLine(done.loudness)}`)
     return 0
   } finally {
