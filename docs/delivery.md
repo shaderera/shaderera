@@ -308,7 +308,9 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
   (`--out`) that holds another job's plan or chunks, so that plan can still be assembled; the same
   job is planned again in its own folder.
 - Each chunk renders, with its own determinism re-check, into a lossless FFV1 file (the bytes the
-  host made), recorded with its sha256 and host. Its frames go round `--workers` hosts on that
+  host made), recorded with its sha256 and host. The file is written bit-exactly (no random
+  Matroska UID, date or version string), so a chunk rendered again with the same frames and the
+  same ffmpeg is the same file, and a plan that reuses it still takes it. Its frames go round `--workers` hosts on that
   machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
   heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
