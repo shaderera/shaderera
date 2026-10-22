@@ -270,6 +270,52 @@ test('a paired CLI the relay drops rejoins with its token; closing it ends the s
   assert.deepEqual(await cli.closed, { code: 1000, paired: true })
 })
 
+test('a page that reloads is not closed; one that does not come back is', async () => {
+  const id = makeId()
+  const heard: string[] = []
+  const hear = async (n: number) => {
+    for (let i = 0; i < 100 && heard.length < n; i++) await new Promise((r) => setTimeout(r, 20))
+    return heard
+  }
+  const first = page(relay.origin, id)
+  await first.opened
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+    pageBackMs: 100,
+    onPage: (state) => heard.push(state),
+  })
+  await first.next('cli-joined')
+  // Closed, and nothing comes back in time.
+  first.ws.close()
+  assert.deepEqual(await hear(1), ['closed'])
+  // Before pairing, a reload says hello again in time.
+  const second = page(relay.origin, id)
+  await second.opened
+  second.ws.close()
+  await second.closed
+  const third = page(relay.origin, id)
+  const { bridge: got } = await third.pair()
+  assert.deepEqual(await hear(2), ['closed', 'reloaded'])
+  // Paired, a reload resumes without a hello: its request to the bridge is the page back.
+  third.ws.close()
+  await third.closed
+  await new Promise((r) => setTimeout(r, 30))
+  const info = await call(got.port, {
+    path: '/info',
+    headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
+  })
+  assert.equal(info.status, 200)
+  assert.deepEqual(await hear(3), ['closed', 'reloaded', 'reloaded'])
+  // And no `closed` follows it.
+  await new Promise((r) => setTimeout(r, 150))
+  assert.deepEqual(heard, ['closed', 'reloaded', 'reloaded'])
+  await cli.close()
+})
+
 test('an id no CLI paired with in time is expired', async () => {
   const id = makeId()
   const p = page(relay.origin, id)

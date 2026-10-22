@@ -12,11 +12,12 @@ import { apiOf, openBrowser, siteOf } from './site.ts'
 
 /**
  * `shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
- * [--no-open]`: the local bridge of the studio page on the site (docs/studio.md, decision 0021).
- * Without `--connect` it makes a studio session id; with it, it takes the id the page made. Either
- * way it opens `<site>/studio/<id>#<nonce>` itself and pairs only with the page that holds that
- * nonce. Share sends films to the films API (`--api`), as `shaderera share` does. It runs until
- * Ctrl-C.
+ * [--no-open] [--json]`: the local bridge of the studio page on the site (docs/studio.md, decision
+ * 0021). Without `--connect` it makes a studio session id; with it, it takes the id the page made.
+ * Either way it opens `<site>/studio/<id>#<nonce>` itself and pairs only with the page that holds
+ * that nonce. Share sends films to the films API (`--api`), as `shaderera share` does. It runs
+ * until Ctrl-C. With `--json`, stdout is one JSON line per event, for an agent that runs it in the
+ * background (docs/studio.md, "For agents").
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v } = parseArgs({
@@ -27,6 +28,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       api: { type: 'string' },
       origin: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
+      json: { type: 'boolean' },
       ...common,
     },
   })
@@ -40,7 +42,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `Not a studio session id: ${v.connect} (${ID_LENGTH} letters and digits, from ${site}/studio).`,
     )
   const { root } = await findProject(v.root ?? process.cwd())
-  noticeOnce((text) => console.log(`${text}\n`))
+  /** One event: a JSON line `{event, ...fields}` with --json, else `text` if any (`error`: stderr). */
+  const say = (event: string, fields: object, text?: string, error = false) => {
+    if (v.json) console.log(JSON.stringify({ event, ...fields }))
+    else if (text !== undefined) (error ? console.error : console.log)(text)
+  }
+  noticeOnce((text) => say('notice', { text }, `${text}\n`))
 
   const bridge = await startBridge({
     root,
@@ -50,21 +57,27 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
   })
   bridge.onEvent((e) => {
-    if (e.type === 'log') (e.level === 'info' ? console.log : console.error)(e.text)
-    if (e.type === 'changed') console.log(`changed: revision ${e.revision}`)
+    const { type, ...fields } = e
+    if (e.type === 'log') say(type, fields, e.text, e.level !== 'info')
+    else if (e.type === 'changed') say(type, fields, `changed: revision ${e.revision}`)
+    else say(type, fields)
   })
   const id = v.connect ?? makeId()
   // The page pairs only if it holds the nonce, which only the page opened here has.
   const nonce = makeNonce()
   const page = pageUrl(site, id, nonce, v.connect !== undefined)
-  console.log(`project  ${root}`)
-  console.log(`bridge   ${bridge.origin} (for ${site} only)`)
-  console.log(`share to ${api}`)
-  if (v['no-open']) console.log(`open     ${page}`)
-  else {
-    console.log(`opening  ${page}`)
-    openBrowser(page)
-  }
+  const opened = !v['no-open']
+  say(
+    'url',
+    { url: page, id, opened, project: root, bridge: bridge.origin, site, api },
+    [
+      `project  ${root}`,
+      `bridge   ${bridge.origin} (for ${site} only)`,
+      `share to ${api}`,
+      `${opened ? 'opening ' : 'open    '} ${page}`,
+    ].join('\n'),
+  )
+  if (opened) openBrowser(page)
 
   const relay = connectRelay({
     site,
@@ -72,10 +85,16 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     nonce,
     bridge,
     hello: { version: shadereraVersion(), os: process.platform, telemetry: telemetryStatus().on },
-    onPaired: () => console.log('paired: the studio page drives this project. Ctrl-C stops.'),
-    onPageLeft: () => console.log('the studio page closed'),
+    onPaired: () => say('paired', {}, 'paired: the studio page drives this project. Ctrl-C stops.'),
+    // A reload rejoins within a few seconds: only a page that does not is closed.
+    onPage: (state) =>
+      state === 'closed'
+        ? say('page-closed', {}, 'the studio page closed')
+        : say('resumed', {}, 'the studio page reloaded'),
     onRelay: (back) =>
-      console.log(
+      say(
+        'relay',
+        { state: back ? 'back' : 'dropped' },
         back
           ? 'the relay is back: the studio page can reach this CLI through it again'
           : 'the relay dropped this CLI; rejoining (the bridge still serves the page directly)',
@@ -84,16 +103,22 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const stop = new Promise<void>((done) => process.once('SIGINT', () => done()))
   const end = await Promise.race([relay.closed, stop.then(() => null)])
   let code: number = EXIT.ok
+  let error: string | undefined
   if (end && !end.paired) {
     // Never paired: there is no page to serve.
-    console.error(closeText(end.code, site, id))
+    error = closeText(end.code, site, id)
     code = EXIT.error
   } else if (end) {
     // Paired already: the page talks to the bridge directly, which keeps serving.
-    console.log('the relay closed; the bridge still serves the page directly. Ctrl-C stops.')
+    say(
+      'relay',
+      { state: 'closed', code: end.code },
+      'the relay closed; the bridge still serves the page directly. Ctrl-C stops.',
+    )
     await stop
   }
   await relay.close()
   await bridge.close()
+  say('ended', { exitCode: code, ...(error ? { error } : {}) }, error, true)
   return code
 }

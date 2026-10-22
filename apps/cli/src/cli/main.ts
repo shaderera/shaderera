@@ -36,7 +36,7 @@ the site (film pages, the studio page, plugins) is --site <origin>, else SHADERE
   logout [--api origin] [--all]              sign this machine out (--all: every machine)
   share [--film id] [--title t] [--no-media] [--dry-run] [--host h] [--trusted] [--timeout s] [--yes] [--api origin] [--site origin] [--json]   send the project's files as a new film or version (--dry-run: send nothing)
   fork <film|url>[@version] [dir] [--api origin] [--site origin] [--json]   copy a published version into a new folder
-  studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]   the local bridge of the studio page
+  studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]   the local bridge of the studio page (--json: one JSON line per event)
   telemetry off|on|status                    whether the studio page counts how the studio is used
 
 ${pluginUsage}
@@ -89,7 +89,10 @@ const OWN_JSON = new Set([
   'fork',
   'whoami',
 ])
-/** Commands that own stdout (a protocol, or a bridge that runs until Ctrl-C): never wrapped. */
+/**
+ * Commands that own stdout (a protocol, or a bridge that runs until Ctrl-C): never wrapped. studio's
+ * own `--json` prints one JSON line per event.
+ */
 const STREAMS = new Set(['mcp', 'studio'])
 
 /** The commands that talk to the films API or the site: they take --api and --site. */
@@ -132,7 +135,7 @@ const main = async (argv: readonly string[]): Promise<number> => {
 
 /**
  * Runs the CLI on `argv` (what follows `shaderera`) and gives its exit code. `--json` on any
- * command but mcp and studio: stdout is one envelope (`result/1`), what the command printed goes
+ * command but mcp and studio (its own `--json` streams events): stdout is one envelope (`result/1`), what the command printed goes
  * into it (`result` when the command printed JSON, `log` otherwise), and the exit code is the same
  * as without it. bin/shaderera.js runs it on the process's arguments, as `node main.ts` does; a
  * test runs it in its own process (fixtures/cli.ts).
