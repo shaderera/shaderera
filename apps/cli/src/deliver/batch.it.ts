@@ -162,3 +162,30 @@ test('deliver spreads an output over several hosts, as render --job does, and cl
   assert.equal(opened, 2)
   assert.equal(closed, 2)
 })
+
+test('deliver --variants 16:9,9:16 names each job by its variant made safe for a file name', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const root = fixture('mcp')
+  const file = join(root, 'shaderera.json')
+  const manifest = JSON.parse(readFileSync(file, 'utf8'))
+  const variants = {
+    '16:9': { width: 64, height: 36, duration: 0.5 },
+    '9:16': { width: 36, height: 64, duration: 0.5 },
+  }
+  writeFileSync(file, JSON.stringify({ ...manifest, variants }))
+  writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 0 }))
+  const r = cli('deliver', '--root', root, '--variants', '16:9,9:16', '--name', 'r')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  const dir = join(root, 'out', 'deliveries', 'r')
+  const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
+  assert.deepEqual(
+    index.outputs.map((o: BatchOutput) => [o.job, o.variant, o.width, o.height, o.status]),
+    [
+      ['r-16_9', '16:9', 64, 36, 'pass'],
+      ['r-9_16', '9:16', 36, 64, 'pass'],
+    ],
+  )
+  for (const o of index.outputs as BatchOutput[])
+    assert.ok(existsSync(join(dir, o.file as string)), o.job)
+})

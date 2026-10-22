@@ -11,6 +11,7 @@ import {
   type Job,
   manifestAt,
   openJob,
+  safeName,
   videoOptionsOf,
 } from '../project/jobs.ts'
 import {
@@ -122,7 +123,8 @@ export const batchJobs = async (
           revision,
           variant,
           params: locale ? { locale } : undefined,
-          name: [o.batch, variant ?? 'main', locale].filter(Boolean).join('-'),
+          // A variant may be named what a job name cannot hold (16:9).
+          name: [o.batch, safeName(variant ?? 'main'), locale].filter(Boolean).join('-'),
           delivery: o.delivery,
           replace: o.replace,
         }),
