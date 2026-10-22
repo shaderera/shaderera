@@ -14,11 +14,10 @@ import {
   expo,
   glide,
   hold,
-  type KeyObject,
   settle,
   strike,
-  track,
-} from '../../previews/src/motion/keyframes.ts'
+} from '../../previews/src/motion/eases.ts'
+import { type KeyObject, track } from '../../previews/src/motion/keyframes.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const L = 48

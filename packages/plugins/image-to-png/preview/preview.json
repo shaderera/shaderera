@@ -1,0 +1,12 @@
+{
+  "caption": "Turns WebP, AVIF and GIF images and a video's frames into PNG files once, so a film reads the same pixels everywhere.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 2.3
+}

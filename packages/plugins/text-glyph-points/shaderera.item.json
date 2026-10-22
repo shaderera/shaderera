@@ -5,7 +5,8 @@
   "description": "Text set in a font as a fixed point set for particles to form, with the position of every character so parts of a word can move apart",
   "category": "Procedural & Particles",
   "tags": ["particles", "text to points", "wordmark", "morph", "typography", "point cloud"],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "licence": "MIT",
+  "requires": { "items": { "motion-random": "^0.1.0" } },
   "files": ["src/procedural/glyph-points.ts"]
 }

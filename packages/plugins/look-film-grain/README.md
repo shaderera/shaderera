@@ -15,7 +15,7 @@ return [{ color, alpha: 'opaque' }]
 - `size`: a grain in px (1.5). At 1 each pixel is its own; larger grains blend smoothly.
 - `midtones` (0.7): how much the grain keeps to the mid-tones, as film's does; at 1, pure black
   and white stay clean, at 0 the grain is the same everywhere.
-- `colour` (0): 0 the same grain on every channel, 1 each channel its own.
+- `color` (0): 0 the same grain on every channel, 1 each channel its own.
 - `seed`: the pattern. Pass `options.frame` for grain that lives, a constant for grain that holds.
 
 Put it last, after the looks and the vignette, on the finished frame (display values 0–1, alpha

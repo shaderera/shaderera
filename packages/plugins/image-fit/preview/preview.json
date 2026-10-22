@@ -1,0 +1,12 @@
+{
+  "caption": "Places a still into any box, filling it around a chosen point or fitting it whole, and draws a large still small the same way every time.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.5
+}

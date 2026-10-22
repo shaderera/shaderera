@@ -4,6 +4,7 @@
 // size (a spotlight); from any centre.
 
 import type { Host } from '@shaderera/core'
+import { createCanvasTexture } from '../render/canvas-texture.ts'
 import { VIGNETTE_WGSL } from './vignette.wgsl.ts'
 
 export type VignetteParams = {
@@ -21,7 +22,7 @@ export type VignetteParams = {
    */
   size?: readonly [number, number]
   /** The colour the edges go towards, as display values 0–1. */
-  colour?: readonly [number, number, number]
+  color?: readonly [number, number, number]
 }
 
 /** The vignette for a W×H frame. */
@@ -47,12 +48,8 @@ export const createVignette = (host: Host, o: { width: number; height: number })
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_SRC,
   })
-  // A canvas is uploaded here first.
-  const upload = device.createTexture({
-    size: [o.width, o.height],
-    format: 'rgba8unorm',
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  })
+  // A canvas is uploaded first.
+  const canvases = createCanvasTexture(host)
   const outView = out.createView()
   const groups = new WeakMap<GPUTexture, GPUBindGroup>()
   const groupOf = (texture: GPUTexture) => {
@@ -76,18 +73,7 @@ export const createVignette = (host: Host, o: { width: number; height: number })
      * size. Return it as a layer: { color, alpha: 'opaque' }. The texture is reused on every call.
      */
     apply(source: GPUTexture | OffscreenCanvas, p: VignetteParams = {}): GPUTexture {
-      let texture: GPUTexture
-      if ('createView' in source) texture = source
-      else {
-        const c = source.getContext('2d') as OffscreenCanvasRenderingContext2D
-        device.queue.writeTexture(
-          { texture: upload },
-          new Uint8Array(c.getImageData(0, 0, o.width, o.height).data),
-          { bytesPerRow: o.width * 4 },
-          [o.width, o.height],
-        )
-        texture = upload
-      }
+      const texture = 'createView' in source ? source : canvases.upload(source)
       const [cx, cy] = p.centre ?? [o.width / 2, o.height / 2]
       const [rx, ry] = p.size ?? [0, 0]
       device.queue.writeBuffer(
@@ -102,7 +88,7 @@ export const createVignette = (host: Host, o: { width: number; height: number })
           cy,
           rx,
           ry,
-          ...(p.colour ?? [0, 0, 0]),
+          ...(p.color ?? [0, 0, 0]),
           0,
         ]),
       )
@@ -121,7 +107,7 @@ export const createVignette = (host: Host, o: { width: number; height: number })
     },
     dispose() {
       out.destroy()
-      upload.destroy()
+      canvases.dispose()
       uniforms.destroy()
     },
   }

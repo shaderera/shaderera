@@ -1,0 +1,7 @@
+{
+  "caption": "Random numbers that are the same on every render: a hash of any number, the same in your shader and on the CPU, and a seeded run.",
+  "states": [{ "id": "default", "label": "Default" }],
+  "default": "default",
+  "audio": false,
+  "poster": 1.5
+}

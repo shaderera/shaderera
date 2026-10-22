@@ -1,0 +1,24 @@
+{
+  "caption": "Type that scrambles, decodes into place and glitches, in Canvas2D.",
+  "states": [
+    {
+      "id": "all",
+      "label": "All"
+    },
+    {
+      "id": "scramble",
+      "label": "Scramble"
+    },
+    {
+      "id": "decode",
+      "label": "Decode"
+    },
+    {
+      "id": "glitch",
+      "label": "Glitch"
+    }
+  ],
+  "default": "all",
+  "audio": false,
+  "poster": 4.62
+}

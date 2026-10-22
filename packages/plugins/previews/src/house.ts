@@ -12,7 +12,7 @@
 import type { Host } from '@shaderera/core'
 import { CAPTION } from './caption.ts'
 import { FONT } from './preview.ts'
-import { decoded, glitched, hollow, timecode } from './type/kinetic.ts'
+import { decoded, glitched, hollow } from './type/scramble.ts'
 
 export const RED = '#ff3b1f'
 export const SERIF = FONT.serif
@@ -35,6 +35,12 @@ export const placeOf = (host: Host) => {
   const list = schema?.properties?.item?.enum
   const all = (Array.isArray(list) ? list.map(String) : []).sort()
   return { item, index: all.indexOf(item) + 1, total: all.length }
+}
+
+/** Seconds as `SS.mmm`, for the HUD's clock. */
+const timecode = (t: number) => {
+  const s = Math.max(0, t)
+  return `${String(Math.floor(s)).padStart(2, '0')}.${String(Math.floor((s % 1) * 1000)).padStart(3, '0')}`
 }
 
 /** A deterministic 0–1 hash. */
@@ -82,8 +88,8 @@ export const createHouse = (host: Host, ctx: Ctx) => {
     words.find((w) => t >= w.from && t < w.to) ?? words[words.length - 1]
   /** A word that spans the loop's seam does not scramble there. */
   const span = (w: Word) => ({
-    from: w.from <= 0 ? -1 : w.from,
-    to: w.to >= duration ? duration + 1 : w.to,
+    start: w.from <= 0 ? -1 : w.from,
+    end: w.to >= duration ? duration + 1 : w.to,
   })
 
   /** A big word, decoding in out of noise when it starts and scrambling out before it ends. */
@@ -96,17 +102,17 @@ export const createHouse = (host: Host, ctx: Ctx) => {
   ) => {
     const w = at(words, t)
     if (!w) return
-    const { from, to } = span(w)
+    const { start, end } = span(w)
     const d = decoded(w.text, t, {
-      from,
-      to,
+      start,
+      end,
       frame,
       seed: w.text.length * 7 + (corner === 'top' ? 0 : 3),
       rise: 0.22,
       fall: 0.1,
       swap: true,
     })
-    const since = t - from
+    const since = t - start
     ctx.fillStyle = '#fff'
     glitched(ctx, d.text, corner === 'top' ? L - 4 : R + 4, corner === 'top' ? 62 : 852, {
       font: bold,
