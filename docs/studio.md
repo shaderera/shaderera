@@ -9,7 +9,7 @@ This is protocol v0: the contract between the studio page and the bridge.
 
 ```
 npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
-                     [--no-open]
+                     [--no-open] [--json]
 ```
 
 - **Without `--connect`**, it makes a studio session id.
@@ -28,12 +28,35 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
   `shaderera login --api <origin>`.
 - **`--origin <origin>`** (repeatable) adds a page origin the bridge answers, for developing the
   page on another origin than the relay's.
+- **`--json`** prints one JSON line per event in place of the prose, for an agent (below).
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
   to the renders the page asks for, and to a share's poster and loop.
 
 It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
 rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
 disconnected.
+
+When the page closes, the CLI says so only if no page comes back within 10 seconds. A reload comes
+back sooner (a new `page-hello`, or a request to the bridge, directly or through the relay), and
+the CLI says "the studio page reloaded" instead.
+
+**For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
+`url` event's address (or let the command open it), and read the events. stdout is one JSON object
+a line, `{event, ...}`:
+
+| Event | Fields | When |
+|---|---|---|
+| `notice` | `text` | the first `studio` on this machine: the telemetry notice |
+| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api` | the bridge is up; `opened` is false with `--no-open` |
+| `paired` | | the page the CLI opened paired |
+| `page-closed` | | the page closed and did not come back within 10 s |
+| `resumed` | | the page came back within 10 s (a reload) |
+| `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
+| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events |
+| `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired (`2`, with why) |
+
+A flag the command does not take, or a folder that is not a project, is still an error on stderr,
+with exit code 2, before any event.
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -200,6 +223,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 | `{type:"changed", revision}` | the project's files changed: the 16-hex revision id `shaderera save` would give them |
 | `{type:"job", id, state, progress, error?}` | a render was queued, started, progressed or ended |
 | `{type:"log", level, text}` | `info`, `warn` or `error`: a render's start and end, share lines, watcher problems |
+| `{type:"share", film, version, url}` | a share sent the film: its id, the new version and its page |
 
 - **What counts as a change.** A change counts only when it touches the files a revision holds:
   not `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, and not `node_modules/` or

@@ -17,6 +17,12 @@ const sameNonce = (given: string, nonce: string) => {
 
 export type RelayEnd = { code: number; paired: boolean }
 
+/**
+ * How long a page that left has to come back before it counts as closed, in ms: a reload rejoins
+ * within it (a new hello, or a request to the bridge directly or through the relay).
+ */
+export const PAGE_BACK_MS = 10_000
+
 /** How long the CLI waits before its nth rejoin, in ms: 1, 2, 4, 8, 16, then 30 s. */
 export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000)
 
@@ -44,14 +50,20 @@ export const connectRelay = (o: {
   id: string
   /** The nonce in the address the CLI opened (pairing.ts's makeNonce). */
   nonce: string
-  bridge: Pick<Bridge, 'port' | 'secret' | 'handle' | 'onEvent'>
+  bridge: Pick<Bridge, 'port' | 'secret' | 'handle' | 'onEvent' | 'onVisit'>
   hello: { version: string; os: string; telemetry: boolean }
   onPaired?: () => void
-  onPageLeft?: () => void
+  /**
+   * The page left and did not come back within `pageBackMs` (`closed`), or came back within it
+   * (`reloaded`): a reload is not a close.
+   */
+  onPage?: (state: 'closed' | 'reloaded') => void
   /** The relay dropped the CLI (`false`), or let it back in (`true`). */
   onRelay?: (back: boolean) => void
   /** For tests: the delay before the nth rejoin. */
   delay?: (n: number) => number
+  /** For tests: how long a page that left has to come back (PAGE_BACK_MS). */
+  pageBackMs?: number
 }): { closed: Promise<RelayEnd>; close: () => Promise<void> } => {
   let ws: WebSocket
   // The relay's resume token for this CLI, once paired; rejoins so far since the last open.
@@ -66,6 +78,15 @@ export const connectRelay = (o: {
   let key: CryptoKey | undefined
   let paired = false
   let stopEvents: (() => void) | undefined
+  // A page that left: closed when this runs out, reloaded when it is seen again before.
+  let away: NodeJS.Timeout | undefined
+  const pageBack = () => {
+    if (!away) return
+    clearTimeout(away)
+    away = undefined
+    o.onPage?.('reloaded')
+  }
+  const stopVisits = o.bridge.onVisit(pageBack)
   const send = (m: Message) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m))
   }
@@ -74,6 +95,7 @@ export const connectRelay = (o: {
 
   const onMessage = async (m: Message) => {
     if (m.type === 'page-hello' && typeof m.pub === 'string') {
+      pageBack()
       // One key pair for the CLI's life: a page-hello sent again gives the same key, and a new
       // page's (it reloaded before pairing) a new one.
       mine ??= await keyPair()
@@ -100,7 +122,11 @@ export const connectRelay = (o: {
     } else if (m.type === 'resumed') {
       o.onRelay?.(true)
     } else if (m.type === 'page-left') {
-      o.onPageLeft?.()
+      clearTimeout(away)
+      away = setTimeout(() => {
+        away = undefined
+        o.onPage?.('closed')
+      }, o.pageBackMs ?? PAGE_BACK_MS)
     } else if (m.type === 'rpc' && key && typeof m.iv === 'string' && typeof m.box === 'string') {
       const k = key
       const id = m.id
@@ -157,6 +183,8 @@ export const connectRelay = (o: {
   const closed = new Promise<RelayEnd>((done) => {
     finish = (end) => {
       stopEvents?.()
+      stopVisits()
+      clearTimeout(away)
       done(end)
     }
   })

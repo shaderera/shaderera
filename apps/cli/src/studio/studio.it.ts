@@ -158,3 +158,103 @@ test("shaderera studio --api: Share sends films there, not to the studio page's 
     films.close()
   }
 })
+
+test('shaderera studio --json: one JSON line per event, for an agent', async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  const project = fixture()
+  const cli = spawn(
+    process.execPath,
+    [
+      main,
+      'studio',
+      '--connect',
+      id,
+      '--site',
+      slow.origin,
+      '--no-open',
+      '--json',
+      '--root',
+      project,
+    ],
+    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+  )
+  let out = ''
+  let err = ''
+  cli.stdout.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  cli.stderr.on('data', (d: Buffer) => {
+    err += d.toString()
+  })
+  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
+  const events = () =>
+    out
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
+  const event = async (name: string) => {
+    for (let i = 0; i < 400; i++) {
+      const e = events().find((x) => x.event === name)
+      if (e) return e
+      if (cli.exitCode !== null) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    throw new Error(`no ${name} event in: ${out}${err}`)
+  }
+  try {
+    const url = await event('url')
+    assert.equal(url.id, id)
+    assert.equal(url.opened, false)
+    assert.equal(url.site, slow.origin)
+    const address = new URL(url.url as string)
+    assert.equal(`${address.origin}${address.pathname}`, `${slow.origin}/studio/${id}`)
+    await p.pair(address.hash.slice(1))
+    await event('paired')
+    // Nothing but events on stdout.
+    assert.ok(events().every((e) => typeof e.event === 'string'))
+    assert.equal(err, '')
+  } finally {
+    cli.kill('SIGINT')
+    await exited
+    p.ws.close()
+    await slow.close()
+  }
+})
+
+test('shaderera studio --json ends with an ended event when the id expired', async () => {
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  const old = makeId()
+  const gone = page(relay.origin, old)
+  await gone.opened
+  await new Promise((r) => setTimeout(r, 400))
+  const late = spawn(
+    process.execPath,
+    [
+      main,
+      'studio',
+      '--connect',
+      old,
+      '--site',
+      relay.origin,
+      '--no-open',
+      '--json',
+      '--root',
+      fixture(),
+    ],
+    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+  )
+  let out = ''
+  late.stdout.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  assert.equal(await new Promise((done) => late.on('exit', done)), 2)
+  const lines = out.split('\n').filter((line) => line.trim())
+  const last = JSON.parse(lines.at(-1) as string)
+  assert.equal(last.event, 'ended')
+  assert.equal(last.exitCode, 2)
+  assert.match(last.error, /expired/)
+  gone.ws.close()
+})

@@ -733,7 +733,7 @@ or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]` | serves the project to the studio page on the site until Ctrl-C |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
@@ -749,6 +749,9 @@ asks for.
   relay.
 - **What the page does through it.** The page previews the project with its runner, hears its
   edits, renders into `out/studio/` with the CLI's own hosts, and shares with `share`, as you.
+- **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
+  `paired`, `page-closed`, `resumed`, `job`, `share`, `ended`, …), listed in
+  [studio.md](studio.md).
 - **The protocol** is [studio.md](studio.md).
 
 The studio page reports usage counts to shaderera.com, which stores them in PostHog: never code,
@@ -783,7 +786,8 @@ commands and the MCP server.
 
 ## `--json`: one envelope
 
-Every command but `mcp` takes `--json`: stdout is then one JSON object, the exit code unchanged.
+Every command but `mcp` and `studio` takes `--json`: stdout is then one JSON object, the exit code
+unchanged. `studio --json` prints one JSON line per event instead ([studio.md](studio.md)).
 
 ```json
 {
