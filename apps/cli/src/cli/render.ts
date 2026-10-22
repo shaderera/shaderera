@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes, type Manifest, type Sink } from '@shaderera/core'
 import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
+import { removePartials } from '../deliver/claim.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
 import type { Child, ClockReads } from '../node/child.ts'
@@ -180,6 +181,19 @@ export const exportVideo = async (
   mkdirSync(dirname(out), { recursive: true })
   // Named by the process: two renders to one out never write one file or remove each other's.
   const partial = `${out}.${process.pid}.partial`
+  // What renders of this out that died (killed, the power cut) left, half written. A film ffprobe
+  // reads is one that finished but could not replace out (below): it is kept, and named.
+  removePartials(out, '.partial', false, (file) => {
+    try {
+      probe(file)
+    } catch {
+      return false
+    }
+    console.warn(
+      `! ${file} is a finished film an earlier render could not move into place: rename it to ${out} to keep it.`,
+    )
+    return true
+  })
   const clips = o.audio === false ? [] : ((await child.audio()) ?? [])
   // The mix's temporary files go in the finally (or with its own throw).
   const mix = openMix(root, clips, { from: head, to }, { loudness: o.loudness })
@@ -461,7 +475,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       const plan = readPlan(dir)
       if (plan.jobId !== job.id)
         throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
-      const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame).finally(
+      process.once('SIGINT', interrupt)
+      process.once('SIGTERM', interrupt)
+      const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame, stop.signal).finally(
         () => progress && process.stderr.write('\n'),
       )
       console.log(
@@ -492,7 +508,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         console.log(`audio: ${loudnessLine(done.record.audio.loudness)}`)
       return 0
     }
-    // Only around the video export: a chunk or a png job keeps the default Ctrl-C.
+    // Only around a chunk and the video export: a png job keeps the default Ctrl-C.
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
     const from = job?.output.from ?? num(v.from) ?? 0

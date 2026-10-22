@@ -110,7 +110,7 @@ const status = (dir: string, verify: boolean, json: boolean): number => {
   console.log(`${join(dir, 'plan.json')}: job ${plan.job}, ${states.length} chunks`)
   for (const s of states)
     console.log(
-      `  chunk ${String(s.index).padStart(3)}  ${s.status.padEnd(8)}  ${s.frames} frames${s.reused ? ` reused from job ${s.reused.job}` : s.record && !s.problem ? ` in ${s.record.seconds.toFixed(1)} s` : ''}${s.problem && s.record ? `: ${s.problem}` : ''}${s.fix ? `  → ${s.fix}` : ''}`,
+      `  chunk ${String(s.index).padStart(3)}  ${s.status.padEnd(8)}  ${s.frames} frames${s.reused ? ` reused from job ${s.reused.job}` : s.record && !s.problem ? ` in ${s.record.seconds.toFixed(1)} s` : ''}${s.problem && (s.record || s.claim) ? `: ${s.problem}` : ''}${s.fix ? `  → ${s.fix}` : ''}`,
     )
   const eta =
     progress.eta === null
