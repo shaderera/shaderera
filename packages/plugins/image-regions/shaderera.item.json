@@ -17,8 +17,8 @@
     "photos",
     "analysis"
   ],
-  "version": "0.1.1",
+  "version": "0.2.0",
   "licence": "MIT",
-  "requires": { "shaderera": ">=0.1.0", "packages": { "fast-png": "8.0.0" } },
+  "requires": { "shaderera": ">=0.1.5", "packages": { "fast-png": "8.0.0" } },
   "files": ["src/image/regions.ts", "tools/regions-sam.py", "tools/regions-from-masks.ts"]
 }

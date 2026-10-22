@@ -17,12 +17,13 @@ export const notProject = (file: string): boolean =>
   /^(node_modules|\.shaderera|out|versions|NVIDIA Corporation)([\\/]|$)/.test(file)
 
 /**
- * One cached Node child for a project, with the project as it was read when the child opened.
+ * One cached Node child for a project (`variant` and `host` as the CLI's flags), with the project
+ * as it was read when the child opened.
  * Both are dropped together, and lazily rebuilt, when a project file changes (shaderera.json too).
  */
 export const createNodeSession = (
   root: string,
-  o: { trusted?: boolean; timeout?: string } = {},
+  o: { trusted?: boolean; timeout?: string; variant?: string; host?: string } = {},
 ): NodeSession => {
   let opened: Promise<Opened> | null = null
   let since = 0
@@ -48,7 +49,7 @@ export const createNodeSession = (
     open: () => {
       if (!opened) {
         since = Date.now()
-        opened = open({ root, trusted: o.trusted, timeout: o.timeout })
+        opened = open({ root, ...o })
       }
       const current = opened
       current.catch(() => {

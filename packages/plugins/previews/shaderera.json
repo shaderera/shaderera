@@ -27,7 +27,9 @@
           "format-broadcast-slate",
           "format-placement-specs",
           "format-safe-areas",
+          "image-fit",
           "image-regions",
+          "image-to-png",
           "look-blur",
           "look-film-grain",
           "look-paper-edges",
@@ -35,21 +37,27 @@
           "look-screen-passes",
           "look-tonemap",
           "look-vignette",
+          "motion-eases",
           "motion-keyframes",
+          "motion-random",
+          "motion-shot-list",
           "render-bvh",
+          "render-canvas-texture",
           "render-gaussian-splats",
           "render-gltf-read",
-          "render-image-textures",
+          "render-srgb",
           "render-three-host",
+          "render-three-textures",
           "review-av-timeline",
           "review-picture-reuse",
           "review-shots",
           "text-code-wall",
-          "text-feature-captions",
+          "text-fit",
+          "text-glitch-titles",
           "text-glyph-morph",
           "text-glyph-outlines",
           "text-glyph-points",
-          "text-kinetic",
+          "text-scramble",
           "text-timed-cues"
         ],
         "default": "look-screen-passes"
@@ -223,10 +231,24 @@
         "state": "shorts"
       }
     },
+    "image-fit": {
+      "label": "image-fit",
+      "params": {
+        "item": "image-fit",
+        "state": "default"
+      }
+    },
     "image-regions": {
       "label": "image-regions",
       "params": {
         "item": "image-regions",
+        "state": "default"
+      }
+    },
+    "image-to-png": {
+      "label": "image-to-png",
+      "params": {
+        "item": "image-to-png",
         "state": "default"
       }
     },
@@ -419,6 +441,13 @@
         "state": "spotlight"
       }
     },
+    "motion-eases": {
+      "label": "motion-eases",
+      "params": {
+        "item": "motion-eases",
+        "state": "default"
+      }
+    },
     "motion-keyframes": {
       "label": "motion-keyframes",
       "params": {
@@ -426,10 +455,31 @@
         "state": "default"
       }
     },
+    "motion-random": {
+      "label": "motion-random",
+      "params": {
+        "item": "motion-random",
+        "state": "default"
+      }
+    },
+    "motion-shot-list": {
+      "label": "motion-shot-list",
+      "params": {
+        "item": "motion-shot-list",
+        "state": "default"
+      }
+    },
     "render-bvh": {
       "label": "render-bvh",
       "params": {
         "item": "render-bvh",
+        "state": "default"
+      }
+    },
+    "render-canvas-texture": {
+      "label": "render-canvas-texture",
+      "params": {
+        "item": "render-canvas-texture",
         "state": "default"
       }
     },
@@ -447,10 +497,10 @@
         "state": "default"
       }
     },
-    "render-image-textures": {
-      "label": "render-image-textures",
+    "render-srgb": {
+      "label": "render-srgb",
       "params": {
-        "item": "render-image-textures",
+        "item": "render-srgb",
         "state": "default"
       }
     },
@@ -458,6 +508,13 @@
       "label": "render-three-host",
       "params": {
         "item": "render-three-host",
+        "state": "default"
+      }
+    },
+    "render-three-textures": {
+      "label": "render-three-textures",
+      "params": {
+        "item": "render-three-textures",
         "state": "default"
       }
     },
@@ -489,38 +546,66 @@
         "state": "default"
       }
     },
-    "text-feature-captions": {
-      "label": "text-feature-captions · all",
+    "text-fit": {
+      "label": "text-fit · all",
       "params": {
-        "item": "text-feature-captions",
+        "item": "text-fit",
         "state": "all"
       }
     },
-    "text-feature-captions.edge": {
-      "label": "text-feature-captions · edge",
+    "text-fit.fit": {
+      "label": "text-fit · fit",
       "params": {
-        "item": "text-feature-captions",
+        "item": "text-fit",
+        "state": "fit"
+      }
+    },
+    "text-fit.wrap": {
+      "label": "text-fit · wrap",
+      "params": {
+        "item": "text-fit",
+        "state": "wrap"
+      }
+    },
+    "text-fit.track": {
+      "label": "text-fit · track",
+      "params": {
+        "item": "text-fit",
+        "state": "track"
+      }
+    },
+    "text-glitch-titles": {
+      "label": "text-glitch-titles · all",
+      "params": {
+        "item": "text-glitch-titles",
+        "state": "all"
+      }
+    },
+    "text-glitch-titles.edge": {
+      "label": "text-glitch-titles · edge",
+      "params": {
+        "item": "text-glitch-titles",
         "state": "edge"
       }
     },
-    "text-feature-captions.split": {
-      "label": "text-feature-captions · split",
+    "text-glitch-titles.split": {
+      "label": "text-glitch-titles · split",
       "params": {
-        "item": "text-feature-captions",
+        "item": "text-glitch-titles",
         "state": "split"
       }
     },
-    "text-feature-captions.column": {
-      "label": "text-feature-captions · column",
+    "text-glitch-titles.column": {
+      "label": "text-glitch-titles · column",
       "params": {
-        "item": "text-feature-captions",
+        "item": "text-glitch-titles",
         "state": "column"
       }
     },
-    "text-feature-captions.spine": {
-      "label": "text-feature-captions · spine",
+    "text-glitch-titles.spine": {
+      "label": "text-glitch-titles · spine",
       "params": {
-        "item": "text-feature-captions",
+        "item": "text-glitch-titles",
         "state": "spine"
       }
     },
@@ -573,31 +658,31 @@
         "state": "default"
       }
     },
-    "text-kinetic": {
-      "label": "text-kinetic · all",
+    "text-scramble": {
+      "label": "text-scramble · all",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "all"
       }
     },
-    "text-kinetic.scramble": {
-      "label": "text-kinetic · scramble",
+    "text-scramble.scramble": {
+      "label": "text-scramble · scramble",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "scramble"
       }
     },
-    "text-kinetic.decode": {
-      "label": "text-kinetic · decode",
+    "text-scramble.decode": {
+      "label": "text-scramble · decode",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "decode"
       }
     },
-    "text-kinetic.glitch": {
-      "label": "text-kinetic · glitch",
+    "text-scramble.glitch": {
+      "label": "text-scramble · glitch",
       "params": {
-        "item": "text-kinetic",
+        "item": "text-scramble",
         "state": "glitch"
       }
     },

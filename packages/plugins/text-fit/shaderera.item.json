@@ -1,0 +1,11 @@
+{
+  "name": "text-fit",
+  "type": "component",
+  "title": "Text fit",
+  "description": "Canvas2D text measured and laid out in a width: the size that fits, greedy word wrap that wraps Thai too, a line's width at a tracking, the lines as text runs for review",
+  "category": "Typography",
+  "tags": ["fit", "wrap", "line break", "tracking", "letter spacing", "measure", "thai", "text"],
+  "version": "0.2.0",
+  "licence": "MIT",
+  "files": ["src/type/fit.ts"]
+}

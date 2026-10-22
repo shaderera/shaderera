@@ -91,14 +91,9 @@ command takes `--json` and returns one envelope with `ok`, an exit code and find
 `t`, `file:line` and a box, so an agent can act on them.
 
 **Give the agent eyes.** The MCP server renders frames as images, inspects state and traces a
-pixel back to the line of code that drew it. From the project directory:
-
-```bash
-claude mcp add shaderera -- npx shaderera mcp
-```
-
-In another agent, add a stdio MCP server with the command `npx shaderera mcp`, run in the
-project directory. The CLI shows the same things: a contact sheet of any moments, and a detail
+pixel back to the line of code that drew it. The Claude Code plugin declares it, and a new
+project's `.mcp.json` names it. In another agent, add a stdio MCP server with the command
+`npx -y shaderera mcp` ([docs/mcp.md](docs/mcp.md)). The CLI shows the same things: a contact sheet of any moments, and a detail
 enlarged by whole pixels, so an agent can judge an edge, not just the code.
 
 <table>
@@ -150,7 +145,7 @@ Plugins are code that earlier films proved, like npm for clips. `add` copies a p
 into your project, where it becomes your code to change. Shaderera's own plugins are built from
 [`packages/plugins/`](packages/plugins/README.md), MIT, named `<category>-<thing>`:
 `audio-beat-clock`, `camera-keyframes`, `format-safe-areas`, `render-three-host`,
-`text-feature-captions`, `look-screen-passes`, four fonts, and more.
+`text-glitch-titles`, `look-screen-passes`, four fonts, and more.
 
 `shaderera` reads Shaderera's own at `https://shaderera.com/r` unless you point it elsewhere. In a
 film:
@@ -160,12 +155,12 @@ npx shaderera search "beat sync"
 npx shaderera add audio-beat-clock
 ```
 
-A team keeps its own plugins in a folder, or at the URL it is served at: set `SHADERERA_PLUGINS`
-or pass `--from <dir|url>`. To fill a folder with the official plugins, from a clone of this repository after
+A team keeps its own plugins in a folder, or at the URL it is served at: pass
+`--site <dir|url>`. To fill a folder with the official plugins, from a clone of this repository after
 `pnpm install`:
 
 ```bash
-for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --from <folder>; done
+for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --site <folder>; done
 ```
 
 All of it is in [docs/plugins.md](docs/plugins.md). To write a plugin, for the official ones or
@@ -177,16 +172,18 @@ for a library of your own, see [docs/plugin-guide.md](docs/plugin-guide.md).
 shared film into a new folder as an ordinary project:
 
 ```bash
-npx shaderera login --token <token>
+npx shaderera login                      # sign in with GitHub (or --token <token>)
 npx shaderera share                      # a new film, then new versions of it
-npx shaderera fork https://shaderera.com/f/<film> my-film
+npx shaderera fork https://shaderera.com/film/<film> my-film
 ```
 
 They run only when called and send only the project's files, as a revision holds them, never a
 file that holds secrets (`.env`, `.npmrc`, `.dev.vars`, keys, …), and the film's web player,
 which `share` builds on your machine ([docs/player.md](docs/player.md)). `share` prints what it will send and asks first (`--yes` off a terminal).
-`--to <origin>` or `SHADERERA_SITE` names another site. All of it is in
-[docs/cli.md](docs/cli.md#shadereracom-login-share-fork).
+They talk to the films API at `https://api.shaderera.com` (`--api <origin>` or `SHADERERA_API`
+names another) and name film pages on `https://shaderera.com` (`--site`, `SHADERERA_SITE`). All
+of it is in
+[docs/cli.md](docs/cli.md#shadereracom-login-whoami-logout-share-fork).
 
 `npx shaderera studio` opens the studio, a page on shaderera.com that previews, renders and shares
 the project on your machine through a local bridge on 127.0.0.1
@@ -246,7 +243,7 @@ hands ffmpeg the result.
 | `shaderera doctor` | what this machine has and lacks |
 | `shaderera mcp` | the same operations as MCP tools over stdio |
 | `shaderera search` / `info` / `add` / `remove` / `publish` | plugins ([docs/plugins.md](docs/plugins.md)) |
-| `shaderera login` / `share` / `fork` | send a film to shaderera.com, and fork one from there |
+| `shaderera login` / `whoami` / `logout` / `share` / `fork` | send a film to shaderera.com, and fork one from there |
 
 Every flag is in [docs/cli.md](docs/cli.md), and the MCP tools are in [docs/mcp.md](docs/mcp.md).
 
@@ -287,7 +284,8 @@ download flag).
 The fast tests are the `*.test.ts` files. The slow ones, `*.it.ts` (`pnpm test:slow`, which builds
 the CLI first), launch Chrome, Dawn, ffmpeg or the CLI as a child. They need ffmpeg, a GPU and
 Chrome: the ffmpeg tests skip without ffmpeg, but the GPU and browser-host tests fail without a
-GPU and Chrome (`CHROME` names another Chrome). A test that needs none of them goes in a
+GPU and Chrome (`CHROME` names another Chrome). `apps/cli/src/node/packed.it.ts` also packs the
+CLI and installs it with npm, so it needs npm's registry. A test that needs none of them goes in a
 `*.test.ts` file.
 
 The root `pnpm test`, `test:slow` and `test:all` point the temp folder at one of the run's own and

@@ -8,11 +8,15 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type { Json, SampledClip } from '@shaderera/core'
 import type { TextRun } from '../review/measure.ts'
+import { type AdapterInfo, adapterLine, softwareAdapter } from './adapter.ts'
 import { alive } from './build.ts'
 import { type Child, type Rendered, TIMEOUT } from './child.ts'
 import type { Project } from './project.ts'
@@ -27,6 +31,46 @@ export const chromePath = () =>
     '/usr/bin/google-chrome',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   ].find((p) => existsSync(p))
+
+/** The flags that decide the browser host's GPU: doctor's probe starts Chrome with them too. */
+const WEBGPU = ['--headless=new', '--enable-unsafe-webgpu']
+
+/** The page's adapter, asked as the runner's worker asks for its own (runner/worker.ts). */
+const ADAPTER = `(async () => {
+  const info = (await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' }))?.info
+  return info ? { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter } : null
+})()`
+
+/** Starts Chrome with `flags` (its profile among them) on about:blank. */
+const startChrome = (chrome: string, flags: string[]) => {
+  const browser: ChildProcess = spawn(chrome, [...flags, 'about:blank'], { stdio: 'ignore' })
+  const exited = new Promise<string>((done) =>
+    browser.once('exit', (code, signal) => done(`it exited (${signal ?? code})`)),
+  )
+  return { browser, exited }
+}
+
+/** The DevTools socket of the page of the Chrome started on `profile`. */
+const pageSocket = async (profile: string): Promise<string> => {
+  // Chrome creates the file before it has written it, and on Windows may still hold it open
+  // (EBUSY): read until its first line is a port.
+  const portFile = join(profile, 'DevToolsActivePort')
+  let devtools = ''
+  for (let i = 0; i < 200 && !/^\d+$/.test(devtools); i++) {
+    try {
+      devtools = readFileSync(portFile, 'utf8').split('\n')[0] ?? ''
+    } catch {}
+    if (!/^\d+$/.test(devtools)) await sleep(100)
+  }
+  if (!/^\d+$/.test(devtools)) throw new Error('Chrome did not report its DevTools port.')
+  const targets = (await (await fetch(`http://127.0.0.1:${devtools}/json`)).json()) as {
+    type: string
+    webSocketDebuggerUrl: string
+  }[]
+  const page = targets.find((t) => t.type === 'page')
+  if (!page) throw new Error('Chrome opened no page.')
+  return page.webSocketDebuggerUrl
+}
 
 type Message = { id?: number; method?: string; params?: unknown; result?: unknown; error?: unknown }
 
@@ -91,6 +135,59 @@ export const session = async (
       listeners.set(method, [...(listeners.get(method) ?? []), listener as (p: never) => void])
     },
     close: () => ws.close(),
+  }
+}
+
+/**
+ * The adapter the browser host's Chrome gets (null: none), asked on an empty page in a throwaway
+ * profile with the host's GPU flags: doctor's, which opens no project. The page is served on
+ * localhost, since WebGPU needs a secure context and about:blank is not one.
+ */
+export const browserAdapter = async (chrome: string): Promise<AdapterInfo | null> => {
+  const server = createServer((_, res) => res.end('<!doctype html>'))
+  await new Promise<void>((done) => server.listen(0, HOST, done))
+  const profile = mkdtempSync(join(tmpdir(), 'shaderera-gpu-'))
+  const { browser, exited } = startChrome(chrome, [
+    ...WEBGPU,
+    '--remote-debugging-port=0',
+    `--user-data-dir=${profile}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+  ])
+  try {
+    const cdp = await session(await pageSocket(profile), exited, {
+      ms: 30_000,
+      expired: () => browser.kill(),
+    })
+    try {
+      const evaluate = async <T>(expression: string) =>
+        (
+          await cdp.send<{ result: { value: T } }>('Runtime.evaluate', {
+            expression,
+            awaitPromise: true,
+            returnByValue: true,
+          })
+        ).result.value
+      await cdp.send('Page.navigate', {
+        url: `http://${HOST}:${(server.address() as AddressInfo).port}/`,
+      })
+      for (let i = 0; !(await evaluate<boolean>('isSecureContext')); i++) {
+        if (i > 100) throw new Error('Chrome did not load the probe page.')
+        await sleep(100)
+      }
+      return await evaluate<AdapterInfo | null>(ADAPTER)
+    } finally {
+      cdp.close()
+    }
+  } finally {
+    browser.kill()
+    await exited
+    server.close()
+    // Windows: Chrome's helper processes hold files a moment after it exits; a throwaway left
+    // behind is only disk.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    } catch {}
   }
 }
 
@@ -197,10 +294,9 @@ export const openBrowserChild = async (
   rmSync(join(profile, 'DevToolsActivePort'), { force: true })
   const { width, height } = o.size ?? project.manifest
   const flags = [
-    '--headless=new',
+    ...WEBGPU,
     '--remote-debugging-port=0',
     `--user-data-dir=${profile}`,
-    '--enable-unsafe-webgpu',
     '--enable-features=CanvasDrawElement',
     '--no-first-run',
     '--no-default-browser-check',
@@ -210,10 +306,7 @@ export const openBrowserChild = async (
     // the DOM's canvas is placed at the frame's size, whatever the window's.
     `--window-size=${Math.max(width, 1024)},${Math.max(height, 768)}`,
   ]
-  const browser: ChildProcess = spawn(chrome, [...flags, 'about:blank'], { stdio: 'ignore' })
-  const exited = new Promise<string>((done) =>
-    browser.once('exit', (code, signal) => done(`it exited (${signal ?? code})`)),
-  )
+  const { browser, exited } = startChrome(chrome, flags)
   const close = async () => {
     browser.kill()
     await exited
@@ -225,28 +318,12 @@ export const openBrowserChild = async (
     }
   }
   try {
-    // Chrome creates the file before it has written it, and on Windows may still hold it open
-    // (EBUSY): read until its first line is a port.
-    const portFile = join(profile, 'DevToolsActivePort')
-    let devtools = ''
-    for (let i = 0; i < 200 && !/^\d+$/.test(devtools); i++) {
-      try {
-        devtools = readFileSync(portFile, 'utf8').split('\n')[0] ?? ''
-      } catch {}
-      if (!/^\d+$/.test(devtools)) await sleep(100)
-    }
-    if (!/^\d+$/.test(devtools)) throw new Error('Chrome did not report its DevTools port.')
-    const targets = (await (await fetch(`http://127.0.0.1:${devtools}/json`)).json()) as {
-      type: string
-      webSocketDebuggerUrl: string
-    }[]
-    const page = targets.find((t) => t.type === 'page')
-    if (!page) throw new Error('Chrome opened no page.')
+    const socket = await pageSocket(profile)
     const timeout = {
       ms: o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT,
       expired: () => browser.kill(),
     }
-    const cdp = await session(page.webSocketDebuggerUrl, exited, timeout)
+    const cdp = await session(socket, exited, timeout)
     await cdp.send('Runtime.enable')
     await cdp.send('Log.enable')
     await cdp.send('DOM.enable')
@@ -304,8 +381,9 @@ export const openBrowserChild = async (
       await pageReady()
       debug('page ready, opening')
       try {
+        // Raced against the worker failing to load (runner/bridge.ts), which answers no call.
         opened = await evaluate<NonNullable<typeof opened>>(
-          `window.__shaderera.open(${JSON.stringify({ params: o.params, seed: o.seed, variant: o.variant, revision: o.revision, size: o.size })})`,
+          `Promise.race([window.__shaderera.open(${JSON.stringify({ params: o.params, seed: o.seed, variant: o.variant, revision: o.revision, size: o.size })}), window.__shadereraFailed.then((m) => { throw new Error(m) })])`,
         )
       } catch (error) {
         if (
@@ -408,16 +486,16 @@ export const openBrowserChild = async (
       },
       identity: async () => {
         const { product } = await cdp.send<{ product: string }>('Browser.getVersion')
-        const adapter = await evaluate<string | null>(`(async () => {
-          const info = (await navigator.gpu?.requestAdapter({ powerPreference: 'high-performance' }))?.info
-          return info ? [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') : null
-        })()`)
+        const info = await evaluate<AdapterInfo | null>(ADAPTER)
+        const adapter = info ? adapterLine(info) : ''
+        const software = info ? softwareAdapter(info) : undefined
         return {
           host: 'browser' as const,
           node: process.version,
           browser: product,
           flags: flags.filter((f) => /^--(enable|headless)/.test(f)),
           ...(adapter ? { adapter } : {}),
+          ...(software ? { software } : {}),
         }
       },
       close: async () => {

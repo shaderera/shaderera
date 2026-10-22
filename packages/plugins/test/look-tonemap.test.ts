@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readBuffer } from '@shaderera/core/gpu'
-import { agx, pbrNeutral, type Rgb } from '../look-tonemap/src/looks/tonemap.ts'
+import { agx, type LinearRgb, pbrNeutral } from '../look-tonemap/src/looks/tonemap.ts'
 import { TONEMAP_WGSL } from '../look-tonemap/src/looks/tonemap.wgsl.ts'
 import { openFrame } from './frame.ts'
 
@@ -47,13 +47,13 @@ test('look-tonemap: AgX gives the three.js values', () => {
 
 test('look-tonemap: the WGSL gives the CPU values, within one 8-bit step', async () => {
   // Twelve hues at five saturations, grey to full, from 2^-12 to 2^10 in half stops.
-  const inputs: Rgb[] = []
+  const inputs: LinearRgb[] = []
   for (let ev = -12; ev <= 10; ev += 0.5)
     for (let h = 0; h < 12; h++)
       for (const s of [0, 0.25, 0.5, 0.75, 1]) {
         const a = (h / 12) * Math.PI * 2
         const hue = [0, 2.0944, 4.18879].map((o) => 1 - s * (0.5 - 0.5 * Math.cos(a - o)))
-        inputs.push(hue.map((v) => v * 2 ** ev) as unknown as Rgb)
+        inputs.push(hue.map((v) => v * 2 ** ev) as unknown as LinearRgb)
       }
   inputs.push([0, 0, 0], [0.08, 0.08, 0.08], [0.76, 0.2, 0.2], [100, 0, 0], [0, 0, 100])
   const n = inputs.length
@@ -105,7 +105,7 @@ test('look-tonemap: the WGSL gives the CPU values, within one 8-bit step', async
     v <= 0.0031308 ? 12.92 * v : 1.055 * Math.max(v, 0) ** (1 / 2.4) - 0.055
   inputs.forEach((c, i) => {
     // The CPU in float32's input, as the GPU read it.
-    const f = c.map(Math.fround) as unknown as Rgb
+    const f = c.map(Math.fround) as unknown as LinearRgb
     for (const [k, cpu] of [pbrNeutral(f), agx(f)].entries())
       for (let ch = 0; ch < 3; ch++) {
         const gpu = out[(2 * i + k) * 4 + ch] ?? Number.NaN

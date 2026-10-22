@@ -24,9 +24,15 @@ new folder as an ordinary project.
 _Avoid_: publish (a plugin's verb), upload, deploy
 
 **Site**:
-Where `share` and `fork` send and fetch films: shaderera.com, or another origin serving its API
-(`--to <origin>`, `SHADERERA_SITE`).
+The pages people see: shaderera.com, or another origin (`--site <origin>`, `SHADERERA_SITE`). A
+film's page, the studio page and its relay, and the plugins at `<site>/r`.
 _Avoid_: host (the Node or browser host), server
+
+**Films API**:
+Where `share`, `fork` and `login` send and fetch films: api.shaderera.com, or another origin
+serving its routes under `/api/v1` (`--api <origin>`, `SHADERERA_API`). Its health names the
+pages a shared film's player may be framed by.
+_Avoid_: the site (the pages), server
 
 **Studio**:
 shaderera.com's page for making a film whose project is on the person's own machine. It drives
@@ -178,6 +184,12 @@ _Avoid_: campaign render
 A delivery as PNG frames, a WAV and `delivery.json`, for an editor or a colourist.
 _Avoid_: image sequence export
 
+**Caption**:
+A line of text from a source's `captions`, shown from `start` to `end` and written as SRT and
+WebVTT sidecars beside an export, never drawn into the frame. Text drawn into the frame is a
+**title**.
+_Avoid_: subtitle, lower third
+
 **Mix**:
 A film's sound: the audio clips it lists inside a job's window, each trimmed, delayed into place
 and scaled by its gain, then summed without normalisation. A clip whose file has no sound is
@@ -267,7 +279,7 @@ _Avoid_: source (what a project's entry returns), catalog, metadata
 Code that earlier films proved, of one type: a **package plugin** (type `extension`, an npm
 package the project imports), a **component** (code copied in), a **preset** (data only) or
 **media** (fonts, sound, models, images). Once copied in, it is the project's own. Plugins come
-from a folder or the URL of one (`--from`, `SHADERERA_PLUGINS`), else Shaderera's own at
+from a site's `/r`, a folder or the URL of one (`--site`, `SHADERERA_SITE`), else Shaderera's own at
 `https://shaderera.com/r`, built from `packages/plugins/` in this repository, MIT. Not the
 Claude Code plugin, which installs the agent skills. Called _item_ in code.
 _Avoid_: add-on, registry item, template, asset pack, library, catalog

@@ -3,7 +3,7 @@
 A film's web player is its runner (the page and worker where the browser host runs the source)
 built as static files for that one film. Any static host can serve it, and a page on another
 origin can play it in a sandboxed frame. `shaderera share` builds it on your machine into
-`.shaderera/player/` and sends it beside the source ([cli.md](cli.md#shadereracom-login-share-fork)).
+`.shaderera/player/` and sends it beside the source ([cli.md](cli.md#shadereracom-login-whoami-logout-share-fork)).
 The site stores and serves it and builds nothing.
 
 ## What it holds
@@ -85,8 +85,9 @@ The bridge is the only code that talks across the frame, with `postMessage`.
 
 **Which pages may have the port.** `runner.html` lists the origins allowed to frame the player
 and drive it, in `<meta name="shaderera-parents" content="<origin> <origin>…">`. `share` writes
-the site it sends to; the build's `parents` option takes others, and `https://shaderera.com` is
-the default. The bridge picks one: the origin `?parent=` names when it is in the list, else the
+the `parents` the films API's health names (`GET /api/v1/films/health`), else the site
+(`--site`); the build's `parents` option takes others, and `https://shaderera.com` is the
+default. The bridge picks one: the origin `?parent=` names when it is in the list, else the
 first. It posts the port to that origin only, so the browser delivers it only to a parent page
 of that origin. A page of any other origin that frames the player gets nothing (the site's
 `frame-ancestors` should refuse it before that).

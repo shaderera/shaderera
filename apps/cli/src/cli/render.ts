@@ -4,11 +4,13 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes, type Manifest, type Sink } from '@shaderera/core'
 import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
+import { removePartials } from '../deliver/claim.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
+import { refuseSoftware } from '../node/adapter.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
-import { openHosts } from '../node/open-host.ts'
+import { frameError, openHosts } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
 import {
@@ -181,6 +183,19 @@ const exportOnce = async (
   mkdirSync(dirname(out), { recursive: true })
   // Named by the process: two renders to one out never write one file or remove each other's.
   const partial = `${out}.${process.pid}.partial`
+  // What renders of this out that died (killed, the power cut) left, half written. A film ffprobe
+  // reads is one that finished but could not replace out (below): it is kept, and named.
+  removePartials(out, '.partial', false, (file) => {
+    try {
+      probe(file)
+    } catch {
+      return false
+    }
+    console.warn(
+      `! ${file} is a finished film an earlier render could not move into place: rename it to ${out} to keep it.`,
+    )
+    return true
+  })
   const clips = o.audio === false ? [] : ((await child.audio()) ?? [])
   // The mix's temporary files go in the finally (or with its own throw).
   const mix = openMix(root, clips, { from: head, to }, { loudness: o.loudness })
@@ -194,7 +209,7 @@ const exportOnce = async (
   let finished = false
   let stemsWritten = false
   try {
-    if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1)
+    if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1, workers)
     const hosts = [child, ...(o.hosts ?? opened)]
     // Every host must give the same bytes in the same format.
     const input: Input = o.frames
@@ -364,6 +379,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       changed: { type: 'string' },
       fix: { type: 'boolean' },
       loudness: { type: 'string' },
+      'software-gpu': { type: 'boolean' },
       ...DELIVERY_FLAGS,
     },
     { command: 'render', times: false },
@@ -429,6 +445,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)
   const hosts = [child, ...extra] as const
+  // On a software adapter, refused unless accepted, before anything is saved.
+  await refuseSoftware(child, v['software-gpu'] === true).catch(async (error) => {
+    await Promise.all(hosts.map((h) => h.close()))
+    throw error
+  })
   // What the output is traced to: the job's revision, or the working tree saved now (the same
   // files give the same id, so an unchanged project saves nothing new). Saved once the source
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
@@ -486,7 +507,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       const plan = readPlan(dir)
       if (plan.jobId !== job.id)
         throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
-      const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame).finally(
+      process.once('SIGINT', interrupt)
+      process.once('SIGTERM', interrupt)
+      const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame, stop.signal).finally(
         () => progress && process.stderr.write('\n'),
       )
       console.log(
@@ -510,12 +533,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         ...(job.delivery.bits ? { bits: job.delivery.bits } : {}),
         ...(job.delivery.stems ? { stems: true } : {}),
       }).finally(() => progress && process.stderr.write('\n'))
-      console.log(`${done.dir}\n${done.record.frameCount} frames in ${done.seconds.toFixed(1)} s`)
+      console.log(
+        `${done.dir}\n${done.record.frameCount} frames in ${done.seconds.toFixed(1)} s: ${done.rendered} rendered, ${done.kept} already there`,
+      )
       if (done.record.audio?.loudness)
         console.log(`audio: ${loudnessLine(done.record.audio.loudness)}`)
       return 0
     }
-    // Only around the video export: a chunk or a png job keeps the default Ctrl-C.
+    // Only around a chunk and the video export: a png job keeps the default Ctrl-C.
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
     const from = job?.output.from ?? num(v.from) ?? 0
@@ -591,23 +616,4 @@ const encodeFrames = async (
     throw error
   }
   return { frames }
-}
-
-/** What a GPU says when it cannot go on: a lost or removed device, or memory it could not get. */
-const DEVICE = /device was lost|device removed|DXGI_ERROR|out of memory|WebGPU reported/i
-
-/**
- * A host's error with the frame it happened at. A device error also names the usual way out:
- * every host holds its own copy of the film's GPU memory, so fewer hosts need less.
- */
-export const frameError = (error: unknown, t: number, fps: number, hosts: number): Error => {
-  const message = error instanceof Error ? error.message : String(error)
-  const way = !DEVICE.test(message)
-    ? ''
-    : hosts > 1
-      ? ` ${hosts} hosts shared the GPU, each with its own memory: render with fewer --workers (--workers 1 for one).`
-      : ' The GPU ran out or reset: close other work on it, or make the film need less memory.'
-  return new Error(`Frame ${Math.round(t * fps)} (t ${t} s) failed: ${message}${way}`, {
-    cause: error,
-  })
 }

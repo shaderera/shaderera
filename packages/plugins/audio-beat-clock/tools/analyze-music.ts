@@ -1,10 +1,11 @@
 // Measures a song so the picture can be cut to it:
 //   node tools/analyze-music.ts <song> [out.json] [--fps 60] [--min-bpm 70] [--max-bpm 180]
-// Writes (by default next to the song, as <song>.analysis.json) the tempo and beat grid, the
-// downbeats, onsets with their strength, band energy every film frame (sub, low, mid, high),
-// silences and section boundaries. The song's sha256 is recorded, so the film can refuse an
-// analysis of other bytes (src/music/beat.ts, loadAnalysis). Measurements only: what they mean is
-// decided in the film's code. Needs ffmpeg on PATH.
+// Writes (by default next to the song, as <song>.analysis.json) a shaderera.analysis/1 artifact of
+// kind "music": the tempo and beat grid, the downbeats, onsets with their strength, band energy
+// every film frame (sub, low, mid, high), silences and section boundaries. The song's sha256 is
+// recorded, so the film can refuse an analysis of other bytes (src/music/beat.ts, loadAnalysis).
+// Measurements only: what they mean is decided in the film's code. Run from the project root, with
+// the song inside it. Needs ffmpeg on PATH.
 //
 // The tempo is found by autocorrelation, then fitted to the song's strong onsets (fitGrid), so the
 // grid does not drift over a long song. Check it by ear: autocorrelation can land on a ratio of
@@ -13,6 +14,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { fitGrid } from '../src/music/beat.ts'
 
@@ -24,8 +26,18 @@ const { values, positionals } = parseArgs({
     'max-bpm': { type: 'string', default: '180' },
   },
 })
-const src = positionals[0]
-if (!src) throw new Error('Usage: node tools/analyze-music.ts <song> [out.json] [--fps 60]')
+if (!positionals[0])
+  throw new Error('Usage: node tools/analyze-music.ts <song> [out.json] [--fps 60]')
+/** The song's path from the project root, which loadAnalysis reads it by. */
+const inProject = (p: string) => {
+  const rel = relative(process.cwd(), resolve(p)).replaceAll('\\', '/')
+  if (rel === '' || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
+    throw new Error(
+      `${p} is outside this project: run from the project root, with the song inside it`,
+    )
+  return rel
+}
+const src = inProject(positionals[0])
 const outPath = positionals[1] ?? src.replace(/\.[^./\\]+$/, '') + '.analysis.json'
 const FPS = Number(values.fps)
 const MIN_BPM = Number(values['min-bpm'])
@@ -195,14 +207,14 @@ const bands = Object.fromEntries(
 
 // Silences: 40 ms or more under -40 dB below the song's peak RMS.
 const peak = rms.reduce((m, v) => Math.max(m, v), 0)
-const silences: { from: number; to: number }[] = []
+const silences: { start: number; end: number }[] = []
 let start = -1
 for (let f = 0; f < frames; f++) {
   const quiet = 20 * Math.log10((rms[f] as number) / peak + 1e-12) < -40
   if (quiet && start < 0) start = f
   if ((!quiet || f === frames - 1) && start >= 0) {
     if (at(f) - at(start) >= 0.04)
-      silences.push({ from: Number(at(start).toFixed(3)), to: Number(at(f).toFixed(3)) })
+      silences.push({ start: Number(at(start).toFixed(3)), end: Number(at(f).toFixed(3)) })
     start = -1
   }
 }
@@ -240,9 +252,14 @@ const sections = novelty
   .map((n) => ({ t: Number(n.t.toFixed(3)), novelty: Number(n.v.toFixed(2)) }))
 
 const out = {
-  kind: 'shaderera.analysis/1',
-  of: { path: src.replace(/\\/g, '/'), sha256 },
-  duration: Number(duration.toFixed(4)),
+  format: 'shaderera.analysis/1',
+  kind: 'music',
+  source: { path: src, bytes: bytes.length, sha256, seconds: Number(duration.toFixed(4)) },
+  tool: {
+    script: 'tools/analyze-music.ts',
+    ffmpeg: execFileSync('ffmpeg', ['-version']).toString().split('\n')[0]?.trim(),
+  },
+  params: { fps: FPS, minBpm: MIN_BPM, maxBpm: MAX_BPM },
   tempo: {
     bpm: Number(bpm.toFixed(3)),
     period: Number(period.toFixed(6)),

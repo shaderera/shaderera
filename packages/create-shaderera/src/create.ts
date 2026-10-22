@@ -26,6 +26,11 @@ export const copyProject = (from: string, target: string): void => {
   })
 }
 
+/** A project's `.mcp.json`: the MCP server, run as the Claude Code plugin runs it. */
+export const MCP = {
+  mcpServers: { shaderera: { command: 'npx', args: ['-y', 'shaderera', 'mcp'] } },
+}
+
 /**
  * Copies the starting project into `target`: its own name, and the workspace's `workspace:*`
  * versions pinned to this release's version.
@@ -44,6 +49,9 @@ export const create = (o: {
   // npm never packs a .gitignore: without one, the first `git add .` takes node_modules and the renders.
   if (!existsSync(join(o.target, '.gitignore')))
     writeFileSync(join(o.target, '.gitignore'), 'node_modules/\nout/\n.shaderera/\n')
+  // The MCP server for agents that read a project's .mcp.json (Claude Code, Cursor and others).
+  if (!existsSync(join(o.target, '.mcp.json')))
+    writeFileSync(join(o.target, '.mcp.json'), `${JSON.stringify(MCP, null, 2)}\n`)
   for (const [name, path] of Object.entries(o.guides ?? {})) {
     if (!existsSync(join(o.target, name))) cpSync(path, join(o.target, name), { recursive: true })
   }

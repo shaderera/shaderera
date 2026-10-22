@@ -1,0 +1,18 @@
+{
+  "route": "GET /obj/{sha}",
+  "about": "fork: downloads one file of the revision, without a token.",
+  "request": {
+    "method": "GET",
+    "path": "/obj/9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf",
+    "headers": {
+      "Authorization": null
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/octet-stream"
+    },
+    "bytes": "{\"entry\":\"./src/film.ts\",\"width\":1080,\"height\":1920,\"fps\":30,\"duration\":6}"
+  }
+}

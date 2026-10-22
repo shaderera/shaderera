@@ -40,6 +40,8 @@ Node refuses one outside it. Review's `glyphs` check reads the files loaded this
   its `copy`, `glyphs`, `text-fit`, `text-overlap` and `reading` checks. Reading time, overlap and a
   safe area are judged only when requirements.json declares them (`readingTime`, `textOverlap`,
   `safeArea`); otherwise review reports what it measured.
+- The `text-fit` plugin's `textRuns` turns wrapped lines into those runs, one a line, measured
+  in the font they are drawn in.
 
 ## Thai
 - Set Thai only in a face that has Thai (Trirong, Noto Sans/Serif Thai, IBM Plex Sans Thai,

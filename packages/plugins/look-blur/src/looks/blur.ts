@@ -4,6 +4,7 @@
 // a pyramid of the frame built once per call. Motion blur is not this: it is several t averaged.
 
 import type { Host } from '@shaderera/core'
+import { createCanvasTexture } from '../render/canvas-texture.ts'
 import { BLUR_WGSL, DOWN_WGSL, PREP_WGSL } from './blur.wgsl.ts'
 
 export type BlurKind = 'gaussian' | 'bokeh' | 'directional' | 'radial'
@@ -13,13 +14,13 @@ export const BLURS: readonly BlurKind[] = ['gaussian', 'bokeh', 'directional', '
 export type BlurShape = {
   x: number
   y: number
-  w: number
-  h: number
+  width: number
+  height: number
   /** The amount inside, 0–1: 0 keeps it sharp (a window), 1 blurs it fully (a censor box). */
   amount?: number
   /** How far outside the edge, in px, the amount takes to ease back to what is under it. */
   feather?: number
-  /** Corner radius in px; half the shorter side makes a capsule, or a circle when w = h. */
+  /** Corner radius in px; half the shorter side makes a capsule, or a circle when width = height. */
   round?: number
 }
 
@@ -138,30 +139,9 @@ export const createBlur = (host: Host, o: { width: number; height: number }) => 
   const workView = work.createView()
   const outView = out.createView()
 
-  // Canvases are uploaded into textures of their size, made once.
-  const uploads = new Map<string, GPUTexture>()
-  const upload = (canvas: OffscreenCanvas, slot: string) => {
-    const { width: w, height: h } = canvas
-    const key = `${slot} ${w}x${h}`
-    let texture = uploads.get(key)
-    if (!texture) {
-      texture = device.createTexture({
-        size: [w, h],
-        format: 'rgba8unorm',
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-      })
-      uploads.set(key, texture)
-      owned.push(texture)
-    }
-    const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D
-    device.queue.writeTexture(
-      { texture },
-      new Uint8Array(ctx.getImageData(0, 0, w, h).data),
-      { bytesPerRow: w * 4 },
-      [w, h],
-    )
-    return texture
-  }
+  // Canvases are uploaded into textures of their size, the frame and the map each its own.
+  const sources = createCanvasTexture(host)
+  const maps = createCanvasTexture(host)
   let depthTexture: GPUTexture | undefined
   const depthOf = (data: Float32Array) => {
     if (data.length !== W * H)
@@ -215,7 +195,7 @@ export const createBlur = (host: Host, o: { width: number; height: number }) => 
       if (shapes.length > MAX_SHAPES)
         throw new Error(`look-blur takes up to ${MAX_SHAPES} shapes, not ${shapes.length}`)
       const canvas = !('createView' in source)
-      const texture = canvas ? upload(source, 'source') : source
+      const texture = canvas ? sources.upload(source) : source
       const alpha = ['premultiplied', 'straight', 'opaque'].indexOf(
         canvas ? 'straight' : (p.alpha ?? 'premultiplied'),
       )
@@ -225,7 +205,7 @@ export const createBlur = (host: Host, o: { width: number; height: number }) => 
       device.queue.writeBuffer(prepUniforms, 0, new Float32Array([alpha, linear, highlights, 0]))
       const [cx, cy] = p.centre ?? [W / 2, H / 2]
       const reach = Math.hypot(Math.max(cx, W - cx), Math.max(cy, H - cy))
-      const map = p.map && ('createView' in p.map ? p.map : upload(p.map, 'map'))
+      const map = p.map && ('createView' in p.map ? p.map : maps.upload(p.map))
       const u = new Float32Array(4 * (5 + 2 * MAX_SHAPES))
       u.set([BLURS.indexOf(kind), p.radius ?? 24, p.amount ?? 1, shapes.length])
       u.set([p.angle ?? 0, cx, cy, reach], 4)
@@ -241,7 +221,10 @@ export const createBlur = (host: Host, o: { width: number; height: number }) => 
       u.set([map ? 1 : 0, p.depth ? 1 : 0, p.depth?.focus ?? 0, p.depth?.range ?? 1], 12)
       u.set([levels, alpha, linear, 0], 16)
       shapes.forEach((s, i) => {
-        u.set([s.x, s.y, s.w, s.h, s.feather ?? 0, s.round ?? 0, s.amount ?? 0, 0], 20 + i * 8)
+        u.set(
+          [s.x, s.y, s.width, s.height, s.feather ?? 0, s.round ?? 0, s.amount ?? 0, 0],
+          20 + i * 8,
+        )
       })
       device.queue.writeBuffer(uniforms, 0, u)
       const prepGroup = device.createBindGroup({
@@ -274,6 +257,8 @@ export const createBlur = (host: Host, o: { width: number; height: number }) => 
     },
     dispose() {
       for (const t of owned) t.destroy()
+      sources.dispose()
+      maps.dispose()
       prepUniforms.destroy()
       uniforms.destroy()
     },

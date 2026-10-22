@@ -1,0 +1,14 @@
+{
+  "route": "POST /auth/logout",
+  "about": "logout: signs this machine out. No body.",
+  "request": {
+    "method": "POST",
+    "path": "/auth/logout",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7"
+    }
+  },
+  "response": {
+    "status": 204
+  }
+}
