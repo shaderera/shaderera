@@ -13,9 +13,11 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
     summary);
   - **looks, motion and sound design** plugins only when the person asks.
   Never search for plugins or suggest them on your own. The `shaderera-plugins` skill says how to
-  add: it is in `.claude/skills/shaderera-plugins/`, or in `.agents/skills/` for an agent that
-  installed it with `npx skills add`. If a command refuses the project because a required package
-  plugin is missing, take one of the two ways out it names; never work around it silently.
+  add. If a command refuses the project because a required package plugin is missing, take one of
+  the two ways out it names; never work around it silently.
+- The skills (`shaderera`, `shaderera-plugins`) come from the Claude Code plugin
+  (`claude plugin install shaderera@shaderera`) or, in another agent,
+  `npx skills add shaderera/shaderera`. The project holds no copy of them.
 - Keep explicit instructions over defaults. If the brief names a real product, logo or brand asset
   and its model or files are missing, ask for them; never present a primitive as the real thing.
   If the brief asks for an original design, or nobody can answer, design an original object or
@@ -30,5 +32,9 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
 - Add `--json` to any command for one envelope to read: `ok`, `exitCode` (0 passed, 1 the film
   failed a check, 2 the command could not run) and `findings` with t, file:line and bbox. When
   something on the machine is missing, `npx shaderera doctor` says what and how to fix it.
+- Sharing on shaderera.com (`npx shaderera share`) sends the project's source, so it needs a
+  licence: `package.json` starts as `"license": "UNLICENSED"` (all rights reserved). Ask the
+  person which licence they want before you change it, and run `npx shaderera share --dry-run`
+  first. The `shaderera` skill covers `login`, `share`, `fork` and `studio`.
 - Report what you could not verify by looking: numbers such as contrast or a passing check do not
   establish that a frame looks good.

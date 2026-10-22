@@ -124,8 +124,9 @@ starting project is 1920×1080 at 60 fps, 10 s long, seed 1 (`shaderera.json`), 
 [How it works](#how-it-works) is Canvas2D.
 Every new project is also set up for an agent: `AGENTS.md` (and `CLAUDE.md`, which points to
 it) says how to work there, `AUTHORING.md` is the workflow, `guides/` holds short guides (sound,
-typography, formats, 3D products, photos, logos, review, revisions), and `.claude/skills/` holds
-the same two skills as the Claude Code plugin.
+typography, formats, 3D products, photos, logos, review, revisions), and `.mcp.json` names the
+MCP server. The skills are not copied in: install them once, with the Claude Code plugin or
+`npx skills add` ([above](#with-an-ai-coding-agent)).
 
 ## Skills
 
@@ -134,8 +135,9 @@ the same two skills as the Claude Code plugin.
 | `shaderera` | starts or finds a project, runs the edit → check → look loop, sets up MCP, reviews, renders and delivers |
 | `shaderera-plugins` | searches, adds and removes plugins, and publishes a piece of a film; used when you ask for plugins, or when a check says a required package plugin is missing |
 
-They come from [`plugins/shaderera/`](plugins/shaderera/): the Claude Code plugin,
-`npx skills add` and every new project all get the same files. The skills never pick a look for
+They come from [`plugins/shaderera/`](plugins/shaderera/), and there is one copy on a machine:
+the Claude Code plugin's, or the one `npx skills add` writes. A new project holds none, so an
+update reaches every project. The skills never pick a look for
 your film. They add **plumbing** on their own (music analysis, three.js on the host's GPU, image
 decoding), because that carries no taste, and looks, motion and sound design only when you ask.
 
@@ -173,13 +175,18 @@ shared film into a new folder as an ordinary project:
 
 ```bash
 npx shaderera login                      # sign in with GitHub (or --token <token>)
+npx shaderera share --dry-run            # what a share would send, and any limit it breaks
 npx shaderera share                      # a new film, then new versions of it
 npx shaderera fork https://shaderera.com/film/<film> my-film
 ```
 
 They run only when called and send only the project's files, as a revision holds them, never a
-file that holds secrets (`.env`, `.npmrc`, `.dev.vars`, keys, …), and the film's web player,
-which `share` builds on your machine ([docs/player.md](docs/player.md)). `share` prints what it will send and asks first (`--yes` off a terminal).
+file that holds secrets (`.env`, `.npmrc`, `.dev.vars`, keys, …, and a `.mcp.json` that names
+any server but Shaderera's own), and the film's web player, which `share` builds on your machine
+([docs/player.md](docs/player.md)). `share` prints what it will send and asks first (`--yes`
+off a terminal). It needs a licence, package.json's `license`: a new project is `UNLICENSED`
+(all rights reserved) until you choose one, such as `MIT`. shaderera.com takes at most 32 MiB a
+file and 64 MiB a version.
 They talk to the films API at `https://api.shaderera.com` (`--api <origin>` or `SHADERERA_API`
 names another) and name film pages on `https://shaderera.com` (`--site`, `SHADERERA_SITE`). All
 of it is in
@@ -187,7 +194,9 @@ of it is in
 
 `npx shaderera studio` opens the studio, a page on shaderera.com that previews, renders and shares
 the project on your machine through a local bridge on 127.0.0.1
-([docs/studio.md](docs/studio.md)).
+([docs/studio.md](docs/studio.md)). The code and renders stay on your machine until you share;
+the page reports usage counts, never code (`npx shaderera telemetry off`). An agent runs
+`npx shaderera studio --json` in the background and gives you the address it prints.
 
 ## How it works
 
@@ -237,13 +246,16 @@ hands ffmpeg the result.
 | `shaderera render` | an mp4 or a ProRes mov; `--job` renders a frozen job |
 | `shaderera review` | frames, a contact sheet and technical checks against `requirements.json` |
 | `shaderera deliver` | a campaign batch: variants × locales × placements, each checked |
-| `shaderera plan` / `assemble` | a job split into chunks that any machine renders, then joined |
+| `shaderera plan` / `assemble` | a job split into chunks that any machine renders, then joined; `plan --status` says which are done |
+| `shaderera reexport` | a job's sound on a delivered file's own picture, or its captions, with no frame rendered |
+| `shaderera bake` | run a bake's command and stamp the frames it made outside the host |
 | `shaderera handoff <job>` | the frozen project, the job and how to reproduce it |
 | `shaderera save` / `versions` / `undo` / `restore` / `diff` / `job` | revisions and render jobs |
 | `shaderera doctor` | what this machine has and lacks |
 | `shaderera mcp` | the same operations as MCP tools over stdio |
 | `shaderera search` / `info` / `add` / `remove` / `publish` | plugins ([docs/plugins.md](docs/plugins.md)) |
 | `shaderera login` / `whoami` / `logout` / `share` / `fork` | send a film to shaderera.com, and fork one from there |
+| `shaderera studio` / `telemetry` | the local bridge of the studio page on shaderera.com, and its usage counts |
 
 Every flag is in [docs/cli.md](docs/cli.md), and the MCP tools are in [docs/mcp.md](docs/mcp.md).
 

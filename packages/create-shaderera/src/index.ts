@@ -9,7 +9,7 @@ const usage = `Usage: npm create shaderera@latest [dir]
        create-shaderera [dir] [--help]
 
 Makes an empty Shaderera project in dir (default my-film): render(t) in src/composition.ts,
-shaderera.json, AUTHORING.md, guides/, AGENTS.md / CLAUDE.md and the agent skills.
+shaderera.json, AUTHORING.md, guides/, AGENTS.md / CLAUDE.md and .mcp.json.
 
   dir                                        the new project's folder; it must be empty or missing
   -h, --help                                 print this usage
@@ -33,15 +33,12 @@ if (args.values.help) {
 const files = join(here, '..', 'files')
 const packed = existsSync(join(files, 'AUTHORING.md'))
 const repo = join(here, '..', '..', '..')
-const skills = packed ? join(files, 'skills') : join(repo, 'plugins', 'shaderera', 'skills')
 const guides = {
   'AUTHORING.md': packed ? join(files, 'AUTHORING.md') : join(repo, 'docs', 'authoring.md'),
   'AGENTS.md': join(here, '..', 'guide', 'AGENTS.md'),
   'CLAUDE.md': join(here, '..', 'guide', 'CLAUDE.md'),
+  // No skills: the Claude Code plugin or `npx skills add` installs them once, and updates them.
   guides: packed ? join(files, 'guides') : join(repo, 'docs', 'guides'),
-  // The agent skills, the same as the Claude Code plugin's: making a film, and its plugins.
-  '.claude/skills/shaderera': join(skills, 'shaderera'),
-  '.claude/skills/shaderera-plugins': join(skills, 'shaderera-plugins'),
 }
 const target = args.positionals[0] ?? 'my-film'
 

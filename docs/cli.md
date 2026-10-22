@@ -595,9 +595,10 @@ with the publish step to run first.
 ## shaderera.com: `login`, `whoami`, `logout`, `share`, `fork`
 
 A film can be shared on shaderera.com, where it plays in the viewer's browser, and anyone can fork
-a shared film into a project of their own. These three commands and [`studio`](#studio-telemetry)
-are the only ones that talk to the site. They run only when called: nothing runs in the
-background, and the CLI sends no telemetry.
+a shared film into a project of their own. These five commands and [`studio`](#studio-telemetry)
+are the only ones that talk to the films API, and `studio` and the [plugin commands](#plugins)
+(the site's `/r`) the only others that reach the site. They run only when called: nothing runs in
+the background, and the CLI sends no telemetry.
 
 They talk to two origins, each reached over https (plain http only on this machine: `localhost`,
 `127.0.0.1`):
@@ -642,16 +643,17 @@ API no longer takes is forgotten too, and one the API cannot be reached for is k
 later. `whoami` asks the API whose the token is (`GET /api/v1/auth/me`).
 
 The sign-in uses the client id of Shaderera's GitHub OAuth App, built into `shaderera`, or
-`SHADERERA_GITHUB_CLIENT_ID` when it is set. Until that App exists, `login` without `--token`
-says so and stops, and `--token` is the way in; an API without its GitHub App set up answers
-`503`, and `login` says the same.
+`SHADERERA_GITHUB_CLIENT_ID` when it is set. An API without its GitHub App set up answers `503`,
+and `login` says so: `--token` is the way in then.
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
 [above](#versions-and-jobs)), and nothing else:
 - never `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, `node_modules/` or `.git/`
   anywhere, or a link (symlink, junction);
-- never a file that holds secrets, which a revision never holds (`save`, above): it names the
-  ones it leaves out;
+- never a file that holds secrets, which a revision never holds (`save`, above): `.env` and
+  `.env.*`, `.envrc`, `.dev.vars`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, and a
+  `.mcp.json` unless every server in it is Shaderera's own (`npx -y shaderera mcp`, as a new
+  project's is). It names the ones it leaves out;
 - besides the files, the licence (package.json's `license`), the title of a new film and the
   version of `shaderera` that sent it.
 
@@ -759,7 +761,7 @@ or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
-machine. It makes a studio session id, or takes the one a studio page made with `--connect <id>`,
+machine. It makes a studio session id (20 characters), or takes the one a studio page made with `--connect <id>`,
 and opens `<site>/studio/<id>#<nonce>` in your browser (`--no-open` prints the address instead): it
 pairs only with the page that holds that nonce. The site is
 `--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Share sends films to the
@@ -771,9 +773,17 @@ asks for.
   relay.
 - **What the page does through it.** The page previews the project with its runner, hears its
   edits, renders into `out/studio/` with the CLI's own hosts, and shares with `share`, as you.
+- **What leaves the machine.** The page reads the code and renders from the bridge, so they stay
+  here until you share. The relay pairs the page and the bridge with a key it never sees, and
+  carries the page's requests sealed when the browser blocks 127.0.0.1 (protocol v1 sends a file
+  in chunks).
+- **Another protocol.** A page and a CLI that speak different studio protocols never pair, and
+  the CLI says which to update in one line, for example `The studio page speaks protocol v2 and
+  this CLI v1: update the CLI (npm i shaderera@latest) and run shaderera studio again.` (it then
+  ends, exit 2), or, for an older page, to reload it.
 - **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
-  `paired`, `page-closed`, `resumed`, `job`, `share`, `ended`, …), listed in
-  [studio.md](studio.md).
+  `paired`, `page-closed`, `resumed`, `mismatch`, `relay`, `job`, `share`, `ended`, …), listed
+  in [studio.md](studio.md).
 - **The protocol** is [studio.md](studio.md).
 
 The studio page reports usage counts to shaderera.com, which stores them in PostHog: never code,
@@ -786,7 +796,7 @@ $ npx shaderera studio
 project  /work/neon-rain
 bridge   http://127.0.0.1:52144 (for https://shaderera.com only)
 share to https://api.shaderera.com
-opening  https://shaderera.com/studio/k3x9q2
+opening  https://shaderera.com/studio/k3x9q2mfa7bcd4e8hn5r#q0V1eY8m3sTzK2pXc9aLbw
 paired: the studio page drives this project. Ctrl-C stops.
 ```
 

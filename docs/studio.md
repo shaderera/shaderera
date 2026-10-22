@@ -185,8 +185,8 @@ network access.
 - `variants` is shaderera.json's `variants`, in its own shape (`{}` when there are none): name →
   `{ label?, width?, height?, duration?, fps?, params? }`.
 - `sizes` is each variant's output as a host opens it, the film's own values filled in: name →
-  `{ width, height, duration, fps }` (`{}` when there are none). The page lays out one frame a
-  variant from it.
+  `{ width, height, duration, fps }` (`{}` when there are none), for a page that lays out one
+  frame a variant.
 - `schema` is shaderera.json's `params` schema, or `null`.
 - Each request reads the project again, so an agent's edit to shaderera.json shows.
 
@@ -198,8 +198,8 @@ port the frame posts, as with the web player.
 
 - **`variant`** names a variant in shaderera.json's `variants`: that frame's runner opens the film
   as that variant whenever `open` names none (an `open` that names one still wins). Without it,
-  the runner opens the film itself. An unknown name is `400`. The page frames one runner a variant
-  to show them side by side, and drives them on one timeline itself; each frame is a runner of
+  the runner opens the film itself. An unknown name is `400`. A page that shows several variants
+  frames one runner a variant and drives them on one timeline itself; each frame is a runner of
   its own.
 
 - **The bridge redirects (`302`) to the runner page**, keeping the query but `s`. The runner page

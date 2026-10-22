@@ -20,14 +20,6 @@ const guides = {
   'AGENTS.md': join(import.meta.dirname, '..', 'guide', 'AGENTS.md'),
   'CLAUDE.md': join(import.meta.dirname, '..', 'guide', 'CLAUDE.md'),
   guides: join(repo, 'docs', 'guides'),
-  '.claude/skills/shaderera': join(repo, 'plugins', 'shaderera', 'skills', 'shaderera'),
-  '.claude/skills/shaderera-plugins': join(
-    repo,
-    'plugins',
-    'shaderera',
-    'skills',
-    'shaderera-plugins',
-  ),
 }
 
 test('create copies the empty project as an ordinary project', () => {
@@ -50,21 +42,13 @@ test('create copies the empty project as an ordinary project', () => {
   assert.throws(() => create({ from, target, version: '0.1.0' }), /not empty/)
 })
 
-test('every created project gets the authoring guide, the agent notes, the guides and the skill', () => {
+test('every created project gets the authoring guide, the agent notes and the guides', () => {
   const target = join(temp(), 'film')
   create({ from, target, version: '0.3.0', guides })
   assert.match(readFileSync(join(target, 'CLAUDE.md'), 'utf8'), /@AGENTS.md/)
   assert.match(readFileSync(join(target, 'guides', 'typography.md'), 'utf8'), /^# Typography/)
   assert.match(readFileSync(join(target, 'AUTHORING.md'), 'utf8'), /^# Authoring a Shaderera film/)
   assert.match(readFileSync(join(target, 'AGENTS.md'), 'utf8'), /read `AUTHORING.md`/)
-  assert.match(
-    readFileSync(join(target, '.claude', 'skills', 'shaderera', 'SKILL.md'), 'utf8'),
-    /^---\r?\nname: shaderera\r?\n/,
-  )
-  assert.match(
-    readFileSync(join(target, '.claude', 'skills', 'shaderera-plugins', 'SKILL.md'), 'utf8'),
-    /^---\r?\nname: shaderera-plugins\r?\n/,
-  )
 })
 
 test('the empty project imports only the stable entries (docs/api.md), and no look', () => {
@@ -118,6 +102,21 @@ test('--help and -h print the usage and exit 0, making nothing', () => {
     assert.match(stdout, /Docs: /)
     assert.doesNotMatch(stdout, /Created/)
   }
+})
+
+test('a new project holds no copy of the skills: the plugin or `npx skills add` keeps the one copy', () => {
+  // A copy in .claude/skills/ is frozen when the project is made and drifts from the plugin's.
+  const cwd = temp()
+  const { status, stderr } = spawnSync(
+    process.execPath,
+    [join(import.meta.dirname, '..', 'bin', 'create-shaderera.js'), 'film'],
+    { cwd, encoding: 'utf8' },
+  )
+  assert.equal(status, 0, stderr)
+  assert.ok(existsSync(join(cwd, 'film', 'AGENTS.md')))
+  assert.ok(existsSync(join(cwd, 'film', '.mcp.json')))
+  assert.ok(!existsSync(join(cwd, 'film', '.claude')))
+  assert.match(readFileSync(join(cwd, 'film', 'AGENTS.md'), 'utf8'), /npx skills add/)
 })
 
 test('an unknown flag prints one line pointing to --help and exits 2', () => {

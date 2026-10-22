@@ -94,6 +94,6 @@ and write your own.
 
 The `shaderera-plugins` skill lives in
 [plugins/shaderera/](https://github.com/shaderera/shaderera/tree/main/plugins/shaderera), the
-Claude Code plugin (a different thing from Shaderera's plugins). `create-shaderera` puts it in every new project at
-`.claude/skills/shaderera-plugins/`. The project's agent searches, adds and publishes only when
+Claude Code plugin (a different thing from Shaderera's plugins), which installs it in Claude
+Code; other agents get it with `npx skills add shaderera/shaderera`. The project's agent searches, adds and publishes only when
 the person asks, and recovers from a refusal. It never suggests plugins on its own.
