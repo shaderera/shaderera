@@ -32,7 +32,9 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 - **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused.
   In the files named after it (`out/<project>-<variant>.mp4`, `out/stills/<variant>-<t>.png`,
   `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
-  `main` names the manifest's own output, as in `deliver`.
+  `main` names the manifest's own output, as in `deliver`. The source gets the name as
+  `host.variant` ([protocol.md](protocol.md#shadererajson)). One film made in 16:9 and 9:16 at
+  once: [guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once).
 - **Several variants** (`check`, `still`, `review`): `--variant 16:9,9:16`, or `--variants
   16:9,9:16`, or `--variants all` (`main` and every variant the manifest declares; main is left out when a variant has its
   width, height, fps, duration and params, and `main = <variant>` is printed once, `main` in

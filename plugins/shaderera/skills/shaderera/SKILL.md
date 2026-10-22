@@ -56,6 +56,9 @@ CLI shows the same things (step 3).
    MCP `still` (a contact sheet) or `render_frame` with `image: true` (scaled to 1024 px; `full`
    or a `region` for detail). Read motion as a curve: `npx shaderera inspect --track <path>`.
    Compare the frames a change should affect with the ones it should not.
+   A film made in several ratios (`16:9` and `9:16` variants) lays out by `host.variant`; look
+   at them side by side, `npx shaderera still <t>... --variant 16:9,9:16 --sheet` (MCP `still`
+   with `variants`), and check and review them together, `--variant 16:9,9:16` (`guides/formats.md`).
 5. Make the smallest change that does what was asked. Keep edits made by hand.
 6. Save a revision the person can return to: `npx shaderera save --label "<what changed>"`.
 
@@ -69,6 +72,7 @@ npx shaderera review                      # frames, a contact sheet and technica
 npx shaderera render                      # out/<project>.mp4
 npx shaderera render --format prores-hq   # a ProRes mov for finishing
 npx shaderera deliver --variants main,short   # a checked batch: the main film and a variant from shaderera.json
+npx shaderera deliver --variants 16:9,9:16    # one film in both ratios
 ```
 
 Every flag is in `node_modules/shaderera/docs/cli.md`, and delivery, placements and handoffs are
