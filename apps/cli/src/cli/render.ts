@@ -29,12 +29,14 @@ import {
   bitsPerSecond,
   CODECS,
   type Codec,
+  canEncode,
   containerOf,
+  ENCODERS,
   type Encoder,
   ffmpegArgs,
   ffmpegSink,
-  forgetNvenc,
-  hasNvenc,
+  forgetEncoder,
+  hardwareEncoder,
   type Input,
   type Loudness,
   loudnessLine,
@@ -115,7 +117,7 @@ const exportOnce = async (
      * round them instead of `workers` from `more`, and the caller closes them.
      */
     hosts?: readonly Child[]
-    /** By default NVENC for a review where this machine has it, x264 for a master or without. */
+    /** By default a GPU encoder for a review where this machine has one, else x264 (a master). */
     encoder?: Encoder
     /** `false`: no audio stream, whatever the source's clips (a silent DOOH placement, say). */
     audio?: boolean
@@ -136,7 +138,7 @@ const exportOnce = async (
   frames: number
   seconds: number
   workers: number
-  /** `x264`, `nvenc`, or `prores` for a mov. */
+  /** `x264`, a GPU encoder, or `prores` for a mov. */
   encoder: Encoder | 'prores'
   /** Bits a channel the frames reached the encoder with: 16 from the GPU compositor for ProRes. */
   bits: 8 | 16
@@ -156,15 +158,17 @@ const exportOnce = async (
   checkVideoOptions(o)
   const codec = o.codec ?? 'h264'
   const prores = codec !== 'h264'
+  const { width, height } = manifest
+  const rated = Boolean(o.bitrate || o.maxrate)
   const encoder = prores
     ? 'prores'
     : (o.encoder ??
-      ((o.quality ?? 'review') === 'review' && (await hasNvenc(manifest.width, manifest.height))
-        ? 'nvenc'
+      ((o.quality ?? 'review') === 'review'
+        ? ((await hardwareEncoder(width, height, { rated })) ?? 'x264')
         : 'x264'))
-  if (encoder === 'nvenc' && !(await hasNvenc(manifest.width, manifest.height)))
+  if (encoder !== 'prores' && encoder !== 'x264' && !(await canEncode(encoder, width, height)))
     throw new Error(
-      'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
+      `This ffmpeg cannot encode with ${encoder} here (no such GPU, or no driver for it).`,
     )
   requireFfmpeg()
   const from = o.from ?? 0
@@ -322,21 +326,25 @@ const exportOnce = async (
 }
 
 /**
- * When NVENC was picked from a kept yes (hasNvenc) and its ffmpeg fails, the yes is dropped and
- * the film is rendered again once, with x264, saying so on stderr.
+ * When a GPU encoder was picked from a kept yes (canEncode) and its ffmpeg fails, the yes is
+ * dropped and the film is rendered again once, with the next encoder found (x264 at the last),
+ * saying so on stderr.
  */
 export const exportVideo: typeof exportOnce = async (project, child, o) => {
+  const { width, height } = project.manifest
+  const auto =
+    o.encoder === undefined &&
+    (o.codec ?? 'h264') === 'h264' &&
+    (o.quality ?? 'review') === 'review'
+  const picked = auto
+    ? await hardwareEncoder(width, height, { rated: Boolean(o.bitrate || o.maxrate) })
+    : undefined
   try {
     return await exportOnce(project, child, o)
   } catch (error) {
-    const { width, height } = project.manifest
-    const picked =
-      o.encoder === undefined &&
-      (o.codec ?? 'h264') === 'h264' &&
-      (o.quality ?? 'review') === 'review' &&
-      /^ffmpeg exited/.test((error as Error).message)
-    if (!picked || !forgetNvenc(width, height)) throw error
-    console.warn('! NVENC failed where it worked before: rendering again with x264.')
+    if (!picked || !/^ffmpeg exited/.test((error as Error).message)) throw error
+    if (!forgetEncoder(picked, width, height)) throw error
+    console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
     return exportOnce(project, child, o)
   }
 }
@@ -344,11 +352,11 @@ export const exportVideo: typeof exportOnce = async (project, child, o) => {
 /**
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
- * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc] [--no-audio] [--loudness LUFS]`.
+ * [--progress] [--trusted] [--workers n] [--encoder name] [--no-audio] [--loudness LUFS]`.
  * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
  * mix to that integrated loudness by one constant gain; the true peak is reported, never limited. --workers: how many hosts
- * render frames at once (defaultWorkers; 1 for a sequential source). --encoder: by default NVENC
- * for a review where this machine has it, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
+ * render frames at once (defaultWorkers; 1 for a sequential source). --encoder (ENCODERS): by
+ * default a GPU encoder for a review where this machine has one, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
  * window; the working tree does not matter. A png job writes the finishing handoff into
  * out/<job>/ (frames, audio.wav, delivery.json) instead of an mp4. `--job --chunk i [--plan dir]`
  * renders one chunk of a plan; `--job --reuse <plan> --changed <from>-<to>[,…] [--fix] [--plan dir]`
@@ -356,8 +364,9 @@ export const exportVideo: typeof exportOnce = async (project, child, o) => {
  * (renderReusing).
  */
 const encoderOf = (value: unknown): Encoder => {
-  if (value === 'x264' || value === 'nvenc') return value
-  throw new Error(`--encoder is x264 or nvenc, not ${String(value)}.`)
+  const found = ENCODERS.find((e) => e === value)
+  if (found) return found
+  throw new Error(`--encoder is one of ${ENCODERS.join(', ')}, not ${String(value)}.`)
 }
 
 export const run = async (argv: readonly string[]): Promise<number> => {
@@ -438,9 +447,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (frames === 0 || m.sequential) return 0
     return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
   }
-  // NVENC's answer comes beside the open (exportVideo asks for this size again, answered).
+  // The GPU encoders' answers come beside the open (exportVideo asks again, answered).
   if ((video.codec ?? 'h264') === 'h264')
-    void hasNvenc(located.manifest.width, located.manifest.height)
+    void hardwareEncoder(located.manifest.width, located.manifest.height)
   const { project, child, extra } = job
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)

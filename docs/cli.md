@@ -205,14 +205,14 @@ of footage it takes a moment, not the time to read all of it.
 | `--from <s>`, `--to <s>` | 0, `duration` |
 | `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
-| `--master` | off: review quality (crf 18). On: crf 12, preset slow |
+| `--master` | off: review quality (crf 16, preset veryfast). On: crf 12, preset slow |
 | `--crf <n>` | the quality's |
 | `--bitrate <rate>` \| `--maxrate <rate>` | none: crf. A constant rate such as `15M`, or the crf capped at a rate ([rate control](delivery.md#rate-control)) |
 | `--no-edit-list` | off. An mp4 without edit lists ([edit lists](delivery.md#edit-lists)) |
 | `--stems` | off. One WAV per clip `group` beside the file ([stems](delivery.md#stems-and-captions)) |
 | `--no-audio` | off. No audio stream (a png job: no `audio.wav`) |
 | `--loudness=<LUFS>` | none. Move the mix to a target by one constant gain ([loudness](delivery.md#loudness)). Write it with `=`, since the value starts with a dash |
-| `--encoder <x264\|nvenc>` | a review: `nvenc` where this ffmpeg and machine take the frame size, else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives NVENC cq n + 1 |
+| `--encoder <name>` | `x264`, `nvenc`, `qsv`, `amf` or `videotoolbox`. A review: the first GPU encoder of those that takes the frame size with this ffmpeg on this machine (with `--bitrate` or `--maxrate`, `nvenc` only), else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives a GPU encoder cq n + 1 |
 | `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome |
 | `--progress` | off: the progress line goes only to a terminal; on, also to a pipe |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
@@ -451,7 +451,7 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
-amultiply), NVENC at 1920×1080 (tested again, not the render's kept answer), Chrome. Inside a
+amultiply), the GPU's H.264 encoder at 1920×1080 (`nvenc`, `qsv`, `amf` or `videotoolbox`, tested again, not the render's kept answers), Chrome. Inside a
 project: its host, `webgpu`'s version, the adapter with every feature and its limits (asked in a
 child process; for the browser host, the adapter Chrome's WebGPU gets, asked in a throwaway
 headless Chrome), and more than one `webgpu`
