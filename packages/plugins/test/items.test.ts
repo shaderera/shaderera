@@ -560,7 +560,7 @@ test('format-placement-specs: every entry names its source and uses only fields 
   ) as Record<string, Record<string, unknown>>
   // apps/cli/src/deliver/placement.ts, Placement.
   const fields = new Set(
-    'name source containers videoCodecs width height minWidth minHeight aspect fps minDuration maxDuration durations maxBytes minBitrate maxBitrate audio audioCodecs sampleRates minChannels loudness editList safeArea'.split(
+    'name source containers videoCodecs width height minWidth minHeight aspect fps minDuration maxDuration durations maxBytes minBitrate maxBitrate audio audioCodecs sampleRates minChannels loudness editList safeArea transfer bitDepth hdrMetadata'.split(
       ' ',
     ),
   )

@@ -1,51 +1,177 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
-import { extname } from 'node:path'
+import {
+  closeSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { homedir } from 'node:os'
+import { delimiter, dirname, extname, join } from 'node:path'
 import type { Sink } from '@shaderera/core'
 import { fpsFraction, matte } from '@shaderera/core/host'
 
 export type Quality = 'review' | 'master'
 
-/** x264 settings per delivery quality. */
+/**
+ * x264 settings per delivery quality. A review is preset veryfast at crf 16: a third of medium's
+ * CPU at its crf 18 quality, in a file about 20% larger (docs/delivery.md, measured on 9.0.2).
+ */
 export const QUALITIES = {
-  review: { crf: 18, preset: 'medium' },
+  review: { crf: 16, preset: 'veryfast' },
   master: { crf: 12, preset: 'slow' },
 } as const
 
 /**
- * `x264`: libx264 on the CPU. `nvenc`: NVIDIA's H.264 encoder on the GPU, about 2.5× faster and
- * off the CPU the hosts render on, with larger files at a like quality (measured: +48% at cq 19
- * against crf 18): a review encode, never a master (owner decision, 2026-10-09).
+ * `x264`: libx264 on the CPU. The others are H.264 on the GPU, off the CPU the hosts render on,
+ * with larger files at a like quality: a review encode, never a master unless asked (owner
+ * decision, 2026-10-09). `nvenc` is NVIDIA's (measured: +48% at cq 19 against x264 medium crf
+ * 18), `qsv` Intel's Quick Sync, `amf` AMD's, `videotoolbox` Apple's.
  */
-export type Encoder = 'x264' | 'nvenc'
+export type Encoder = 'x264' | Hardware
+export type Hardware = 'nvenc' | 'qsv' | 'amf' | 'videotoolbox'
+/** The GPU encoders, in the order a review tries them. */
+export const HARDWARE: readonly Hardware[] = ['nvenc', 'qsv', 'amf', 'videotoolbox']
+export const ENCODERS: readonly Encoder[] = ['x264', ...HARDWARE]
 const NVENC = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-b:v', '0']
-/** NVENC's constant quality for a review, near x264's crf 18. */
-const NVENC_CQ = 19
-
-const nvenc = new Map<string, boolean>()
+/** A GPU encoder's constant quality for a review, near x264's. */
+const CQ = 19
 /**
- * Whether this ffmpeg can encode a frame this size with NVENC here (a GPU and driver it accepts;
- * NVENC refuses small frames, such as 32×16), asked once per size.
+ * Each GPU encoder at a constant quality `cq` on crf's scale (VideoToolbox's -q:v runs 1-100,
+ * higher better, and only Apple silicon has it). Only NVENC takes --bitrate and --maxrate.
  */
-export const hasNvenc = (width: number, height: number): boolean => {
-  const size = `${width}x${height}`
-  if (!nvenc.has(size))
-    nvenc.set(
-      size,
-      spawnSync('ffmpeg', [
-        '-loglevel',
-        'error',
-        '-f',
-        'lavfi',
-        '-i',
-        `color=black:s=${size}:d=0.1`,
-        ...NVENC,
-        '-f',
-        'null',
-        '-',
-      ]).status === 0,
-    )
-  return nvenc.get(size) === true
+const constantQuality: Record<Hardware, (cq: number) => string[]> = {
+  nvenc: (cq) => [...NVENC, '-cq', String(cq)],
+  qsv: (cq) => ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(cq)],
+  amf: (cq) => {
+    const qp = String(cq)
+    return ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', qp, '-qp_p', qp]
+  },
+  videotoolbox: (cq) => ['-c:v', 'h264_videotoolbox', '-q:v', String(100 - 2 * cq)],
+}
+
+/**
+ * Where the probe keeps what it found: one ffmpeg (its file, mtime and version) and its answers, for
+ * the H.264 GPU encoders (constantQuality's settings) only. HDR10's HEVC Main 10 is asked apart
+ * (hasHevcNvenc) and never kept here.
+ */
+export const encodersFile = (): string => join(homedir(), '.shaderera', 'encoders.json')
+
+/** The answers encodersFile keeps for this ffmpeg (`key`); none for another or an unreadable file. */
+const keptAnswers = (key: string): Record<string, boolean> => {
+  try {
+    const kept = JSON.parse(readFileSync(encodersFile(), 'utf8'))
+    return kept.ffmpeg === key ? kept.answers : {}
+  } catch {
+    return {}
+  }
+}
+
+const keep = (key: string, answers: Record<string, boolean>) => {
+  try {
+    mkdirSync(dirname(encodersFile()), { recursive: true })
+    writeFileSync(encodersFile(), JSON.stringify({ ffmpeg: key, answers }))
+  } catch {
+    // Not kept: the next command asks again.
+  }
+}
+
+/** The ffmpeg the PATH runs, as its file, its mtime and its version: what an answer is of. */
+const ffmpegKey = (): string => {
+  const version = requireFfmpeg()
+  const names = process.platform === 'win32' ? ['ffmpeg.exe', 'ffmpeg'] : ['ffmpeg']
+  for (const dir of (process.env.PATH ?? '').split(delimiter).filter(Boolean))
+    for (const name of names) {
+      const file = join(dir, name)
+      const stat = statSync(file, { throwIfNoEntry: false })
+      if (stat?.isFile()) return `${file} ${stat.mtimeMs} ${version}`
+    }
+  return version
+}
+
+/** Whether ffmpeg encodes a black 0.1 s at this size with this encoder, without blocking the thread. */
+const encodes = (encoder: Hardware, size: string) =>
+  new Promise<boolean>((done) => {
+    const args = ['-loglevel', 'error', '-f', 'lavfi', '-i', `color=black:s=${size}:d=0.1`]
+    const encode = [...args, ...constantQuality[encoder](CQ), '-f', 'null', '-']
+    spawn('ffmpeg', encode, { stdio: 'ignore' })
+      .on('error', () => done(false))
+      .on('close', (code) => done(code === 0))
+  })
+
+const answers = new Map<string, Promise<boolean>>()
+/** The answers whose yes came from encodersFile, not from a test encode in this process. */
+const keptYes = new Set<string>()
+/**
+ * Whether this ffmpeg can encode a frame this size with this GPU encoder here (a GPU and driver it
+ * accepts; NVENC refuses small frames, such as 32x16). Asked once per encoder and size and kept in
+ * encodersFile for this ffmpeg (a 0.25 s test encode otherwise); `fresh` asks again (doctor).
+ * False without ffmpeg.
+ */
+export const canEncode = (
+  encoder: Hardware,
+  width: number,
+  height: number,
+  o: { fresh?: boolean } = {},
+): Promise<boolean> => {
+  const id = `${encoder} ${width}x${height}`
+  const known = answers.get(id)
+  if (known && !o.fresh) return known
+  const asked = (async () => {
+    let key: string
+    try {
+      key = ffmpegKey()
+    } catch {
+      return false
+    }
+    const kept = keptAnswers(key)[id]
+    if (kept !== undefined && !o.fresh) {
+      if (kept) keptYes.add(id)
+      return kept
+    }
+    keptYes.delete(id)
+    const has = await encodes(encoder, `${width}x${height}`)
+    keep(key, { ...keptAnswers(key), [id]: has })
+    return has
+  })()
+  answers.set(id, asked)
+  return asked
+}
+
+/**
+ * The first GPU encoder (HARDWARE's order) that encodes this size here, all asked at once;
+ * undefined for none. `rated` (--bitrate or --maxrate): NVENC only.
+ */
+export const hardwareEncoder = async (
+  width: number,
+  height: number,
+  o: { fresh?: boolean; rated?: boolean } = {},
+): Promise<Hardware | undefined> => {
+  const tried = o.rated ? (['nvenc'] as const) : HARDWARE
+  const has = await Promise.all(tried.map((e) => canEncode(e, width, height, o)))
+  return tried.find((_, i) => has[i])
+}
+
+/**
+ * Drops a kept yes for this encoder and size, whose encode has just failed (a GPU or driver gone
+ * since): false when the yes was not a kept one. This process then answers no; the next one tests
+ * again.
+ */
+export const forgetEncoder = (encoder: Hardware, width: number, height: number): boolean => {
+  const id = `${encoder} ${width}x${height}`
+  if (!keptYes.delete(id)) return false
+  answers.set(id, Promise.resolve(false))
+  try {
+    const key = ffmpegKey()
+    const { [id]: _, ...rest } = keptAnswers(key)
+    keep(key, rest)
+  } catch {
+    // No ffmpeg to key it by: nothing kept to drop.
+  }
+  return true
 }
 
 /**
@@ -152,7 +278,7 @@ export const ffmpegArgs = (o: {
   from: number
   to: number
   out: string
-  /** x264 settings: `review` is crf 18 / preset medium, `master` crf 12 / preset slow. */
+  /** x264 settings: `review` is crf 16 / preset veryfast, `master` crf 12 / preset slow. */
   quality?: Quality
   /** Overrides the quality's crf. */
   crf?: number
@@ -164,7 +290,7 @@ export const ffmpegArgs = (o: {
    * GPU (decision 0007), tagged the same.
    */
   input?: Input
-  /** libx264 (the default), or the GPU's H.264 encoder (exportVideo picks it for review). */
+  /** libx264 (the default), or a GPU's H.264 encoder (exportVideo picks one for review). */
   encoder?: Encoder
   /** `h264` (the default, mp4), or ProRes in a mov with 48 kHz 24-bit PCM. */
   codec?: Codec
@@ -222,13 +348,18 @@ export const ffmpegArgs = (o: {
   const sdr: readonly string[] = yuv ? ['-vf', TAGS, ...SDR_BT709.slice(2)] : SDR_BT709
   args.push(...sdr)
   const cap = (rate: string) => ['-maxrate', rate, '-bufsize', doubled(rate)]
+  const cq = o.crf === undefined ? CQ : o.crf + 1
   if (o.encoder === 'nvenc') {
     if (o.bitrate)
       args.push(...NVENC.slice(0, 6), '-rc', 'cbr', '-b:v', o.bitrate, ...cap(o.bitrate))
     else {
-      args.push(...NVENC, '-cq', String(o.crf === undefined ? NVENC_CQ : o.crf + 1))
+      args.push(...constantQuality.nvenc(cq))
       if (o.maxrate) args.push(...cap(o.maxrate))
     }
+  } else if (o.encoder && o.encoder !== 'x264') {
+    if (o.bitrate || o.maxrate)
+      throw new Error(`--bitrate and --maxrate are for x264 and nvenc, not ${o.encoder}.`)
+    args.push(...constantQuality[o.encoder](cq))
   } else {
     args.push('-c:v', 'libx264', '-preset', q.preset)
     if (o.bitrate)
@@ -328,9 +459,10 @@ export type LightLevels = { maxCLL: number; maxFALL: number }
 
 /**
  * An HDR10 encode's frames on stdin: 10-bit 4:2:0 Y'CbCr of PQ codes as P010 (the GPU's) or
- * `yuv420p10le` (an FFV1 chunk decoded) for HEVC; 16-bit straight PQ R'G'B'A for ProRes.
+ * `yuv420p10le` (an FFV1 chunk decoded) for HEVC; the hosts' 10-bit PQ R'G'B' codes (`rgb10`,
+ * ffmpeg's `x2bgr10le`) for ProRes.
  */
-export type HdrInput = 'p010' | 'yuv420p10le' | 'rgba64'
+export type HdrInput = 'p010' | 'yuv420p10le' | 'rgb10'
 
 /**
  * `x265`: libx265, for a master always (decision 0023, as 0007 keeps x264 for SDR). `nvenc`:
@@ -437,8 +569,9 @@ export const requireHdr10Ffmpeg = () => {
  * ProRes 422 HQ / 4444 in a mov, tagged HDR10, with the mastering display and the light levels set
  * on the input (ffmpeg 9.0's `-mastering_display` and `-content_light`), so they reach the SEI
  * (libx265, hevc_nvenc) and the container's `mdcv` and `clli` boxes. The frames come on stdin as
- * `input`; they go to ffmpegSink unmatted (`matted` false), except 16-bit R'G'B'A for ProRes 422
- * HQ, matted over black (`ffmpegSink(args, 'rgba64')`). The caller has checked the ffmpeg
+ * `input`, matted over black already (ffmpegSink passes them as they are). ProRes is made by
+ * ffmpeg from the `rgb10` codes with the BT.2020 matrix, so the exactness test does not cover it;
+ * an HDR10 ProRes 4444 has no alpha plane (the frame is matted). The caller has checked the ffmpeg
  * (requireHdr10Ffmpeg) and, for nvenc, the GPU (hasHevcNvenc).
  */
 export const hdr10Args = (o: {
@@ -471,10 +604,10 @@ export const hdr10Args = (o: {
   const codec = o.codec ?? 'hevc'
   const encoder = o.encoder ?? 'x265'
   const prores = codec !== 'hevc'
-  if (prores !== (o.input === 'rgba64'))
+  if (prores !== (o.input === 'rgb10'))
     throw new Error(
       prores
-        ? 'HDR10 ProRes takes 16-bit PQ R’G’B’A frames (rgba64).'
+        ? 'HDR10 ProRes takes the 10-bit PQ R’G’B’ codes (rgb10).'
         : 'HDR10 HEVC takes 10-bit 4:2:0 frames (p010 or yuv420p10le).',
     )
   if (prores && encoder !== 'x265')
@@ -483,7 +616,7 @@ export const hdr10Args = (o: {
     throw new Error(
       `An HDR10 master is encoded with x265: ${encoder} is for a review${encoder === 'videotoolbox' ? ' (it writes no HDR10 metadata into the stream)' : ''}.`,
     )
-  const pixFmt = { p010: 'p010le', yuv420p10le: 'yuv420p10le', rgba64: 'rgba64le' }[o.input]
+  const pixFmt = { p010: 'p010le', yuv420p10le: 'yuv420p10le', rgb10: 'x2bgr10le' }[o.input]
   const args = ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', pixFmt]
   args.push('-s', `${o.width}x${o.height}`, '-r', fpsFraction(o.fps))
   args.push('-mastering_display', masteringDisplayArg(o.display))
@@ -491,8 +624,8 @@ export const hdr10Args = (o: {
   if (o.audio)
     args.push(...o.audio.inputs, '-filter_complex', o.audio.graph, '-map', '0:v', '-map', '[aout]')
   if (prores) {
-    const alpha = codec === 'prores-4444'
-    const format = alpha ? 'yuva444p10le' : 'yuv422p10le'
+    const full = codec === 'prores-4444'
+    const format = full ? 'yuv444p10le' : 'yuv422p10le'
     // No chroma site: ProRes is 4:2:2 or 4:4:4 and has no field for it.
     args.push(
       '-vf',
@@ -501,8 +634,7 @@ export const hdr10Args = (o: {
       '-c:v',
       'prores_ks',
       '-profile:v',
-      alpha ? '4' : '3',
-      ...(alpha ? ['-alpha_bits', '16'] : []),
+      full ? '4' : '3',
     )
     if (o.audio) args.push('-c:a', 'pcm_s24le', '-ar', '48000', '-ac', '2')
     if (o.timecode) args.push('-timecode', o.timecode)
@@ -551,54 +683,158 @@ export const hdr10Args = (o: {
   return args
 }
 
-/** Throws a clear message when ffmpeg is not on the PATH. */
-export const requireFfmpeg = () => {
-  if (spawnSync('ffmpeg', ['-version']).status !== 0) {
-    throw new Error(
-      'render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html',
-    )
+let version: string | undefined
+/**
+ * Throws a clear message when ffmpeg is not on the PATH; returns its version line. Asked once a
+ * process: every later call is free.
+ */
+export const requireFfmpeg = (): string => {
+  if (version === undefined) {
+    const r = spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' })
+    if (r.status !== 0)
+      throw new Error(
+        'render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html',
+      )
+    version = r.stdout.split(/\r?\n/)[0]?.trim() ?? ''
   }
+  return version
 }
 
 /**
+ * An encoder ffmpeg that failed under a Sink: it exited while frames were still coming (`exit`,
+ * even with 0) or read nothing for the watchdog's seconds while a frame waited (`stall`). `stderr`
+ * is its last lines. Retrying the render may help (it may have run out of memory).
+ */
+export class FfmpegError extends Error {
+  override name = 'FfmpegError'
+  readonly reason: 'exit' | 'stall'
+  /** Signed; null when a signal ended it, or for a stall. */
+  readonly code: number | null
+  readonly stderr: string
+  constructor(message: string, reason: 'exit' | 'stall', code: number | null, stderr: string) {
+    super(stderr ? `${message}\n${stderr}` : message)
+    this.reason = reason
+    this.code = code
+    this.stderr = stderr
+  }
+}
+
+/** Seconds a Sink waits for ffmpeg to read a frame before it gives up: SHADERERA_FFMPEG_STALL, 300. */
+export const stallSeconds = (): number => {
+  const s = Number(process.env.SHADERERA_FFMPEG_STALL)
+  return Number.isFinite(s) && s > 0 ? s : 300
+}
+
+/** The last few lines of what ffmpeg said (a progress line ends in \r, not \n). */
+const lastLines = (text: string, n = 5) =>
+  text
+    .split(/[\r\n]+/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(-n)
+    .join('\n')
+
+/**
  * Starts ffmpeg and returns a Sink that writes frames to its stdin, honouring backpressure. Its
- * stdout is ignored: it may be MCP's stream.
+ * stdout is ignored: it may be MCP's stream. Its stderr goes on to ours, and its tail into the
+ * FfmpegError a write fails with when ffmpeg exits before `end` (a clean exit too: ffmpeg takes a
+ * demuxing error, such as out of memory, as the end of its input) or stops reading for
+ * `stallSeconds`.
  */
 export const ffmpegSink = (
   args: readonly string[],
   input: Input | HdrInput = 'rgba',
   /** `false`: the codec keeps alpha (ProRes 4444), so straight RGBA goes as it is. */
   matted = true,
+  /** For tests: another program in ffmpeg's place (`command` then `args`), another watchdog. */
+  o: { command?: readonly string[]; stall?: number } = {},
 ): Sink => {
-  const ff = spawn('ffmpeg', args, { stdio: ['pipe', 'ignore', 'inherit'] })
+  const [bin = 'ffmpeg', ...pre] = o.command ?? []
+  const ff = spawn(bin, [...pre, ...args], { stdio: ['pipe', 'ignore', 'pipe'] })
+  let said = ''
+  ff.stderr.on('data', (d: Buffer) => {
+    process.stderr.write(d)
+    said = (said + d.toString()).slice(-4096)
+  })
+  let ending = false
+  // Set once ffmpeg is gone or given up on: every write from then on fails with it.
+  let failed: Error | null = null
+  let pending: { done: () => void; fail: (e: Error) => void; timer: NodeJS.Timeout } | null = null
+  const settle = (error: Error | null) => {
+    if (!pending) return
+    const p = pending
+    pending = null
+    clearTimeout(p.timer)
+    error ? p.fail(error) : p.done()
+  }
   const exited = new Promise<void>((done, fail) => {
-    ff.once('error', fail)
-    ff.once('exit', (code) =>
-      code === 0 ? done() : fail(new Error(`ffmpeg exited with ${code}.`)),
-    )
+    ff.once('error', (error) => {
+      failed = error
+      settle(error)
+      fail(error)
+    })
+    // 'close', not 'exit': stderr has been read to its end, so its last lines are known.
+    ff.once('close', (raw: number | null, signal: NodeJS.Signals | null) => {
+      // Windows hands -1 back as 4294967295.
+      const code = raw === null ? null : raw | 0
+      if (code === 0 && ending) return done()
+      const error =
+        failed ??
+        new FfmpegError(
+          code === null
+            ? `ffmpeg was ended by ${signal}.`
+            : code === 0
+              ? 'ffmpeg exited with 0 while frames were still coming: it stopped reading its input.'
+              : `ffmpeg exited with ${code}.`,
+          'exit',
+          code,
+          lastLines(said),
+        )
+      failed = error
+      settle(error)
+      fail(error)
+    })
   })
   exited.catch(() => {})
   // An ffmpeg that exits early closes the pipe: the write fails with EPIPE, and `exited` says why.
   ff.stdin.on('error', () => {})
+  const stall = o.stall ?? stallSeconds()
   return {
     // Straight RGBA is matted over black here (an mp4 has no alpha); Y'CbCr came matted.
     write: (pixels) =>
       new Promise<void>((done, fail) => {
+        if (failed) return fail(failed)
         const bytes =
-          !matted || input === 'yuv420p' || input === 'p010' || input === 'yuv420p10le'
+          !matted ||
+          input === 'yuv420p' ||
+          input === 'p010' ||
+          input === 'yuv420p10le' ||
+          input === 'rgb10'
             ? pixels
             : input === 'rgba'
               ? matte(pixels)
               : matte64(pixels)
         if (ff.stdin.write(bytes)) return done()
-        ff.stdin.once('drain', done)
-        exited.catch(fail)
+        const timer = setTimeout(() => {
+          failed = new FfmpegError(
+            `ffmpeg read nothing for ${stall} s while a frame waited: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
+            'stall',
+            null,
+            lastLines(said),
+          )
+          settle(failed)
+          ff.kill()
+        }, stall * 1000)
+        pending = { done, fail, timer }
+        ff.stdin.once('drain', () => settle(null))
       }),
     end: async () => {
+      ending = true
       ff.stdin.end()
       await exited
     },
     abort: async () => {
+      ending = true
       ff.kill()
       await exited.catch(() => {})
     },
@@ -815,17 +1051,26 @@ export const requireFrames = (file: string, p: Probe, written: number) => {
     )
 }
 
+/** What an HDR10 file of each codec probes as: profile, pixel format (ProRes 4444 decodes at 12 bits) and codec tag. */
+const HDR10_FILES = {
+  hevc: { profile: 'Main 10', pixFmt: 'yuv420p10le', tag: 'hvc1' },
+  'prores-hq': { profile: 'HQ', pixFmt: 'yuv422p10le', tag: 'apch' },
+  'prores-4444': { profile: '4444', pixFmt: 'yuv444p12le', tag: 'ap4h' },
+} as const
+
 /**
- * Throws unless an HDR10 file says what its encode declared (decision 0023): HEVC Main 10 as `hvc1`,
- * 10-bit narrow range, the four colour tags and the top-left chroma site, and the mastering display
- * and light levels both in the mp4's `mdcv`/`clli` boxes and in the first frame's SEI, each equal to
- * `display` and `levels` (rounded up, as `-content_light` takes them) in the units of its field.
+ * Throws unless an HDR10 file says what its encode declared (decision 0023): HEVC Main 10 as `hvc1`
+ * (or ProRes 422 HQ / 4444), 10-bit narrow range, the four colour tags, and the mastering display
+ * and light levels in the container's `mdcv`/`clli` boxes equal to `display` and `levels` (rounded
+ * up, as `-content_light` takes them) in the units of its field. HEVC also needs the top-left
+ * chroma site and the same metadata in the first frame's SEI; ProRes has neither.
  */
 export const requireHdr10 = (
   file: string,
   p: Probe,
   display: MasteringDisplay,
   levels: LightLevels,
+  codec: keyof typeof HDR10_FILES = 'hevc',
 ) => {
   const v = p.video
   const h = v?.hdr10
@@ -841,21 +1086,25 @@ export const requireHdr10 = (
       : 'none'
   const light = (l?: LightLevels) => (l ? `${l.maxCLL},${l.maxFALL}` : 'none')
   const want = { display: units(display), light: contentLightArg(levels) }
+  const f = HDR10_FILES[codec]
+  const hevc = codec === 'hevc'
   const wrong = [
-    ...(v?.profile === 'Main 10' ? [] : [`profile ${v?.profile ?? 'none'}, not Main 10`]),
-    ...(v?.pixFmt === 'yuv420p10le' ? [] : [`${v?.pixFmt ?? 'no video'}, not yuv420p10le`]),
+    ...(v?.profile === f.profile ? [] : [`profile ${v?.profile ?? 'none'}, not ${f.profile}`]),
+    ...(v?.pixFmt === f.pixFmt ? [] : [`${v?.pixFmt ?? 'no video'}, not ${f.pixFmt}`]),
     ...(['bt2020nc', 'bt2020', 'smpte2084', 'tv'].join() ===
     [v?.color?.matrix, v?.color?.primaries, v?.color?.transfer, v?.color?.range].join()
       ? []
       : [`colour ${JSON.stringify(v?.color ?? {})}, not bt2020nc/bt2020/smpte2084/tv`]),
-    ...(h?.codecTag === 'hvc1' ? [] : [`codec tag ${h?.codecTag ?? 'none'}, not hvc1`]),
-    ...(h?.chroma === 'topleft' ? [] : [`chroma site ${h?.chroma ?? 'none'}, not topleft`]),
+    ...(h?.codecTag === f.tag ? [] : [`codec tag ${h?.codecTag ?? 'none'}, not ${f.tag}`]),
+    ...(!hevc || h?.chroma === 'topleft'
+      ? []
+      : [`chroma site ${h?.chroma ?? 'none'}, not topleft`]),
     ...(units(h?.mastering) === want.display ? [] : [`mdcv ${units(h?.mastering)}`]),
     ...(light(h?.light) === want.light ? [] : [`clli ${light(h?.light)}`]),
-    ...(units(h?.sei?.mastering) === want.display
+    ...(!hevc || units(h?.sei?.mastering) === want.display
       ? []
       : [`SEI display ${units(h?.sei?.mastering)}`]),
-    ...(light(h?.sei?.light) === want.light ? [] : [`SEI light ${light(h?.sei?.light)}`]),
+    ...(!hevc || light(h?.sei?.light) === want.light ? [] : [`SEI light ${light(h?.sei?.light)}`]),
   ]
   if (wrong.length > 0)
     throw new Error(

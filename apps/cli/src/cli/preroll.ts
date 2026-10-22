@@ -20,6 +20,8 @@ export const blackFrame = (input: FrameInput, width: number, height: number): Ui
     words.fill(64 << 6, 0, pixels)
     return new Uint8Array(words.buffer)
   }
+  // An hdr10 render's R'G'B' codes: PQ black is code 0.
+  if (input === 'rgb10') return new Uint8Array(pixels * 4)
   if (input === 'yuv420p') {
     // Limited range: Y 16, Cb and Cr 128.
     const out = new Uint8Array((pixels * 3) / 2).fill(128)

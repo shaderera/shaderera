@@ -54,6 +54,11 @@ The commands that render the source (`check`, `inspect`, `still`, `render`, `rev
 The project's own console output goes to stderr, so stdout carries only the command's result. Set
 `SHADERERA_DEBUG=1` to print a full error with its stack.
 
+While `render`, `render --chunk` or `assemble` hands frames to ffmpeg, an ffmpeg that exits
+before the last frame (even with 0, as it does when it runs out of memory reading its input) fails
+the command with its last lines, and one that reads nothing for 300 seconds while a frame waits
+fails it as stalled. `SHADERERA_FFMPEG_STALL` sets those seconds.
+
 ## Required plugins
 
 Every command that finds a project reads its `shaderera.item.json`, if it has one. When the
@@ -114,7 +119,7 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 |---|---|
 | `--times <n>` | 50 |
 | `--seed <n>` | 1 |
-| `--hdr10` | off. Checks the film's HDR10 render ([HDR10](delivery.md#higher-precision-hdr-scene-linear-exr-aovs)): its P010 bytes in two orders, every frame within the mastering display's peak, every layer's `light` one it can carry. Prints the most light it saw |
+| `--hdr10` | off. Checks the film's HDR10 render ([HDR10](delivery.md#hdr10)): its P010 bytes in two orders, every frame within the mastering display's peak, every layer's `light` one it can carry. Prints the most light it saw |
 
 ```
 $ shaderera check --times 5
@@ -187,7 +192,19 @@ finished film kept that way stays, and the render names it. A host error fails t
 its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
-memory. This holds for `render`, `render --chunk` and `deliver`; nothing is retried.
+memory. This holds for `render`, `render --chunk` and `deliver`.
+
+Nothing is retried unless asked. With `--retries <n>`, `render` (and `render --chunk`) retries a
+frame whose host failed in a way a fresh host may not repeat: the host process crashed or exited,
+it took longer than `--timeout`, its Chrome closed, or its GPU device was lost or out of memory.
+The host is closed, another opened, and the frame rendered again, up to n times a frame. A source's
+own error or a shader that does not compile is not retried. `render` and `assemble` also encode
+again from the first frame, up to n times, when ffmpeg stalls, runs out of memory or crashes (an
+`AVERROR(ENOMEM)` exit, an exit with 0 while frames were still coming, a Windows crash code or a
+signal); a bad option or a missing file is not retried. Each retry waits 0.5 s, then twice as long each time, and says why on stderr
+(`! Frame 214 (t 7.133 s) failed: … Retry 1/2, on a reopened host, in 0.5 s.`); after the last,
+the first error is the one shown. A source gives the same bytes at a time on any host
+([determinism.md](determinism.md)), so a retried frame is the frame an uninterrupted render gives.
 A png job is the exception: a run that fails keeps its finished frames in `<dir>.partial`, and
 `render --job` again continues from the first missing one
 ([the finishing handoff](delivery.md#the-finishing-handoff-png--wav)).
@@ -207,21 +224,22 @@ of footage it takes a moment, not the time to read all of it.
 | `--from <s>`, `--to <s>` | 0, `duration` |
 | `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
-| `--master` | off: review quality (crf 18). On: crf 12, preset slow |
+| `--master` | off: review quality (crf 16, preset veryfast). On: crf 12, preset slow |
 | `--crf <n>` | the quality's |
 | `--bitrate <rate>` \| `--maxrate <rate>` | none: crf. A constant rate such as `15M`, or the crf capped at a rate ([rate control](delivery.md#rate-control)) |
 | `--no-edit-list` | off. An mp4 without edit lists ([edit lists](delivery.md#edit-lists)) |
 | `--stems` | off. One WAV per clip `group` beside the file ([stems](delivery.md#stems-and-captions)) |
 | `--no-audio` | off. No audio stream (a png job: no `audio.wav`) |
 | `--loudness=<LUFS>` | none. Move the mix to a target by one constant gain ([loudness](delivery.md#loudness)). Write it with `=`, since the value starts with a dash |
-| `--encoder <x264\|nvenc>` | a review: `nvenc` where this ffmpeg and machine take the frame size, else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives NVENC cq n + 1. With `--hdr10`: `x265` or `nvenc` (HEVC), `x265` for a master |
-| `--hdr10` | off. An HDR10 mp4 (HEVC Main 10) of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#higher-precision-hdr-scene-linear-exr-aovs)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
+| `--encoder <name>` | `x264`, `nvenc`, `qsv`, `amf` or `videotoolbox`. A review: the first GPU encoder of those that takes the frame size with this ffmpeg on this machine (with `--bitrate` or `--maxrate`, `nvenc` only), else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives a GPU encoder cq n + 1. With `--hdr10`: `x265`, `nvenc` or `videotoolbox` (HEVC), `x265` for a master |
+| `--hdr10` | off. An HDR10 mp4 (HEVC Main 10), or with `--format prores-hq\|prores-4444` an HDR10 ProRes mov, of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#hdr10)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
 | `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome |
 | `--progress` | off: the progress line goes only to a terminal; on, also to a pipe |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
 | `--software-gpu` | off: a host on a software GPU is refused ([below](#a-software-gpu)). On: it renders, and says so on stderr |
+| `--retries <n>` | 0: a transient host or encoder failure fails the render. n: retried up to n times with backoff ([above](#render)) |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:
@@ -274,7 +292,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
 | `diff <a> [<b>] [--stat]` | files added, removed and changed from revision a to b (or the working tree), with a unified diff of text files |
-| `job [--variant v] [--params json] [--revision id] [--name n] [--label l] [--from s] [--to s] [--host h] [--format f] [--png] [--master] [--bitrate r \| --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--hdr10] [--replace]` | freezes a render job (`job/3`) in `versions/jobs/<name>.json`: the revision (the project is saved first unless one is given), the host, the variant, the complete params (an unknown name is refused), the seed, the window, the delivery settings and the installed packages the source and its DOM import, by content, and the stamp of every bake it reads ([what a job pins](delivery.md#handoff)). Its `id` hashes all of that. The same inputs return the job already there; a `--name` that holds different inputs is refused unless `--replace`. `--hdr10`: the job renders in an `hdr10` range to an HDR10 mp4 (`range: "hdr10"`, `delivery.color: "hdr10-bt2020-pq"`); a png, ProRes or a bitrate is refused for it |
+| `job [--variant v] [--params json] [--revision id] [--name n] [--label l] [--from s] [--to s] [--host h] [--format f] [--png] [--master] [--bitrate r \| --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--hdr10] [--replace]` | freezes a render job (`job/3`) in `versions/jobs/<name>.json`: the revision (the project is saved first unless one is given), the host, the variant, the complete params (an unknown name is refused), the seed, the window, the delivery settings and the installed packages the source and its DOM import, by content, and the stamp of every bake it reads ([what a job pins](delivery.md#handoff)). Its `id` hashes all of that. The same inputs return the job already there; a `--name` that holds different inputs is refused unless `--replace`. `--hdr10`: the job renders in an `hdr10` range to an HDR10 mp4 (`range: "hdr10"`, `delivery.color: "hdr10-bt2020-pq"`), or an HDR10 ProRes mov with `--format prores-hq\|prores-4444`; a png or a bitrate is refused for it |
 | `render --job <name>` | renders exactly that job in its host, from the revision's frozen copy, whatever the project became; refuses another `--host`, a package the job executes that changed, or another Shaderera version |
 
 ```
@@ -294,19 +312,23 @@ A job holds execution inputs and references, never the film.
 
 `shaderera deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master]
 [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS]
-[--name batch] [--job a --job b] [--replace] [--software-gpu]` saves the project once, makes one job per variant ×
+[--hdr10 [--sdr]] [--name batch] [--job a --job b] [--replace] [--software-gpu] [--force]` saves the project once, makes one job per variant ×
 locale (named `<batch>-<variant>[-<locale>]`), renders and reviews each, and writes
-`out/deliveries/<batch>/`. A batch name that holds other inputs is refused unless `--replace`.
+`out/deliveries/<batch>/`. `--hdr10` makes each an HDR10 job of a film with `hdr10`, and `--sdr`
+adds the film's own SDR render beside each (`<job>-sdr`, checked against the placement
+`<variant>:sdr`); never with `--job`, whose jobs froze their range ([HDR10](delivery.md#hdr10)). A batch name that holds other inputs is refused unless `--replace`.
 Exit 1 when any output fails, after rendering the rest. See [delivery.md](delivery.md#batch).
+Before the first output renders, the batch must fit on the disk ([disk space](#disk-space)).
 An output whose host is on a software GPU fails unless `--software-gpu`, as in
 [`render`](#a-software-gpu).
 
 ## `plan`, `render --chunk`, `assemble`
 
-`shaderera plan --job <name> [--chunks 4] [--out dir]`, then `shaderera render --job <name>
---chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
-[--mixed-hosts] [--no-audio] [--loudness=LUFS] [--crf n] [--job name]`: the same file as one
-`render --job`. See [delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's
+`shaderera plan --job <name> [--chunks 4] [--out dir] [--force]`, then `shaderera render --job <name>
+--chunk <i> [--plan dir] [--force]` on any machine, then `shaderera assemble --plan <dir> [--out file]
+[--mixed-hosts] [--no-audio] [--loudness=LUFS] [--crf n] [--job name] [--retries n]`: the same
+file as one `render --job` (`--retries` as in [`render`](#render)). See
+[delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's
 frames go round `--workers` hosts on its machine (the same default as `render`), and its file
 holds the same frames however many. `--crf` is `render`'s. `--job` encodes another job's delivery
 (another format, quality, rate or edit list) from the same chunks: a job of the same revision,
@@ -333,6 +355,28 @@ nobody has touched it for 10 minutes (a render on another machine that died); ta
 removes the partials earlier renders of the chunk left. The chunk's record is written to a temp
 file and renamed, after the old record is removed, so a chunk file is never paired with another
 render's record: a file without its record is not rendered.
+
+### Disk space
+
+`plan`, `render --chunk`, a png job (`render --job`) and `deliver` estimate the bytes they will
+write and check them against the free space on the volume they write to before they start. Not
+enough is refused, naming the estimate, the free space and `--force`, which goes ahead anyway;
+less than a quarter of the estimate (at least 1 GB) left over is a warning. The estimate is a
+`disk` finding in the [`--json`](#--json-one-envelope) envelope either way.
+
+- `plan`: every chunk it plans, as FFV1 (an hdr10 job's from its P010 or 10-bit R'G'B' frames), plus the file `assemble` writes, in the plan folder.
+- `render --chunk`: that chunk's FFV1 file, in the plan folder.
+- a png job: its PNG frames and `audio.wav`, in its folder.
+- `deliver`: every output, in `out/deliveries/<batch>/`; an `--hdr10` output also its one
+  lossless chunk (P010, or 10-bit R'G'B' for ProRes), the largest counted once.
+
+FFV1 and PNG frames are estimated from three frames the host renders and encodes (spread over the
+window), and at the raw-pixel ceiling (width × height × 4 bytes, 8 at 16 bits, 3 for P010) for a sequential
+source or when a sample fails. A lossless frame varies a lot with what it shows: about 150 KB at
+720p for a flat Canvas2D film, up to 4.7 MB at 1080p with grain. `deliver` checks before any host
+opens, so its png outputs count at the ceiling. A final mp4 or mov counts by its `--bitrate` or
+`--maxrate`, else roughly (H.264, or HDR10's HEVC, at 0.5 bits a pixel, 1 for `--master`; ProRes HQ at 3.6 and 4444
+at 5.4), plus its sound.
 
 ```
 $ shaderera plan --status --plan out/spot.plan
@@ -478,11 +522,13 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, libx265, prores_ks, pcm_s24le,
-ebur128, amultiply), NVENC at 1920×1080, Chrome. Its `ffmpeg` item is ffmpeg's version line, and
-`ffmpeg:hdr10` says whether this ffmpeg can make an HDR10 film: that needs ffmpeg 9.0 or later
-(SDR is tested on 8.1.1), and NVIDIA's HEVC encoder, when it works here, makes its reviews. Inside a project: its host, `webgpu`'s version, the
-adapter with every feature and its limits (asked in a child process; for the browser host, the
-adapter Chrome's WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
+ebur128, amultiply), the GPU's H.264 encoder at 1920×1080 (`nvenc`, `qsv`, `amf` or
+`videotoolbox`, tested again, not the render's kept answers), Chrome. Its `ffmpeg` item is
+ffmpeg's version line, and `ffmpeg:hdr10` says whether this ffmpeg can make an HDR10 film: that
+needs ffmpeg 9.0 or later (SDR is tested on 8.1.1), and NVIDIA's HEVC encoder, when it works
+here, makes its reviews. Inside a project: its host, `webgpu`'s version, the adapter with every
+feature and its limits (asked in a child process; for the browser host, the adapter Chrome's
+WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
 [above](#required-plugins)). Each lack says how to fix it. It also says whether this machine is
 signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERERA_API` names
@@ -687,7 +733,7 @@ or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]` | serves the project to the studio page on the site until Ctrl-C |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
@@ -703,6 +749,9 @@ asks for.
   relay.
 - **What the page does through it.** The page previews the project with its runner, hears its
   edits, renders into `out/studio/` with the CLI's own hosts, and shares with `share`, as you.
+- **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
+  `paired`, `page-closed`, `resumed`, `job`, `share`, `ended`, …), listed in
+  [studio.md](studio.md).
 - **The protocol** is [studio.md](studio.md).
 
 The studio page reports usage counts to shaderera.com, which stores them in PostHog: never code,
@@ -737,7 +786,8 @@ commands and the MCP server.
 
 ## `--json`: one envelope
 
-Every command but `mcp` takes `--json`: stdout is then one JSON object, the exit code unchanged.
+Every command but `mcp` and `studio` takes `--json`: stdout is then one JSON object, the exit code
+unchanged. `studio --json` prints one JSON line per event instead ([studio.md](studio.md)).
 
 ```json
 {
