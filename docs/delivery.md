@@ -22,7 +22,7 @@ Every mp4 (CLI `render`, MCP `render`, `deliver`) is encoded with:
 -f rawvideo -pix_fmt rgba -s WxH -r FPS -i -
 -vf scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv
 -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv
--c:v libx264 -preset medium -crf 18        (master: -preset slow -crf 12)
+-c:v libx264 -preset veryfast -crf 16      (master: -preset slow -crf 12)
 -movflags +faststart   [-c:a aac -b:a 192k -ar 48000 -ac 2]
 ```
 
@@ -61,7 +61,7 @@ state (BT.709 limited when untagged, as players assume for HD) and compares patc
 | Path | Worst patch (levels, max channel) | Tolerance asserted |
 |---|---|---|
 | Before: swscale's default matrix (BT.601), no tags | **40** (green 255→215); magenta 37, cyan 26, red 23, yellow 17, blue 14, orange 6, light skin 3 | — (asserted > 10) |
-| Now, review (crf 18) | 2 (cyan, magenta, yellow, orange, dark skin); greys exact | ≤ 4 |
+| Now, review (crf 16, veryfast; 9.0.2) | 2 (cyan, magenta, yellow, orange, dark skin); greys exact | ≤ 4 |
 | Now, master (crf 12) | 2 (same patches); greys exact | ≤ 3 |
 
 ffmpeg 8.1.1 (gyan.dev full build), Windows 11. The remaining 1–2 levels are 8-bit Y'CbCr
@@ -71,13 +71,38 @@ quantisation at limited range, not the encoder: review and master measure the sa
 
 | Quality | x264 | a 3D product film, 1920×1080, 14 s, 30 fps | a type film on a still ground, 1080×1920, 8 s, 30 fps |
 |---|---|---|---|
-| review | crf 18, preset medium | 7.55 MB, 4.3 Mb/s | 390 kB, 0.39 Mb/s |
+| review (until 0.1.5) | crf 18, preset medium | 7.55 MB, 4.3 Mb/s | 390 kB, 0.39 Mb/s |
 | master | crf 12, preset slow | 14.70 MB, 8.4 Mb/s | 583 kB, 0.58 Mb/s |
 
-crf is constant quality: bitrate follows the content. A review encode uses NVENC (NVIDIA's H.264
-on the GPU, p5 hq, cq 19) where ffmpeg and the machine take the frame size; a master always uses
-x264. On the product film with 4 hosts, NVENC took 9.8 → 7.7 s, and its file was about 50%
-larger at a like quality (PSNR 46.9 dB against the x264 file, same mean luma).
+crf is constant quality: bitrate follows the content. A review is x264 preset veryfast at crf 16,
+which costs a third of medium's CPU for medium's crf 18 quality, in a file about 20% larger. A
+600-frame stretch of a grain-heavy film (1080×1920, 60 fps, decoded to yuv420p, so the source
+frames are the reference), ffmpeg 9.0.2 on 16 threads, CPU seconds as ffmpeg's `-benchmark`
+reports them (the wall time varies with what else the machine runs; the hosts share these cores):
+
+| x264 | CPU s | file | PSNR | SSIM |
+|---|---|---|---|---|
+| medium, crf 18 (review until 0.1.5) | 143.7 | 138.0 MB | 37.91 dB | 0.9873 |
+| fast, crf 18 | 114.6 | 139.2 MB | 37.78 dB | 0.9872 |
+| faster, crf 18 | 90.0 | 139.6 MB | 37.79 dB | 0.9871 |
+| veryfast, crf 18 | 54.0 | 142.2 MB | 36.21 dB | 0.9841 |
+| **veryfast, crf 16 (review)** | **46.0** | **165.7 MB** | **37.78 dB** | **0.9877** |
+| superfast, crf 18 | 23.9 | 147.2 MB | 35.21 dB | 0.9809 |
+| ultrafast, crf 18 | 8.7 | 186.9 MB | 37.37 dB | 0.9811 |
+
+Writing to null on the same machine, medium took 20 s (30 fps) and veryfast 7.5 s (80 fps).
+
+A review uses the machine's GPU encoder where it has one: NVENC (NVIDIA, p5 hq, cq 19), Quick
+Sync (`qsv`, Intel, global_quality 19), AMF (`amf`, AMD, constant QP 19) or VideoToolbox
+(`videotoolbox`, Apple, `-q:v 62`; constant quality needs Apple silicon), tried in that order. A
+master always uses x264 unless `--encoder` names another. On the product film with 4 hosts, NVENC
+took 9.8 → 7.7 s against x264 medium, and its file was about 50% larger at a like quality (PSNR
+46.9 dB against the x264 file, same mean luma). Only NVENC takes `--bitrate` and `--maxrate`;
+with either, a review tries NVENC alone. Whether an encoder takes a size is a test encode, kept
+in `~/.shaderera/encoders.json` for that ffmpeg (its path, mtime and version); `shaderera doctor`
+asks again. When a GPU encoder then fails on a kept yes, the yes is dropped and the render runs
+again once with the next encoder found (x264 at the last), with a warning. An HDR10 review's
+HEVC NVENC is asked apart: never kept in that file, and a failed HDR10 encode is not retried.
 
 ### Rate control
 
@@ -138,6 +163,9 @@ across 256 px, the widest band of one value in the decoded row:
 
 An 8-bit layer (a canvas, bytes) alone gains nothing from 16 bits; float textures and layers
 blended over each other do.
+
+A film with `hdr10` gets HDR10 ProRes with `--hdr10`: PQ, BT.2020, the mastering display and light
+levels in the mov's boxes ([HDR10](#hdr10)).
 
 ## Stems and captions
 
@@ -259,7 +287,8 @@ The numbers are data the person brings, never defaults: the plugin `format-place
 holds Meta Reels ads, YouTube 1080p, Amazon Streaming TV, EBU R128, ATSC A/85 and a 2026 DOOH
 screen, each with its source and the date it was read, to copy and keep current. A png handoff is a
 folder, not a file a placement takes: its placement check is unknown, so a placement on a png
-output fails.
+output fails. An HDR placement also declares the transfer, the bit depth and the HDR10 metadata
+it takes, and the SDR render beside an HDR10 one has its own placement ([HDR10](#hdr10)).
 
 ## Broadcast: preroll, timecode, textless
 
@@ -458,78 +487,138 @@ frame is compared: the test for handing a job to someone else. The tests run bot
 documented command in a copy of a png job's handoff, comparing every frame hash in
 `delivery.json`.
 
-## Higher precision: HDR, scene-linear EXR, AOVs
+## HDR10
 
-Shaderera composites display-referred sRGB code values. The GPU compositor accumulates them in half
-floats, clamped to 1.0, and can hand them on at 16 bits a channel (ProRes, `--bits 16` PNGs); a
-canvas or byte layer is 8-bit to begin with, and **changing the encoder cannot restore precision a
-layer never had**. None of it is HDR: an "HDR" tag on an SDR composite would be a lie, and there is
-no scene-linear light in it to put in an EXR.
+An HDR10 master is the film's own HDR render: PQ (SMPTE ST 2084) light in BT.2020 at 10 bits,
+with the display it was graded on and its light levels written into the file. The film opts in,
+renders its light, and keeps its own tone mapping and its own SDR version: Shaderera has no house
+curve and never makes an SDR file from the HDR one
+([decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)).
+Films that do not opt in do not change.
 
-**HDR10.** [Decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)
-(decided 2026-10-22) sets out how it works:
-- a film opts in, and its GPU layers declare linear or PQ light in BT.2020;
-- 8-bit layers are decoded as sRGB and placed at a graphics white (203 nits by default, after
-  ITU-R BT.2408);
-- the film keeps its own tone mapping and its own SDR render;
-- the master is HEVC Main 10 in an mp4, with the mastering display and MaxCLL/MaxFALL measured
-  on the GPU, chroma sited top-left as BT.2100 states;
-- ffmpeg 9.0 is needed only for an HDR10 film (SDR stays tested on 8.1.1);
-- films that do not opt in do not change.
+**1. The film opts in.** `shaderera.json` gets an `hdr10` block ([protocol.md](protocol.md#hdr10)):
 
-The manifest's `hdr10` block, `host.range` and a layer's `light` are checked
-([protocol.md](protocol.md#hdr10)), and an SDR render refuses a layer with light. An `hdr10`
-range composites in HDR in both hosts:
-- `over` in linear BT.2020 light in 32-bit floats, then PQ and 10-bit R'G'B' codes, dithered
-  (TPDF, seeded by the frame index, never on black) when `dither` is `tpdf`;
-- P010 from those codes, held to a float64 reference: on this repository's test fixture no sample
-  differs;
-- MaxCLL and MaxFALL measured on the GPU from the codes, each pixel's brightest channel in
-  cd/m²;
-- a frame whose light passes the mastering display's peak fails, naming the frame and its cd/m²:
-  it is never clipped.
-
-`render --hdr10` (or a job made with `job --hdr10`, or MCP `render` with `hdr10: true`) makes the
-HDR10 mp4:
-
-```sh
-npx shaderera job --name hdr --hdr10 --master
-npx shaderera render --job hdr
-# out/hdr.mp4
-# file: hevc Main 10 yuv420p10le 3840×2160 …, HDR10 hvc1, MaxCLL 1000 / MaxFALL 180 cd/m², …
-# light: MaxCLL 999.5 cd/m², MaxFALL 179.3 cd/m² measured (the file says 1000 / 180)
+```json
+"hdr10": {
+  "mastering": { "peak": 1000, "min": 0.0001, "primaries": "p3-d65" },
+  "dither": "tpdf"
+}
 ```
 
-- **Refused** without the manifest's `hdr10`, on ffmpeg older than 9.0, or on a host without a
-  `GPUDevice` (the Node host needs the project's `webgpu`; the Skia path is SDR only).
-- **Through lossless chunks.** The light levels are known only after the last frame, so every
-  HDR10 render writes its frames first as P010 into FFV1 `yuv420p10le` chunks, each recording its
-  levels beside it (`chunk-NNN.mkv.json`, `light`). A plain render is a one-chunk plan in
-  `<out>.<pid>.chunks/`, removed after. `plan` / `render --chunk` / `assemble` work as for SDR
-  (`frames as p010`); `assemble` writes the most light over the chunks.
-- **One encode** with ffmpeg 9.0's `-mastering_display` and `-content_light`: x265 for a master
-  (and without NVIDIA), NVIDIA's HEVC for a review where it works (`--encoder x265|nvenc`). The
-  levels are rounded up to whole cd/m². After the encode the file is probed: Main 10, `hvc1`,
-  `yuv420p10le` narrow range, BT.2020 / PQ / BT.2020 NCL, chroma top-left, and the `mdcv` / `clli`
-  boxes and the first frame's SEI equal to the declared display and the measured levels. A file
-  that differs is an error.
-- **A preroll** is P010 black, or the source's own frames, measured with the programme.
-- **HDR10 is an mp4.** A png handoff (8- or 16-bit sRGB), ProRes, `--bitrate` and `--maxrate` are
-  refused for an `hdr10` job. Its `delivery.color` is `hdr10-bt2020-pq`, never SDR BT.709.
-- **`check --hdr10`** hashes the P010 bytes in two orders, and fails a frame past the mastering
-  peak or a layer that declares light it cannot carry. It prints the most light it saw.
-- **Stills and review stay SDR**: they show the film's SDR render (the same job without the
-  range). For a film with `hdr10`, `review` also opens the HDR10 render and reports, per principal
-  frame, MaxCLL, MaxFALL and the share of pixels above Graphics White, as numbers (the `hdr10`
-  check). A PQ image shown as sRGB would mislead. `deliver` reviews an hdr10 job the same way.
+- `mastering`: the display the film was graded on (SMPTE ST 2086), `peak` and `min` in cd/m².
+  Only the person knows it; P3-D65 at 1000 cd/m² is common.
+- `dither`: `tpdf` or `none`, before the 10-bit quantisation.
+- `graphicsWhite`: where an 8-bit layer's white goes, 203 cd/m² (ITU-R BT.2408) when absent.
 
-What does not exist: scene-linear compositing, an EXR writer, AOV (depth, normals, mattes)
-channels, HLG, an HDR10 ProRes or PNG from the hosts. Nor broadcast playout formats (MXF, XDCAM,
-AVC-Intra, IMF): clearance houses and post facilities transcode a ProRes master to them (The Post
-Flow, 2026-08-24). HEVC is written only for HDR10. Its encoders carry patent-pool royalties
-(Access Advance), but Shaderera ships no encoder: it drives the person's own ffmpeg, so decision
-0023 allows HEVC for HDR10. Scene-linear compositing would be a protocol change (`over` in linear
-light), not an encoder setting.
+**2. The source renders its light, and its own SDR version.** The source reads `host.range`. In
+`hdr10` a `GPUTexture` layer (`rgba16float` or `rgba32float`) declares its light,
+`light: { transfer: 'linear' | 'pq', primaries: 'bt709' | 'bt2020' }`, where linear 1.0 is 203
+cd/m². Canvases, bytes, DOM, `io.image` and `io.video` stay SDR: they are decoded as sRGB and their
+white is placed at `graphicsWhite`. In `sdr` (every render without `--hdr10`) the film maps its own
+light down, with its own code or a plugin, and returns no layer with `light`: an SDR render refuses
+one, naming it.
+
+```ts
+const open: Open = ({ gpu, range }) => ({
+  render: async (t) =>
+    range === 'hdr10'
+      ? [{ color: lightAt(t), alpha: 'premultiplied', light: { transfer: 'linear', primaries: 'bt2020' } }]
+      : [{ color: toneMappedAt(t), alpha: 'premultiplied' }], // the film's own curve
+})
+```
+
+**3. Check, render, deliver.**
+
+```sh
+npx shaderera check --hdr10              # P010 hashed in two orders, the peak, the layers' light
+npx shaderera render --hdr10 --master    # out/<name>.mp4, HEVC Main 10
+npx shaderera render --hdr10 --format prores-hq --out out/film-hdr.mov
+npx shaderera deliver --hdr10 --sdr --master --name launch
+# ✓ launch-main      launch-main/launch-main.mp4          3840×2160 30 s  …
+# ✓ launch-main-sdr  launch-main-sdr/launch-main-sdr.mp4  3840×2160 30 s  …
+```
+
+`deliver --hdr10` makes every output an HDR10 job; `--sdr` adds, beside each, the film's own SDR
+render (`<job>-sdr`: the same job without the range). A job made with `job --hdr10` keeps its range
+(`range: "hdr10"`, `delivery.color: "hdr10-bt2020-pq"`); `render --job` and `deliver --job` render
+it as it is.
+
+**The files.**
+- **mp4**: HEVC Main 10 as `hvc1`, `yuv420p10le` narrow range, tagged BT.2020 / PQ / BT.2020
+  non-constant luminance, chroma sited top-left (BT.2100). The mastering display and MaxCLL /
+  MaxFALL are in the stream's SEI and in the mp4's `mdcv` / `clli` boxes. x265 makes a master (and
+  anything without NVIDIA); NVIDIA's HEVC makes a review where it works (`--encoder x265|nvenc`).
+  It is encoded by quality: `--bitrate` and `--maxrate` are for H.264.
+- **ProRes** (`--format prores-hq` or `prores-4444`): made by ffmpeg from the 10-bit PQ R'G'B'
+  codes with the BT.2020 matrix, tagged the same, the metadata in the mov's `mdcv` / `clli` boxes
+  (ProRes has no SEI). An HDR10 ProRes 4444 has no alpha plane: the frame is matted. This
+  conversion is ffmpeg's, so the exactness test below does not cover it.
+- **No PNG**: a PQ PNG needs PNG's `cICP` chunk, which Shaderera does not write. A png job is
+  refused for HDR10.
+
+**How it is made and checked.**
+- `over` runs in linear BT.2020 light in 32-bit floats, then PQ and 10-bit R'G'B' codes, dithered
+  when `dither` is `tpdf` (seeded by the frame index, never on black). P010 is made from those
+  codes on the GPU and held to a float64 reference: on this repository's test fixture no sample
+  differs.
+- MaxCLL and MaxFALL are measured on the GPU from the codes, each pixel's brightest channel in
+  cd/m², and rounded up to whole cd/m² in the file. A frame whose light passes the mastering
+  display's peak fails, naming the frame and its cd/m²: it is never clipped.
+- The levels are known only after the last frame, so every HDR10 render writes its frames first
+  into lossless FFV1 chunks (P010 as `yuv420p10le`, R'G'B' codes as `gbrp10le`), each recording
+  its levels (`chunk-NNN.mkv.json`, `light`), then encodes once with ffmpeg 9.0's
+  `-mastering_display` and `-content_light`. A plain render is a one-chunk plan in
+  `<out>.<pid>.chunks/`, removed after; `plan` / `render --chunk` / `assemble` work as for SDR,
+  and `assemble` writes the most light over the chunks. A preroll is PQ black, or the source's own
+  frames, measured with the programme.
+- After the encode the file is probed: the codec, profile and pixel format, the four colour tags,
+  the codec tag, the boxes and, for HEVC, the chroma site and the first frame's SEI must equal the
+  declared display and the measured levels. A file that differs is an error.
+- Stills and review stay SDR: they show the film's SDR render. For a film with `hdr10`, `review`
+  (and `deliver`, for an HDR10 output) also opens the HDR10 render and reports, per principal
+  frame, MaxCLL, MaxFALL and the share of pixels above Graphics White, as numbers (the `hdr10`
+  check). A PQ image shown as sRGB would mislead.
+
+**Placements.** A placement may declare `transfer` (ffprobe's names: `smpte2084` is PQ,
+`arib-std-b67` HLG, `bt709` SDR), `bitDepth` (from the decoded pixel format: 8, 10, 12) and
+`hdrMetadata: "required"` (the `mdcv` and `clli` boxes, and for HEVC the SEI). The plugin
+`format-placement-specs` holds `youtube-hdr`, from YouTube's HDR upload page
+(support.google.com/youtube/answer/7126552, read 2026-10-22): PQ or HLG, 10 or 12 bits, BT.2020,
+in mp4, mov or mkv, as HEVC, VP9, AV1 or ProRes. YouTube makes the SDR version itself, or from a
+`.cube` LUT uploaded beside the video; Shaderera makes no LUT. The SDR render beside an HDR10 one
+is checked against the placement `<variant>:sdr` (`main:sdr`), and against none without one:
+
+```json
+{
+  "version": 1,
+  "placements": {
+    "main": { "transfer": ["smpte2084", "arib-std-b67"], "bitDepth": [10, 12], "hdrMetadata": "required" },
+    "main:sdr": { "transfer": ["bt709"], "bitDepth": [8] }
+  }
+}
+```
+
+An SDR file on an HDR placement fails with the flag that fixes it:
+`transfer bt709, not smpte2084 or arib-std-b67 (--hdr10)`.
+
+**What it needs.** ffmpeg 9.0 or later, for `-mastering_display` and `-content_light` (SDR stays
+tested on 8.1.1, and `doctor` says which this is), and a `GPUDevice` in every host: the Node host
+needs the project's `webgpu`, since its Skia path is SDR only. HEVC is written only for HDR10. Its
+encoders carry patent-pool royalties (Access Advance), but Shaderera ships no encoder: it drives
+the person's own ffmpeg. Not made: HLG, AV1 or VP9 HDR, HDR10+ dynamic metadata, a PQ PNG.
+
+## Higher precision: scene-linear EXR, AOVs
+
+The SDR composite is display-referred sRGB code values. The GPU compositor accumulates them in half
+floats, clamped to 1.0, and can hand them on at 16 bits a channel (ProRes, `--bits 16` PNGs); a
+canvas or byte layer is 8-bit to begin with, and **changing the encoder cannot restore precision a
+layer never had**. The HDR10 composite is linear BT.2020 light, but only on the way to PQ codes:
+there is no scene-linear output to put in an EXR.
+
+What does not exist: an EXR writer, AOV (depth, normals, mattes) channels, or broadcast playout
+formats (MXF, XDCAM, AVC-Intra, IMF): clearance houses and post facilities transcode a ProRes
+master to them (The Post Flow, 2026-08-24). Scene-linear output would be a protocol change (`over`
+in linear light, written out), not an encoder setting.
 
 The honest routes today:
 

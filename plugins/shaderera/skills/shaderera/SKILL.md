@@ -89,6 +89,11 @@ and says what a share would send and any limit it would hit. A share sends packa
 which licence they want before changing it, for example to `MIT` so that others may fork the
 film and reuse it.
 
+When the person wants to watch the film, render it or share it from a page, open the studio:
+run `npx shaderera studio --json` in the background, give the person the `url` event's address
+(the command opens it too), and read its events (`paired`, `job`, `share`, `page-closed`,
+`ended`) as they come. The page is shaderera.com's; the project stays on this machine.
+
 ## 5. Plugins
 
 Write the film's own code. You may add a **plumbing** plugin that `AUTHORING.md` lists (music

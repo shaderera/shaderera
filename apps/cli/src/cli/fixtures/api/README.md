@@ -53,5 +53,5 @@ runs the same file:
 ## What the CLI sends on every request
 
 `User-Agent: shaderera/<version>`. The API answers `426` (`error-426.json`) when that version is
-older than it takes, and only then: a request without it is never refused for it. The CLI does
-not send it yet: its test in `api-contract.test.ts` is a todo until `site.ts` does.
+older than it takes, and only then: a request without it is never refused for it. The CLI
+reports that `426` in one line, with the version to update to. `api-contract.test.ts` checks both.

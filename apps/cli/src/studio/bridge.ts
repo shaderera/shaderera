@@ -41,6 +41,7 @@ export type StudioEvent =
       error?: string
     }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; text: string }
+  | { type: 'share'; film: string; version: string; url: string }
 
 /** A request to the bridge without HTTP: the method, the path (with its query) and a JSON body. */
 export type BridgeRequest = { method: string; path: string; body?: unknown }
@@ -70,6 +71,11 @@ export type Bridge = {
   handle: (request: BridgeRequest) => Promise<BridgeReply>
   /** Every event the bridge sends on /events; returns a function that stops listening. */
   onEvent: (listener: (event: StudioEvent) => void) => () => void
+  /**
+   * Every request of the page's: one that passed the origin and secret checks, or came through
+   * the relay (`handle`). Returns a function that stops listening.
+   */
+  onVisit: (listener: () => void) => () => void
   close: () => Promise<void>
 }
 
@@ -140,6 +146,10 @@ export const startBridge = async (o: {
     for (const l of listeners) l(event)
   }
   const log = (level: 'info' | 'warn' | 'error', text: string) => emit({ type: 'log', level, text })
+  const visitors = new Set<() => void>()
+  const visit = () => {
+    for (const l of visitors) l()
+  }
 
   // The runner, for the page to frame: the project's own Vite under a base no one else knows.
   const base = `/runner/${randomBytes(16).toString('hex')}/`
@@ -367,6 +377,7 @@ export const startBridge = async (o: {
         })
         if (!shared) throw new Error('Nothing was sent.')
         log('info', `shared ${shared.url}`)
+        emit({ type: 'share', film: shared.film, version: shared.version, url: shared.url })
         return json(200, { film: shared.film, version: shared.version, url: shared.url })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -379,6 +390,7 @@ export const startBridge = async (o: {
     return json(404, { error: `no route ${route}` })
   }
   const handle = async (r: BridgeRequest): Promise<BridgeReply> => {
+    visit()
     try {
       return await routes(r)
     } catch (error) {
@@ -417,6 +429,7 @@ export const startBridge = async (o: {
     if (!sameSecret(bearer ?? url.searchParams.get('s'), secret)) return refuse(403, 'secret')
 
     if (req.method === 'GET' && url.pathname === '/events') {
+      visit()
       res.writeHead(200, {
         ...cors,
         'Content-Type': 'text/event-stream',
@@ -485,6 +498,10 @@ export const startBridge = async (o: {
     onEvent: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    onVisit: (listener) => {
+      visitors.add(listener)
+      return () => visitors.delete(listener)
     },
     close: async () => {
       clearInterval(heartbeat)

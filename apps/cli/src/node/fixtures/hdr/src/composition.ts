@@ -86,11 +86,19 @@ export const fixture = (width: number, height: number) => {
   return { pq, linear, graphics }
 }
 
-/** The fixture as a film's frame: two float textures that declare their light, and bytes. */
-const open: Open = ({ gpu, manifest }) => {
-  if (!gpu) throw new Error('The HDR fixture needs WebGPU.')
+/**
+ * The fixture as a film's frame: two float textures that declare their light, and bytes. Its own
+ * SDR version (an SDR render, decision 0023) keeps the graphics alone: the film maps its light down
+ * by leaving it out, so nothing declares light there.
+ */
+const open: Open = ({ gpu, manifest, range }) => {
   const { width, height } = manifest
   const { pq, linear, graphics } = fixture(width, height)
+  if (range !== 'hdr10') {
+    const sdr: Layer[] = [{ color: graphics, alpha: 'straight', name: 'graphics' }]
+    return { render: async () => sdr }
+  }
+  if (!gpu) throw new Error('The HDR fixture needs WebGPU.')
   const texture = (data: Float32Array) => {
     const t = gpu.createTexture({
       size: [width, height],
