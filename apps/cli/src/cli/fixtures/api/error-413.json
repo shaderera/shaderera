@@ -16,7 +16,7 @@
       "Content-Type": "application/json"
     },
     "body": {
-      "error": "A file is at most 5 MiB."
+      "error": "A file is at most 32 MiB."
     }
   }
 }

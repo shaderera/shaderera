@@ -347,7 +347,7 @@ test("an error names the call, its status and the API's sentence; a 429 says whe
   const f413 = fixture('error-413')
   await assert.rejects(
     call(big.api, 'PUT', f413.request.path, { token: TOKEN.token, bytes: new Uint8Array(8) }),
-    /PUT \/obj\/[0-9a-f]{64} on .*: 413 A file is at most 5 MiB\.$/,
+    /PUT \/obj\/[0-9a-f]{64} on .*: 413 A file is at most 32 MiB\.$/,
   )
   big.check()
 
