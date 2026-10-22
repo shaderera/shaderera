@@ -88,6 +88,8 @@ export type HostIdentity = {
   flags?: string[]
   /** The WebGPU adapter: vendor, architecture, description. */
   adapter?: string
+  /** Which software renderer the adapter is (softwareAdapter); absent on a hardware GPU. */
+  software?: string
   /** The project's webgpu (Dawn) version and its device's feature count (Node host). */
   webgpu?: string
   features?: number

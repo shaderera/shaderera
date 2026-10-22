@@ -218,6 +218,7 @@ of footage it takes a moment, not the time to read all of it.
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
+| `--software-gpu` | off: a host on a software GPU is refused ([below](#a-software-gpu)). On: it renders, and says so on stderr |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:
@@ -239,6 +240,25 @@ the PATH:
 ```
 shaderera: render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html
 ```
+
+### A software GPU
+
+Without a GPU its WebGPU can reach (a container or a cloud machine the driver is not passed to, a
+Linux machine without the GPU's Vulkan driver, Chrome with its GPU turned off), Dawn or Chrome
+hands the film a software renderer: SwiftShader, llvmpipe or lavapipe (Mesa), or WARP (Microsoft
+Basic Render Driver). It draws the same film 10–100× slower. `render` and `deliver` ask the host's
+adapter before the first frame and refuse it, before saving anything:
+
+```
+shaderera: The browser host's WebGPU adapter is software, SwiftShader (google swiftshader): a render runs 10–100× slower than on a GPU. Pass --software-gpu to render on it anyway, or give the host a GPU: npx shaderera doctor says what to check.
+```
+
+`--software-gpu` renders on it all the same, with that line on stderr. The MCP `render` tool
+refuses it the same way, unless `softwareGpu: true` ([mcp.md](mcp.md)). `render --job`, `--chunk`
+and `--reuse` are checked as `render` is; `handoff --verify` (a few frames to compare) and
+`assemble` (it encodes frames already rendered) are not. The adapter is software
+when its vendor, architecture, device or description names one of those renderers, or when it
+says it is the fallback adapter (`isFallbackAdapter`). `doctor` warns on it as its `gpu` item.
 
 ## Versions and jobs
 
@@ -271,10 +291,12 @@ A job holds execution inputs and references, never the film.
 
 `shaderera deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master]
 [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS]
-[--name batch] [--job a --job b] [--replace]` saves the project once, makes one job per variant ×
+[--name batch] [--job a --job b] [--replace] [--software-gpu]` saves the project once, makes one job per variant ×
 locale (named `<batch>-<variant>[-<locale>]`), renders and reviews each, and writes
 `out/deliveries/<batch>/`. A batch name that holds other inputs is refused unless `--replace`.
 Exit 1 when any output fails, after rendering the rest. See [delivery.md](delivery.md#batch).
+An output whose host is on a software GPU fails unless `--software-gpu`, as in
+[`render`](#a-software-gpu).
 
 ## `plan`, `render --chunk`, `assemble`
 
@@ -430,12 +452,18 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
-adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
+adapter with every feature and its limits (asked in a child process; for the browser host, the
+adapter Chrome's WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
 [above](#required-plugins)). Each lack says how to fix it. It also says whether this machine is
 signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERERA_API` names
 another) and whether the project can be shared (`share`: the licence it declares). Neither is
 needed, so neither fails `doctor`.
+
+A software adapter (SwiftShader, llvmpipe, lavapipe, WARP, or the fallback adapter) is a `gpu`
+warning, not `ok`: the fix says what to check, the GPU driver, that a container is given the GPU
+(`--gpus all`, `/dev/dri`), a Vulkan ICD on Linux, and nothing turning off Chrome's GPU.
+`render` and `deliver` refuse it without `--software-gpu` ([a software GPU](#a-software-gpu)).
 
 The limits are the ones films run into, as the Node host's device gets them (it asks for the
 adapter's maximum). They come from the GPU and its backend, not from Shaderera: Dawn on D3D12 caps

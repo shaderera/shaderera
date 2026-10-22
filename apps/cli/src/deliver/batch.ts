@@ -3,6 +3,7 @@ import { join, relative } from 'node:path'
 import { frameTimes } from '@shaderera/core'
 import type { Loudness, Probe } from '../cli/ffmpeg.ts'
 import { defaultWorkers, exportVideo, extensionOf } from '../cli/render.ts'
+import { refuseSoftware } from '../node/adapter.ts'
 import type { Child } from '../node/child.ts'
 import type { Project } from '../node/project.ts'
 import {
@@ -150,6 +151,8 @@ export const deliverBatch = async (
     loudness?: number
     trusted?: boolean
     timeoutMs?: number
+    /** Renders on a software adapter (`--software-gpu`): refused by default (refuseSoftware). */
+    softwareGpu?: boolean
     onOutput?: (i: number, n: number, job: Job) => void
     /**
      * Opens a job's host, and `more` opens another for a parallel export: openJob by default;
@@ -194,6 +197,7 @@ export const deliverBatch = async (
     let opened: { project: Project; child: Child; more?: () => Promise<Child> } | undefined
     try {
       opened = await openOne(job)
+      await refuseSoftware(opened.child, o.softwareGpu === true)
       const { project, child, more } = opened
       // A textless variant: no copy is asked of it (outputRequirements).
       if (project.manifest.textless) requirements.copy = []
