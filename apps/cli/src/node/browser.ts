@@ -304,8 +304,9 @@ export const openBrowserChild = async (
       await pageReady()
       debug('page ready, opening')
       try {
+        // Raced against the worker failing to load (runner/bridge.ts), which answers no call.
         opened = await evaluate<NonNullable<typeof opened>>(
-          `window.__shaderera.open(${JSON.stringify({ params: o.params, seed: o.seed, variant: o.variant, revision: o.revision, size: o.size })})`,
+          `Promise.race([window.__shaderera.open(${JSON.stringify({ params: o.params, seed: o.seed, variant: o.variant, revision: o.revision, size: o.size })}), window.__shadereraFailed.then((m) => { throw new Error(m) })])`,
         )
       } catch (error) {
         if (
