@@ -1,4 +1,6 @@
+import { join } from 'node:path'
 import { batchJobs, bytes, deliverBatch } from '../deliver/batch.ts'
+import { preflightBatch } from '../deliver/disk.ts'
 import { findProject } from '../node/project.ts'
 import {
   checkHdr10Delivery,
@@ -25,7 +27,7 @@ const list = (x: unknown) =>
  * `shaderera deliver [--variants a,b] [--locales en,th] [--format mp4|png|prores-hq|prores-4444]
  * [--png] [--master] [--bitrate 15M | --maxrate 10M] [--no-edit-list] [--stems] [--bits 16]
  * [--no-audio] [--loudness LUFS] [--software-gpu] [--hdr10 [--sdr]]
- * [--name batch] [--job a --job b] [--replace]`: a campaign batch. One job per variant × locale from
+ * [--name batch] [--job a --job b] [--replace] [--force]`: a campaign batch. One job per variant × locale from
  * the project as it is now (saved once as a revision), or the given jobs; each is rendered, reviewed
  * against its own format and what requirements.json declares, and indexed in
  * out/deliveries/<batch>/index.{json,md}. Exits 1 when any output fails a check or fails to render,
@@ -43,6 +45,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     loudness: { type: 'string' },
     replace: { type: 'boolean' },
     'software-gpu': { type: 'boolean' },
+    force: { type: 'boolean' },
     hdr10: { type: 'boolean' },
     sdr: { type: 'boolean' },
   })
@@ -74,6 +77,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     replace: v.replace === true,
     ...(v.hdr10 ? { range: 'hdr10' as const, sdr: v.sdr === true } : {}),
   })
+  // Every output must fit in the batch folder before the first renders (--force: go ahead anyway).
+  preflightBatch(jobs, join(root, 'out', 'deliveries', batch), { force: v.force === true })
   const { dir, index } = await deliverBatch(root, jobs, {
     batch,
     audio: v['no-audio'] !== true,

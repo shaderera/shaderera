@@ -9,12 +9,13 @@ import {
   readPlan,
   refuseOtherPlan,
 } from '../deliver/chunks.ts'
+import { preflightPlan } from '../deliver/disk.ts'
 import { findProject } from '../node/project.ts'
 import { openJob, readJob } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 
 /**
- * `shaderera plan --job <name> [--chunks 4] [--out dir]`: splits a job's frames into chunks that
+ * `shaderera plan --job <name> [--chunks 4] [--out dir] [--force]`: splits a job's frames into chunks that
  * any machine with the project at the job's revision renders (`render --job <name> --chunk <i>`),
  * then `assemble` encodes them once. Opens the job once, to see the frames its host hands over.
  * Refuses a folder that holds another job's plan or chunks; the same job's is planned again.
@@ -31,6 +32,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     plan: { type: 'string' },
     verify: { type: 'boolean' },
     json: { type: 'boolean' },
+    force: { type: 'boolean' },
   })
   if (v.status) {
     const dir =
@@ -59,15 +61,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const dir = typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', `${job.name}.plan`)
   // Before the job opens: another job's plan there is refused, untouched.
   refuseOtherPlan(dir, job)
-  const { child } = await openJob(root, job, childOptions(v))
+  const { project, child } = await openJob(root, job, childOptions(v))
   let input: ReturnType<typeof inputOf>
+  let plan: Plan
   try {
     // The frames every chunk's host must hand over: what the final encoder reads.
     input = inputOf(job, child)
+    plan = makePlan(job, input, count)
+    // Its chunks and the assembled file must fit where the plan is (--force: go ahead anyway).
+    await preflightPlan(child, job, plan, dir, {
+      sequential: project.manifest.sequential,
+      force: v.force === true,
+    })
   } finally {
     await child.close()
   }
-  const plan = makePlan(job, input, count)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'plan.json'), `${JSON.stringify(plan, null, 1)}\n`)
   console.log(
