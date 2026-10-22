@@ -18,7 +18,7 @@ npx shaderera add text-glitch-titles           # copies its files, and what it i
 npx shaderera add camera-keyframes look-vignette  # several at once: all of them, or none
 npx shaderera add @shaderera/music@^0.1        # a package plugin: installed, and required
 npx shaderera remove @shaderera/music          # uninstalled, and no longer required
-npx shaderera publish path/to/plugin path/to/other --from <folder>
+npx shaderera publish path/to/plugin path/to/other --site <folder>
 ```
 
 A component, preset or media plugin is copied into the project at the paths it lists, with what it
@@ -34,15 +34,17 @@ failed, and the command exits with an error.
 
 ## Where plugins come from
 
-Plugins come from a folder or the URL of one. Point to it in either of two ways:
-- pass `--from <dir|url>`;
-- set `SHADERERA_PLUGINS=<dir|url>`.
+Plugins come from the site, a folder, or the URL of one:
+- `--site <origin>` reads the site's `<origin>/r`, and so does `SHADERERA_SITE=<origin>`, the
+  same site `share` and `studio` use;
+- `--site <url>` with a path reads the folder served there (`https://you.github.io/lib/r`);
+- `--site <dir>` reads a folder.
 
 Without either, they are Shaderera's own at `https://shaderera.com/r`. A team shares a folder:
 on a network drive, or in a git repository everyone checks out. A URL is such a folder served
 over HTTP: each command downloads `index.json` and `search.json`, and the files of the versions it
 reads, into `~/.shaderera/cache/` (or `SHADERERA_CACHE`), checks them against their sha256, and
-works offline from the last copy. `--from` wants a folder of published plugins, with an
+works offline from the last copy. `--site <dir>` wants a folder of published plugins, with an
 `index.json`. A folder of plugin sources, such as `packages/plugins/`, is refused with this hint:
 publish them into a folder first. `publish` writes to a folder only. To fill a new folder with
 the official plugins in
@@ -50,7 +52,7 @@ the official plugins in
 clone of that repository after `pnpm install`:
 
 ```
-for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --from <folder>; done
+for d in packages/plugins/*/; do [ -f "$d/shaderera.item.json" ] && node apps/cli/bin/shaderera.js publish "$d" --site <folder>; done
 ```
 
 The folder contains three things:

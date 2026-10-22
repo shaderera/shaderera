@@ -410,8 +410,9 @@ a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
 
 ## Plugins
 
-Plugins come from a folder or the URL of one: `--from <dir|url>`, else `SHADERERA_PLUGINS`, else
-Shaderera's own at `https://shaderera.com/r`. All of it is in [plugins.md](plugins.md).
+Plugins come from the site's `/r`: `--site <origin>`, else `SHADERERA_SITE`, else
+`https://shaderera.com/r`; or from a folder of plugins, `--site <dir>`. All of it is in
+[plugins.md](plugins.md).
 
 | Command | What it does |
 |---|---|
@@ -419,12 +420,12 @@ Shaderera's own at `https://shaderera.com/r`. All of it is in [plugins.md](plugi
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
 | `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not stops them all |
 | `remove <name>...` | uninstalls package plugins and stops requiring them; each must be one the project uses, or none is removed |
-| `publish [dir]... --from <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
+| `publish [dir]... --site <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
 
 `add` never replaces a file the project already has; `--force` replaces only the plugin named. A
 copied plugin's files are the project's own code: to stop using one, delete them. `info` takes one
-name. `--from` wants a folder of published plugins: a folder of plugin sources is refused, with
-the publish step to run first.
+name. `--site <dir>` wants a folder of published plugins: a folder of plugin sources is refused,
+with the publish step to run first.
 
 ## shaderera.com: `login`, `share`, `fork`
 
@@ -433,15 +434,20 @@ a shared film into a project of their own. These three commands and [`studio`](#
 are the only ones that talk to the site. They run only when called: nothing runs in the
 background, and the CLI sends no telemetry.
 
-The site is `--to <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Another site
-serves the same API (`/api/v1`). It is reached over https; plain http only on this machine
-(`localhost`, `127.0.0.1`).
+They talk to two origins, each reached over https (plain http only on this machine: `localhost`,
+`127.0.0.1`):
+
+- **The films API**, `--api <origin>`, else `SHADERERA_API`, else `https://api.shaderera.com`:
+  where films are shared to and forked from, and what `login` signs in to (`/api/v1`). Another
+  films API serves the same routes.
+- **The site**, `--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`: the pages
+  people see, a film's page and the studio page, and the plugins at `<site>/r`.
 
 | Command | What it does |
 |---|---|
-| `login --token <token> [--to origin]` | keeps the token for that site in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
-| `share [--film id] [--title t] [--no-media] [--yes] [--to origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
-| `fork <film\|url>[@version] [dir] [--to origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
+| `login --token <token> [--api origin]` | keeps the token for that API in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
+| `share [--film id] [--title t] [--no-media] [--yes] [--api origin] [--site origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
+| `fork <film\|url>[@version] [dir] [--api origin] [--site origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
 [above](#versions-and-jobs)), and nothing else:
@@ -456,9 +462,11 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 `.shaderera/player/` and sends beside the source as `player` ([player.md](player.md)): the
 runner page and worker with the film bundled, the film's files, an H.264 proxy of each video in
 them (made with ffmpeg) and the bakes' frames. The site stores and serves it and builds nothing.
-Only the site's own pages may frame the player and get its port. A player that does not build (a
-bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the share before
-anything is sent.
+Only the pages the player lists as its parents may frame it and get its port: the origins the
+API names (`parents` in its `GET /api/v1/films/health`, read without the token before the build:
+its films app and the site that shows its films), else the site alone. A player that does not
+build (a bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the share
+before anything is sent.
 
 **A poster and a loop** go with each version, for the site to show the film by: the main
 variant's frame at the film's middle, a webp at most 1280 px wide and 500 KB; and its first
@@ -467,24 +475,27 @@ the CLI's own host and ffmpeg into `.shaderera/media/`, after you confirm. One t
 render (no ffmpeg, a frame that fails, too large) is left out with a warning, and the film is
 shared without it. `--no-media` renders and sends neither.
 
-Before sending, it prints how many files and bytes it will send, the player's, to which site and
-film, the secrets it leaves out, and asks.
+Before sending, it prints how many files and bytes it will send, the player's, to which API and
+film, the pages the player plays on, the secrets it leaves out, and asks.
 Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exits 2. Declining
-sends nothing and exits 1. Only the files the site does not already have are uploaded, each one
+sends nothing and exits 1. Only the files the API does not already have are uploaded, each one
 checked against its sha256 as it is read.
 
 - **The licence** is package.json's `license`: an SPDX id such as `MIT`, or `UNLICENSED` for all
   rights reserved. A project without one is refused before anything is sent.
-- **The film** a project shares to is noted per site in `.shaderera/share.json`, which is never
+- **The film** a project shares to is noted per API in `.shaderera/share.json`, which is never
   sent or forked. The first share makes a new film titled `--title`, else package.json's `name`,
   else the folder's name; later shares make new versions of it. `--film <id>` shares to a film
   you own, and is noted for next time.
-- **The token** is the one `login` kept for that site. It goes only in the request's
+- **The token** is the one `login` kept for that API. It goes only in the request's
   `Authorization` header.
+- **An error** names the call, the API, the status and the API's own sentence. An answer that is
+  not the API's JSON (a proxy's or a site's page) shows only its first line.
 
 ```
 $ npx shaderera share
-share: 14 files, 2.1 MB, and a player of 31 files, 3.4 MB, to https://shaderera.com as a new film "neon-rain" (licence MIT)
+share: 14 files, 2.1 MB, and a player of 31 files, 3.4 MB, to https://api.shaderera.com as a new film "neon-rain" (licence MIT)
+  the player plays on https://api.shaderera.com, https://shaderera.com
   not sent: .env
 Send? [y/N] y
   with a poster of 48 KB and a loop of 612 KB
@@ -492,11 +503,12 @@ shared film k3x9q2mfa7 version 3ff052ac4865: 33 of 33 files were new
   https://shaderera.com/film/k3x9q2mfa7
 ```
 
-The address it prints is the film's page, the canvas with the film open, as the site answers it
-(else `https://shaderera.com/film/<film>`).
+The address it prints is the film's page, the canvas with the film open, as the API answers it
+(else `<site>/film/<film>`).
 
 **`fork`** takes a film's id, `<id>@<version>` (a version may be the start of one) or the address
-of its page, whose origin is then the site; without a version it takes the latest. It needs no
+of its page on the site (`https://shaderera.com/film/<id>`), which it looks up on the API (a page
+of any other origin is refused); without a version it takes the latest. It needs no
 token and sends none. Every path is checked as a revision's is, every file against its sha256,
 and nothing is written until all of them match; the folder must be new or empty. The new
 project's first `share` makes a new film, marked as forked from that version.
@@ -506,25 +518,24 @@ $ npx shaderera fork https://shaderera.com/film/k3x9q2mfa7 my-rain
 forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 files, 2.1 MB, licence MIT
 ```
 
-With `--json`, `share`'s result is `site`, `film`, `created`, `version`, `url`, `files`, `bytes`,
-`player` (`{ files, bytes }`), `uploaded`, `notSent`, `poster` and `loop` (their bytes, or null
-when not sent) and `warnings`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
-`licence`, `files` and `bytes`.
+With `--json`, `share`'s result is `api`, `film`, `created`, `version`, `url`, `files`, `bytes`,
+`player` (`{ files, bytes }`), `parents`, `uploaded`, `notSent`, `poster` and `loop` (their bytes,
+or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`, `owner`,
+`version`, `licence`, `files` and `bytes`.
 
 ## `studio`, `telemetry`
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--to origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
 machine. It makes a studio session id, or takes the one a studio page made with `--connect <id>`,
 and opens `<site>/studio/<id>#<nonce>` in your browser (`--no-open` prints the address instead): it
 pairs only with the page that holds that nonce. The site is
-`--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Share sends films to
-`--to <origin>`, as `share --to` and with the same default, which can be another site than the
-page's. It also takes `--root`, `--host`, `--trusted` and `--timeout`, for the renders the page
+`--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Share sends films to the
+films API, `--api <origin>`, as `share --api` and with the same default. It also takes `--root`, `--host`, `--trusted` and `--timeout`, for the renders the page
 asks for.
 
 - **The bridge.** It listens on 127.0.0.1 only and answers only the site's origin (and
@@ -543,6 +554,7 @@ first time it runs.
 $ npx shaderera studio
 project  /work/neon-rain
 bridge   http://127.0.0.1:52144 (for https://shaderera.com only)
+share to https://api.shaderera.com
 opening  https://shaderera.com/studio/k3x9q2
 paired: the studio page drives this project. Ctrl-C stops.
 ```

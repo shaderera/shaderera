@@ -17,8 +17,9 @@ import { playerDir, playerFiles } from './share.ts'
 const sha256 = (b: Buffer | string) => createHash('sha256').update(b).digest('hex')
 
 /**
- * A fake of the site's API (`/api/v1`, the routes the POC app serves) in memory: films, versions
+ * A fake of the films API (`/api/v1`, the routes the films app serves) in memory: films, versions
  * of path → sha256, and objects. It records every request, and can serve one object corrupted.
+ * Its health names `options.parents` (null: an older API, without the field).
  */
 const fakeSite = async () => {
   const TOKEN = 'tok-secret-123'
@@ -39,7 +40,7 @@ const fakeSite = async () => {
   const requests: { method: string; path: string; auth: string | undefined }[] = []
   const corrupt = new Set<string>()
   /** Like the app's API: a version needs a built player; its response has the film's `page`. */
-  const options = { needsPlayer: false, page: true }
+  const options = { needsPlayer: false, page: true, parents: null as unknown }
   const json = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(body))
@@ -57,6 +58,12 @@ const fakeSite = async () => {
     const obj = /^\/obj\/([0-9a-f]{64})$/.exec(path)
     const filmPath = /^\/films\/([a-z0-9]+)(\/versions)?$/.exec(path)
     const revision = /^\/versions\/([0-9a-f]{64})\/revision$/.exec(path)
+    if (method === 'GET' && path === '/films/health')
+      return json(res, 200, {
+        ok: true,
+        service: 'web',
+        ...(options.parents === null ? {} : { parents: options.parents }),
+      })
     if (method === 'POST' && path === '/uploads/missing') {
       const { hashes } = JSON.parse(body.toString()) as { hashes: string[] }
       return json(res, 200, { missing: hashes.filter((h) => !objects.has(h)) })
@@ -137,6 +144,7 @@ const cli = (home: string, cwd: string, ...args: string[]) =>
   new Promise<{ status: number; stdout: string; stderr: string }>((done) => {
     const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, USERPROFILE: home }
     delete env.SHADERERA_SITE
+    delete env.SHADERERA_API
     execFile(process.execPath, [main, ...args], { cwd, env }, (e, stdout, stderr) =>
       done({ status: e ? Number(e.code) : 0, stdout, stderr }),
     )
@@ -160,12 +168,20 @@ const project = (licence: string | null = 'MIT') => {
   return root
 }
 
-test('login keeps one token per site and never prints it', async () => {
+test('login keeps one token per API and never prints it', async () => {
   const home = temp('home')
-  const r = await cli(home, home, 'login', '--token', 'tok-secret-123', '--to', 'https://a.example')
+  const r = await cli(
+    home,
+    home,
+    'login',
+    '--token',
+    'tok-secret-123',
+    '--api',
+    'https://a.example',
+  )
   assert.equal(r.status, 0, r.stderr)
   assert.doesNotMatch(r.stdout + r.stderr, /tok-secret-123/)
-  await cli(home, home, 'login', '--token', 'other', '--to', 'https://b.example')
+  await cli(home, home, 'login', '--token', 'other', '--api', 'https://b.example')
   assert.deepEqual(JSON.parse(readFileSync(join(home, '.shaderera', 'tokens.json'), 'utf8')), {
     'https://a.example': 'tok-secret-123',
     'https://b.example': 'other',
@@ -178,19 +194,24 @@ test('share sends what a revision holds less secrets and its built player, only 
   const home = temp('home')
   const root = project()
 
-  const noToken = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const noToken = await cli(home, root, 'share', '--api', s.site, '--yes')
   assert.equal(noToken.status, 2)
   assert.match(noToken.stderr, /No token for/)
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
 
-  const asked = await cli(home, root, 'share', '--to', s.site)
+  const asked = await cli(home, root, 'share', '--api', s.site)
   assert.equal(asked.status, 2)
   assert.match(asked.stdout, /share: \d+ files, .* as a new film "neon-rain" \(licence MIT\)/)
   assert.match(asked.stdout, /not sent: \.env, sub\/\.npmrc/)
   assert.match(asked.stderr, /needs --yes/)
-  assert.equal(s.requests.length, 0, 'nothing is sent before --yes')
+  // Only the health is read (the player's parents), before the build, and without the token.
+  assert.deepEqual(
+    s.requests.map((q) => `${q.method} ${q.path} ${q.auth ?? 'no token'}`),
+    ['GET /films/health no token'],
+    'nothing is sent before --yes',
+  )
 
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media', '--json')
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media', '--json')
   assert.equal(r.status, 0, r.stdout)
   const { result } = JSON.parse(r.stdout)
   assert.equal(result.film, 'film1')
@@ -209,7 +230,7 @@ test('share sends what a revision holds less secrets and its built player, only 
     ...[sent?.poster, sent?.loop].filter((x) => x !== undefined),
   ])
   assert.equal(result.uploaded, objects.size)
-  for (const q of s.requests)
+  for (const q of s.requests.filter((q) => q.path !== '/films/health'))
     assert.equal(q.auth, `Bearer ${s.TOKEN}`, `${q.method} ${q.path} carries the token`)
   assert.doesNotMatch(r.stdout, new RegExp(s.TOKEN))
 
@@ -225,15 +246,16 @@ test('share sends what a revision holds less secrets and its built player, only 
   for (const [p, sha] of Object.entries(sent.files)) assert.equal(sent.player[`files/${p}`], sha)
   assert.ok(!Object.keys(sent.files).some((p) => p.startsWith('.shaderera/')))
   for (const sha of Object.values(sent.player)) assert.ok(s.objects.has(sha))
-  // Only this site may frame it.
+  // The API names no parents: only the site's pages may frame it.
+  assert.deepEqual(result.parents, ['https://shaderera.com'])
   assert.match(
     readFileSync(join(playerDir(root), 'runner.html'), 'utf8'),
-    new RegExp(`name="shaderera-parents" content="${s.site}"`),
+    /name="shaderera-parents" content="https:\/\/shaderera\.com"/,
   )
 
   // Again: the same film; only a changed file is uploaded.
   writeFileSync(join(root, 'notes.txt'), 'a new file')
-  const again = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')
+  const again = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')
   assert.equal(again.status, 0, again.stderr)
   assert.match(again.stdout, /shared film film1 version [0-9a-f]{12}: 1 of \d+ files were new/)
   assert.equal(s.films.size, 1)
@@ -244,8 +266,8 @@ test('share refuses a project that declares no licence, before anything is sent'
   const s = await fakeSite()
   const home = temp('home')
   const root = project(null)
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes')
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes')
   assert.equal(r.status, 2)
   assert.match(r.stderr, /declares no licence/)
   assert.equal(s.requests.length, 0)
@@ -255,14 +277,25 @@ test('fork copies a version into a new folder as a project, and its share is a n
   const s = await fakeSite()
   const home = temp('home')
   const root = project()
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  assert.equal((await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')).status, 0)
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  assert.equal((await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')).status, 0)
   const shared = s.films.get('film1')?.versions[0]
   assert.ok(shared)
 
   const work = temp('work')
   const before = s.requests.length
-  const r = await cli(home, work, 'fork', `${s.site}/film/film1`, 'mine', '--json')
+  // The API's address names the film; a page of another origin is not looked up on it.
+  const elsewhere = await cli(
+    home,
+    work,
+    'fork',
+    'https://other.example/film/film1',
+    '--api',
+    s.site,
+  )
+  assert.equal(elsewhere.status, 2)
+  assert.match(elsewhere.stderr, /is not the site \(https:\/\/shaderera\.com\) nor the films API/)
+  const r = await cli(home, work, 'fork', `${s.site}/film/film1`, 'mine', '--api', s.site, '--json')
   assert.equal(r.status, 0, r.stdout)
   const { result } = JSON.parse(r.stdout)
   assert.equal(result.version, shared.id)
@@ -274,11 +307,11 @@ test('fork copies a version into a new folder as a project, and its share is a n
   const note = JSON.parse(readFileSync(join(dir, '.shaderera', 'share.json'), 'utf8'))
   assert.deepEqual(note, { [s.site]: { forkedFrom: shared.id } })
 
-  const full = await cli(home, work, 'fork', 'film1', 'mine', '--to', s.site)
+  const full = await cli(home, work, 'fork', 'film1', 'mine', '--api', s.site)
   assert.equal(full.status, 2)
   assert.match(full.stderr, /is not empty/)
 
-  const again = await cli(home, dir, 'share', '--to', s.site, '--yes', '--no-media')
+  const again = await cli(home, dir, 'share', '--api', s.site, '--yes', '--no-media')
   assert.equal(again.status, 0, again.stderr)
   assert.match(
     again.stdout,
@@ -292,12 +325,12 @@ test('fork writes nothing when a file does not match its sha256', async () => {
   const s = await fakeSite()
   const home = temp('home')
   const root = project()
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')
   const shared = s.films.get('film1')?.versions[0]
   s.corrupt.add(shared?.files['shaderera.json'] as string)
   const work = temp('work')
-  const r = await cli(home, work, 'fork', 'film1', '--to', s.site)
+  const r = await cli(home, work, 'fork', 'film1', '--api', s.site)
   assert.equal(r.status, 2)
   assert.match(r.stderr, /did not match its sha256/)
   assert.ok(!existsSync(join(work, 'film1')))
@@ -306,7 +339,7 @@ test('fork writes nothing when a file does not match its sha256', async () => {
   assert.ok(shared)
   shared.files['../escape.txt'] = shared.files['shaderera.json'] as string
   s.corrupt.clear()
-  const bad = await cli(home, work, 'fork', 'film1', '--to', s.site)
+  const bad = await cli(home, work, 'fork', 'film1', '--api', s.site)
   assert.equal(bad.status, 2)
   assert.match(bad.stderr, /may not: \.\.\/escape\.txt/)
 })
@@ -318,8 +351,8 @@ test("share sends a film's proxies and bake frames in its player; a player that 
   s.options.needsPlayer = true
   const home = temp('home')
   const { root } = await footageProject()
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media')
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   assert.match(r.stdout, /share: \d+ files, .*, and a player of \d+ files, .*, to /)
   const player = s.films.get('film1')?.versions[0]?.player ?? {}
@@ -335,13 +368,17 @@ test("share sends a film's proxies and bake frames in its player; a player that 
 
   writeFileSync(join(root, 'out', 'level', 'level.1.bin'), new Uint8Array([9]))
   const before = s.requests.length
-  const failed = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const failed = await cli(home, root, 'share', '--api', s.site, '--yes')
   assert.equal(failed.status, 2)
   assert.match(
     failed.stderr,
     /The player did not build: Bake level: level\.1\.bin changed since it was made\. Run shaderera bake level\. Nothing was sent\./,
   )
-  assert.equal(s.requests.length, before, 'nothing was sent')
+  assert.deepEqual(
+    s.requests.slice(before).map((q) => q.path),
+    ['/films/health'],
+    'nothing was sent (the parents were read)',
+  )
 })
 
 test('share renders a poster and a loop, uploads them, sends their shas, and prints the film page', {
@@ -350,8 +387,8 @@ test('share renders a poster and a loop, uploads them, sends their shas, and pri
   const s = await fakeSite()
   const home = temp('home')
   const root = project()
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--json')
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--json')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   const { result } = JSON.parse(r.stdout)
   const version = s.films.get('film1')?.versions[0]
@@ -383,7 +420,7 @@ test('share renders a poster and a loop, uploads them, sends their shas, and pri
   assert.ok(result.loop <= LOOP.bytes)
 
   // The plain lines: the page, never the runner.
-  const again = await cli(home, root, 'share', '--to', s.site, '--yes')
+  const again = await cli(home, root, 'share', '--api', s.site, '--yes')
   assert.equal(again.status, 0, again.stderr)
   assert.match(again.stdout, /\n {2}with a poster of \d+ B and a loop of \d+ KB\n/)
   assert.ok(again.stdout.endsWith(`\n  ${s.site}/film/film1\n`), again.stdout)
@@ -405,8 +442,8 @@ test('a poster or loop that does not render is left out with a warning, and the 
       "render: async (t) => {\n      if (t === 0) throw new Error('the render broke at 0')",
     ),
   )
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes')
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   assert.match(r.stderr, /! no loop: .*the render broke at 0/)
   assert.doesNotMatch(r.stderr, /no poster/)
@@ -418,13 +455,13 @@ test('a poster or loop that does not render is left out with a warning, and the 
   assert.ok(!existsSync(join(mediaDir(root), 'loop.mp4')))
 })
 
-test('share --no-media renders and sends neither; without a page in the response the url is shaderera.com/film/<film>', async () => {
+test("share --no-media renders and sends neither; without a page in the response the url is the site's /film/<film>", async () => {
   const s = await fakeSite()
   s.options.page = false
   const home = temp('home')
   const root = project()
-  await cli(home, root, 'login', '--token', s.TOKEN, '--to', s.site)
-  const r = await cli(home, root, 'share', '--to', s.site, '--yes', '--no-media', '--json')
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media', '--json')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   const { result } = JSON.parse(r.stdout)
   assert.equal(result.url, 'https://shaderera.com/film/film1')
@@ -436,4 +473,64 @@ test('share --no-media renders and sends neither; without a page in the response
   assert.ok(!('poster' in version) && !('loop' in version), 'no poster or loop sent')
   assert.ok(!existsSync(mediaDir(root)), 'nothing rendered')
   assert.equal(r.stderr, '')
+})
+
+test("share builds the player for the parents the API's health names; an older API's: for --site alone", async () => {
+  const s = await fakeSite()
+  const app = 'https://app.example'
+  const page = 'https://site.example'
+  // The app twice, the site, and entries that are no origin, which are left out.
+  s.options.parents = [app, page, app, 'not an origin', 'https://site.example/film/x']
+  const home = temp('home')
+  const root = project()
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const parentsMeta = () =>
+    /name="shaderera-parents" content="([^"]*)"/.exec(
+      readFileSync(join(playerDir(root), 'runner.html'), 'utf8'),
+    )?.[1]
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media', '--json')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  assert.deepEqual(JSON.parse(r.stdout).result.parents, [app, page])
+  assert.equal(parentsMeta(), `${app} ${page}`)
+  assert.ok(
+    s.requests.some((q) => q.method === 'GET' && q.path === '/films/health' && !q.auth),
+    'the health is asked, without the token',
+  )
+  const said = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')
+  assert.match(said.stdout, new RegExp(`the player plays on ${app}, ${page}\n`))
+
+  // An API without the field: the player is for --site alone, and the page falls back to it.
+  s.options.parents = null
+  s.options.page = false
+  const old = await cli(
+    home,
+    root,
+    ...['share', '--api', s.site, '--site', 'http://localhost:5193', '--yes', '--no-media'],
+    '--json',
+  )
+  assert.equal(old.status, 0, old.stdout + old.stderr)
+  const { result } = JSON.parse(old.stdout)
+  assert.deepEqual(result.parents, ['http://localhost:5193'])
+  assert.equal(result.url, `http://localhost:5193/film/${result.film}`)
+  assert.equal(parentsMeta(), 'http://localhost:5193')
+})
+
+test('an API answer that is not JSON shows its status and first line, never the page', async () => {
+  const html = createServer((_req, res) => {
+    res.writeHead(404, { 'Content-Type': 'text/html' })
+    res.end(
+      `<!doctype html>\n<html><head><title>404</title></head>\n<body>${'x'.repeat(5000)}</body></html>`,
+    )
+  })
+  await new Promise<void>((done) => html.listen(0, '127.0.0.1', done))
+  after(() => html.close())
+  const api = `http://127.0.0.1:${(html.address() as AddressInfo).port}`
+  const home = temp('home')
+  const r = await cli(home, home, 'fork', 'film1', '--api', api)
+  assert.equal(r.status, 2)
+  assert.equal(
+    r.stderr.trim(),
+    `shaderera: GET /films/film1 on ${api}: 404 (not the films API's answer) <!doctype html>`,
+  )
+  assert.doesNotMatch(r.stderr, /xxxx|<body>/)
 })

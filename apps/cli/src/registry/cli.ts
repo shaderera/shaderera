@@ -15,10 +15,10 @@ export const usage = `Plugins:
   search <words> [--type t] [--category c] [--tag x] [--json]   full-text over names, descriptions and code
   info <name>[@range] [--json]               what it is, its licence, what it copies, how to use it
   remove <name>...                           uninstall package plugins (copied files are yours: delete them)
-  publish [dir]... [--force]                 put plugins into a folder of plugins (--from <dir>)
+  publish [dir]... --site <folder> [--force] put plugins into a folder of plugins
 
-Plugins come from a folder or the URL of one: --from <dir|url>, else SHADERERA_PLUGINS, else
-Shaderera's own at https://shaderera.com/r.`
+Plugins come from a site's /r: --site <origin>, else SHADERERA_SITE, else https://shaderera.com/r;
+or from a folder of plugins: --site <dir>.`
 
 /**
  * A folder of plugin sources (each with its label) where a folder of published plugins was
@@ -30,7 +30,7 @@ const sourcesHint = (dir: string): string | null => {
     (e) => e.isDirectory() && existsSync(join(dir, e.name, ITEM_FILE)),
   )
   return sources
-    ? `${dir} holds plugin sources, not published plugins (it has no index.json). Publish them into a folder first, then add from that: npx shaderera publish ${dir}/<plugin>... --from <folder> (see "Where plugins come from" in docs/plugins.md)`
+    ? `${dir} holds plugin sources, not published plugins (it has no index.json). Publish them into a folder first, then add from that: npx shaderera publish ${dir}/<plugin>... --site <folder> (see "Where plugins come from" in docs/plugins.md)`
     : null
 }
 
@@ -40,7 +40,7 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
     args: [...argv],
     allowPositionals: true,
     options: {
-      from: { type: 'string' },
+      site: { type: 'string' },
       json: { type: 'boolean' },
       force: { type: 'boolean' },
       type: { type: 'string' },
@@ -54,9 +54,9 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
     console.log(usage)
     return 0
   }
-  const source = registryDir(v.from)
+  const source = registryDir(v.site)
   if (command === 'publish' && isUrl(source))
-    throw new Error(`publish writes to a folder, not ${source}: pass --from <dir>`)
+    throw new Error(`publish writes to a folder, not ${source}: pass --site <dir>`)
   if (command !== 'publish' && !isUrl(source)) {
     const hint = sourcesHint(source)
     if (hint) throw new Error(hint)

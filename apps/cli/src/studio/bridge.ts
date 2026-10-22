@@ -113,8 +113,10 @@ const sameSecret = (given: string | null | undefined, secret: string): boolean =
  */
 export const startBridge = async (o: {
   root: string
-  /** Where Share sends films: `shaderera studio --to`, as `shaderera share --to`. */
-  to: string
+  /** Where Share sends films: `shaderera studio --api`, as `shaderera share --api`. */
+  api: string
+  /** The site whose pages show a shared film: `--site`, as `shaderera share --site`. */
+  site: string
   origins: readonly string[]
   hostFlags?: { host?: unknown; trusted?: unknown; timeout?: unknown }
   /** Debounce for the watcher, in ms. */
@@ -318,7 +320,8 @@ export const startBridge = async (o: {
       try {
         const shared = await shareProject({
           root,
-          site: o.to,
+          api: o.api,
+          site: o.site,
           ...(typeof body.title === 'string' && body.title.trim() ? { title: body.title } : {}),
           say: (line) => log('info', line),
           warn: (line) => log('warn', line),

@@ -12,7 +12,7 @@ import { mirror } from './remote.ts'
 import { assertRequirements, requirementProblems } from './requires.ts'
 import { search } from './search.ts'
 import { satisfies, validRange } from './semver.ts'
-import { newest, publish, resolve } from './store.ts'
+import { newest, publish, registryDir, resolve } from './store.ts'
 
 const temp = (name: string) => tempDir(`plugins-${name}`)
 const write = (dir: string, files: { [path: string]: unknown }) => {
@@ -409,7 +409,7 @@ test('search --tag matches a tag with a space', async () => {
   const log = console.log
   console.log = (s: string) => printed.push(s)
   try {
-    await run('search', ['--tag', 'Motion Blur', '--json', '--from', registry])
+    await run('search', ['--tag', 'Motion Blur', '--json', '--site', registry])
   } finally {
     console.log = log
   }
@@ -488,6 +488,19 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
   }
 })
 
+test("--site names where plugins come from: a site's /r, a URL's own path, or a folder", () => {
+  assert.equal(registryDir('https://you.example'), 'https://you.example/r')
+  assert.equal(registryDir('https://you.example/'), 'https://you.example/r')
+  assert.equal(registryDir('https://you.github.io/lib/r/'), 'https://you.github.io/lib/r')
+  assert.equal(registryDir('http://127.0.0.1:8080'), 'http://127.0.0.1:8080/r')
+  assert.equal(registryDir('/teams/plugins'), '/teams/plugins')
+  assert.throws(() => registryDir('http://you.example'), /--site is reached over https/)
+  assert.equal(
+    registryDir(),
+    `${process.env.SHADERERA_SITE ? new URL(process.env.SHADERERA_SITE).origin : 'https://shaderera.com'}/r`,
+  )
+})
+
 const quiet = async (command: string, argv: string[]): Promise<string[]> => {
   const printed: string[] = []
   const log = console.log
@@ -506,19 +519,19 @@ test('add takes several names: all of them are copied, or none when one does not
   publish(piece('top', ['src/top.ts'], { requires: { items: { frame: '^0.1.0' } } }), registry)
   publish(piece('side', ['src/side.ts']), registry)
   const root = project()
-  const printed = await quiet('add', ['top', 'side', 'frame', '--from', registry, '--root', root])
+  const printed = await quiet('add', ['top', 'side', 'frame', '--site', registry, '--root', root])
   for (const f of ['frame', 'top', 'side']) assert.ok(existsSync(join(root, 'src', `${f}.ts`)))
   assert.equal(printed.at(-1), 'added top, side, frame')
 
   const other = project()
   await assert.rejects(
-    quiet('add', ['side', 'gone', '--from', registry, '--root', other]),
+    quiet('add', ['side', 'gone', '--site', registry, '--root', other]),
     /gone is not a plugin in/,
   )
   assert.ok(!existsSync(join(other, 'src', 'side.ts')))
   // A name the project already has is refused like one alone.
   await assert.rejects(
-    quiet('add', ['side', 'top', '--from', registry, '--root', root]),
+    quiet('add', ['side', 'top', '--site', registry, '--root', root]),
     /already has src\/side\.ts, src\/top\.ts/,
   )
 })
@@ -543,7 +556,7 @@ test('publish takes several folders; one that fails is named, and the rest are p
       piece('one', ['src/one.ts']),
       empty,
       piece('two', ['src/two.ts']),
-      '--from',
+      '--site',
       registry,
     ]),
     (e: Error) => /published 2 of 3; 1 failed/.test(e.message) && e.message.includes(empty),
@@ -555,12 +568,12 @@ test('publish takes several folders; one that fails is named, and the rest are p
 test('an extra argument is never ignored, and a folder of plugin sources says to publish it first', async () => {
   const registry = temp('reg')
   publish(piece('one', ['src/one.ts']), registry)
-  await assert.rejects(quiet('info', ['one', 'two', '--from', registry]), /one plugin at a time/)
+  await assert.rejects(quiet('info', ['one', 'two', '--site', registry]), /one plugin at a time/)
 
   const sources = temp('sources')
   write(sources, { 'look-x/shaderera.item.json': { name: 'look-x' } })
   await assert.rejects(
-    quiet('add', ['look-x', '--from', sources, '--root', project()]),
-    /holds plugin sources, not published plugins.*npx shaderera publish .*--from <folder>/,
+    quiet('add', ['look-x', '--site', sources, '--root', project()]),
+    /holds plugin sources, not published plugins.*npx shaderera publish .*--site <folder>/,
   )
 })

@@ -209,10 +209,10 @@ alternatives joined with `||`. Pin npm packages a plugin is tested against exact
 Publish into a scratch folder, add from it into a fresh project, and look:
 
 ```sh
-npx shaderera publish ./text-stamp --from ~/scratch-plugins   # checks the label, prints warnings
-npx shaderera info text-stamp --from ~/scratch-plugins         # what a person will read
+npx shaderera publish ./text-stamp --site ~/scratch-plugins   # checks the label, prints warnings
+npx shaderera info text-stamp --site ~/scratch-plugins         # what a person will read
 npx create-shaderera@latest stamp-test && cd stamp-test && npm install
-npx shaderera add text-stamp --from ~/scratch-plugins
+npx shaderera add text-stamp --site ~/scratch-plugins
 # call it from src/composition.ts, as the README says
 npx shaderera check                     # the same t gives the same frame, in two orders
 npx shaderera still 0 2.5 5 --sheet     # stills and a contact sheet
@@ -319,7 +319,7 @@ Any plugin, in any taste, can live in a library of your own. A library is a fold
 fills, or that folder served at a URL:
 
 ```sh
-npx shaderera publish ./text-stamp --from ./r
+npx shaderera publish ./text-stamp --site ./r
 ```
 
 `./r` then holds `index.json` (every plugin and version, with its sha256 and its files),
@@ -330,8 +330,8 @@ lists every file a command fetches.
 People reach it by choice:
 
 ```sh
-npx shaderera add text-stamp --from https://you.example/r
-SHADERERA_PLUGINS=https://you.example/r npx shaderera search stamp
+npx shaderera add text-stamp --site https://you.example        # reads https://you.example/r
+npx shaderera search stamp --site https://you.github.io/lib/r  # a URL with a path: that folder
 ```
 
 Each command mirrors what it reads into `~/.shaderera/cache/`, checks it against the sha256, and
