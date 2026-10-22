@@ -37,7 +37,9 @@ The server starts in any folder and finds the project on each call, from the fol
 and above. When the project is somewhere else (one you just made, say), pass its folder as
 `root` on every call. A call with no project says so. The tools have the CLI's names (`render`,
 `check`, `still`, `save`, `versions`, `job`, `review`); `compare` compares two times, and
-`render_frame`, `still`, `inspect` and `compare` take `variant` and `params`. Without MCP, the
+`render_frame`, `still`, `inspect` and `compare` take `variant` and `params`; `still`, `check`
+and `review` take `variants` (`["16:9", "9:16"]` or `"all"`) to look at, check and review every
+output in one call, `still` as one sheet of them side by side. Without MCP, the
 CLI shows the same things (step 3).
 
 ## 3. The loop

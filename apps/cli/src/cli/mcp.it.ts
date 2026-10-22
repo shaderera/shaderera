@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { decode } from 'fast-png'
 import { tempDir } from '../fixtures/temp.ts'
 import { createJob } from '../project/jobs.ts'
 import { createServer } from './mcp.ts'
@@ -347,6 +348,56 @@ test("render of a job renders the job's frozen delivery, not a default mp4", {
     const r = await call('render', { job: 'master' })
     assert.match(r.out, /master\.mov$/)
     assert.equal(r.probe.video.codec, 'prores')
+  } finally {
+    await close()
+  }
+})
+
+test('MCP still, check and review take variants: one host each, one sheet side by side', async () => {
+  const ratios = copy('./fixtures/ratios/')
+  const { call, close } = await connect(ratios)
+  try {
+    const still = await call('still', { times: [0.5, 1.5], variants: ['16:9', '9:16'] })
+    assert.deepEqual(JSON.parse(still.content[0].text), {
+      times: [0.5, 1.5],
+      variants: [
+        { variant: '16:9', width: 1920, height: 1080 },
+        { variant: '9:16', width: 1080, height: 1920 },
+      ],
+    })
+    const sheet = decode(Buffer.from(still.content[1].data, 'base64'))
+    assert.deepEqual([sheet.width, sheet.height], [8 + 1280 + 8 + 405 + 8, 8 + 2 * (720 + 44 + 8)])
+
+    // 16:9 is main's size, fps, duration and params: all runs it once, and says so.
+    const check = await call('check', { times: 2, variants: 'all' })
+    assert.equal(check.main, '16:9')
+    assert.deepEqual(
+      check.variants.map((v: { variant: string; failures: unknown[] }) => [
+        v.variant,
+        v.failures.length,
+      ]),
+      [
+        ['16:9', 0],
+        ['9:16', 0],
+      ],
+    )
+    const review = await call('review', { quick: true, variants: ['9:16', '16:9'] })
+    assert.deepEqual(
+      review.variants.map((r: { variant: string; manifest: { width: number } }) => [
+        r.variant,
+        r.manifest.width,
+      ]),
+      [
+        ['9:16', 1080],
+        ['16:9', 1920],
+      ],
+    )
+    assert.ok(existsSync(join(ratios, 'out', 'review', '9_16', 'contact-sheet.png')))
+    await assert.rejects(call('still', { times: [0], variants: ['4:5'] }), /no variant "4:5"/)
+    await assert.rejects(
+      call('check', { variant: '16:9', variants: ['9:16'] }),
+      /variant or variants, not both/,
+    )
   } finally {
     await close()
   }

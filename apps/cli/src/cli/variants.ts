@@ -74,12 +74,29 @@ export const variantNames = (
             .map((s) => s.trim())
             .filter(Boolean)
   if (names.length === 0) throw new Error(`No variant in "${given}".`)
-  const unknown = names.filter((n) => n !== 'main' && !declared.includes(n))
+  return variantList(names, manifest)
+}
+
+/**
+ * Names as given (MCP's `variants`), or `all`: `main` and every variant the manifest declares.
+ * `undefined` is `main`; an unknown name is refused, a repeated one taken once.
+ */
+export const variantList = (
+  names: readonly string[] | 'all',
+  manifest: Manifest,
+): (string | undefined)[] => {
+  const declared = Object.keys(manifest.variants ?? {})
+  const given = names === 'all' ? (sameAsMain(manifest) ? declared : ['main', ...declared]) : names
+  if (!Array.isArray(given) || given.length === 0 || given.some((n) => typeof n !== 'string'))
+    throw new Error(
+      `variants is "all" or a list of variant names (main: the manifest's own output).`,
+    )
+  const unknown = given.filter((n) => n !== 'main' && !declared.includes(n))
   if (unknown.length > 0)
     throw new Error(
       `shaderera.json has no variant ${unknown.map((n) => `"${n}"`).join(', ')}${declared.length ? ` (it declares ${declared.join(', ')}, and main)` : ''}.`,
     )
-  return [...new Set(names)].map((n) => (n === 'main' ? undefined : n))
+  return [...new Set(given)].map((n) => (n === 'main' ? undefined : n))
 }
 
 /** A variant's name as the commands print it: `main` for the manifest's own output. */

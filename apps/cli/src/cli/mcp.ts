@@ -16,12 +16,14 @@ import { createJob, listJobs, openJob, readJob, safeName, videoOptionsOf } from 
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { head, log, save } from '../project/revisions.ts'
 import { contactSheet, review, toPng } from '../review/review.ts'
+import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { valueAt } from './inspect.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { stillTimes } from './still.ts'
+import { nameOf, sameAsMain, variantList } from './variants.ts'
 
 type Obj = { [k: string]: Json }
 type Found = { path: string; value: Obj }
@@ -92,6 +94,11 @@ const str = { type: 'string' }
 const obj = { type: 'object' }
 /** `variant` and `params`: the call renders that variant of shaderera.json, these params over it. */
 const looks = { variant: str, params: obj }
+/** `variants`: several outputs in one call, each in its own host, at once. */
+const several = { variants: { oneOf: [{ type: 'array', items: str }, { const: 'all' }] } }
+const SEVERAL =
+  'variants (a list of names, main for the manifest\'s own output, or "all": main and every variant, main left out (and named as main) when a variant renders the same) runs each in its own host at once, instead of variant.'
+
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
     'render_frame',
@@ -111,8 +118,8 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'still',
-    'Like `shaderera still <t>... --sheet`: renders each of times (seconds), or every `every` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant and params as render_frame.',
-    { times: { type: 'array', items: num }, every: num, ...looks },
+    `Like \`shaderera still <t>... --sheet\`: renders each of times (seconds), or every \`every\` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant and params as render_frame. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. ${SEVERAL}`,
+    { times: { type: 'array', items: num }, every: num, ...looks, ...several },
     [],
   ],
   [
@@ -147,8 +154,8 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'check',
-    'Like `shaderera check`: renders sampled t twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels.',
-    { times: num, seed: num, hdr10: { type: 'boolean' } },
+    `Like \`shaderera check\`: renders sampled t twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
+    { times: num, seed: num, hdr10: { type: 'boolean' }, ...several },
     [],
   ],
   [
@@ -193,8 +200,8 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'review',
-    'Like `shaderera review`: renders the shots (or 7 evenly spaced frames), transition samples and the last frame, writes a contact sheet to out/review/ and runs the technical checks (format, determinism, blank frames, end hold, text fit and overlap, glyphs, copy, assets, readback, alpha) against requirements.json; returns the report JSON plus the contact sheet and frame thumbs as images. quick skips determinism and readback.',
-    { variant: str, quick: { type: 'boolean' } },
+    `Like \`shaderera review\`: renders the shots (or 7 evenly spaced frames), transition samples and the last frame, writes a contact sheet to out/review/ and runs the technical checks (format, determinism, blank frames, end hold, text fit and overlap, glyphs, copy, assets, readback, alpha) against requirements.json; returns the report JSON plus the contact sheet and frame thumbs as images. quick skips determinism and readback. With variants, { variants: [{ variant, ...report }] } and each one's contact sheet, each in out/review/<variant>/ (main in out/review/). ${SEVERAL}`,
+    { variant: str, quick: { type: 'boolean' }, ...several },
     [],
   ],
 ]
@@ -246,6 +253,104 @@ export const createServer = (
     if (!c.has.inspect) throw new Error('This source has no inspect(t).')
     return c.inspect(t)
   }
+  /**
+   * still, check and review for several variants: each opens its own host, with the call's
+   * params, and they run at once; every host is closed with the call.
+   */
+  const forVariants = async (
+    root: string,
+    name: string,
+    // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+    a: { [k: string]: any },
+    params: Obj | undefined,
+  ): Promise<unknown> => {
+    if (typeof a.variant === 'string') throw new Error('Give variant or variants, not both.')
+    const { manifest } = await findProject(root)
+    const names = variantList(a.variants, manifest)
+    /** `all` left main out for the variant that renders the same. */
+    const same = a.variants === 'all' ? sameAsMain(manifest) : undefined
+    const main = same ? { main: same } : {}
+    const opening = await Promise.allSettled(
+      names.map((variant) =>
+        open({
+          ...flags,
+          root,
+          variant,
+          param: paramFlags(params),
+          ...(name === 'check' && a.hdr10 === true ? { hdr10: true } : {}),
+        }),
+      ),
+    )
+    const hosts = opening.flatMap((o) => (o.status === 'fulfilled' ? [o.value] : []))
+    try {
+      const failed = opening.find((o) => o.status === 'rejected')
+      if (failed) throw (failed as PromiseRejectedResult).reason
+      const each = <T>(
+        run: (o: (typeof hosts)[number], variant: string | undefined) => Promise<T>,
+      ) => Promise.all(hosts.map((o, i) => run(o, names[i])))
+      if (name === 'check') {
+        const results = await each((o) =>
+          checkChild(o.child, o.project.manifest, { times: a.times ?? 20, seed: a.seed }),
+        )
+        return { ...main, variants: results.map((r, i) => ({ variant: nameOf(names[i]), ...r })) }
+      }
+      const required = readRequirements(root)
+      if (name === 'still') {
+        const given: number[] = Array.isArray(a.times) ? a.times : []
+        const every = typeof a.every === 'number' ? a.every : undefined
+        if (given.length === 0 && every === undefined)
+          throw new Error('still needs times or every.')
+        const shortest = Math.min(...hosts.map((o) => o.project.manifest.duration))
+        const times = stillTimes(given, every, shortest)
+        if (times.length * hosts.length > SHEET)
+          throw new Error(
+            `${times.length * hosts.length} frames: a sheet holds at most ${SHEET}. Give fewer times or variants, or a longer every.`,
+          )
+        const frames = await each(async (o, variant): Promise<VariantFrames> => {
+          const { width, height } = o.project.manifest
+          const { safeArea } = outputRequirements(required, { variant, ...o.project.manifest })
+          const rendered = []
+          for (const t of times) rendered.push({ t, pixels: await final(o.child, t) })
+          return {
+            name: nameOf(variant),
+            width,
+            height,
+            ...(safeArea ? { safeArea } : {}),
+            frames: rendered,
+          }
+        })
+        const sheet = await variantSheet(frames)
+        const sizes = frames.map((f) => ({ variant: f.name, width: f.width, height: f.height }))
+        return [
+          { type: 'text', text: JSON.stringify({ times, ...main, variants: sizes }) },
+          image(sheet.toString('base64')),
+        ]
+      }
+      const reports = await each((o, variant) =>
+        review({
+          project: o.project,
+          child: o.child,
+          outDir: join(root, 'out', 'review', ...(variant ? [safeName(variant)] : [])),
+          requirements: outputRequirements(required, { variant, ...o.project.manifest }),
+          quick: a.quick === true,
+          reopen: async (size) =>
+            (await open({ ...flags, root, variant, param: paramFlags(params) }, size)).child,
+        }),
+      )
+      return [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            ...main,
+            variants: reports.map((r, i) => ({ variant: nameOf(names[i]), ...r })),
+          }),
+        },
+        ...reports.map((r) => image(readFileSync(r.contactSheet).toString('base64'))),
+      ]
+    } finally {
+      await Promise.all(hosts.map((o) => o.child.close()))
+    }
+  }
   // The low-level Server does not check arguments against a tool's input schema: they come as
   // the client sent them, and each tool reads what it needs.
   const call = async (
@@ -259,6 +364,8 @@ export const createServer = (
     // server's own variant (`--variant`), with the defaults.
     if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
     const params = a.params && typeof a.params === 'object' ? (a.params as Obj) : undefined
+    if (a.variants !== undefined && ['still', 'check', 'review'].includes(name))
+      return forVariants(root, name, a, params)
     const variant = typeof a.variant === 'string' ? a.variant : flags.variant
     const own =
       LOOKS.has(name) && (typeof a.variant === 'string' || params)
