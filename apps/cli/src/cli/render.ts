@@ -39,14 +39,16 @@ import {
   bitsPerSecond,
   CODECS,
   type Codec,
+  canEncode,
   containerOf,
+  ENCODERS,
   type Encoder,
   ffmpegArgs,
   ffmpegSink,
-  forgetNvenc,
+  forgetEncoder,
   type HdrEncoder,
+  hardwareEncoder,
   hasHevcNvenc,
-  hasNvenc,
   hdr10Args,
   type Input,
   type Loudness,
@@ -138,8 +140,9 @@ const exportOnce = async (
      */
     hosts?: readonly Child[]
     /**
-     * By default NVENC for a review where this machine has it, x264 for a master or without; for
-     * HDR10, NVIDIA's HEVC for a review where it works here, x265 for a master or without.
+     * By default a GPU's H.264 encoder for a review where this machine has one, x264 for a master
+     * or without; for HDR10, NVIDIA's HEVC for a review where it works here, x265 for a master or
+     * without.
      */
     encoder?: Encoder | HdrEncoder
     /** `false`: no audio stream, whatever the source's clips (a silent DOOH placement, say). */
@@ -167,7 +170,7 @@ const exportOnce = async (
   frames: number
   seconds: number
   workers: number
-  /** `x264`, `nvenc`, or `prores` for a mov; `x265` or `nvenc` (HEVC) for HDR10. */
+  /** `x264`, a GPU encoder, or `prores` for a mov; `x265` or `nvenc` (HEVC) for HDR10. */
   encoder: Encoder | HdrEncoder | 'prores'
   /**
    * Bits a channel the frames reached the encoder with: 16 from the GPU compositor for ProRes, 10
@@ -201,8 +204,10 @@ const exportOnce = async (
     checkHdr10Delivery({ format: prores ? codec : 'mp4', bitrate: o.bitrate, maxrate: o.maxrate })
     requireHdr10Ffmpeg()
     if (!manifest.hdr10) throw new Error('An hdr10 render needs the hdr10 block in shaderera.json.')
-    if (o.encoder === 'x264')
-      throw new Error('x264 encodes H.264: an HDR10 mp4 is HEVC, encoded with x265 or nvenc.')
+    if (o.encoder === 'x264' || o.encoder === 'qsv' || o.encoder === 'amf')
+      throw new Error(
+        `${o.encoder} encodes H.264: an HDR10 mp4 is HEVC, encoded with x265 or nvenc.`,
+      )
     encoder = prores
       ? 'prores'
       : (o.encoder ?? (review && hasHevcNvenc(width, height) ? 'nvenc' : 'x265'))
@@ -211,14 +216,16 @@ const exportOnce = async (
         'This ffmpeg cannot encode 10-bit HEVC with NVENC here (no NVIDIA GPU, or no driver for it).',
       )
   } else {
-    if (o.encoder === 'x265' || o.encoder === 'videotoolbox')
-      throw new Error(`${o.encoder} encodes HEVC for HDR10 (--hdr10); an SDR mp4 is H.264.`)
+    if (o.encoder === 'x265')
+      throw new Error('x265 encodes HEVC for HDR10 (--hdr10); an SDR mp4 is H.264.')
+    const rated = Boolean(o.bitrate || o.maxrate)
     encoder = prores
       ? 'prores'
-      : (o.encoder ?? (review && (await hasNvenc(width, height)) ? 'nvenc' : 'x264'))
-    if (encoder === 'nvenc' && !(await hasNvenc(width, height)))
+      : (o.encoder ??
+        (review ? ((await hardwareEncoder(width, height, { rated })) ?? 'x264') : 'x264'))
+    if (encoder !== 'prores' && encoder !== 'x264' && !(await canEncode(encoder, width, height)))
       throw new Error(
-        'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
+        `This ffmpeg cannot encode with ${encoder} here (no such GPU, or no driver for it).`,
       )
   }
   requireFfmpeg()
@@ -453,23 +460,27 @@ const exportOnce = async (
 }
 
 /**
- * When H.264 NVENC was picked from a kept yes (hasNvenc) and its ffmpeg fails, the yes is dropped
- * and the film is rendered again once, with x264, saying so on stderr. Never for HDR10, whose HEVC
- * NVENC is asked apart (hasHevcNvenc) and never kept.
+ * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg fails, the yes
+ * is dropped and the film is rendered again once, with the next encoder found (x264 at the last),
+ * saying so on stderr. Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never
+ * kept.
  */
 export const exportVideo: typeof exportOnce = async (project, child, o) => {
+  const { width, height } = project.manifest
+  const auto =
+    o.encoder === undefined &&
+    (o.codec ?? 'h264') === 'h264' &&
+    !(o.frames ? o.frames.input === 'p010' : child.has.p010 === true) &&
+    (o.quality ?? 'review') === 'review'
+  const picked = auto
+    ? await hardwareEncoder(width, height, { rated: Boolean(o.bitrate || o.maxrate) })
+    : undefined
   try {
     return await exportOnce(project, child, o)
   } catch (error) {
-    const { width, height } = project.manifest
-    const picked =
-      o.encoder === undefined &&
-      (o.codec ?? 'h264') === 'h264' &&
-      !(o.frames ? o.frames.input === 'p010' : child.has.p010 === true) &&
-      (o.quality ?? 'review') === 'review' &&
-      /^ffmpeg exited/.test((error as Error).message)
-    if (!picked || !forgetNvenc(width, height)) throw error
-    console.warn('! NVENC failed where it worked before: rendering again with x264.')
+    if (!picked || !/^ffmpeg exited/.test((error as Error).message)) throw error
+    if (!forgetEncoder(picked, width, height)) throw error
+    console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
     return exportOnce(project, child, o)
   }
 }
@@ -500,7 +511,7 @@ const prerollLight = async (
 /**
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
- * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc|x265] [--no-audio] [--loudness LUFS]
+ * [--progress] [--trusted] [--workers n] [--encoder name] [--no-audio] [--loudness LUFS]
  * [--hdr10] [--force]`. --force: a chunk or png job that the disk-space preflight (deliver/disk.ts)
  * refuses goes ahead. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023), or a ProRes mov with --format,
  * of a film whose shaderera.json has `hdr10`, rendered on the GPU through one lossless chunk; a job
@@ -508,8 +519,8 @@ const prerollLight = async (
  * (`shaderera job --hdr10`).
  * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
  * mix to that integrated loudness by one constant gain; the true peak is reported, never limited. --workers: how many hosts
- * render frames at once (defaultWorkers; 1 for a sequential source). --encoder: by default NVENC
- * for a review where this machine has it, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
+ * render frames at once (defaultWorkers; 1 for a sequential source). --encoder (ENCODERS, or x265
+ * for --hdr10): by default a GPU encoder for a review where this machine has one, x264 for a master. With --job, the frozen job: its revision, variant, params, seed and
  * window; the working tree does not matter. A png job writes the finishing handoff into
  * out/<job>/ (frames, audio.wav, delivery.json) instead of an mp4. `--job --chunk i [--plan dir]`
  * renders one chunk of a plan; `--job --reuse <plan> --changed <from>-<to>[,…] [--fix] [--plan dir]`
@@ -517,8 +528,12 @@ const prerollLight = async (
  * (renderReusing).
  */
 const encoderOf = (value: unknown): Encoder | 'x265' => {
-  if (value === 'x264' || value === 'nvenc' || value === 'x265') return value
-  throw new Error(`--encoder is x264 or nvenc (x265 or nvenc for --hdr10), not ${String(value)}.`)
+  if (value === 'x265') return value
+  const found = ENCODERS.find((e) => e === value)
+  if (found) return found
+  throw new Error(
+    `--encoder is one of ${ENCODERS.join(', ')} (x265, nvenc or videotoolbox for --hdr10), not ${String(value)}.`,
+  )
 }
 
 export const run = async (argv: readonly string[]): Promise<number> => {
@@ -606,9 +621,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (frames === 0 || m.sequential) return 0
     return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
   }
-  // NVENC's answer comes beside the open (exportVideo asks for this size again, answered).
+  // The GPU encoders' answers come beside the open (exportVideo asks again, answered).
   if ((video.codec ?? 'h264') === 'h264')
-    void hasNvenc(located.manifest.width, located.manifest.height)
+    void hardwareEncoder(located.manifest.width, located.manifest.height)
   const { project, child, extra } = job
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)

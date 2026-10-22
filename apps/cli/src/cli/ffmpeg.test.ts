@@ -46,7 +46,7 @@ test('ffmpegArgs converts with the BT.709 matrix, tags BT.709 and sets the quali
   assert.ok(
     review.includes('-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv'),
   )
-  assert.ok(review.includes('-preset medium -crf 18'))
+  assert.ok(review.includes('-preset veryfast -crf 16'))
   const master = ffmpegArgs({ ...base, quality: 'master' }).join(' ')
   assert.ok(master.includes('-preset slow -crf 12'))
 })
@@ -70,9 +70,15 @@ test('rate control: a constant bitrate with HRD filler, or a ceiling on the crf'
   )
   assert.ok(!cbr.includes('-crf'))
   const cap = ffmpegArgs({ ...base, maxrate: '10M' }).join(' ')
-  assert.ok(cap.includes('-crf 18 -maxrate 10M -bufsize 20000000'))
+  assert.ok(cap.includes('-crf 16 -maxrate 10M -bufsize 20000000'))
   const nvenc = ffmpegArgs({ ...base, bitrate: '8M', encoder: 'nvenc' }).join(' ')
   assert.ok(nvenc.includes('-rc cbr -b:v 8M -maxrate 8M') && !nvenc.includes('-rc vbr'))
+  // The other GPU encoders run at a constant quality only: --crf n is their cq n + 1.
+  const qsv = ffmpegArgs({ ...base, encoder: 'qsv', crf: 20 }).join(' ')
+  assert.ok(qsv.includes('-c:v h264_qsv -preset medium -global_quality 21'))
+  const vt = ffmpegArgs({ ...base, encoder: 'videotoolbox' }).join(' ')
+  assert.ok(vt.includes('-c:v h264_videotoolbox -q:v 62'))
+  assert.throws(() => ffmpegArgs({ ...base, encoder: 'amf', maxrate: '10M' }), /x264 and nvenc/)
   assert.equal(bitsPerSecond('800k'), 800_000)
   assert.throws(() => bitsPerSecond('fast'), /15M or 800k/)
 })

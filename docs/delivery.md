@@ -22,7 +22,7 @@ Every mp4 (CLI `render`, MCP `render`, `deliver`) is encoded with:
 -f rawvideo -pix_fmt rgba -s WxH -r FPS -i -
 -vf scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv
 -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv
--c:v libx264 -preset medium -crf 18        (master: -preset slow -crf 12)
+-c:v libx264 -preset veryfast -crf 16      (master: -preset slow -crf 12)
 -movflags +faststart   [-c:a aac -b:a 192k -ar 48000 -ac 2]
 ```
 
@@ -61,7 +61,7 @@ state (BT.709 limited when untagged, as players assume for HD) and compares patc
 | Path | Worst patch (levels, max channel) | Tolerance asserted |
 |---|---|---|
 | Before: swscale's default matrix (BT.601), no tags | **40** (green 255→215); magenta 37, cyan 26, red 23, yellow 17, blue 14, orange 6, light skin 3 | — (asserted > 10) |
-| Now, review (crf 18) | 2 (cyan, magenta, yellow, orange, dark skin); greys exact | ≤ 4 |
+| Now, review (crf 16, veryfast; 9.0.2) | 2 (cyan, magenta, yellow, orange, dark skin); greys exact | ≤ 4 |
 | Now, master (crf 12) | 2 (same patches); greys exact | ≤ 3 |
 
 ffmpeg 8.1.1 (gyan.dev full build), Windows 11. The remaining 1–2 levels are 8-bit Y'CbCr
@@ -71,16 +71,38 @@ quantisation at limited range, not the encoder: review and master measure the sa
 
 | Quality | x264 | a 3D product film, 1920×1080, 14 s, 30 fps | a type film on a still ground, 1080×1920, 8 s, 30 fps |
 |---|---|---|---|
-| review | crf 18, preset medium | 7.55 MB, 4.3 Mb/s | 390 kB, 0.39 Mb/s |
+| review (until 0.1.5) | crf 18, preset medium | 7.55 MB, 4.3 Mb/s | 390 kB, 0.39 Mb/s |
 | master | crf 12, preset slow | 14.70 MB, 8.4 Mb/s | 583 kB, 0.58 Mb/s |
 
-crf is constant quality: bitrate follows the content. A review encode uses NVENC (NVIDIA's H.264
-on the GPU, p5 hq, cq 19) where ffmpeg and the machine take the frame size; a master always uses
-x264. On the product film with 4 hosts, NVENC took 9.8 → 7.7 s, and its file was about 50%
-larger at a like quality (PSNR 46.9 dB against the x264 file, same mean luma).
-Whether NVENC takes a size is a test encode, kept in `~/.shaderera/nvenc.json` for that ffmpeg
-(its path, mtime and version); `shaderera doctor` asks again. When NVENC then fails on a kept
-yes, the yes is dropped and the render runs again once with x264, with a warning.
+crf is constant quality: bitrate follows the content. A review is x264 preset veryfast at crf 16,
+which costs a third of medium's CPU for medium's crf 18 quality, in a file about 20% larger. A
+600-frame stretch of a grain-heavy film (1080×1920, 60 fps, decoded to yuv420p, so the source
+frames are the reference), ffmpeg 9.0.2 on 16 threads, CPU seconds as ffmpeg's `-benchmark`
+reports them (the wall time varies with what else the machine runs; the hosts share these cores):
+
+| x264 | CPU s | file | PSNR | SSIM |
+|---|---|---|---|---|
+| medium, crf 18 (review until 0.1.5) | 143.7 | 138.0 MB | 37.91 dB | 0.9873 |
+| fast, crf 18 | 114.6 | 139.2 MB | 37.78 dB | 0.9872 |
+| faster, crf 18 | 90.0 | 139.6 MB | 37.79 dB | 0.9871 |
+| veryfast, crf 18 | 54.0 | 142.2 MB | 36.21 dB | 0.9841 |
+| **veryfast, crf 16 (review)** | **46.0** | **165.7 MB** | **37.78 dB** | **0.9877** |
+| superfast, crf 18 | 23.9 | 147.2 MB | 35.21 dB | 0.9809 |
+| ultrafast, crf 18 | 8.7 | 186.9 MB | 37.37 dB | 0.9811 |
+
+Writing to null on the same machine, medium took 20 s (30 fps) and veryfast 7.5 s (80 fps).
+
+A review uses the machine's GPU encoder where it has one: NVENC (NVIDIA, p5 hq, cq 19), Quick
+Sync (`qsv`, Intel, global_quality 19), AMF (`amf`, AMD, constant QP 19) or VideoToolbox
+(`videotoolbox`, Apple, `-q:v 62`; constant quality needs Apple silicon), tried in that order. A
+master always uses x264 unless `--encoder` names another. On the product film with 4 hosts, NVENC
+took 9.8 → 7.7 s against x264 medium, and its file was about 50% larger at a like quality (PSNR
+46.9 dB against the x264 file, same mean luma). Only NVENC takes `--bitrate` and `--maxrate`;
+with either, a review tries NVENC alone. Whether an encoder takes a size is a test encode, kept
+in `~/.shaderera/encoders.json` for that ffmpeg (its path, mtime and version); `shaderera doctor`
+asks again. When a GPU encoder then fails on a kept yes, the yes is dropped and the render runs
+again once with the next encoder found (x264 at the last), with a warning. An HDR10 review's
+HEVC NVENC is asked apart: never kept in that file, and a failed HDR10 encode is not retried.
 
 ### Rate control
 
