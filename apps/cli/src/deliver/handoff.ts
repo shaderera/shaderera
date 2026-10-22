@@ -108,7 +108,9 @@ export const writeHandoff = (
     '',
     job.delivery.format === 'png'
       ? `Output: \`out/${job.name}/\` (frames/, audio.wav when the source has audio, delivery.json with a sha256 per frame).`
-      : `Output: \`out/${job.name}.mp4\`.`,
+      : job.range === 'hdr10'
+        ? `Output: \`out/${job.name}.mp4\`, HDR10 (HEVC Main 10, BT.2020, PQ, with the mastering display and the measured light levels). It needs ffmpeg 9.0 or later and a host with a GPU.`
+        : `Output: \`out/${job.name}.mp4\`.`,
     '',
     '## Dependencies',
     '',

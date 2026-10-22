@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import type { Probe } from '../cli/ffmpeg.ts'
 import type { Job } from '../project/jobs.ts'
-import { jobOfFile, pictureDifferences, remuxArgs, samplesOf } from './reexport.ts'
+import { hdr10Changes, jobOfFile, pictureDifferences, remuxArgs, samplesOf } from './reexport.ts'
 
 const job = (o: Partial<Job> & { name: string }): Job =>
   ({
@@ -59,4 +60,59 @@ test('a remux copies the video packets and writes the sound as a render does', (
   assert.match(mov, /-c:a pcm_s24le .*-fflags \+bitexact/)
   const silent = remuxArgs({ ...o, audio: null }).join(' ')
   assert.doesNotMatch(silent, /-c:a|\[aout\]/)
+})
+
+test('a remux of an HDR10 file must keep its tags, display and light levels', () => {
+  const display = {
+    red: [0.708, 0.292],
+    green: [0.17, 0.797],
+    blue: [0.131, 0.046],
+    white: [0.3127, 0.329],
+    peak: 1000,
+    min: 0.0001,
+  } as const
+  const light = { maxCLL: 813, maxFALL: 102 }
+  const file = (hdr10?: NonNullable<Probe['video']>['hdr10']): Probe => ({
+    container: 'mov,mp4,m4a,3gp,3g2,mj2',
+    bytes: 1,
+    duration: 1,
+    bitrate: 1,
+    editList: true,
+    video: {
+      codec: 'hevc',
+      pixFmt: 'yuv420p10le',
+      width: 8,
+      height: 8,
+      fps: 10,
+      color: { matrix: 'bt2020nc', primaries: 'bt2020', transfer: 'smpte2084', range: 'tv' },
+      ...(hdr10 ? { hdr10 } : {}),
+    },
+  })
+  const hdr = file({
+    codecTag: 'hvc1',
+    chroma: 'topleft',
+    mastering: display,
+    light,
+    sei: { mastering: display, light },
+  })
+  assert.deepEqual(hdr10Changes(hdr, hdr), [])
+  assert.deepEqual(hdr10Changes(file(), file()), [], 'an SDR file has none to keep')
+  const lost = file({
+    codecTag: 'hvc1',
+    chroma: 'topleft',
+    mastering: display,
+    sei: { mastering: display, light },
+  })
+  assert.match(hdr10Changes(hdr, lost).join(), /^light \{"maxCLL":813,"maxFALL":102\}, not null$/)
+  const other = file({
+    codecTag: 'hev1',
+    chroma: 'topleft',
+    mastering: display,
+    light: { maxCLL: 1000, maxFALL: 102 },
+    sei: { mastering: display, light },
+  })
+  assert.deepEqual(
+    hdr10Changes(hdr, other).map((d) => d.split(' ')[0]),
+    ['codecTag', 'light'],
+  )
 })
