@@ -11,19 +11,26 @@ A person or their agent searches plugins, adds what fits, and owns the result as
 To write one, see [plugin-guide.md](plugin-guide.md). Every command is part of `shaderera`:
 
 ```
-npx shaderera search "glitch captions"         # full-text over names, descriptions and code
+npx shaderera search "glitch titles"           # full-text over names, descriptions and code
 npx shaderera search widenFov --type component # also --category c, --tag x, --json
-npx shaderera info text-feature-captions       # licence, what it copies and is built on, README
-npx shaderera add text-feature-captions        # copies its files, and what it is built on
+npx shaderera info text-glitch-titles          # licence, what it copies and is built on, README
+npx shaderera add text-glitch-titles           # copies its files, and what it is built on
+npx shaderera add camera-keyframes look-vignette  # several at once: all of them, or none
 npx shaderera add @shaderera/music@^0.1        # a package plugin: installed, and required
 npx shaderera remove @shaderera/music          # uninstalled, and no longer required
-npx shaderera publish path/to/plugin --from <folder>
+npx shaderera publish path/to/plugin path/to/other --from <folder>
 ```
 
 A component, preset or media plugin is copied into the project at the paths it lists, with what it
 is built on, once. A later `add` never replaces a file the project already has; `--force` replaces
 only the plugin named. Once copied, the files are the project's own code: to stop using one,
 delete its files.
+
+`add` and `remove` take several names. `add` resolves every one, and what each is built on,
+before it copies anything: if one is missing, nothing is copied. `remove` checks that each is a
+package plugin the project uses before it uninstalls any. `publish` takes several folders and
+publishes each in turn. A folder that fails does not stop the rest: the end names each one that
+failed, and the command exits with an error.
 
 ## Where plugins come from
 
@@ -35,7 +42,9 @@ Without either, they are Shaderera's own at `https://shaderera.com/r`. A team sh
 on a network drive, or in a git repository everyone checks out. A URL is such a folder served
 over HTTP: each command downloads `index.json` and `search.json`, and the files of the versions it
 reads, into `~/.shaderera/cache/` (or `SHADERERA_CACHE`), checks them against their sha256, and
-works offline from the last copy. `publish` writes to a folder only. To fill a new folder with
+works offline from the last copy. `--from` wants a folder of published plugins, with an
+`index.json`. A folder of plugin sources, such as `packages/plugins/`, is refused with this hint:
+publish them into a folder first. `publish` writes to a folder only. To fill a new folder with
 the official plugins in
 [packages/plugins/](https://github.com/shaderera/shaderera/tree/main/packages/plugins), from a
 clone of that repository after `pnpm install`:

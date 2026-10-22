@@ -13,7 +13,7 @@ type Segment = { kind: BlurKind; note: string; params: BlurParams }
 
 /** The kinds in order, a quarter of the loop each; the first follows the last. */
 const SEGMENTS: Segment[] = [
-  { kind: 'gaussian', note: 'soft; σ half the radius', params: { radius: 64 } },
+  { kind: 'gaussian', note: 'soft; sigma half the radius', params: { radius: 64 } },
   {
     kind: 'bokeh',
     note: 'a lens: each light opens into a disc',
@@ -94,19 +94,19 @@ const lookBlur: OpenPreview = async (host, stateId) => {
   /** The window at t: across and back once a loop, so the last frame meets the first. */
   const windowAt = (t: number) => {
     const cx = width / 2 + WINDOW.swing * Math.sin((t / duration) * Math.PI * 2)
-    return { x: cx - WINDOW.w / 2, y: CARD.y + 110, w: WINDOW.w, h: WINDOW.h }
+    return { x: cx - WINDOW.w / 2, y: CARD.y + 110, width: WINDOW.w, height: WINDOW.h }
   }
 
   /** Red marks at the window's corners. */
-  const marks = (b: { x: number; y: number; w: number; h: number }) => {
+  const marks = (b: { x: number; y: number; width: number; height: number }) => {
     ctx.strokeStyle = RED
     ctx.lineWidth = 3
     const k = 22
     for (const [x, y, dx, dy] of [
       [b.x, b.y, 1, 1],
-      [b.x + b.w, b.y, -1, 1],
-      [b.x, b.y + b.h, 1, -1],
-      [b.x + b.w, b.y + b.h, -1, -1],
+      [b.x + b.width, b.y, -1, 1],
+      [b.x, b.y + b.height, 1, -1],
+      [b.x + b.width, b.y + b.height, -1, -1],
     ] as const) {
       ctx.beginPath()
       ctx.moveTo(x + dx * k, y)

@@ -53,7 +53,7 @@ The owner's rule is to plan the next plugins from the films' `REGISTRY-GAPS.md` 
 1. **A vgpu host.** 0012's trigger, "when a film uses vgpu", was met on 2026-10-13. It would take
    `host.gpu` through `initFromDevice`, as `render-three-host` does for three.js.
 2. **Raw-WebGPU image textures with mips.** Two films wrote them on their own, because
-   `render-image-textures` is three.js only.
+   `render-three-textures` is three.js only.
 3. **A GPU point-splat building block.** Films write particles by hand; `text-glyph-points` is a
    CPU point set for text.
 4. **A path tracer and denoiser,** once the film that wrote one is accepted.

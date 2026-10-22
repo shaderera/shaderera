@@ -104,6 +104,7 @@ type Host = {
   manifest: Manifest
   params: { [key: string]: Json }
   seed: number                 // manifest.seed, or 0
+  variant?: string             // the variant opened (`9:16`); undefined for the manifest's own output
   io: Io
   gpu?: GPUDevice              // offered when the host has WebGPU; never required
 }
@@ -129,7 +130,7 @@ it, before any frame.
 - `io.image` decodes PNG and JPEG in JavaScript (fast-png, jpeg-js) in both hosts, never with a
   canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the file's
   sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. Once per file in a host. Other formats
-  are converted to PNG once (the plugin `render-image-textures` has the tool).
+  are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with
   ffmpeg (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over;
   frames read in order stream. One decoder serves every Node host of a render: a frame is decoded
@@ -202,8 +203,19 @@ timecode is drop-frame at 29.97 and 59.94.
 
 Each may override `width`, `height`, `duration` and `fps`, set params, and declare `preroll`,
 `timecode` and `textless`. A host opens the source with the variant applied to `host.manifest`
-and its params over the defaults (`withVariant` in `@shaderera/core/host`); the source lays
-itself out from that manifest, so a variant is a designed output, never a crop of another.
+and its params over the defaults (`withVariant` in `@shaderera/core/host`), and gives its name as
+`host.variant` (`undefined` for the manifest's own output; a `dom` module gets it too). Every
+host does, in every command: the Node host, the browser host and the web player. The source lays
+itself out from that manifest and that name, so a variant is a designed output, never a crop of
+another:
+
+```ts
+const open: Open = ({ io, manifest, variant }) => {
+  const stacked = variant === '9:16' // the word over the picture; side by side otherwise
+  const canvas = io.canvas(manifest.width, manifest.height)
+  // ...
+}
+```
 Revisions and jobs, which freeze a variant, params and a source for export, live above the
 protocol, in the CLI ([cli.md](cli.md#versions-and-jobs)).
 
@@ -442,6 +454,11 @@ async captions() {
 Captions in composition seconds; `\n` breaks a line. Every export writes them as SRT and WebVTT
 sidecars, cut to its window; they are never drawn into the frame. Burned-in text is the film's own
 drawing.
+
+Each caption needs a finite start before its end. Cues read with `text-timed-cues` are captions as
+they are, once an LRC's last line, which ends at `Infinity`, is ended with the film; its README
+shows how. Review measures the captions against the limits requirements.json declares
+([delivery.md](delivery.md#stems-and-captions)).
 
 ### progressive and depth
 

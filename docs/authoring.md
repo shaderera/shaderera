@@ -57,12 +57,20 @@ What is on the shelf:
 - **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
   plumbing again, and says so:
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
+  - `motion-eases`: eases, clamp, lerp, the progress of t through a span, an envelope over hits;
+  - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
+  - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking, the lines as text runs for review;
+  - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
   - `render-three-host`: three.js on the host's GPU;
-  - `render-image-textures`: PNG and JPEG decoded the same in Node and the browser;
+  - `render-three-textures`: images from `io.image` as three.js textures and atlases;
+  - `image-to-png`: WebP, AVIF, GIF and video frames converted to PNG once (ffmpeg);
+  - `render-canvas-texture`: a Canvas2D canvas or RGBA bytes as a GPU texture for a WGSL pass;
+  - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
+  - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;
   - `image-regions`: named regions of a photograph (mask, box, centre), from SAM 3.1 or painted masks;
   - `render-gaussian-splats`: Gaussian splats on the host's GPU with a deterministic sort;
   - `render-bvh`: ray queries against a mesh's triangles on the GPU, closest hit and any hit;
@@ -74,7 +82,7 @@ What is on the shelf:
   - `asset-provenance`: where each outside file came from, the ASSETS.md table and the credits.
 - **Looks, motion and sound design** are added only when the person asks: `look-blur`,
   `look-screen-passes`, `look-paper-edges`, `look-row-glitch`, `look-film-grain`,
-  `look-tonemap`, `look-vignette`, `text-kinetic`, `text-feature-captions`, `text-code-wall`,
+  `look-tonemap`, `look-vignette`, `text-scramble`, `text-glitch-titles`, `text-code-wall`,
   `text-glyph-morph`, `motion-keyframes`, `camera-keyframes`, `camera-shake`, `camera-ken-burns`,
   `format-safe-areas`, `format-broadcast-slate`, `audio-hall-ending`, `audio-voice-repace`.
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
@@ -103,6 +111,10 @@ The CLI and MCP can only show and change what the source exposes.
   at closely, so `still --object` can find it.
 - **Params** are a JSON Schema in `shaderera.json` with titles and good defaults, for the few
   controls a non-programmer wants. If a param overrides a literal, say so in the README.
+- **Variants** (`16:9`, `9:16`, a cutdown) are outputs the film lays itself out for. The source
+  is opened with the variant's size in `host.manifest` and its name in `host.variant`
+  (`undefined` for the manifest's own output): lay out by the name, not by guessing from the
+  width and height.
 - **`pick(t, x, y)`** returns `{ id, point? }` through the camera in effect, so a click selects.
 
 ## Keep it deterministic

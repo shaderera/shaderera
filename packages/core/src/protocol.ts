@@ -140,6 +140,12 @@ export type Host = {
   readonly manifest: Manifest
   readonly params: { readonly [key: string]: Json }
   readonly seed: number
+  /**
+   * The variant the source is opened as (a name from `manifest.variants`, such as `9:16`), whose
+   * size and params are already in `manifest` and `params`; `undefined` for the manifest's own
+   * output. A film that lays out per output reads the name instead of guessing from the size.
+   */
+  readonly variant?: string
   readonly io: Io
   /** Offered when the host has WebGPU; never required. */
   readonly gpu?: GPUDevice
@@ -280,7 +286,12 @@ export type RenderOptions = {
  */
 export type MountDom = (
   element: HTMLElement,
-  host: { readonly manifest: Manifest; readonly params: { readonly [key: string]: Json } },
+  host: {
+    readonly manifest: Manifest
+    readonly params: { readonly [key: string]: Json }
+    /** The variant the film is opened as, as `Host.variant`. */
+    readonly variant?: string
+  },
 ) => Promise<DomView> | DomView
 
 export type DomView = {
@@ -400,6 +411,8 @@ export type AudioClip = {
 /**
  * One caption: text shown from `start` to `end`, in seconds of the composition. The host writes
  * the captions as SRT and WebVTT sidecars beside an export; they are never drawn into the frame.
+ * `end` is finite and after `start` (an LRC cue from `text-timed-cues` ends at `Infinity` until
+ * the film ends it). Review measures captions against requirements.json (docs/delivery.md).
  */
 export type Caption = {
   readonly start: number

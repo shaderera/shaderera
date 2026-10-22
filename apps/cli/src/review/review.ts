@@ -16,7 +16,11 @@ import { cmapCodePoints, missingGlyphs } from './cmap.ts'
 import {
   blankTimes,
   boxContrast,
+  type CaptionStat,
+  captionStats,
+  captionsOver,
   endHold,
+  excerpt,
   fontFamilies,
   frameStats,
   layoutSignature,
@@ -63,6 +67,8 @@ export type ReviewReport = {
     contrast: { id: string; t: number; ratio: number | null }[]
     motion: { samples: number; staticPercent: number | null }
     alpha: { nonOpaque: number }
+    /** Each caption measured, in order of start (seconds and grapheme clusters); null without captions(). */
+    captions: CaptionStat[] | null
     /** The clips heard (a src without sound is not), how much of the film they cover, and their mix's loudness (EBU R128). */
     audio: { clips: number; coverage: number; loudness: Loudness | null } | null
   }
@@ -224,8 +230,6 @@ export const readingShort = (
 const judged = (declared: boolean, failing: boolean): Check['status'] =>
   declared ? (failing ? 'fail' : 'pass') : 'info'
 
-/** Frame times (snapped to frames) and labels: shots, midpoints between them and the last frame. */
-
 /** CSS generic families: naming one accepts whatever font the system picks. */
 const GENERIC = new Set([
   'serif',
@@ -243,6 +247,10 @@ const GENERIC = new Set([
   'fangsong',
 ])
 
+/**
+ * Frame times (snapped to frames) and labels: each shot, each transition (the overlap of two spans,
+ * else the midpoint between two moments) and the last frame.
+ */
 export const reviewTimes = (
   shots: readonly Shot[],
   fps: number,
@@ -256,7 +264,11 @@ export const reviewTimes = (
     shots.forEach((s, i) => {
       out.push({ t: snap(s.at), label: s.label ?? s.id ?? `shot ${i + 1}` })
       const next = shots[i + 1]
-      if (next) out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
+      if (!next) return
+      // Spans: the middle of their overlap, or no transition frame at a cut. Moments: the midpoint.
+      if (s.end !== undefined && next.start !== undefined) {
+        if (next.start < s.end) out.push({ t: snap((next.start + s.end) / 2), label: 'transition' })
+      } else out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
     })
   } else {
     for (let i = 0; i < 7; i++) out.push({ t: snap((i * duration) / 7), label: `${i + 1}/7` })
@@ -446,7 +458,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         measured: `${short.length} texts shown for less than their reading time (sampled every 0.25 s; need max(${rule.min} s, characters / ${rule.charsPerSecond} per s))`,
         detail: short.length
           ? short
-              .map((r) => `${r.id} "${r.text.slice(0, 40)}": ${r.shown} s, need ${r.need} s`)
+              .map((r) => `${r.id} "${excerpt(r.text, 40)}": ${r.shown} s, need ${r.need} s`)
               .join('; ')
           : undefined,
       })
@@ -457,7 +469,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         title: 'reading time',
         status: 'info',
         measured: shortest
-          ? `shortest on screen: ${shortest.shown} s, ${shortest.id} "${shortest.text.slice(0, 40)}" (sampled every 0.25 s)`
+          ? `shortest on screen: ${shortest.shown} s, ${shortest.id} "${excerpt(shortest.text, 40)}" (sampled every 0.25 s)`
           : 'no visible text at the samples',
       })
     }
@@ -606,7 +618,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         : `no text in inspect or the DOM at ${textT.length} t (text drawn without either cannot be seen)`,
       ...(shown.length
         ? {
-            detail: [...new Set(shown.map((r) => `${r.id} "${r.text.slice(0, 30)}"`))]
+            detail: [...new Set(shown.map((r) => `${r.id} "${excerpt(r.text, 30)}"`))]
               .slice(0, 8)
               .join(', '),
             at: [...new Set(shown.map((r) => r.t))],
@@ -642,6 +654,55 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
         at: failing.length ? [...new Set(failing.flatMap((r) => r.t))].slice(0, 50) : undefined,
       })
     }
+  }
+
+  // captions: the subtitle sidecar every export writes, measured; judged only on declared limits.
+  const cues = await child.captions()
+  const limits = req.captions
+  const captions = cues ? captionStats(cues) : null
+  if (!captions)
+    checks.push({
+      id: 'captions',
+      title: 'captions',
+      status: judged(limits !== undefined, true),
+      measured: 'no captions(): exports write no subtitle sidecar',
+      detail: limits ? 'requirements.json declares caption limits' : undefined,
+    })
+  else {
+    // A caption the export refuses is an error, declared or not: render and deliver stop on it.
+    const refused = captions.filter((c) => c.refused)
+    const over = limits ? captionsOver(captions, limits) : []
+    const timed = captions.filter((c) => !c.refused)
+    const most = (k: 'cps' | 'lines' | 'longestLine') =>
+      round(Math.max(0, ...timed.map((c) => c[k] ?? 0)), 2)
+    const least = (k: 'duration' | 'gap') => {
+      const v = timed.flatMap((c) => (c[k] === null ? [] : [c[k] as number]))
+      return v.length ? `${round(Math.min(...v))} s` : 'none'
+    }
+    const pairs = timed.reduce((n, c) => n + c.overlaps.filter((o) => o > c.index).length, 0)
+    const say = (c: CaptionStat) =>
+      `#${c.index} ${JSON.stringify(excerpt(c.text, 30))} at ${round(c.start)} s`
+    const measuredCaptions = `${captions.length} captions: at most ${most('cps')} cps, ${most('lines')} lines, ${most('longestLine')} characters a line (grapheme clusters); shortest ${least('duration')}, smallest gap ${least('gap')}; ${pairs} overlapping pairs${refused.length ? `; ${refused.length} refused by every export` : ''}`
+    const failing = [...refused, ...over]
+    checks.push({
+      id: 'captions',
+      title: 'captions',
+      status: refused.length ? 'fail' : judged(limits !== undefined, over.length > 0),
+      measured: limits
+        ? `${measuredCaptions}; ${over.length} over the declared limits (${Object.entries(limits)
+            .map(([k, v]) => `${k} ${v}`)
+            .join(', ')})`
+        : measuredCaptions,
+      detail: failing.length
+        ? [
+            ...refused.map((c) => `${say(c)}: ${c.refused}, which every export refuses`),
+            ...over.slice(0, 8).map((c) => `${say(c)}: ${c.why.join(', ')}`),
+          ].join('; ')
+        : undefined,
+      at: failing.length
+        ? [...new Set(failing.flatMap((c) => (Number.isNaN(c.start) ? [] : [round(c.start)])))]
+        : undefined,
+    })
   }
 
   checks.push({
@@ -775,6 +836,13 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
           : null,
       },
       alpha: { nonOpaque: round(nonOpaque, 4) },
+      captions:
+        captions?.map((c) => ({
+          ...c,
+          duration: c.duration === null ? null : round(c.duration),
+          cps: c.cps === null ? null : round(c.cps, 2),
+          gap: c.gap === null ? null : round(c.gap),
+        })) ?? null,
       audio,
     },
     elapsedMs: Math.round(performance.now() - start),

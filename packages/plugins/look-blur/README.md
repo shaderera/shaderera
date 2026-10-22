@@ -10,7 +10,7 @@ const blur = createBlur(host, { width: W, height: H })
 const color = blur.apply(frame, {
   kind: 'gaussian',                  // 'gaussian' | 'bokeh' | 'directional' | 'radial'
   radius: 80,                        // px a pixel's light reaches at amount 1
-  shapes: [{ x: 360, y: 270, w: 150, h: 490, amount: 0 }],   // a sharp window; the rest blurred
+  shapes: [{ x: 360, y: 270, width: 150, height: 490, amount: 0 }],   // a sharp window; the rest blurred
 })
 return [{ color, alpha: 'premultiplied' }]
 ```

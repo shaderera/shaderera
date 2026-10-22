@@ -22,11 +22,12 @@
     "35mm",
     "shot"
   ],
-  "version": "0.1.1",
+  "version": "0.2.0",
   "licence": "MIT",
   "requires": {
     "items": {
-      "motion-keyframes": "^0.1.0"
+      "motion-eases": "^0.1.0",
+      "motion-keyframes": "^0.3.0"
     }
   },
   "files": ["src/motion/camera.ts"]

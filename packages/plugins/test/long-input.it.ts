@@ -39,7 +39,7 @@ test('audio-beat-clock: analyze-music measures a song whatever its length', { sk
   const r = run('tools/analyze-music.ts', ['song.flac', 'song.json'])
   assert.equal(r.status, 0, r.stderr)
   const analysis = JSON.parse(readFileSync(join(project, 'song.json'), 'utf8'))
-  assert.ok(analysis.duration > 59)
+  assert.ok(analysis.source.seconds > 59)
 })
 
 test('review-av-timeline: av-review reviews a film whatever its length', { skip }, () => {
