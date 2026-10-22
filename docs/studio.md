@@ -5,11 +5,12 @@ project is on your own machine. It drives `shaderera studio`, the local bridge, 
 your machine for as long as the command runs. The project, its code and its renders stay on your
 machine until you share the film.
 
-This is protocol v0: the contract between the studio page and the bridge.
+This is protocol v1: the contract between the studio page and the bridge. v1 sends a file
+through the relay in chunks; v0 sent it in one frame, and the two do not pair (the key's `info`).
 
 ```
 npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
-                     [--no-open]
+                     [--no-open] [--json]
 ```
 
 - **Without `--connect`**, it makes a studio session id.
@@ -28,12 +29,36 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
   `shaderera login --api <origin>`.
 - **`--origin <origin>`** (repeatable) adds a page origin the bridge answers, for developing the
   page on another origin than the relay's.
+- **`--json`** prints one JSON line per event in place of the prose, for an agent (below).
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
   to the renders the page asks for, and to a share's poster and loop.
 
 It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
 rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
 disconnected.
+
+When the page closes, the CLI says so only if no page comes back within 10 seconds. A reload comes
+back sooner (a new `page-hello`, or a request to the bridge, directly or through the relay), and
+the CLI says "the studio page reloaded" instead.
+
+**For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
+`url` event's address (or let the command open it), and read the events. stdout is one JSON object
+a line, `{event, ...}`:
+
+| Event | Fields | When |
+|---|---|---|
+| `notice` | `text` | the first `studio` on this machine: the telemetry notice |
+| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api` | the bridge is up; `opened` is false with `--no-open` |
+| `paired` | | the page the CLI opened paired |
+| `page-closed` | | the page closed and did not come back within 10 s |
+| `resumed` | | the page came back within 10 s (a reload) |
+| `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
+| `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
+| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events |
+| `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
+
+A flag the command does not take, or a folder that is not a project, is still an error on stderr,
+with exit code 2, before any event.
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -63,17 +88,26 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
 
 1. **The page connects** with `role=page`.
 2. **The CLI connects** with `role=cli`. The relay forwards `{type:"cli-joined"}` to the page.
-3. **The page sends `{type:"page-hello", pub}`**: an ECDH P-256 public key, raw (uncompressed, 65
-   bytes), base64url. It sends it when it connects and again on every `cli-joined`. A page with no
-   nonce sends nothing and waits.
-4. **The CLI replies `{type:"cli-hello", pub, version, os, telemetry}`** to every `page-hello`.
+3. **The page sends `{type:"page-hello", pub, protocol}`**: an ECDH P-256 public key, raw
+   (uncompressed, 65 bytes), base64url, and the protocol it speaks, `1`. It sends it when it
+   connects and again on every `cli-joined`. A page with no nonce sends nothing and waits.
+4. **The CLI replies `{type:"cli-hello", pub, protocol, version, os, telemetry}`** to every
+   `page-hello`.
+   - `protocol` is the protocol it speaks, `1`. A hello without one is v0.
    - `pub` is its own key, the same for the life of the command.
    - `version` is the CLI's version.
    - `os` is Node's `process.platform`: `win32`, `darwin`, `linux`.
    - `telemetry` is false when telemetry is turned off.
+   - **Another protocol on either side** never pairs (the keys differ by `info`, below), so each
+     side says in one line which side is older and what to update, instead of waiting:
+     - The CLI still replies `cli-hello`, with its `protocol`, and takes no proof from that page.
+       For an older page it says to reload the page, and waits for the reload; for a newer page
+       it says to update the CLI (`npm i shaderera@latest`) and ends, exit code 2.
+     - The page, hearing a `cli-hello` of another protocol, says to update the CLI or to reload
+       the page, and stops.
 5. **Both sides derive one key.** ECDH gives 256 bits, which go through HKDF-SHA-256 with:
    - `salt` = the id's UTF-8 bytes;
-   - `info` = `"shaderera-studio-v0"`.
+   - `info` = `"shaderera-studio-v1"`.
 
    The result is an AES-256-GCM key.
 6. **The page proves the nonce: `{type:"page-proof", iv, box}`.**
@@ -200,6 +234,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 | `{type:"changed", revision}` | the project's files changed: the 16-hex revision id `shaderera save` would give them |
 | `{type:"job", id, state, progress, error?}` | a render was queued, started, progressed or ended |
 | `{type:"log", level, text}` | `info`, `warn` or `error`: a render's start and end, share lines, watcher problems |
+| `{type:"share", film, version, url}` | a share sent the film: its id, the new version and its page |
 
 - **What counts as a change.** A change counts only when it touches the files a revision holds:
   not `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, and not `node_modules/` or
@@ -261,15 +296,23 @@ blocks local access)".
 | From | Frame | The box holds |
 |---|---|---|
 | page | `{type:"rpc", id, iv, box}` | `{method, path, body?}`: `path` as above, without `s` |
-| CLI | `{type:"rpc-result", id, iv, box}` | JSON: `{status, body}`; a file: `{status, type, name, base64}` |
+| CLI | `{type:"rpc-result", id, iv, box}` | JSON: `{status, body}`; a file's head: `{status, type, name, size, chunks}` |
+| CLI | `{type:"rpc-chunk", id, seq, iv, box}` | a file's bytes `seq` (0, 1, …), as they are, not JSON (below) |
 | CLI | `{type:"event", iv, box}` | the same event JSON as on `/events` |
 
 - **`id`** is the page's own string, echoed in the result.
 - **Events** go through the relay once the page has sent its first `rpc`.
-- **A file comes in one frame** in v0. A large file through the relay will need chunking later.
+- **A file comes in chunks.** The Worker takes WebSocket messages of 32 MiB at most, and a film's
+  mp4 or mov is often larger. After the head, the CLI sends `chunks` frames `rpc-chunk`, in order,
+  each holding up to 512 KiB of the file (a frame stays under 1 MiB). A chunk's box is the bytes
+  sealed with AES-GCM under the session key and a fresh iv, with the additional data
+  `"<id>:<seq>"`, so a chunk opens only in its own place: the relay can neither reorder chunks nor
+  move one to another request. The page joins them in order; their length is `size`. A file that
+  cannot be read is `{status:500, body:{error}}` with no chunks. A page that hears no chunk for a
+  while gives up on the file.
 - **`/runner` is not available through the relay**: a frame cannot go through it. It answers
-  `400`. The preview needs the direct connection; the page says so, and Export and Share still
-  work.
+  `400`. The preview needs the direct connection to 127.0.0.1; the page says so, and Export (any
+  size, in chunks) and Share still work.
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
 
 ## Telemetry

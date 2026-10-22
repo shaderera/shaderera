@@ -9,7 +9,8 @@
 // - on `paired`, the CLI gets `{type:"resume", token}`; a CLI that comes back with
 //   `&resume=<token>` replaces the one there and gets `{type:"resumed"}`, until the session ended:
 //   the paired CLI closed with 1000, and the page was closed with 4004;
-// - every other frame goes to the other side as it is.
+// - every other frame goes to the other side as it is;
+// - a message over `maxMessage` bytes (the Worker's limit, 32 MiB) closes its socket with 1009.
 // `drop(id, role)` cuts a side's socket without a close frame, as a deploy or the network would.
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
@@ -48,14 +49,19 @@ const bigLength = (n: number) => {
   return b
 }
 
+/** The Worker's limit on a WebSocket message it receives, in bytes. */
+export const MAX_MESSAGE = 32 * 1024 * 1024
+
 /** One accepted socket: decodes the client's masked frames, sends the server's. */
 const peer = (
   socket: Duplex,
   onText: (text: string) => void,
   onClose: (code: number) => void,
+  maxMessage = MAX_MESSAGE,
 ): Peer => {
   let buffer = Buffer.alloc(0)
   let parts: Buffer[] = []
+  let size = 0
   let closed = false
   const end = (code = 1006) => {
     if (closed) return
@@ -92,9 +98,16 @@ const peer = (
       if (opcode === 9) socket.write(frame(10, payload))
       if (opcode === 1 || opcode === 0) {
         parts.push(payload)
+        size += payload.length
+        if (size > maxMessage) {
+          // As the Worker does: the message is too big, and the socket closes.
+          socket.write(frame(8, Buffer.from([1009 >> 8, 1009 & 255])))
+          return end(1009)
+        }
         if (fin) {
           onText(Buffer.concat(parts).toString('utf8'))
           parts = []
+          size = 0
         }
       }
     }
@@ -115,7 +128,7 @@ const peer = (
   }
 }
 
-export const startRelay = async (o: { ttlMs?: number } = {}) => {
+export const startRelay = async (o: { ttlMs?: number; maxMessage?: number } = {}) => {
   const ttl = o.ttlMs ?? 10 * 60_000
   const sessions = new Map<string, Session>()
   /** Every frame the relay forwarded, as text: what it saw. */
@@ -174,6 +187,7 @@ export const startRelay = async (o: { ttlMs?: number } = {}) => {
           session.page?.close(4004, 'ended')
         }
       },
+      o.maxMessage,
     )
     const resume = url.searchParams.get('resume')
     if (role === 'cli' && resume && session.paired) {

@@ -122,14 +122,15 @@ export const deliveryOf = (v: { [flag: string]: unknown }): Partial<Delivery> =>
 }
 
 /**
- * Refuses a delivery an hdr10 render cannot make: HDR10 is an HEVC Main 10 mp4 here (decision
- * 0023), encoded by quality.
+ * Refuses a delivery an hdr10 render cannot make: HDR10 is an HEVC Main 10 mp4 or a ProRes mov here
+ * (decision 0023), encoded by quality. A PQ PNG would need PNG's `cICP` chunk, which Shaderera
+ * does not write.
  */
 export const checkHdr10Delivery = (d: Partial<Delivery>) => {
   const format = d.format ?? 'mp4'
-  if (format !== 'mp4')
+  if (format === 'png')
     throw new Error(
-      `HDR10 is delivered as an mp4 (HEVC Main 10), not ${format}: ${format === 'png' ? 'a png handoff is 8- or 16-bit sRGB' : 'Shaderera makes no HDR10 ProRes from the hosts’ P010'}.`,
+      'HDR10 is delivered as an mp4 (HEVC Main 10) or a ProRes mov, not png: a png handoff is 8- or 16-bit sRGB (a PQ PNG needs a cICP chunk, which Shaderera does not write).',
     )
   if (d.bitrate !== undefined || d.maxrate !== undefined)
     throw new Error(

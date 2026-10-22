@@ -18,8 +18,8 @@
       "service": "web",
       "parents": ["https://shaderera.com"],
       "limits": {
-        "fileBytes": 5242880,
-        "versionBytes": 26214400,
+        "fileBytes": 33554432,
+        "versionBytes": 67108864,
         "filesPerVersion": 2000,
         "hashesPerAsk": 2000,
         "posterBytes": 512000,

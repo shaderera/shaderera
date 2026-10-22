@@ -153,7 +153,10 @@ test('deliver spreads an output over several hosts, as render --job does, and cl
     batch: 'w',
     open: async (job) => ({
       ...(await inMemory(job)),
-      more: async () => (opened++, host(job)),
+      more: async () => {
+        opened++
+        return host(job)
+      },
     }),
   })
   assert.equal(index.outputs[0]?.status, 'pass', JSON.stringify(index.outputs[0]))

@@ -7,7 +7,7 @@ import { type AdapterInfo, adapterLine, softwareAdapter } from '../node/adapter.
 import { browserAdapter, chromePath } from '../node/browser.ts'
 import { hostOf } from '../node/host-of.ts'
 import { findProject } from '../node/project.ts'
-import { hasHevcNvenc, hasNvenc, hdr10Problem } from './ffmpeg.ts'
+import { hardwareEncoder, hasHevcNvenc, hdr10Problem } from './ffmpeg.ts'
 import { EXIT, found } from './findings.ts'
 import { dayOf } from './login.ts'
 import { licenceOf } from './share.ts'
@@ -196,12 +196,12 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
           : { fix: 'Use a full ffmpeg build (gyan.dev "full", or your package manager’s).' }),
       })
     }
-    const nvenc = hasNvenc(1920, 1080)
+    const gpu = await hardwareEncoder(1920, 1080, { fresh: true })
     items.push({
-      id: 'ffmpeg:h264_nvenc',
-      status: nvenc ? 'ok' : 'warn',
-      detail: nvenc
-        ? 'NVIDIA H.264 on the GPU, at 1920×1080 (review renders use it)'
+      id: 'ffmpeg:h264-gpu',
+      status: gpu ? 'ok' : 'warn',
+      detail: gpu
+        ? `${gpu}: H.264 on the GPU, at 1920×1080 (review renders use it)`
         : 'not usable here: review renders use x264',
       needed: false,
     })

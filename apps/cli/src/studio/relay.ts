@@ -4,9 +4,19 @@
 // the bridge's events through the relay, sealed the same way. Once paired, it rejoins the relay
 // with the resume token the relay gave it when the relay drops it (a site deploy, the network).
 import { timingSafeEqual } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import type { Bridge, StudioEvent } from './bridge.ts'
-import { CLOSE, keyPair, relayUrl, seal, sessionKey, unseal } from './pairing.ts'
+import {
+  CLOSE,
+  keyPair,
+  mismatch,
+  PROTOCOL,
+  relayUrl,
+  seal,
+  sealBytes,
+  sessionKey,
+  unseal,
+} from './pairing.ts'
 
 type Message = { type?: string; [key: string]: unknown }
 
@@ -15,7 +25,25 @@ const sameNonce = (given: string, nonce: string) => {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-export type RelayEnd = { code: number; paired: boolean }
+/** How the relay ended for the CLI; `error` when the CLI itself gave up (a newer page). */
+export type RelayEnd = { code: number; paired: boolean; error?: string }
+
+/**
+ * A file's chunk through the relay, in bytes: its frame (base64url, with the GCM tag and the JSON
+ * around it) stays under 1 MiB, far under the Worker's WebSocket message limit (32 MiB).
+ */
+export const CHUNK = 512 * 1024
+/** How much the CLI lets its socket buffer before it waits to send more of a file. */
+const BUFFERED = 8 * 1024 * 1024
+
+/** What binds a chunk's box to its request and place: `<rpc id>:<seq>`. */
+export const chunkAad = (id: string, seq: number): string => `${id}:${seq}`
+
+/**
+ * How long a page that left has to come back before it counts as closed, in ms: a reload rejoins
+ * within it (a new hello, or a request to the bridge directly or through the relay).
+ */
+export const PAGE_BACK_MS = 10_000
 
 /** How long the CLI waits before its nth rejoin, in ms: 1, 2, 4, 8, 16, then 30 s. */
 export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000)
@@ -44,14 +72,27 @@ export const connectRelay = (o: {
   id: string
   /** The nonce in the address the CLI opened (pairing.ts's makeNonce). */
   nonce: string
-  bridge: Pick<Bridge, 'port' | 'secret' | 'handle' | 'onEvent'>
+  bridge: Pick<Bridge, 'port' | 'secret' | 'handle' | 'onEvent' | 'onVisit'>
   hello: { version: string; os: string; telemetry: boolean }
   onPaired?: () => void
-  onPageLeft?: () => void
+  /**
+   * The page left and did not come back within `pageBackMs` (`closed`), or came back within it
+   * (`reloaded`): a reload is not a close.
+   */
+  onPage?: (state: 'closed' | 'reloaded') => void
+  /**
+   * The page's hello names another protocol (mismatch's line). An older page may still reload
+   * into the current one, so the CLI waits; for a newer one this CLI is too old, and it ends.
+   */
+  onMismatch?: (m: { update: 'page' | 'cli'; text: string }) => void
   /** The relay dropped the CLI (`false`), or let it back in (`true`). */
   onRelay?: (back: boolean) => void
   /** For tests: the delay before the nth rejoin. */
   delay?: (n: number) => number
+  /** For tests: how long a page that left has to come back (PAGE_BACK_MS). */
+  pageBackMs?: number
+  /** For tests: a file's chunk, in bytes (CHUNK). */
+  chunk?: number
 }): { closed: Promise<RelayEnd>; close: () => Promise<void> } => {
   let ws: WebSocket
   // The relay's resume token for this CLI, once paired; rejoins so far since the last open.
@@ -66,19 +107,93 @@ export const connectRelay = (o: {
   let key: CryptoKey | undefined
   let paired = false
   let stopEvents: (() => void) | undefined
+  let error: string | undefined
+  // The protocol of the last page that said a mismatched hello: said once, not on every hello.
+  let told: number | undefined
+  // A page that left: closed when this runs out, reloaded when it is seen again before.
+  let away: NodeJS.Timeout | undefined
+  const pageBack = () => {
+    if (!away) return
+    clearTimeout(away)
+    away = undefined
+    o.onPage?.('reloaded')
+  }
+  const stopVisits = o.bridge.onVisit(pageBack)
   const send = (m: Message) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m))
   }
   // Messages are handled in the order they came: a key is derived before an rpc under it is read.
   let chain: Promise<void> = Promise.resolve()
 
+  /**
+   * A file through the relay (v1): its head in the rpc-result, `{status, type, name, size,
+   * chunks}`, then `chunks` frames `{type:"rpc-chunk", id, seq, iv, box}`, each up to CHUNK bytes
+   * sealed as they are under `<id>:<seq>`. Read and sent a chunk at a time, waiting while the
+   * socket's buffer is full, so a large file never sits in memory whole. A file that cannot be
+   * opened is a 500; one that fails after its head leaves the page waiting for chunks that do not
+   * come, and it gives up.
+   */
+  const sendFile = async (
+    k: CryptoKey,
+    id: string,
+    file: { path: string; type: string; name: string },
+  ) => {
+    const size = o.chunk ?? CHUNK
+    const handle = await open(file.path).catch(async (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      send({
+        type: 'rpc-result',
+        id,
+        ...(await seal(k, { status: 500, body: { error: message } })),
+      })
+      return null
+    })
+    if (!handle) return
+    try {
+      const { size: bytes } = await handle.stat()
+      const chunks = Math.ceil(bytes / size)
+      send({
+        type: 'rpc-result',
+        id,
+        ...(await seal(k, { status: 200, type: file.type, name: file.name, size: bytes, chunks })),
+      })
+      const buffer = Buffer.alloc(size)
+      for (let seq = 0; seq < chunks; seq++) {
+        const { bytesRead } = await handle.read(buffer, 0, size, seq * size)
+        const sealed = await sealBytes(k, buffer.subarray(0, bytesRead), chunkAad(id, seq))
+        while (ws.readyState === WebSocket.OPEN && ws.bufferedAmount > BUFFERED)
+          await new Promise((r) => setTimeout(r, 10))
+        send({ type: 'rpc-chunk', id, seq, ...sealed })
+      }
+    } finally {
+      await handle.close()
+    }
+  }
+
   const onMessage = async (m: Message) => {
     if (m.type === 'page-hello' && typeof m.pub === 'string') {
+      pageBack()
       // One key pair for the CLI's life: a page-hello sent again gives the same key, and a new
       // page's (it reloaded before pairing) a new one.
       mine ??= await keyPair()
+      // The CLI says its protocol either way, so a page that differs can say so too.
+      const theirs = typeof m.protocol === 'number' ? m.protocol : 0
+      if (theirs !== PROTOCOL) {
+        offered = undefined
+        send({ type: 'cli-hello', pub: mine.pub, protocol: PROTOCOL, ...o.hello })
+        const said = mismatch(theirs)
+        if (told !== theirs) o.onMismatch?.(said)
+        told = theirs
+        if (said.update === 'cli') {
+          // This CLI cannot pair with that page, now or after a reload: it ends.
+          error = said.text
+          stopped = true
+          ws.close(1000)
+        }
+        return
+      }
       offered = await sessionKey(mine.privateKey, m.pub, o.id)
-      send({ type: 'cli-hello', pub: mine.pub, ...o.hello })
+      send({ type: 'cli-hello', pub: mine.pub, protocol: PROTOCOL, ...o.hello })
     } else if (
       m.type === 'page-proof' &&
       offered &&
@@ -100,10 +215,14 @@ export const connectRelay = (o: {
     } else if (m.type === 'resumed') {
       o.onRelay?.(true)
     } else if (m.type === 'page-left') {
-      o.onPageLeft?.()
+      clearTimeout(away)
+      away = setTimeout(() => {
+        away = undefined
+        o.onPage?.('closed')
+      }, o.pageBackMs ?? PAGE_BACK_MS)
     } else if (m.type === 'rpc' && key && typeof m.iv === 'string' && typeof m.box === 'string') {
       const k = key
-      const id = m.id
+      const id = String(m.id)
       // The page uses the relay: the bridge's events follow, sealed, from now on.
       stopEvents ??= o.bridge.onEvent((event: StudioEvent) => {
         void seal(k, event).then((sealed) => send({ type: 'event', ...sealed }))
@@ -138,18 +257,8 @@ export const connectRelay = (o: {
             body: { error: 'The runner is framed from 127.0.0.1 only.' },
           })),
         })
-      // A file, in one frame (v0): `{ status, type, name, base64 }`.
-      const bytes = readFileSync(reply.file.path)
-      send({
-        type: 'rpc-result',
-        id,
-        ...(await seal(k, {
-          status: 200,
-          type: reply.file.type,
-          name: reply.file.name,
-          base64: bytes.toString('base64'),
-        })),
-      })
+      // A file, in chunks: not awaited, so the page's other requests are answered meanwhile.
+      void sendFile(k, id, reply.file).catch(() => {})
     }
   }
 
@@ -157,6 +266,8 @@ export const connectRelay = (o: {
   const closed = new Promise<RelayEnd>((done) => {
     finish = (end) => {
       stopEvents?.()
+      stopVisits()
+      clearTimeout(away)
       done(end)
     }
   })
@@ -181,7 +292,8 @@ export const connectRelay = (o: {
       // The relay's own codes (4001–4004) and 1000 are its answer; anything else, once paired, is
       // a drop, and the CLI comes back with its token. The keys stay: the page goes on.
       const answer = e.code === 1000 || (e.code >= 4000 && e.code < 5000)
-      if (stopped || answer || !paired || !token) return finish({ code: e.code, paired })
+      if (stopped || answer || !paired || !token)
+        return finish({ code: e.code, paired, ...(error ? { error } : {}) })
       if (tries === 0) o.onRelay?.(false)
       timer = setTimeout(join, (o.delay ?? rejoinDelay)(tries++))
     })

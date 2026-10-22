@@ -1,6 +1,6 @@
 import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { frameTimes } from '@shaderera/core'
+import { frameTimes, type Range } from '@shaderera/core'
 import type { Loudness, Probe } from '../cli/ffmpeg.ts'
 import { defaultWorkers, exportVideo, extensionOf } from '../cli/render.ts'
 import { refuseSoftware } from '../node/adapter.ts'
@@ -31,6 +31,10 @@ export type BatchOutput = {
   locale?: string
   format: Delivery['format']
   quality: Delivery['quality']
+  /** `hdr10`: the film's HDR10 render; absent, SDR. */
+  range?: 'hdr10'
+  /** An SDR output beside an HDR10 one (`deliver --hdr10 --sdr`): that output's job. */
+  sdrOf?: string
   /** The mp4 or the finishing folder, relative to the batch folder. */
   file?: string
   bytes?: number
@@ -80,6 +84,8 @@ const dirSize = (path: string): number => {
  * The jobs a batch renders: given ones, or one per variant × locale from the project as it is
  * now, saved once as a revision. A locale sets the `locale` param, which the manifest must
  * declare (and list, when it has an enum); otherwise the locale is refused before anything runs.
+ * `range: 'hdr10'` makes each an HDR10 job, and `sdr` puts the film's own SDR job (`<name>-sdr`,
+ * the same job without the range) after each (decision 0023).
  */
 export const batchJobs = async (
   root: string,
@@ -91,6 +97,8 @@ export const batchJobs = async (
     delivery: Partial<Delivery>
     /** Re-run a named batch: its job names then take the new inputs (JobExists otherwise). */
     replace?: boolean
+    range?: Range
+    sdr?: boolean
   },
 ): Promise<Job[]> => {
   if (o.jobs && o.jobs.length > 0) return [...o.jobs]
@@ -118,18 +126,22 @@ export const batchJobs = async (
   if (unknownVariants.length > 0) throw new Error(`Unknown variant ${unknownVariants.join(', ')}.`)
   const jobs: Job[] = []
   for (const variant of variants)
-    for (const locale of locales)
-      jobs.push(
-        await createJob(root, {
+    for (const locale of locales) {
+      const name = [o.batch, variant ?? 'main', locale].filter(Boolean).join('-')
+      const job = (range: Range | undefined, suffix = '') =>
+        createJob(root, {
           by: 'cli',
           revision,
           variant,
           params: locale ? { locale } : undefined,
-          name: [o.batch, variant ?? 'main', locale].filter(Boolean).join('-'),
+          name: `${name}${suffix}`,
+          ...(range ? { range } : {}),
           delivery: o.delivery,
           replace: o.replace,
-        }),
-      )
+        })
+      jobs.push(await job(o.range))
+      if (o.range === 'hdr10' && o.sdr) jobs.push(await job(undefined, '-sdr'))
+    }
   return jobs
 }
 
@@ -170,12 +182,19 @@ export const deliverBatch = async (
   for (const [i, job] of jobs.entries()) {
     o.onOutput?.(i, jobs.length, job)
     const { width, height, fps, from, to } = job.output
+    // An SDR job named after an HDR10 job of the batch is that film's SDR render beside it.
+    const sdrOf =
+      job.range === 'hdr10'
+        ? undefined
+        : jobs.find((j) => j.range === 'hdr10' && `${j.name}-sdr` === job.name)?.name
     const out: BatchOutput = {
       job: job.name,
       ...(job.variant ? { variant: job.variant } : {}),
       ...(typeof job.params.locale === 'string' ? { locale: job.params.locale } : {}),
       format: job.delivery.format,
       quality: job.delivery.quality,
+      ...(job.range === 'hdr10' ? { range: 'hdr10' as const } : {}),
+      ...(sdrOf ? { sdrOf } : {}),
       width,
       height,
       duration: to - from,
@@ -191,6 +210,7 @@ export const deliverBatch = async (
         height,
         fps,
         duration: to - from,
+        ...(sdrOf ? { sdr: true } : {}),
       }),
       format: { width, height, fps, duration: to - from },
     }
