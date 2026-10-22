@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createCanvas } from '@napi-rs/canvas'
+import { toSrt, windowCaptions } from '@shaderera/core/host'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Requirements } from '../project/requirements.ts'
@@ -264,6 +265,46 @@ test('captions: measured as info; a declared maxCps fails exactly the caption ov
     } finally {
       await open.close()
     }
+  } finally {
+    await child.close()
+  }
+})
+
+test('captions: review, render and the SRT number an out-of-order list with a blank the same way', async () => {
+  const captions = [
+    { start: 2, end: 3, text: 'Second' },
+    { start: 1, end: 1.5, text: '  ' },
+    { start: 0, end: 1, text: 'First' },
+  ]
+  const srt = toSrt(windowCaptions(captions, 0, 10))
+  assert.match(srt, /^1\n.*\nFirst\n\n2\n.*\nSecond\n$/)
+  const bad = [...captions, { start: 4, end: Number.POSITIVE_INFINITY, text: 'Last' }]
+  assert.throws(() => windowCaptions(bad, 0, 10), /^Error: Item 4 of captions\(\) needs/)
+  const project = memoryProject()
+  const child = memoryChild({ size: { width: 64, height: 36 }, captions: bad })
+  const outDir = tempDir('review')
+  try {
+    const r = await review({
+      project,
+      child,
+      outDir,
+      quick: true,
+      requirements: { version: 1, captions: { maxCps: 1, minDuration: 2 } },
+    })
+    const detail = r.checks.find((c) => c.id === 'captions')?.detail ?? ''
+    // The blank is not in the SRT and is not judged; the refused caption is named as render names it.
+    assert.match(detail, /^item 4 of captions\(\) "Last" at 4 s: no end/)
+    assert.match(detail, /; #1 "First" at 0 s: 5 cps > 1, 1 s < 2 s; #2 "Second" at 2 s: /)
+    assert.doesNotMatch(detail, /item 2/)
+    assert.deepEqual(
+      r.diagnostics.captions?.map((c) => [c.index, c.item]),
+      [
+        [1, 3],
+        [null, 2],
+        [2, 1],
+        [null, 4],
+      ],
+    )
   } finally {
     await child.close()
   }

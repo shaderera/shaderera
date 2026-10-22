@@ -112,11 +112,13 @@ export const pyramid = (io: Io, picture: OffscreenCanvas, smallest = 64): Pyrami
 }
 
 /**
- * Draws `source` (in the picture's pixels) into `target`, from the level that is no more than
- * twice the size drawn, with bilinear smoothing. The source is kept inside the level, and the
- * target cut to match: pixels sampled past a picture's edge depend on what was drawn before.
+ * Draws `source` (in the picture's pixels) into `target`, with bilinear smoothing: from a
+ * pyramid, the level that is no more than twice the size drawn; from a plain canvas (a footage
+ * frame), the canvas itself. The source is kept inside the picture, and the target cut to match:
+ * pixels sampled past a picture's edge depend on what was drawn before.
  */
-export const drawFrom = (ctx: Ctx, p: Pyramid, source: Rect, target: Rect) => {
+export const drawFrom = (ctx: Ctx, from: Pyramid | OffscreenCanvas, source: Rect, target: Rect) => {
+  const p = 'levels' in from ? from : { width: from.width, height: from.height, levels: [from] }
   const ratio = Math.min(source.width / target.width, source.height / target.height)
   const i = Math.max(0, Math.min(p.levels.length - 1, Math.floor(Math.log2(Math.max(1, ratio)))))
   const level = p.levels[i] as OffscreenCanvas

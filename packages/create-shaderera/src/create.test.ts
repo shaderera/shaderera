@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,6 +35,8 @@ test('create copies the empty project as an ordinary project', () => {
   create({ from, target, version: '0.1.0' })
   const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
   assert.equal(pkg.name, 'my-film')
+  // All rights reserved until the person chooses a licence: share needs one.
+  assert.equal(pkg.license, 'UNLICENSED')
   assert.equal(pkg.dependencies['@shaderera/core'], '^0.1.0')
   assert.equal(pkg.devDependencies.shaderera, '^0.1.0')
   assert.equal(pkg.devDependencies.webgpu, '0.6.2')
@@ -42,6 +45,8 @@ test('create copies the empty project as an ordinary project', () => {
   assert.ok(existsSync(join(target, 'src', 'composition.ts')))
   assert.ok(!existsSync(join(target, 'node_modules')))
   assert.match(readFileSync(join(target, '.gitignore'), 'utf8'), /^node_modules\/$/m)
+  const mcp = JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8'))
+  assert.deepEqual(mcp.mcpServers.shaderera, { command: 'npx', args: ['-y', 'shaderera', 'mcp'] })
   assert.throws(() => create({ from, target, version: '0.1.0' }), /not empty/)
 })
 
@@ -84,4 +89,42 @@ test('the Claude Code plugin has no version, so every change reaches users', () 
   const read = (...p: string[]) => JSON.parse(readFileSync(join(repo, ...p), 'utf8'))
   assert.equal(read('plugins', 'shaderera', '.claude-plugin', 'plugin.json').version, undefined)
   assert.equal(read('.claude-plugin', 'marketplace.json').plugins[0].version, undefined)
+})
+
+test('the Claude Code plugin declares the MCP server', () => {
+  const plugin = JSON.parse(
+    readFileSync(join(repo, 'plugins', 'shaderera', '.claude-plugin', 'plugin.json'), 'utf8'),
+  )
+  assert.deepEqual(plugin.mcpServers.shaderera, {
+    command: 'npx',
+    args: ['-y', 'shaderera', 'mcp'],
+  })
+})
+
+/** Runs the create-shaderera bin with these arguments in a new temp folder. */
+const bin = (...args: string[]) =>
+  spawnSync(
+    process.execPath,
+    [join(import.meta.dirname, '..', 'bin', 'create-shaderera.js'), ...args],
+    { cwd: temp(), encoding: 'utf8' },
+  )
+
+test('--help and -h print the usage and exit 0, making nothing', () => {
+  for (const flag of ['--help', '-h']) {
+    const { status, stdout, stderr } = bin(flag)
+    assert.equal(status, 0, stderr)
+    assert.match(stdout, /^Usage: npm create shaderera@latest \[dir\]/)
+    assert.match(stdout, /--help/)
+    assert.match(stdout, /Docs: /)
+    assert.doesNotMatch(stdout, /Created/)
+  }
+})
+
+test('an unknown flag prints one line pointing to --help and exits 2', () => {
+  const { status, stdout, stderr } = bin('--nope')
+  assert.equal(status, 2)
+  assert.equal(stdout, '')
+  assert.deepEqual(stderr.trimEnd().split('\n'), [
+    'Unknown option: --nope. See create-shaderera --help.',
+  ])
 })

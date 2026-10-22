@@ -286,13 +286,13 @@ never as a pass.
 
 | Capability | You implement | CLI | MCP |
 |---|---|---|---|
-| render | `render(t, options)` | `render`, `still`, `check` (pixels) | `render_frame`, `export`, `diff` (pixels) |
-| inspect | `inspect(t)` returning JSON | `inspect`, `check` (inspect + pixels), `review` | `inspect`, `diff` (state) |
+| render | `render(t, options)` | `render`, `still`, `check` (pixels) | `render_frame`, `still`, `render`, `compare` (pixels) |
+| inspect | `inspect(t)` returning JSON | `inspect`, `check` (inspect + pixels), `review` | `inspect`, `compare` (state) |
 | `id` / `source` | an `id` on object literals in the inspect JSON; `"stamp": true` for `source` | `source` lines in `inspect` | `get_source`, `pick`'s `source` |
 | pick | `pick(t, x, y)` → `{ id, point? }` | — | `pick` |
 | camera | `camera.get(t)` → `Matrices`; `camera.override(m \| null)` | — | `get_camera`; `render_frame`'s `camera` |
-| audio | `audio()` → `AudioClip[]` | `render` mixes it | `export` |
-| captions | `captions()` → `Caption[]` | SRT and WebVTT beside every export | `export` |
+| audio | `audio()` → `AudioClip[]` | `render` mixes it | `render` |
+| captions | `captions()` → `Caption[]` | SRT and WebVTT beside every export | `render` |
 | progressive | layers with `final: false` | — | `render_frame` reports `layers[].final` |
 | checkpoint | `checkpoint.save()` / `restore(state)` on a `sequential` source | a jump back restores one instead of replaying ([checkpoints](determinism.md#checkpoints)) | the same |
 | depth | `layer.depth` | every command depth-tests layers that carry it | every tool |

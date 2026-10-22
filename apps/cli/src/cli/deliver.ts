@@ -18,7 +18,7 @@ const list = (x: unknown) =>
 /**
  * `shaderera deliver [--variants a,b] [--locales en,th] [--format mp4|png|prores-hq|prores-4444]
  * [--png] [--master] [--bitrate 15M | --maxrate 10M] [--no-edit-list] [--stems] [--bits 16]
- * [--no-audio] [--loudness LUFS]
+ * [--no-audio] [--loudness LUFS] [--software-gpu]
  * [--name batch] [--job a --job b] [--replace]`: a campaign batch. One job per variant × locale from
  * the project as it is now (saved once as a revision), or the given jobs; each is rendered, reviewed
  * against its own format and what requirements.json declares, and indexed in
@@ -35,6 +35,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     'no-audio': { type: 'boolean' },
     loudness: { type: 'string' },
     replace: { type: 'boolean' },
+    'software-gpu': { type: 'boolean' },
   })
   requireFfmpeg()
   const delivery = deliveryOf(v)
@@ -61,6 +62,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     audio: v['no-audio'] !== true,
     ...(v.loudness === undefined ? {} : { loudness: Number(v.loudness) }),
     ...childOptions(v),
+    softwareGpu: v['software-gpu'] === true,
     onOutput: (i, n, job) => process.stderr.write(`output ${i + 1}/${n} ${job.name}\n`),
   })
   for (const o of index.outputs) {

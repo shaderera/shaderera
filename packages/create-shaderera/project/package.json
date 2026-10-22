@@ -1,6 +1,7 @@
 {
   "name": "shaderera-project",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "scripts": {
     "check": "shaderera check",

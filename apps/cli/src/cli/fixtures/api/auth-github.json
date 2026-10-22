@@ -1,0 +1,28 @@
+{
+  "route": "POST /auth/github",
+  "about": "login: the GitHub token from the device flow and this machine's name, swapped once for a Shaderera token for this machine.",
+  "request": {
+    "method": "POST",
+    "path": "/auth/github",
+    "headers": {
+      "Authorization": null,
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "token": "gho_16C7e42F292c6912E7710c838347Ae178B4a",
+      "name": "studio-mac"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "token": "sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "handle": "ana",
+      "name": "studio-mac",
+      "expiresAt": 1798934400000
+    }
+  }
+}
