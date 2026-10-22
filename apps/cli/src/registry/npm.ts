@@ -1,4 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process'
+import { resolve } from 'node:path'
 
 /**
  * Runs npm with `args`. On Windows npm is a .cmd, which Node only starts through a shell, so the
@@ -23,7 +24,8 @@ export const npm = (
 
 /** Packs the package in `dir` into the folder `into`: the tarball's name and the files in it. */
 export const pack = (dir: string, into: string): { tgz: string; files: string[] } => {
-  const out = npm(['pack', dir, '--pack-destination', into, '--json'])
+  // Absolute: npm reads a bare relative name (`ext-one`) as a package on the npm registry.
+  const out = npm(['pack', resolve(dir), '--pack-destination', into, '--json'])
   // A prepack script prints before the JSON.
   const [p] = JSON.parse(out.slice(out.search(/^\[/m)))
   return { tgz: p.filename, files: p.files.map((f: { path: string }) => f.path) }

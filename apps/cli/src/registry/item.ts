@@ -125,7 +125,7 @@ export const checkItem = (raw: unknown, where: string): { item: Item; warnings: 
   const category = str('category', true)
   if (category && TYPES.includes(type) && !CATEGORIES[type].includes(category))
     warnings.push(
-      `category "${category}" is new for a ${type} (known: ${CATEGORIES[type].join(', ')})`,
+      `category "${category}" is new for ${/^[aeiou]/.test(type) ? 'an' : 'a'} ${type} (known: ${CATEGORIES[type].join(', ')})`,
     )
   const version = str('version', true)
   if (version && !parseVersion(version)) errors.push(`version "${version}" is not x.y.z`)

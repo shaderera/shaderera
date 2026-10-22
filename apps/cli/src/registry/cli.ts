@@ -24,13 +24,13 @@ or from a folder of plugins: --site <dir>.`
  * A folder of plugin sources (each with its label) where a folder of published plugins was
  * wanted: the catalog itself, say. It has no index.json, so every name would be "not a plugin".
  */
-const sourcesHint = (dir: string): string | null => {
+const sourcesHint = (dir: string, command: string): string | null => {
   if (existsSync(join(dir, 'index.json')) || !existsSync(dir)) return null
   const sources = readdirSync(dir, { withFileTypes: true }).some(
     (e) => e.isDirectory() && existsSync(join(dir, e.name, ITEM_FILE)),
   )
   return sources
-    ? `${dir} holds plugin sources, not published plugins (it has no index.json). Publish them into a folder first, then add from that: npx shaderera publish ${dir}/<plugin>... --site <folder> (see "Where plugins come from" in docs/plugins.md)`
+    ? `${dir} holds plugin sources, not published plugins (it has no index.json). Publish them into a folder first, then ${{ add: 'add from that', search: 'search that', info: 'run info on that' }[command] ?? 'use that'}: npx shaderera publish ${dir}/<plugin>... --site <folder> (see "Where plugins come from" in docs/plugins.md)`
     : null
 }
 
@@ -58,7 +58,7 @@ export const run = async (command: string, argv: readonly string[]): Promise<num
   if (command === 'publish' && isUrl(source))
     throw new Error(`publish writes to a folder, not ${source}: pass --site <dir>`)
   if (command !== 'publish' && !isUrl(source)) {
-    const hint = sourcesHint(source)
+    const hint = sourcesHint(source, command)
     if (hint) throw new Error(hint)
   }
   const registry = isUrl(source) ? await mirror(source, command, args) : source

@@ -420,8 +420,8 @@ Plugins come from the site's `/r`: `--site <origin>`, else `SHADERERA_SITE`, els
 |---|---|
 | `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
-| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not stops them all |
-| `remove <name>...` | uninstalls package plugins and stops requiring them; each must be one the project uses, or none is removed |
+| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not, or a version outside a range another requires, stops them all |
+| `remove <name>...` | uninstalls package plugins and stops requiring them; each must be a package plugin the project uses, never a plain npm dependency, or none is removed |
 | `publish [dir]... --site <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
 
 `add` never replaces a file the project already has; `--force` replaces only the plugin named. A
