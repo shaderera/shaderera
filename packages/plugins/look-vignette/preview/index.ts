@@ -82,10 +82,12 @@ const lookVignette: OpenPreview = async (host, stateId) => {
     async render(t, o) {
       const { segment } = segmentAt(t)
       // A mid-grey ground, so the falloff shows out to the frame's edges.
-      drawCard(sctx, t, duration, '#8a8a8a')
+      drawCard(sctx, t, duration, { ground: '#8a8a8a' })
       const centre = centreAt(t, segment.orbit)
       const color = vignette.apply(source, { ...segment.params, centre })
       ctx.clearRect(0, 0, width, height)
+      // Towards white the corners turn light, so the type turns dark there.
+      house.ground(segment.params.color ? 'light' : 'dark')
       house.index()
       house.words(words, card, t, o.frame)
       house.notes(notes, t, o.frame)
