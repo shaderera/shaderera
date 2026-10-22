@@ -12,7 +12,8 @@ into a linear half-float target and then tone-maps it down to sRGB.
 The standards and tools, as read on 2026-10-22:
 - **PQ**: SMPTE ST 2084:2014, constants also in ITU-R BT.2100-3 (02/2025) Table 4; 1.0 is
   10 000 cd/m². **BT.2100**: BT.2020 primaries; non-constant luminance (Kr 0.2627, Kb 0.0593);
-  10-bit narrow range Y 64–940, C 64–960; Table 10's FP16 linear form has 1.0 = 203 cd/m².
+  10-bit narrow range Y 64–940, C 64–960; Table 8 sites 4:2:0 chroma co-sited with the top-left
+  luma sample; Table 10's FP16 linear form has 1.0 = 203 cd/m².
 - **BT.2408-9** (03/2026) §9: SDR graphics go to "Graphics White", 203 cd/m² (58% PQ, code 573),
   by a display-light mapping where a brand's colours must hold.
 - **CTA-861.3**: MaxCLL is the brightest `max(R,G,B)` of any pixel, MaxFALL the highest frame
@@ -22,17 +23,18 @@ The standards and tools, as read on 2026-10-22:
   MaxCLL/MaxFALL it assumes a Sony BVM-X300. It makes the SDR version itself, or from a `.cube` LUT.
 - **Apple** (HLS authoring spec): HEVC Main 10 as `hvc1`, the mastering and light-level SEI
   present, and SDR streams beside HDR ones.
-- **ffmpeg** (source, to 9.0 of 2026-08-03): libx265 writes both SEI, from `-x265-params` or
-  from side data; `hevc_nvenc` only from side data (8.0+, NVENC SDK 13); `hevc_videotoolbox`
+- **ffmpeg** (source and docs at tag `n9.0`, 2026-08-03; 9.0.2 is current): libx265 writes
+  both SEI, from `-x265-params` or from side data; `hevc_nvenc` only from side data (8.0+, NVENC SDK 13); `hevc_videotoolbox`
   writes neither. The mp4/mov muxer writes `mdcv`/`clli` only from side data, and tags HEVC
-  `hev1` unless told. 9.0 added `-mastering_display` and `-content_light` to set that side data.
+  `hev1` unless told. 9.0 added the per-stream input options `-mastering_display` and
+  `-content_light` (`doc/ffmpeg.texi`; absent in 8.1) to set that side data.
 - **WebGPU** (CRD 2026-09-15): `rgba16float` renders and stores on a core device. Chrome 129+
   shows light above 1.0 on an `rgba16float` canvas with `toneMapping: 'extended'`; no BT.2100
   canvas colour space exists.
 
 Prior art: webgl2video (MIT, d8ec4fc). Its page draws PQ code values of BT.2020 RGB, applies a
 seeded TPDF dither (±1 LSB, none on black), quantises to 10 bits, then makes P010 on the GPU from
-those codes (chroma sited left: [1 2 1]/4 across, the mean of two rows) and meters MaxCLL/MaxFALL
+those codes (chroma sited left, unlike BT.2100's top-left) and meters MaxCLL/MaxFALL
 in two reductions. `exact.py` holds that P010 to a float64 reference: no sample off by more than
 one code, under 0.01% off by one, levels equal. `hdr.py` keeps each segment's levels and writes
 the metadata once every frame is known.
@@ -40,13 +42,15 @@ the metadata once every frame is known.
 **Decision.**
 
 1. **Where precision rises: a film opts in, and its layers say what light they carry.**
-   - **The opt-in.** The manifest's `hdr10` block declares three things, with no defaults:
-     - `graphicsWhite`, in cd/m²;
-     - the mastering display (`peak` and `min` in cd/m², and primaries);
-     - `dither: 'tpdf' | 'none'`.
+   - **The opt-in.** The manifest's `hdr10` block. A default is given only where a standard
+     names the value; a standard's value is not taste (this refines 0011's test).
+     - `graphicsWhite`, in cd/m². Default 203, BT.2408's Graphics White.
+     - The mastering display (`peak` and `min` in cd/m², and primaries). Required: ST 2086
+       defines how to describe one but names none, and it states which monitor the film was
+       graded on, which only the person knows. The docs mention the common P3-D65 1000 cd/m².
+     - `dither: 'tpdf' | 'none'`. Required: no standard names a dither for 10-bit PQ.
 
-     The docs cite BT.2408's 203 cd/m² and a P3-D65 1000 cd/m² display. A job asks for
-     `range: 'hdr10'` (`--hdr10`), and the source reads `host.range`.
+     A job asks for `range: 'hdr10'` (`--hdr10`), and the source reads `host.range`.
    - **What a layer may carry.** A `GPUTexture` layer of `host.gpu` may declare
      `light: { transfer: 'linear' | 'pq', primaries: 'bt709' | 'bt2020' }`. The texture is
      `rgba16float` or `rgba32float`.
@@ -76,23 +80,28 @@ the metadata once every frame is known.
    - **YouTube's SDR LUT.** A person may still upload a `.cube` LUT through YouTube's metadata
      tool; an mp4 cannot carry one. Shaderera does not make LUTs.
 
-3. **Delivery: an HDR10 master is HEVC Main 10 in an mp4.**
+3. **Delivery: an HDR10 master is HEVC Main 10 in an mp4.** HEVC is allowed (owner, 2026-10-22):
+   Shaderera ships no encoder and drives the person's own ffmpeg. HEVC comes first.
    - **The stream.**
      - Codec and format: `hvc1`, `yuv420p10le` from P010, narrow range.
-     - Tags: `bt2020`, `smpte2084`, `bt2020nc`, and chroma location `left`.
+     - Tags: `bt2020`, `smpte2084`, `bt2020nc`, and chroma location `topleft` (BT.2100
+       Table 8; `-chroma_sample_location topleft`, which libx265 writes as VUI type 2).
      - Metadata in both places, the SEI in the stream and the mp4's `mdcv` and `clli` boxes:
        - the declared ST 2086 mastering display;
        - MaxCLL and MaxFALL, measured on the GPU from the 10-bit codes.
    - **Measuring before the encode.** The levels are known only after the last frame, so every
      HDR10 encode goes through the lossless chunks that `plan` and `assemble` already use.
      - Hosts write P010 frames to FFV1 `yuv420p10le` chunks, and each chunk records its levels.
-     - The encode then runs once, with ffmpeg 9.0's `-mastering_display` and `-content_light`.
+     - The encode then runs once, with ffmpeg 9.0's `-mastering_display` and `-content_light`
+       on the chunks' input.
      - A plain `render` is a one-chunk plan.
    - **Encoders.**
      - **x265** for a master, always (as 0007 keeps x264 for SDR masters), with `hdr10-opt` and
        `repeat-headers`.
      - **`hevc_nvenc`** for a review, where ffmpeg is 8.0 or later with SDK 13.
      - **`hevc_videotoolbox`** for a review only, because it writes no metadata.
+   - **ffmpeg 9.0 is required only when a film turns on `hdr10`.** SDR stays tested on 8.1.1.
+     `doctor` reports the ffmpeg version and says HDR needs 9.0.
    - **ProRes.** `prores-hq` and `prores-4444` take the same PQ R'G'B' at 16 bits, tagged the
      same, with the boxes in the mov. That conversion is ffmpeg's, so the exactness test does
      not cover it.
@@ -110,8 +119,9 @@ the metadata once every frame is known.
    reference.
    - **The reference** is written in TypeScript (JS numbers are float64):
      - BT.2020 non-constant luminance, narrow range, 4:2:0;
-     - chroma sited left (`chroma_sample_loc_type` 0, HEVC's default, tagged explicitly): the
-       [1 2 1]/4 filter across even columns with the edges clamped, then the mean of the two rows;
+     - chroma sited top-left (BT.2100 Table 8, `chroma_sample_loc_type` 2, tagged): each chroma
+       sample at an even column and even row, the [1 2 1]/4 filter across and the [1 2 1]/4
+       filter down around it, edges clamped;
      - the light levels from the same codes.
    - **The test** composites a fixture frame twice on Dawn: once as 10-bit R'G'B' codes and once
      as P010 with its levels. The fixture holds:
@@ -162,8 +172,8 @@ the metadata once every frame is known.
   on 8-bit BT.709.
 - `apps/cli/src/node/fixtures/memory-child.ts:136–182` has the CPU `yuv420p` and `rgba64`
   references.
-- `docs/delivery.md`: "The mp4: tested SDR BT.709", "Higher precision", and the sentence that
-  rules out HEVC.
+- `docs/delivery.md`: "The mp4: tested SDR BT.709" and "Higher precision" (its HEVC sentence is
+  updated with this decision).
 
 Stills and review stay SDR. An agent looks at the film's SDR render, and reads the HDR as numbers
 (MaxCLL, MaxFALL, the share of pixels above `graphicsWhite`). A PQ image shown as sRGB would
@@ -172,20 +182,20 @@ mislead it.
 **Rejected.**
 - A house tone map, or an SDR version derived from the HDR master: either one decides the look (0011).
 - Compositing in PQ code values: `over` would follow PQ's curve, not light.
-- A default `graphicsWhite` of 203: it decides how bright every SDR layer is. The docs give the number instead.
+- Decoding SDR layers with BT.1886 (gamma 2.4), as BT.2408 maps SDR: the author previews them as sRGB.
 - Clipping at the mastering peak: a look made silently.
 - Two renders, one to meter and one to encode: twice the source's cost. The lossless chunks already exist.
 - Patching the metadata into the file afterwards (webgl2video's MKV route): MKV only, and a second tool (MKVToolNix).
 - HLG: YouTube and Apple take HDR10; HLG is broadcast's. It can come with a customer.
-- AV1 or VP9 10-bit instead of HEVC: royalty-free and accepted by YouTube, but Apple's HDR is HEVC. It can be added beside it.
-- Chroma sited top-left (BT.2100's Table 8): HEVC's default and the issue's choice is left, and it is tagged, so no player guesses.
+- AV1 10-bit: deferred until a user asks; YouTube takes it, Apple's HDR is HEVC.
+- Chroma sited left (H.264/HEVC's default when untagged, and webgl2video's): BT.2100 sites it top-left.
 
-**Open for the owner.**
-- `docs/delivery.md` ruled out HEVC over patent-pool royalties. Shaderera ships no encoder: it
-  drives the person's ffmpeg and GPU. Is HEVC acceptable on those terms, or should AV1 come
-  first?
-- An HDR10 master needs ffmpeg 9.0, while the tested ffmpeg is 8.1.1. `doctor` would say so.
-- Should `graphicsWhite` and `dither` be required, as written, or have defaults?
+**Verify before implementation.**
+- CTA-861.3 Annex A's normative MaxCLL/MaxFALL formula (paywalled; the definition here is
+  from secondary sources).
+- Whether ffmpeg 9.0's `-mastering_display` and `-content_light` apply to a raw pipe input. If
+  not, a stream-copy remux of the encoded file with those options on its input writes them.
+- Whether VideoToolbox inserts the HDR metadata itself (ffmpeg sets none).
 
 **How to reverse.** Everything sits behind the manifest's `hdr10` and `range: 'hdr10'`.
 Removing them leaves the SDR paths as they are.
