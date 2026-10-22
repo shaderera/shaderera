@@ -50,6 +50,43 @@ test('variants are designed outputs: sizes, lengths and params, checked like the
   )
 })
 
+test('hdr10 opts in: the mastering display and the dither are required, Graphics White is 203', () => {
+  const mastering = { peak: 1000, min: 0.0001, primaries: 'p3-d65' }
+  const hdr10 = checkManifest({ ...good, hdr10: { mastering, dither: 'tpdf' } }).hdr10
+  assert.deepEqual(hdr10, { graphicsWhite: 203, mastering, dither: 'tpdf' })
+  assert.equal(
+    checkManifest({ ...good, hdr10: { graphicsWhite: 100, mastering, dither: 'none' } }).hdr10
+      ?.graphicsWhite,
+    100,
+  )
+  assert.throws(() => checkManifest({ ...good, hdr10: {} }), {
+    message:
+      'shaderera.json: hdr10.mastering is required: the display the film was graded on, { peak, min, primaries } (SMPTE ST 2086 describes one but names none; P3-D65 at 1000 cd/m² is common); hdr10.dither is required: "tpdf" or "none" (no standard names a dither for 10-bit PQ)',
+  })
+  assert.throws(
+    () =>
+      checkManifest({
+        ...good,
+        hdr10: {
+          graphicsWhite: 0,
+          mastering: { peak: 20000, min: -1, primaries: 'dci', white: 1 },
+          dither: 'blue',
+          tonemap: 'aces',
+        },
+      }),
+    {
+      message: `shaderera.json: hdr10.mastering.peak must be in cd/m², above 0 and at most 10000 (PQ's peak); hdr10.mastering.min must be in cd/m², from 0 and below the peak; hdr10.mastering.primaries must be "p3-d65", "bt2020" or "bt709"; hdr10.mastering: unknown key "white"; hdr10.dither must be "tpdf" or "none"; hdr10.graphicsWhite must be in cd/m², above 0 (BT.2408's Graphics White is 203); hdr10: unknown key "tonemap"`,
+    },
+  )
+  assert.throws(
+    () =>
+      checkManifest({ ...good, hdr10: { mastering: { ...mastering, min: 1000 }, dither: 'none' } }),
+    /min must be in cd\/m², from 0 and below the peak/,
+  )
+  // Without hdr10 the manifest is as it was.
+  assert.equal('hdr10' in checkManifest(good), false)
+})
+
 test('withVariant applies a variant to the manifest and returns its params', () => {
   const m = checkManifest({
     ...good,
