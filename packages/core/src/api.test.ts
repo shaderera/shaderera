@@ -5,6 +5,7 @@ import { test } from 'node:test'
 test('the stable and experimental entries export exactly what docs/api.md lists', async () => {
   const keys = async (entry: string) => Object.keys(await import(entry)).sort()
   assert.deepEqual(await keys('./index.ts'), [
+    'NotDeterministic',
     'checkDeterminism',
     'diffJson',
     'diffPixels',
@@ -17,6 +18,8 @@ test('the stable and experimental entries export exactly what docs/api.md lists'
   ])
   assert.deepEqual(await keys('./gpu.ts'), ['readBuffer', 'readTexture'])
   assert.deepEqual(await keys('./host.ts'), [
+    'CODE_LIGHT',
+    'GRAPHICS_WHITE',
     'checkManifest',
     'dropFrame',
     'finalOnly',
@@ -27,11 +30,19 @@ test('the stable and experimental entries export exactly what docs/api.md lists'
     'fullDevice',
     'gainAt',
     'gpuCompositor',
+    'hdrCompositor',
     'layerInfo',
+    'lightChecked',
+    'lightReference',
     'matte',
     'openSource',
     'over',
+    'p010Fits',
+    'p010Reference',
     'paramDefaults',
+    'peakCode',
+    'rangeOf',
+    'rgb10Reference',
     'sampleClips',
     'sampleTimes',
     'seekable',
@@ -40,6 +51,7 @@ test('the stable and experimental entries export exactly what docs/api.md lists'
     'toSrt',
     'toVtt',
     'watchShaders',
+    'whiteOf',
     'windowCaptions',
     'withVariant',
     'yuvFits',

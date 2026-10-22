@@ -13,6 +13,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`save`, `versions`, `undo`, `restore`, `diff`, `job`](#versions-and-jobs) | revisions and frozen render jobs |
 | [`deliver`](#deliver) | a batch of every variant × locale into `out/deliveries/<batch>/` |
 | [`plan`, `assemble`](#plan-render---chunk-assemble) | render a job's chunks on several machines |
+| [`reexport`](#reexport) | a job's sound on a delivered file's own picture, or its caption sidecars, with no frame rendered |
 | [`handoff`](#handoff) | a frozen project, its job and `REPRODUCE.md` in `out/handoff/<job>/` |
 | [`review`](#review) | principal frames, a contact sheet and technical checks |
 | [`bake`](#bake) | run a bake's command and stamp the frames it made outside the host |
@@ -31,6 +32,18 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 - **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused.
   In the files named after it (`out/<project>-<variant>.mp4`, `out/stills/<variant>-<t>.png`,
   `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
+  `main` names the manifest's own output, as in `deliver`. The source gets the name as
+  `host.variant` ([protocol.md](protocol.md#shadererajson)). One film made in 16:9 and 9:16 at
+  once: [guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once).
+- **Several variants** (`check`, `still`, `review`): `--variant 16:9,9:16`, or `--variants
+  16:9,9:16`, or `--variants all` (`main` and every variant the manifest declares; main is left out when a variant has its
+  width, height, fps, duration and params, and `main = <variant>` is printed once, `main` in
+  `--json`). Each variant
+  opens its own host and they run at once. The lines are printed under each variant's name, in
+  the order given; with `--json` the result is `{ "variants": [{ "variant": "16:9", ... }] }`, each
+  entry the command's own result (or `error`), and each finding names its variant as `output`. One
+  that fails to run is reported and the others finish; the exit code is the worst of them. A
+  `review --out <dir>` puts each variant in `<dir>/<variant>/`.
 - **`--host node|browser`**: overrides the manifest's `host` for this run. A project with `dom`
   cannot be run with `--host node`.
 - **`--trusted`**: run the project without Node's permission model
@@ -52,6 +65,11 @@ The commands that render the source (`check`, `inspect`, `still`, `render`, `rev
 
 The project's own console output goes to stderr, so stdout carries only the command's result. Set
 `SHADERERA_DEBUG=1` to print a full error with its stack.
+
+While `render`, `render --chunk` or `assemble` hands frames to ffmpeg, an ffmpeg that exits
+before the last frame (even with 0, as it does when it runs out of memory reading its input) fails
+the command with its last lines, and one that reads nothing for 300 seconds while a frame waits
+fails it as stalled. `SHADERERA_FFMPEG_STALL` sets those seconds.
 
 ## Required plugins
 
@@ -113,6 +131,8 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 |---|---|
 | `--times <n>` | 50 |
 | `--seed <n>` | 1 |
+| `--hdr10` | off. Checks the film's HDR10 render ([HDR10](delivery.md#hdr10)): its P010 bytes in two orders, every frame within the mastering display's peak, every layer's `light` one it can carry. Prints the most light it saw |
+| `--variant a,b`, `--variants all` | one: each variant in its own host, at once ([several variants](#common-flags)) |
 
 ```
 $ shaderera check --times 5
@@ -142,14 +162,23 @@ Stills of any moment straight from the source, rendered by the same host as `che
 |---|---|
 | `<t>...`, `--time <s>` (repeatable) | the times, see [the common flags](#common-flags): `still 6` fails on a 6 s film |
 | `--every <s>` | also a frame every s seconds from 0 |
-| `--sheet` | also a contact sheet, `<variant>-sheet.png` |
+| `--sheet` | also a contact sheet, `<variant>-sheet.png`. With several variants, one sheet of them side by side instead, `<a>-<b>-sheet.png`: a row per t, each variant's frame at the same height (at most 720 px), labelled with its name, t and size, and the safe area requirements.json declares for it drawn as a dashed line. Only the sheet is scaled and drawn on: each still is the same bytes as a still of that variant alone |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
 | `--out <dir>` | `out/stills/` |
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
-| `--compare <variant>` | none. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
-| `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet` |
+| `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
+| `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet`. Several variants: `variants`, one entry each, and the side-by-side `sheet` |
+
+```
+$ shaderera still 1 --variant 16:9,9:16 --sheet
+16:9:
+  out/stills/16_9-1.000.png  41 ms
+9:16:
+  out/stills/9_16-1.000.png  39 ms
+out/stills/16_9-9_16-sheet.png
+```
 
 ```
 $ shaderera still 0 2.5 --sheet --diff
@@ -178,11 +207,29 @@ The file is written as `<out>.<pid>.partial` (the render's process id, so two re
 `<out>` is the previous film or nothing, never half a film. A render that fails or is
 stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
-kept as `<out>.<pid>.partial` and the error says so. A host error fails the render with
+kept as `<out>.<pid>.partial` and the error says so. A render killed outright (the process ended,
+the power cut) cannot clean up: the next render of the same `<out>` removes the `.partial` files
+of processes of this machine that no longer run and that ffprobe cannot read (half written); a
+finished film kept that way stays, and the render names it. A host error fails the render with
 its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
-memory. This holds for `render`, `render --chunk` and `deliver`; nothing is retried.
+memory. This holds for `render`, `render --chunk` and `deliver`.
+
+Nothing is retried unless asked. With `--retries <n>`, `render` (and `render --chunk`) retries a
+frame whose host failed in a way a fresh host may not repeat: the host process crashed or exited,
+it took longer than `--timeout`, its Chrome closed, or its GPU device was lost or out of memory.
+The host is closed, another opened, and the frame rendered again, up to n times a frame. A source's
+own error or a shader that does not compile is not retried. `render` and `assemble` also encode
+again from the first frame, up to n times, when ffmpeg stalls, runs out of memory or crashes (an
+`AVERROR(ENOMEM)` exit, an exit with 0 while frames were still coming, a Windows crash code or a
+signal); a bad option or a missing file is not retried. Each retry waits 0.5 s, then twice as long each time, and says why on stderr
+(`! Frame 214 (t 7.133 s) failed: … Retry 1/2, on a reopened host, in 0.5 s.`); after the last,
+the first error is the one shown. A source gives the same bytes at a time on any host
+([determinism.md](determinism.md)), so a retried frame is the frame an uninterrupted render gives.
+A png job is the exception: a run that fails keeps its finished frames in `<dir>.partial`, and
+`render --job` again continues from the first missing one
+([the finishing handoff](delivery.md#the-finishing-handoff-png--wav)).
 The file must hold every frame rendered; one ffmpeg finished short is refused.
 
 Every file says which revision made it. `render` saves the project first, as `job` does (the same
@@ -199,19 +246,22 @@ of footage it takes a moment, not the time to read all of it.
 | `--from <s>`, `--to <s>` | 0, `duration` |
 | `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
-| `--master` | off: review quality (crf 18). On: crf 12, preset slow |
+| `--master` | off: review quality (crf 16, preset veryfast). On: crf 12, preset slow |
 | `--crf <n>` | the quality's |
 | `--bitrate <rate>` \| `--maxrate <rate>` | none: crf. A constant rate such as `15M`, or the crf capped at a rate ([rate control](delivery.md#rate-control)) |
 | `--no-edit-list` | off. An mp4 without edit lists ([edit lists](delivery.md#edit-lists)) |
 | `--stems` | off. One WAV per clip `group` beside the file ([stems](delivery.md#stems-and-captions)) |
 | `--no-audio` | off. No audio stream (a png job: no `audio.wav`) |
 | `--loudness=<LUFS>` | none. Move the mix to a target by one constant gain ([loudness](delivery.md#loudness)). Write it with `=`, since the value starts with a dash |
-| `--encoder <x264\|nvenc>` | a review: `nvenc` where this ffmpeg and machine take the frame size, else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives NVENC cq n + 1 |
+| `--encoder <name>` | `x264`, `nvenc`, `qsv`, `amf` or `videotoolbox`. A review: the first GPU encoder of those that takes the frame size with this ffmpeg on this machine (with `--bitrate` or `--maxrate`, `nvenc` only), else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives a GPU encoder cq n + 1. With `--hdr10`: `x265`, `nvenc` or `videotoolbox` (HEVC), `x265` for a master |
+| `--hdr10` | off. An HDR10 mp4 (HEVC Main 10), or with `--format prores-hq\|prores-4444` an HDR10 ProRes mov, of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#hdr10)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
 | `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome |
 | `--progress` | off: the progress line goes only to a terminal; on, also to a pipe |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
+| `--software-gpu` | off: a host on a software GPU is refused ([below](#a-software-gpu)). On: it renders, and says so on stderr |
+| `--retries <n>` | 0: a transient host or encoder failure fails the render. n: retried up to n times with backoff ([above](#render)) |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:
@@ -234,6 +284,25 @@ the PATH:
 shaderera: render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html
 ```
 
+### A software GPU
+
+Without a GPU its WebGPU can reach (a container or a cloud machine the driver is not passed to, a
+Linux machine without the GPU's Vulkan driver, Chrome with its GPU turned off), Dawn or Chrome
+hands the film a software renderer: SwiftShader, llvmpipe or lavapipe (Mesa), or WARP (Microsoft
+Basic Render Driver). It draws the same film 10–100× slower. `render` and `deliver` ask the host's
+adapter before the first frame and refuse it, before saving anything:
+
+```
+shaderera: The browser host's WebGPU adapter is software, SwiftShader (google swiftshader): a render runs 10–100× slower than on a GPU. Pass --software-gpu to render on it anyway, or give the host a GPU: npx shaderera doctor says what to check.
+```
+
+`--software-gpu` renders on it all the same, with that line on stderr. The MCP `render` tool
+refuses it the same way, unless `softwareGpu: true` ([mcp.md](mcp.md)). `render --job`, `--chunk`
+and `--reuse` are checked as `render` is; `handoff --verify` (a few frames to compare) and
+`assemble` (it encodes frames already rendered) are not. The adapter is software
+when its vendor, architecture, device or description names one of those renderers, or when it
+says it is the fallback adapter (`isFallbackAdapter`). `doctor` warns on it as its `gpu` item.
+
 ## Versions and jobs
 
 A project's saved revisions and render jobs live in `versions/` (keep it with the project):
@@ -245,7 +314,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
 | `diff <a> [<b>] [--stat]` | files added, removed and changed from revision a to b (or the working tree), with a unified diff of text files |
-| `job [--variant v] [--params json] [--revision id] [--name n] [--label l] [--from s] [--to s] [--host h] [--format f] [--png] [--master] [--bitrate r \| --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--replace]` | freezes a render job (`job/3`) in `versions/jobs/<name>.json`: the revision (the project is saved first unless one is given), the host, the variant, the complete params (an unknown name is refused), the seed, the window, the delivery settings and the installed packages the source and its DOM import, by content, and the stamp of every bake it reads ([what a job pins](delivery.md#handoff)). Its `id` hashes all of that. The same inputs return the job already there; a `--name` that holds different inputs is refused unless `--replace` |
+| `job [--variant v] [--params json] [--revision id] [--name n] [--label l] [--from s] [--to s] [--host h] [--format f] [--png] [--master] [--bitrate r \| --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--hdr10] [--replace]` | freezes a render job (`job/3`) in `versions/jobs/<name>.json`: the revision (the project is saved first unless one is given), the host, the variant, the complete params (an unknown name is refused), the seed, the window, the delivery settings and the installed packages the source and its DOM import, by content, and the stamp of every bake it reads ([what a job pins](delivery.md#handoff)). Its `id` hashes all of that. The same inputs return the job already there; a `--name` that holds different inputs is refused unless `--replace`. `--hdr10`: the job renders in an `hdr10` range to an HDR10 mp4 (`range: "hdr10"`, `delivery.color: "hdr10-bt2020-pq"`), or an HDR10 ProRes mov with `--format prores-hq\|prores-4444`; a png or a bitrate is refused for it |
 | `render --job <name>` | renders exactly that job in its host, from the revision's frozen copy, whatever the project became; refuses another `--host`, a package the job executes that changed, or another Shaderera version |
 
 ```
@@ -265,19 +334,80 @@ A job holds execution inputs and references, never the film.
 
 `shaderera deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master]
 [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS]
-[--name batch] [--job a --job b] [--replace]` saves the project once, makes one job per variant ×
+[--hdr10 [--sdr]] [--name batch] [--job a --job b] [--replace] [--software-gpu] [--force]` saves the project once, makes one job per variant ×
 locale (named `<batch>-<variant>[-<locale>]`), renders and reviews each, and writes
-`out/deliveries/<batch>/`. A batch name that holds other inputs is refused unless `--replace`.
+`out/deliveries/<batch>/`. `--hdr10` makes each an HDR10 job of a film with `hdr10`, and `--sdr`
+adds the film's own SDR render beside each (`<job>-sdr`, checked against the placement
+`<variant>:sdr`); never with `--job`, whose jobs froze their range ([HDR10](delivery.md#hdr10)). A batch name that holds other inputs is refused unless `--replace`.
 Exit 1 when any output fails, after rendering the rest. See [delivery.md](delivery.md#batch).
+Before the first output renders, the batch must fit on the disk ([disk space](#disk-space)).
+An output whose host is on a software GPU fails unless `--software-gpu`, as in
+[`render`](#a-software-gpu).
 
 ## `plan`, `render --chunk`, `assemble`
 
-`shaderera plan --job <name> [--chunks 4] [--out dir]`, then `shaderera render --job <name>
---chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
-[--mixed-hosts] [--no-audio] [--loudness=LUFS]`: the same file as one `render --job`. See
-[delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's frames go round
-`--workers` hosts on its machine (the same default as `render`), and its file holds the same
-frames however many.
+`shaderera plan --job <name> [--chunks 4] [--out dir] [--force]`, then `shaderera render --job <name>
+--chunk <i> [--plan dir] [--force]` on any machine, then `shaderera assemble --plan <dir> [--out file]
+[--mixed-hosts] [--no-audio] [--loudness=LUFS] [--crf n] [--job name] [--retries n]`: the same
+file as one `render --job` (`--retries` as in [`render`](#render)). See
+[delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's
+frames go round `--workers` hosts on its machine (the same default as `render`), and its file
+holds the same frames however many. `--crf` is `render`'s. `--job` encodes another job's delivery
+(another format, quality, rate or edit list) from the same chunks: a job of the same revision,
+host, variant, params, seed, window and packages whose frames are handed over in the plan's format
+([another delivery](delivery.md#another-delivery-from-the-same-chunks)). `plan` refuses a
+folder that holds another job's plan or chunks, naming that job and a fresh `--out`; planning the
+same job again in its folder replaces its plan.
+
+`shaderera plan --status --plan <dir> [--verify] [--json]` (or `--job <name>` for its default
+folder) lists each chunk as `done` (its record and file are there), `verified` (with `--verify`,
+the file's sha256 checked again), `changed` (with `--verify`, the file differs from its record),
+`stale` (rendered for another job or plan), `partial` (a render of it stopped part way),
+`claimed` (a live render holds it, named) or `missing`, with the `render --chunk` command for each that is not done, then the frames done of
+the total and the time left at the pace the rendered chunks recorded (on one machine). `--json`
+gives the same as `result`: `frames` {done, total}, `eta` in seconds (null before any chunk is
+rendered) and `chunks`. `assemble` lists every problem it finds before it starts, each with the
+command that fixes it.
+
+`render --chunk` claims the chunk first with `<chunk>.claim` in the plan folder (host, pid and
+time; touched every minute while it renders) and removes it when done, failed or stopped (Ctrl-C,
+which also removes its partial). A chunk another live render holds is refused, naming its host
+and pid. A claim is stale, and taken over, when its pid no longer runs on this machine, or when
+nobody has touched it for 10 minutes (a render on another machine that died); taking it over
+removes the partials earlier renders of the chunk left. The chunk's record is written to a temp
+file and renamed, after the old record is removed, so a chunk file is never paired with another
+render's record: a file without its record is not rendered.
+
+### Disk space
+
+`plan`, `render --chunk`, a png job (`render --job`) and `deliver` estimate the bytes they will
+write and check them against the free space on the volume they write to before they start. Not
+enough is refused, naming the estimate, the free space and `--force`, which goes ahead anyway;
+less than a quarter of the estimate (at least 1 GB) left over is a warning. The estimate is a
+`disk` finding in the [`--json`](#--json-one-envelope) envelope either way.
+
+- `plan`: every chunk it plans, as FFV1 (an hdr10 job's from its P010 or 10-bit R'G'B' frames), plus the file `assemble` writes, in the plan folder.
+- `render --chunk`: that chunk's FFV1 file, in the plan folder.
+- a png job: its PNG frames and `audio.wav`, in its folder.
+- `deliver`: every output, in `out/deliveries/<batch>/`; an `--hdr10` output also its one
+  lossless chunk (P010, or 10-bit R'G'B' for ProRes), the largest counted once.
+
+FFV1 and PNG frames are estimated from three frames the host renders and encodes (spread over the
+window), and at the raw-pixel ceiling (width × height × 4 bytes, 8 at 16 bits, 3 for P010) for a sequential
+source or when a sample fails. A lossless frame varies a lot with what it shows: about 150 KB at
+720p for a flat Canvas2D film, up to 4.7 MB at 1080p with grain. `deliver` checks before any host
+opens, so its png outputs count at the ceiling. A final mp4 or mov counts by its `--bitrate` or
+`--maxrate`, else roughly (H.264, or HDR10's HEVC, at 0.5 bits a pixel, 1 for `--master`; ProRes HQ at 3.6 and 4444
+at 5.4), plus its sound.
+
+```
+$ shaderera plan --status --plan out/spot.plan
+/path/to/project/out/spot.plan/plan.json: job spot, 3 chunks
+  chunk   0  done      4 frames in 12.0 s
+  chunk   1  missing   3 frames  → shaderera render --job spot --chunk 1 --plan /path/to/project/out/spot.plan
+  chunk   2  partial   3 frames  → shaderera render --job spot --chunk 2 --plan /path/to/project/out/spot.plan
+4/10 frames done, about 18 s of rendering left at the recorded pace
+```
 
 After a small edit, `shaderera render --job <new> --reuse <earlier plan> --changed <from>-<to>[,…]
 [--fix] [--plan dir]` writes a plan of the new job (by default `out/<new>.plan`) that renders only
@@ -294,6 +424,26 @@ chunk 1: 25 frames from 330 s in 3.2 s on 1 host(s)
 then: npx shaderera assemble --plan /path/to/project/out/b5.plan
 ```
 
+## `reexport`
+
+`shaderera reexport audio --job <name> [--onto file] [--out file] [--no-audio] [--loudness=LUFS]`
+writes the job's mix again onto a delivered file's own video packets (`ffmpeg -c:v copy`): no
+frame is rendered or encoded. `--onto` is the file whose picture is kept (by default
+`out/<job>.mp4`, or `.mov`), `--out` the file written (by default `out/<job>.mp4`; the same file
+is replaced only once the new one is whole). The stems are written again for a job with
+`--stems`. A png job is refused. `shaderera reexport captions --job <name> [--out file]` writes the
+job's `<name>.srt` and `<name>.vtt` beside `--out`, as `render` does, without rendering. See
+[delivery.md](delivery.md#changing-only-the-sound-or-the-captions).
+
+```
+$ shaderera reexport audio --job spot-v2 --onto out/spot.mp4
+/path/to/project/out/spot-v2.mp4
+the video of /path/to/project/out/spot.mp4 (job spot), no frames rendered or encoded
+file: h264 High yuv420p 1920×1080 25 fps, 8.12 Mb/s, aac 48 kHz 2 ch, edit list
+revision: 5d1f0c2a9b7e4f13
+audio: -22.1 LUFS, true peak -3.4 dBTP, range 4.8 LU
+```
+
 ## `handoff`
 
 `shaderera handoff <job> [--verify] [--clean-install] [--trusted]` writes `out/handoff/<job>/`.
@@ -301,7 +451,7 @@ Exit 1 if `--verify` finds a frame that differs. See [delivery.md](delivery.md#h
 
 ## `review`
 
-`shaderera review [--variant name] [--out dir] [--requirements file] [--quick] [--json]` renders
+`shaderera review [--variant name | --variant a,b | --variants all] [--out dir] [--requirements file] [--quick] [--json]` renders
 the principal frames, writes them with a contact sheet, and runs the technical checks. The CLI and
 the `review` MCP tool run the same code (`src/review/review.ts`).
 
@@ -393,14 +543,24 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 ## `doctor`
 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
-ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
-amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
-adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
+ffprobe, the encoders and filters deliveries use (libx264, aac, libx265, prores_ks, pcm_s24le,
+ebur128, amultiply), the GPU's H.264 encoder at 1920×1080 (`nvenc`, `qsv`, `amf` or
+`videotoolbox`, tested again, not the render's kept answers), Chrome. Its `ffmpeg` item is
+ffmpeg's version line, and `ffmpeg:hdr10` says whether this ffmpeg can make an HDR10 film: that
+needs ffmpeg 9.0 or later (SDR is tested on 8.1.1), and NVIDIA's HEVC encoder, when it works
+here, makes its reviews. Inside a project: its host, `webgpu`'s version, the adapter with every
+feature and its limits (asked in a child process; for the browser host, the adapter Chrome's
+WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
 [above](#required-plugins)). Each lack says how to fix it. It also says whether this machine is
 signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERERA_API` names
 another) and whether the project can be shared (`share`: the licence it declares). Neither is
 needed, so neither fails `doctor`.
+
+A software adapter (SwiftShader, llvmpipe, lavapipe, WARP, or the fallback adapter) is a `gpu`
+warning, not `ok`: the fix says what to check, the GPU driver, that a container is given the GPU
+(`--gpus all`, `/dev/dri`), a Vulkan ICD on Linux, and nothing turning off Chrome's GPU.
+`render` and `deliver` refuse it without `--software-gpu` ([a software GPU](#a-software-gpu)).
 
 The limits are the ones films run into, as the Node host's device gets them (it asks for the
 adapter's maximum). They come from the GPU and its backend, not from Shaderera: Dawn on D3D12 caps
@@ -569,9 +729,17 @@ The address it prints is the film's page, the canvas with the film open, as the 
 **`fork`** takes a film's id, `<id>@<version>` (a version may be the start of one) or the address
 of its page on the site (`https://shaderera.com/film/<id>`), which it looks up on the API (a page
 of any other origin is refused); without a version it takes the latest. It needs no
-token and sends none. Every path is checked as a revision's is, every file against its sha256,
-and nothing is written until all of them match; the folder must be new or empty. The new
-project's first `share` makes a new film, marked as forked from that version.
+token and sends none. It downloads 8 files at a time. Every path is checked as a revision's is,
+every file against its sha256, and nothing is written until all of them match; the folder must be
+new or empty. The new project's first `share` makes a new film, marked as forked from that version.
+
+- **Where it came from** is written into the new project's source, so a share sends it on:
+  package.json gets `forkedFrom` (`film`, `title`, `owner`, `version`, `licence` and `page`, the
+  film's page on the site), and README.md (made when the film has none) ends with a line such as
+  `Forked from "neon-rain" by ana (https://shaderera.com/film/k3x9q2mfa7), version <its id>, licence MIT.`
+- **The licence** stays the film's: package.json's `license` is what the owner chose. A film that
+  is `All rights reserved` (`UNLICENSED`) is still forked, with a warning that the owner keeps
+  every right, so ask them before sharing, publishing or reusing any of it.
 
 ```
 $ npx shaderera fork https://shaderera.com/film/k3x9q2mfa7 my-rain
@@ -581,13 +749,13 @@ forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 file
 With `--json`, `share`'s result is `api`, `film`, `created`, `version`, `url`, `files`, `bytes`,
 `player` (`{ files, bytes }`), `parents`, `uploaded`, `notSent`, `poster` and `loop` (their bytes,
 or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`, `owner`,
-`version`, `licence`, `files` and `bytes`.
+`version`, `licence`, `files`, `bytes`, `forkedFrom` and `warnings`.
 
 ## `studio`, `telemetry`
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]` | serves the project to the studio page on the site until Ctrl-C |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
@@ -603,6 +771,9 @@ asks for.
   relay.
 - **What the page does through it.** The page previews the project with its runner, hears its
   edits, renders into `out/studio/` with the CLI's own hosts, and shares with `share`, as you.
+- **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
+  `paired`, `page-closed`, `resumed`, `job`, `share`, `ended`, …), listed in
+  [studio.md](studio.md).
 - **The protocol** is [studio.md](studio.md).
 
 The studio page reports usage counts to shaderera.com, which stores them in PostHog: never code,
@@ -637,7 +808,8 @@ commands and the MCP server.
 
 ## `--json`: one envelope
 
-Every command but `mcp` takes `--json`: stdout is then one JSON object, the exit code unchanged.
+Every command but `mcp` and `studio` takes `--json`: stdout is then one JSON object, the exit code
+unchanged. `studio --json` prints one JSON line per event instead ([studio.md](studio.md)).
 
 ```json
 {

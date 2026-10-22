@@ -1,0 +1,18 @@
+{
+  "route": "POST /auth/logout",
+  "about": "logout --all: signs every machine of the user out.",
+  "request": {
+    "method": "POST",
+    "path": "/auth/logout",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "all": true
+    }
+  },
+  "response": {
+    "status": 204
+  }
+}

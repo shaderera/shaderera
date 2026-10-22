@@ -85,6 +85,34 @@
           "additionalProperties": { "type": "string" }
         }
       }
+    },
+    "hdr10": {
+      "description": "The film opts into HDR10 (decision 0023): a job may then ask for range hdr10, and layers may declare their light. Without it every render is SDR.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mastering", "dither"],
+      "properties": {
+        "graphicsWhite": {
+          "description": "Where an SDR layer's white goes, in cd/m². BT.2408's Graphics White, 203, when absent.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "mastering": {
+          "description": "The display the film was graded on (SMPTE ST 2086). P3-D65 at 1000 cd/m² is common.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["peak", "min", "primaries"],
+          "properties": {
+            "peak": { "type": "number", "exclusiveMinimum": 0, "maximum": 10000 },
+            "min": { "type": "number", "minimum": 0 },
+            "primaries": { "enum": ["p3-d65", "bt2020", "bt709"] }
+          }
+        },
+        "dither": {
+          "description": "Before the 10-bit quantisation; no standard names one.",
+          "enum": ["tpdf", "none"]
+        }
+      }
     }
   },
   "definitions": {

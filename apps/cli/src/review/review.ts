@@ -1,10 +1,11 @@
 // One review of a project: principal frames, a contact sheet and technical checks. The CLI and MCP
 // both call this; each opens the child (for a variant or a frozen revision) itself.
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createCanvas } from '@napi-rs/canvas'
 import type { Json, SampledClip } from '@shaderera/core'
-import { frameCount } from '@shaderera/core/host'
+import { CODE_LIGHT, frameCount, whiteOf } from '@shaderera/core/host'
 import { checkChild } from '../cli/check.ts'
 import type { Loudness } from '../cli/ffmpeg.ts'
 import { mixWav } from '../cli/mix.ts'
@@ -70,6 +71,11 @@ export type ReviewReport = {
     captions: CaptionStat[] | null
     /** The clips heard (a src without sound is not), how much of the film they cover, and their mix's loudness (EBU R128). */
     audio: { clips: number; coverage: number; loudness: Loudness | null } | null
+    /**
+     * A film with `hdr10`: each principal frame's light in its hdr10 render (decision 0023), in
+     * cd/m², and the share of its pixels brighter than Graphics White; absent without `hdr10`.
+     */
+    hdr10?: { t: number; maxCll: number; maxFall: number; aboveWhite: number }[]
   }
   elapsedMs: number
 }
@@ -84,24 +90,88 @@ export type ReviewOptions = {
   times?: number[]
   /** Opens the same source at another size, for the readback check; without it, `unknown`. */
   reopen?: (size: { width: number; height: number }) => Promise<Child>
+  /**
+   * Opens the same source in an hdr10 range, for a film with `hdr10`: its light is reported as
+   * numbers, never shown (decision 0023). `child` is the SDR version, which the frames show.
+   */
+  hdr?: () => Promise<Child>
+}
+
+/**
+ * The light of a film's hdr10 render at each principal frame: MaxCLL and MaxFALL as the host
+ * measured them, and the share of pixels whose max(R',G',B') code is brighter than `white`.
+ */
+const hdrLight = async (hdr: Child, times: readonly number[], white: number) => {
+  const out: NonNullable<ReviewReport['diagnostics']['hdr10']> = []
+  for (const t of times) {
+    const r = await hdr.render(t, 'final', 'rgb10')
+    const codes = new Uint32Array(r.pixels.buffer, r.pixels.byteOffset, r.pixels.length / 4)
+    let above = 0
+    for (const w of codes)
+      if ((CODE_LIGHT[Math.max(w & 1023, (w >>> 10) & 1023, (w >>> 20) & 1023)] as number) > white)
+        above++
+    out.push({
+      t,
+      maxCll: round(r.light?.maxCll ?? 0, 2),
+      maxFall: round(r.light?.maxFall ?? 0, 2),
+      aboveWhite: round(codes.length ? above / codes.length : 0, 4),
+    })
+  }
+  return out
 }
 
 const THUMB = 1600
 const round = (n: number, d = 3) => Number(n.toFixed(d))
 
-/** RGBA pixels as a PNG, scaled down to fit `max` pixels on the long side. */
-export const toPng = (px: Uint8Array, width: number, height: number, max = Infinity): Buffer => {
+/**
+ * RGBA pixels as a PNG, scaled down to fit `max` pixels on the long side. Encoded off the main
+ * thread (on libuv's pool), so that frames encode in parallel: pngWriter.
+ */
+export const toPng = (
+  px: Uint8Array,
+  width: number,
+  height: number,
+  max = Infinity,
+): Promise<Buffer> => {
   const ctx = createCanvas(width, height).getContext('2d')
   const image = ctx.createImageData(width, height)
   image.data.set(px)
   ctx.putImageData(image, 0, 0)
   const scale = Math.min(1, max / Math.max(width, height))
-  if (scale === 1) return ctx.canvas.toBuffer('image/png')
+  if (scale === 1) return ctx.canvas.encode('png')
   const w = Math.max(1, Math.round(width * scale))
   const h = Math.max(1, Math.round(height * scale))
   const small = createCanvas(w, h).getContext('2d')
   small.drawImage(ctx.canvas, 0, 0, w, h)
-  return small.canvas.toBuffer('image/png')
+  return small.canvas.encode('png')
+}
+
+/** PNGs encoding at once: about libuv's pool (4 threads) and a few frames' pixels held. */
+const ENCODES = 8
+
+/**
+ * Writes PNGs as they finish encoding, at most ENCODES at once: `write` waits only when that many
+ * are in flight. `done` waits for the rest and throws the first error.
+ */
+export const pngWriter = () => {
+  const pending = new Set<Promise<void>>()
+  let failed: { error: unknown } | undefined
+  return {
+    async write(file: string, png: Promise<Buffer>): Promise<void> {
+      const p: Promise<void> = png
+        .then((b) => writeFile(file, b))
+        .catch((error: unknown) => {
+          failed ??= { error }
+        })
+        .finally(() => pending.delete(p))
+      pending.add(p)
+      if (pending.size >= ENCODES) await Promise.race(pending)
+    },
+    async done(): Promise<void> {
+      await Promise.all(pending)
+      if (failed) throw failed.error
+    },
+  }
 }
 
 /** A grid of frames, each labelled with its t and shot label underneath. */
@@ -109,7 +179,7 @@ export const contactSheet = (
   frames: readonly { t: number; label: string; pixels: Uint8Array }[],
   width: number,
   height: number,
-): Buffer => {
+): Promise<Buffer> => {
   const cols = Math.min(4, Math.max(1, frames.length))
   const rows = Math.ceil(frames.length / cols)
   const tileW = Math.min(width, Math.floor((THUMB - 8 * (cols + 1)) / cols))
@@ -141,7 +211,7 @@ export const contactSheet = (
     while (shown.length > 4 && sheet.measureText(shown).width > tileW) shown = shown.slice(0, -2)
     sheet.fillText(shown === text ? text : `${shown}…`, x, y + tileH + 16)
   })
-  return sheet.canvas.toBuffer('image/png')
+  return sheet.canvas.encode('png')
 }
 
 /**
@@ -210,6 +280,38 @@ const GENERIC = new Set([
   'fangsong',
 ])
 
+/** Frames a contact sheet without shots spreads evenly: 7 up to 70 s, one per 10 s, at most 24. */
+export const sheetFrames = (duration: number) =>
+  Math.min(24, Math.max(7, Math.round(duration / 10)))
+
+/** Seconds between the 0.25 s samples: what review inspects and reads the text at. */
+const SAMPLE = 0.25
+
+/** Every how many 0.25 s samples review renders away from text and shot changes: 1 up to 30 s, then about 120 renders a film (each 2.5 s at 5 minutes). */
+export const previewStride = (duration: number) => Math.max(1, Math.round(duration / 120 / SAMPLE))
+
+/**
+ * Which of the 0.25 s samples review renders, for blank frames and motion: one every
+ * previewStride, the last, both sides of a sample where the text on screen (`text`, one signature
+ * a sample) changes, and every sample within 0.5 s of a shot.
+ */
+export const previewTimes = (
+  sampleT: readonly number[],
+  text: readonly string[],
+  shots: readonly number[],
+  duration: number,
+): number[] => {
+  const stride = previewStride(duration)
+  return sampleT.filter(
+    (t, i) =>
+      i % stride === 0 ||
+      i === sampleT.length - 1 ||
+      (i > 0 && text[i] !== text[i - 1]) ||
+      (i + 1 < sampleT.length && text[i] !== text[i + 1]) ||
+      shots.some((s) => Math.abs(s - t) <= 0.5 + 1e-9),
+  )
+}
+
 /**
  * Frame times (snapped to frames) and labels: each shot, each transition (the overlap of two spans,
  * else the midpoint between two moments) and the last frame.
@@ -234,7 +336,8 @@ export const reviewTimes = (
       } else out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
     })
   } else {
-    for (let i = 0; i < 7; i++) out.push({ t: snap((i * duration) / 7), label: `${i + 1}/7` })
+    const n = sheetFrames(duration)
+    for (let i = 0; i < n; i++) out.push({ t: snap((i * duration) / n), label: `${i + 1}/${n}` })
   }
   out.push({ t: last, label: 'last frame' })
   const seen = new Set<number>()
@@ -268,18 +371,24 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     : reviewTimes(shots, fps, duration)
   const frames: ReviewFrame[] = []
   const rendered: { t: number; label: string; pixels: Uint8Array }[] = []
+  const pngs = pngWriter()
   for (const [i, f] of picked.entries()) {
     const { pixels } = await child.render(f.t, 'final')
     const name = `${String(i).padStart(2, '0')}-${f.t.toFixed(2)}s`
     const file = join(o.outDir, `${name}.png`)
     const thumb = join(o.outDir, `${name}.thumb.png`)
-    writeFileSync(file, toPng(pixels, width, height))
-    writeFileSync(thumb, toPng(pixels, width, height, THUMB))
+    const png = toPng(pixels, width, height)
+    await pngs.write(file, png)
+    // A frame that fits the thumb is its own thumb: the same bytes, not encoded again.
+    await pngs.write(
+      thumb,
+      Math.max(width, height) <= THUMB ? png : toPng(pixels, width, height, THUMB),
+    )
     frames.push({ t: f.t, label: f.label, file, thumb })
     rendered.push({ ...f, pixels })
   }
   const contactSheetFile = join(o.outDir, 'contact-sheet.png')
-  writeFileSync(contactSheetFile, contactSheet(rendered, width, height))
+  await pngs.write(contactSheetFile, contactSheet(rendered, width, height))
 
   // format
   const want = req.format ?? {}
@@ -329,24 +438,54 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     })
   }
 
-  // Samples every 0.25 s (preview) for blank frames, motion and text.
+  // Samples every 0.25 s for text.
   const sampleT = [
-    ...new Set(Array.from({ length: Math.floor(last / 0.25) + 1 }, (_, i) => snap(i * 0.25))),
+    ...new Set(Array.from({ length: Math.floor(last / SAMPLE) + 1 }, (_, i) => snap(i * SAMPLE))),
   ]
   if (!sampleT.includes(last)) sampleT.push(last)
+
+  // Text, at every sample and principal t: what the source reports through inspect, and the DOM
+  // text the host measured itself. Neither renders a frame, so no text is missed on a long film.
+  const textT = [...new Set([...sampleT, ...picked.map((p) => p.t)])].sort((a, b) => a - b)
+  const runs: (TextRun & { t: number })[] = []
+  const runsAt = new Map<number, TextRun[]>()
+  for (const t of textT) {
+    const at = [...(child.has.inspect ? textRuns(await inspect(t)) : []), ...(await child.text(t))]
+    runsAt.set(t, at)
+    for (const r of at) runs.push({ ...r, t })
+  }
+  const noText =
+    runs.length > 0
+      ? undefined
+      : child.has.inspect
+        ? 'neither inspect nor the DOM shows text'
+        : 'the source has no inspect(t) and no DOM text'
+
+  // Renders (preview) for blank frames and motion: dense where the text or a shot changes, sparse
+  // elsewhere on a long film (previewTimes).
+  const renderT = previewTimes(
+    sampleT,
+    sampleT.map((t) => layoutSignature(runsAt.get(t) ?? [], null)),
+    shots.map((s) => s.at),
+    duration,
+  )
   const samples: { t: number; std: number; diff: number | null }[] = []
   let prev: Uint8Array | null = null
-  for (const t of sampleT) {
+  for (const t of renderT) {
     const { pixels } = await child.render(t, 'preview')
     samples.push({ t, std: frameStats(pixels).std, diff: prev ? meanAbsDiff(prev, pixels) : null })
     prev = pixels
   }
+  const every =
+    renderT.length === sampleT.length
+      ? 'every 0.25 s'
+      : `every ${previewStride(duration) * SAMPLE} s, every 0.25 s where text or shots change`
   const blank = blankTimes(samples, duration)
   checks.push({
     id: 'blank-frames',
     title: 'blank frames',
     status: judged(req.noBlankFrames === true, blank.length > 0),
-    measured: `${blank.length} of ${samples.length} samples (every 0.25 s) flat (luma std-dev < 1) outside the first and last 0.3 s`,
+    measured: `${blank.length} of ${samples.length} samples (${every}) flat (luma std-dev < 1) outside the first and last 0.3 s`,
     at: blank.length ? blank : undefined,
   })
 
@@ -385,21 +524,6 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     status: judged(needHold !== undefined, hold + 1e-6 < (needHold ?? 0)),
     measured: `${say(hold)} held at the end${needHold === undefined ? '' : ` (need ${needHold} s)`}: pixels still ${say(stillPixels)}${child.has.inspect ? `, text and camera still ${say(stillLayout)}` : ''}`,
   })
-
-  // Text, at every sampled and principal t.
-  const textT = [...new Set([...sampleT, ...picked.map((p) => p.t)])].sort((a, b) => a - b)
-  // What the source reports through inspect, and the DOM text the host measured itself.
-  const runs: (TextRun & { t: number })[] = []
-  for (const t of textT) {
-    if (child.has.inspect) for (const r of textRuns(await inspect(t))) runs.push({ ...r, t })
-    for (const r of await child.text(t)) runs.push({ ...r, t })
-  }
-  const noText =
-    runs.length > 0
-      ? undefined
-      : child.has.inspect
-        ? 'neither inspect nor the DOM shows text'
-        : 'the source has no inspect(t) and no DOM text'
 
   // reading: each text stays visible long enough to read, from the 0.25 s samples.
   if (noText)
@@ -720,6 +844,56 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     }
   }
 
+  // hdr10: the film's HDR as numbers, at the principal frames (never shown: a PQ image read as
+  // sRGB would mislead).
+  let hdr10: ReviewReport['diagnostics']['hdr10']
+  const declared = o.project.manifest.hdr10
+  if (declared) {
+    const white = whiteOf(declared)
+    const peak = declared.mastering.peak
+    if (!o.hdr)
+      checks.push({
+        id: 'hdr10',
+        title: 'HDR10 light',
+        status: 'unknown',
+        detail: 'no hdr10 host to measure the HDR10 render with',
+      })
+    else {
+      // No GPU for an hdr10 host: unknown. A frame past the peak, or a layer's light it cannot
+      // carry: a failure.
+      const host = await o.hdr().catch((error: Error) => {
+        checks.push({ id: 'hdr10', title: 'HDR10 light', status: 'unknown', detail: error.message })
+        return undefined
+      })
+      if (host)
+        try {
+          const measured = await hdrLight(
+            host,
+            rendered.map((r) => r.t),
+            white,
+          )
+          hdr10 = measured
+          const most = (k: 'maxCll' | 'maxFall' | 'aboveWhite') =>
+            Math.max(0, ...measured.map((f) => f[k]))
+          checks.push({
+            id: 'hdr10',
+            title: 'HDR10 light',
+            status: 'info',
+            measured: `MaxCLL ${most('maxCll')} cd/m², MaxFALL ${most('maxFall')} cd/m², at most ${round(most('aboveWhite') * 100, 2)} % of pixels above Graphics White (${white} cd/m²) at ${measured.length} principal frames; mastering peak ${peak} cd/m²`,
+          })
+        } catch (error) {
+          checks.push({
+            id: 'hdr10',
+            title: 'HDR10 light',
+            status: 'fail',
+            detail: (error as Error).message,
+          })
+        } finally {
+          await host.close()
+        }
+    }
+  }
+
   // alpha
   const nonOpaque = Math.max(...rendered.map((r) => frameStats(r.pixels).nonOpaque))
   checks.push({
@@ -776,6 +950,8 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     audio = { clips: heard.length, coverage: round(covered / duration, 3), loudness }
   }
 
+  // The frames and the sheet have encoded beside the checks.
+  await pngs.done()
   return {
     version: 1,
     manifest: { width, height, fps, duration },
@@ -800,6 +976,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
           gap: c.gap === null ? null : round(c.gap),
         })) ?? null,
       audio,
+      ...(hdr10 ? { hdr10 } : {}),
     },
     elapsedMs: Math.round(performance.now() - start),
   }

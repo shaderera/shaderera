@@ -5,13 +5,13 @@ import { availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { cli } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Delivery, Job } from '../project/jobs.ts'
 import { type BatchOutput, batchJobs, deliverBatch } from './batch.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
-const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
 const fixture = (name: string) => {
   const root = tempDir(name)
   cpSync(fileURLToPath(new URL(`../cli/fixtures/${name}/`, import.meta.url)), root, {
@@ -19,8 +19,6 @@ const fixture = (name: string) => {
   })
   return root
 }
-const cli = (...args: string[]) =>
-  spawnSync(process.execPath, [main, ...args], { encoding: 'utf8' })
 /** A job's film in memory, at its size and length (fixtures/mcp's box): no host opens. */
 const inMemory = async (job: Job) => {
   const { width, height, fps, to } = job.output
@@ -32,10 +30,10 @@ const inMemory = async (job: Job) => {
 
 test('deliver renders and reviews each variant with its own format and writes the index', {
   skip: !ffmpeg && 'no ffmpeg',
-}, () => {
+}, async () => {
   const root = fixture('mcp')
   writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 0 }))
-  const r = cli('deliver', '--root', root, '--variants', 'short,teaser', '--name', 'b')
+  const r = await cli('deliver', '--root', root, '--variants', 'short,teaser', '--name', 'b')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   assert.match(r.stderr, /output 1\/2 b-short\noutput 2\/2 b-teaser/)
   const dir = join(root, 'out', 'deliveries', 'b')
@@ -155,10 +153,40 @@ test('deliver spreads an output over several hosts, as render --job does, and cl
     batch: 'w',
     open: async (job) => ({
       ...(await inMemory(job)),
-      more: async () => (opened++, host(job)),
+      more: async () => {
+        opened++
+        return host(job)
+      },
     }),
   })
   assert.equal(index.outputs[0]?.status, 'pass', JSON.stringify(index.outputs[0]))
   assert.equal(opened, 2)
   assert.equal(closed, 2)
+})
+
+test('deliver --variants 16:9,9:16 names each job by its variant made safe for a file name', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = fixture('mcp')
+  const file = join(root, 'shaderera.json')
+  const manifest = JSON.parse(readFileSync(file, 'utf8'))
+  const variants = {
+    '16:9': { width: 64, height: 36, duration: 0.5 },
+    '9:16': { width: 36, height: 64, duration: 0.5 },
+  }
+  writeFileSync(file, JSON.stringify({ ...manifest, variants }))
+  writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 0 }))
+  const r = await cli('deliver', '--root', root, '--variants', '16:9,9:16', '--name', 'r')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  const dir = join(root, 'out', 'deliveries', 'r')
+  const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
+  assert.deepEqual(
+    index.outputs.map((o: BatchOutput) => [o.job, o.variant, o.width, o.height, o.status]),
+    [
+      ['r-16_9', '16:9', 64, 36, 'pass'],
+      ['r-9_16', '9:16', 36, 64, 'pass'],
+    ],
+  )
+  for (const o of index.outputs as BatchOutput[])
+    assert.ok(existsSync(join(dir, o.file as string)), o.job)
 })

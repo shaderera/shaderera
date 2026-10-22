@@ -40,6 +40,11 @@ const full = {
   textless: true,
   bakes: { beauty: { command: 'make', inputs: ['.'], dir: 'out/b', frames: 'b.####.jpg' } },
   requires: { shaderera: '^0.1.5', extensions: { '@x/one': '^1.0.0' } },
+  hdr10: {
+    graphicsWhite: 203,
+    mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' },
+    dither: 'tpdf',
+  },
 }
 
 test('shaderera.schema.json describes exactly the keys checkManifest reads', () => {
@@ -49,6 +54,11 @@ test('shaderera.schema.json describes exactly the keys checkManifest reads', () 
   assert.deepEqual(keys(schema.definitions.variant.properties), keys(full.variants.tv))
   assert.deepEqual(keys(schema.definitions.bake.properties), keys(full.bakes.beauty))
   assert.deepEqual(keys(schema.properties.requires.properties), keys(full.requires))
+  assert.deepEqual(keys(schema.properties.hdr10.properties), keys(full.hdr10))
+  assert.deepEqual(
+    keys(schema.properties.hdr10.properties.mastering.properties),
+    keys(full.hdr10.mastering),
+  )
   assert.deepEqual(schema.required.sort(), ['duration', 'entry', 'fps', 'height', 'width'])
   assert.equal(schema.properties.shaderera.const, 'manifest/1')
 })

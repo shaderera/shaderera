@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
-import { frameTimes, type Json, type Manifest } from '@shaderera/core'
+import { frameTimes, type Json, type Manifest, type Range } from '@shaderera/core'
 import { checkManifest, paramDefaults, withVariant } from '@shaderera/core/host'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { buildNode } from '../node/build.ts'
@@ -47,6 +47,11 @@ export type Job = {
   variant?: string
   params: { [key: string]: Json }
   seed: number
+  /**
+   * The light it renders: `hdr10` for a film with `hdr10` in its manifest; absent, SDR (the
+   * film's own SDR version is the same job without it). The source reads it as `host.range`.
+   */
+  range?: Range
   /** Exports use the source's own camera; an inspection camera never reaches a job. */
   camera: 'authored'
   output: { width: number; height: number; fps: number; from: number; to: number }
@@ -73,8 +78,12 @@ export type Delivery = {
   format: 'mp4' | 'png' | 'prores-hq' | 'prores-4444'
   /** `review`: crf 18, preset medium; `master`: crf 12, preset slow. */
   quality: 'review' | 'master'
-  /** SDR, BT.709 primaries, transfer and matrix, limited range: the tested conversion. */
-  color: 'sdr-bt709'
+  /**
+   * `sdr-bt709`: SDR, BT.709 primaries, transfer and matrix, limited range (the tested conversion).
+   * `hdr10-bt2020-pq`: an hdr10 job's (decision 0023), BT.2020 primaries and matrix, PQ, 10 bits,
+   * limited range, with the mastering display and the measured light levels.
+   */
+  color: 'sdr-bt709' | 'hdr10-bt2020-pq'
   /** mp4: a constant bitrate, such as `15M`. */
   bitrate?: string
   /** mp4: a ceiling on the crf's bitrate, such as `10M`. */
@@ -110,6 +119,23 @@ export const deliveryOf = (v: { [flag: string]: unknown }): Partial<Delivery> =>
     ...(v.stems === true ? { stems: true as const } : {}),
     ...(bits === 16 ? { bits: 16 as const } : {}),
   }
+}
+
+/**
+ * Refuses a delivery an hdr10 render cannot make: HDR10 is an HEVC Main 10 mp4 or a ProRes mov here
+ * (decision 0023), encoded by quality. A PQ PNG would need PNG's `cICP` chunk, which Shaderera
+ * does not write.
+ */
+export const checkHdr10Delivery = (d: Partial<Delivery>) => {
+  const format = d.format ?? 'mp4'
+  if (format === 'png')
+    throw new Error(
+      'HDR10 is delivered as an mp4 (HEVC Main 10) or a ProRes mov, not png: a png handoff is 8- or 16-bit sRGB (a PQ PNG needs a cICP chunk, which Shaderera does not write).',
+    )
+  if (d.bitrate !== undefined || d.maxrate !== undefined)
+    throw new Error(
+      '--bitrate and --maxrate are for H.264: an HDR10 mp4 is encoded by quality (--master or not).',
+    )
 }
 
 /** The flags deliveryOf reads. */
@@ -175,6 +201,8 @@ export const jobId = (job: Omit<Job, 'id' | 'name' | 'label' | 'created' | 'by'>
         variant: job.variant ?? null,
         params: job.params,
         seed: job.seed,
+        // Only an HDR job hashes it: an SDR job's id is what it always was.
+        ...(job.range === 'hdr10' ? { range: job.range } : {}),
         camera: job.camera,
         output: job.output,
         delivery: job.delivery,
@@ -252,6 +280,8 @@ export const createJob = async (
     label?: string
     /** Overrides the manifest's host (`--host`). */
     host?: unknown
+    /** `hdr10` needs the manifest's hdr10 block; `sdr` is the default. */
+    range?: Range
     from?: number
     to?: number
     delivery?: Partial<Delivery>
@@ -267,6 +297,11 @@ export const createJob = async (
   const { manifest, params: variantParams } = withVariant(declared, o.variant)
   const params = effectiveParams(manifest, variantParams, o.params)
   const seed = manifest.seed ?? 0
+  if (o.range === 'hdr10' && !manifest.hdr10)
+    throw new Error(
+      'An hdr10 job needs the hdr10 block in shaderera.json: { mastering: { peak, min, primaries }, dither }.',
+    )
+  if (o.range === 'hdr10') checkHdr10Delivery(o.delivery ?? {})
   const from = o.from ?? 0
   const to = o.to ?? manifest.duration
   if (!(from >= 0 && to > from && to <= manifest.duration + 1e-9))
@@ -284,9 +319,14 @@ export const createJob = async (
     ...(o.variant ? { variant: o.variant } : {}),
     params,
     seed,
+    ...(o.range === 'hdr10' ? { range: o.range } : {}),
     camera: 'authored' as const,
     output: { width: manifest.width, height: manifest.height, fps: manifest.fps, from, to },
-    delivery: { ...DELIVERY, ...o.delivery },
+    delivery: {
+      ...DELIVERY,
+      ...o.delivery,
+      ...(o.range === 'hdr10' ? { color: 'hdr10-bt2020-pq' as const } : {}),
+    },
     inputs: {
       assets: Object.fromEntries(Object.entries(files).filter(([p]) => !CODE.test(p))),
       ...(lock ? { lock: files[lock] } : {}),
@@ -355,6 +395,7 @@ export const readJob = (root: string, nameOrFile: string): Job => {
     job.params !== null &&
     typeof job.params === 'object' &&
     Number.isFinite(job.seed) &&
+    (job.range === undefined || job.range === 'sdr' || job.range === 'hdr10') &&
     [o?.width, o?.height].every((n) => Number.isInteger(n) && n > 0) &&
     Number.isFinite(o?.fps) &&
     o.fps > 0 &&
@@ -362,7 +403,7 @@ export const readJob = (root: string, nameOrFile: string): Job => {
     Number.isFinite(o?.to) &&
     FORMATS.includes(job.delivery?.format) &&
     ['review', 'master'].includes(job.delivery?.quality) &&
-    job.delivery?.color === 'sdr-bt709' &&
+    job.delivery?.color === (job.range === 'hdr10' ? 'hdr10-bt2020-pq' : 'sdr-bt709') &&
     typeof job.inputs?.packages === 'object'
   if (!wellFormed) throw new Error(`${file} is not a well-formed render job.`)
   if (jobId(job) !== job.id)
@@ -403,9 +444,10 @@ const frozenOpener = (
   root: string,
   built: Awaited<ReturnType<typeof verifyJob>>,
   job: Job,
-  o: { trusted?: boolean; timeoutMs?: number },
-): Promise<() => Promise<Child>> =>
-  hostOpener(
+  o: { trusted?: boolean; timeoutMs?: number; range?: Range },
+): Promise<() => Promise<Child>> => {
+  const range = o.range ?? job.range
+  return hostOpener(
     job.host,
     { root, manifest: built.project.manifest },
     {
@@ -413,11 +455,14 @@ const frozenOpener = (
       ...(job.variant ? { variant: job.variant } : {}),
       params: job.params,
       seed: job.seed,
+      ...(range ? { range } : {}),
       bakes: built.bakes,
-      ...o,
+      trusted: o.trusted,
+      timeoutMs: o.timeoutMs,
       build: async () => built,
     },
   )
+}
 
 /**
  * Opens a job in its host: checks it (verifyJob), then opens the revision's frozen copy with the
@@ -426,12 +471,13 @@ const frozenOpener = (
  *
  * The first render pins the host it ran on (`versions/jobs/<name>.host.json`: Node version, Chrome
  * build and flags, GPU adapter); a later render on another one is refused with ChangedEnvironment,
- * since exact pixels are promised only within one host on one machine.
+ * since exact pixels are promised only within one host on one machine. `range: 'sdr'` opens an
+ * hdr10 job's SDR version (its review looks at that, decision 0023).
  */
 export const openJob = async (
   root: string,
   job: Job,
-  o: { trusted?: boolean; timeoutMs?: number } = {},
+  o: { trusted?: boolean; timeoutMs?: number; range?: Range } = {},
   extra: (manifest: Manifest) => number = () => 0,
 ): Promise<{ project: Project; child: Child; more: () => Promise<Child>; extra: Child[] }> => {
   const built = await verifyJob(root, job)

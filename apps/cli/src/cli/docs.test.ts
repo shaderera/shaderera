@@ -33,7 +33,7 @@ test('every shaderera command and flag the authoring guide, the guides and the s
     for (const [, command, rest] of text.matchAll(/npx shaderera ([a-z]+)([^`\n#]*)/g)) {
       if (!cli.includes(`\`${command}`)) unknown.push(`${file}: shaderera ${command}`)
       // As cli.md writes a flag: after a space, a backtick or a bracket, and whole.
-      for (const [flag] of (rest ?? '').matchAll(/--[a-z][a-z-]*/g))
+      for (const [flag] of (rest ?? '').matchAll(/--[a-z][a-z0-9-]*/g))
         if (!new RegExp(`[\\s\`[(]${flag}(?![\\w-])`).test(cli))
           unknown.push(`${file}: shaderera ${command} ${flag}`)
     }

@@ -17,7 +17,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import { basename, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { frameTimes } from '@shaderera/core'
+import { frameTimes, type Manifest } from '@shaderera/core'
+import { withVariant } from '@shaderera/core/host'
 import { insideFilm, open } from '../cli/args.ts'
 import { defaultWorkers, exportVideo } from '../cli/render.ts'
 import { LoginNeeded, shareProject, titleOf } from '../cli/share.ts'
@@ -40,6 +41,7 @@ export type StudioEvent =
       error?: string
     }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; text: string }
+  | { type: 'share'; film: string; version: string; url: string }
 
 /** A request to the bridge without HTTP: the method, the path (with its query) and a JSON body. */
 export type BridgeRequest = { method: string; path: string; body?: unknown }
@@ -69,10 +71,24 @@ export type Bridge = {
   handle: (request: BridgeRequest) => Promise<BridgeReply>
   /** Every event the bridge sends on /events; returns a function that stops listening. */
   onEvent: (listener: (event: StudioEvent) => void) => () => void
+  /**
+   * Every request of the page's: one that passed the origin and secret checks, or came through
+   * the relay (`handle`). Returns a function that stops listening.
+   */
+  onVisit: (listener: () => void) => () => void
   close: () => Promise<void>
 }
 
 const json = (status: number, value: unknown): BridgeReply => ({ status, json: value })
+
+/** Each variant's output as a host opens it: its size, length and rate, with the film's filled in. */
+const sizesOf = (manifest: Manifest) =>
+  Object.fromEntries(
+    Object.keys(manifest.variants ?? {}).map((name) => {
+      const { width, height, duration, fps } = withVariant(manifest, name).manifest
+      return [name, { width, height, duration, fps }]
+    }),
+  )
 
 /**
  * `Content-Disposition` for a file to save: the name in ASCII (anything else, `"` and `\` as
@@ -130,6 +146,10 @@ export const startBridge = async (o: {
     for (const l of listeners) l(event)
   }
   const log = (level: 'info' | 'warn' | 'error', text: string) => emit({ type: 'log', level, text })
+  const visitors = new Set<() => void>()
+  const visit = () => {
+    for (const l of visitors) l()
+  }
 
   // The runner, for the page to frame: the project's own Vite under a base no one else knows.
   const base = `/runner/${randomBytes(16).toString('hex')}/`
@@ -207,7 +227,7 @@ export const startBridge = async (o: {
       if (job.format === 'png') {
         insideFilm([r.t], manifest.duration)
         const { pixels } = await child.render(r.t, 'final')
-        writeFileSync(job.file, toPng(pixels, manifest.width, manifest.height))
+        writeFileSync(job.file, await toPng(pixels, manifest.width, manifest.height))
         return
       }
       let last = 0
@@ -232,6 +252,39 @@ export const startBridge = async (o: {
     }
   }
 
+  /** Queues one render job; its id. */
+  const queueJob = (format: Format, variant: string | undefined, params: object, t: number) => {
+    const id = randomBytes(6).toString('hex')
+    // A variant's name may hold what a file name cannot (`16:9`), as in project/jobs.ts.
+    const name = `${basename(root)}${variant ? `-${variant.replace(/[^\w.-]/g, '_')}` : ''}-${id}.${format}`
+    const job: Job = {
+      id,
+      state: 'queued',
+      progress: 0,
+      format,
+      file: join(root, 'out', 'studio', name),
+    }
+    jobs.set(id, job)
+    report(job)
+    queue = queue.then(async () => {
+      job.state = 'running'
+      report(job)
+      log('info', `render ${id}: ${format}${variant ? ` of ${variant}` : ''}`)
+      try {
+        await render(job, { ...(variant ? { variant } : {}), params, t })
+        job.state = 'done'
+        job.progress = 1
+        log('info', `render ${id}: ${slash(relative(root, job.file))}`)
+      } catch (error) {
+        job.state = 'failed'
+        job.error = error instanceof Error ? error.message : String(error)
+        log('error', `render ${id}: ${job.error}`)
+      }
+      report(job)
+    })
+    return id
+  }
+
   const routes = async (r: BridgeRequest): Promise<BridgeReply> => {
     const url = new URL(r.path, 'http://bridge')
     const route = `${r.method} ${url.pathname}`
@@ -243,12 +296,19 @@ export const startBridge = async (o: {
           title: titleOf(root),
           manifest,
           variants: manifest.variants ?? {},
+          sizes: sizesOf(manifest),
           schema: manifest.params ?? null,
         },
         telemetry: telemetryStatus().on,
       })
     }
     if (route === 'GET /runner') {
+      const variant = url.searchParams.get('variant')
+      if (
+        variant !== null &&
+        !Object.hasOwn((await findProject(root)).manifest.variants ?? {}, variant)
+      )
+        return json(400, { error: `shaderera.json has no variant "${variant}"` })
       const query = new URLSearchParams(url.search)
       query.delete('s')
       const rest = query.toString()
@@ -257,6 +317,7 @@ export const startBridge = async (o: {
     if (route === 'POST /render') {
       const body = (r.body ?? {}) as {
         variant?: unknown
+        variants?: unknown
         params?: unknown
         format?: unknown
         t?: unknown
@@ -265,44 +326,31 @@ export const startBridge = async (o: {
       if (!Object.hasOwn(TYPES, format)) return json(400, { error: 'format is mp4, mov or png' })
       if (body.variant !== undefined && typeof body.variant !== 'string')
         return json(400, { error: 'variant is a name' })
+      const many = body.variants
+      if (
+        many !== undefined &&
+        (!Array.isArray(many) ||
+          many.length === 0 ||
+          !many.every((v) => typeof v === 'string') ||
+          body.variant !== undefined)
+      )
+        return json(400, { error: 'variants is a list of names, without variant' })
       if (body.params !== undefined && (typeof body.params !== 'object' || body.params === null))
         return json(400, { error: 'params is an object' })
       if (body.t !== undefined && typeof body.t !== 'number')
         return json(400, { error: 't is a time in seconds' })
-      const id = randomBytes(6).toString('hex')
-      const variant = body.variant as string | undefined
-      // A variant's name may hold what a file name cannot (`16:9`), as in project/jobs.ts.
-      const name = `${basename(root)}${variant ? `-${variant.replace(/[^\w.-]/g, '_')}` : ''}-${id}.${format}`
-      const job: Job = {
-        id,
-        state: 'queued',
-        progress: 0,
-        format,
-        file: join(root, 'out', 'studio', name),
-      }
-      jobs.set(id, job)
-      report(job)
-      queue = queue.then(async () => {
-        job.state = 'running'
-        report(job)
-        log('info', `render ${id}: ${format}${variant ? ` of ${variant}` : ''}`)
-        try {
-          await render(job, {
-            ...(variant ? { variant } : {}),
-            params: (body.params ?? {}) as object,
-            t: (body.t as number | undefined) ?? 0,
-          })
-          job.state = 'done'
-          job.progress = 1
-          log('info', `render ${id}: ${slash(relative(root, job.file))}`)
-        } catch (error) {
-          job.state = 'failed'
-          job.error = error instanceof Error ? error.message : String(error)
-          log('error', `render ${id}: ${job.error}`)
-        }
-        report(job)
+      const params = (body.params ?? {}) as object
+      const t = (body.t as number | undefined) ?? 0
+      if (many === undefined)
+        return json(200, { job: queueJob(format, body.variant as string | undefined, params, t) })
+      // Several: every name is checked before any job is queued, then one job each, in order.
+      const declared = (await findProject(root)).manifest.variants ?? {}
+      const unknown = (many as string[]).find((v) => !Object.hasOwn(declared, v))
+      if (unknown !== undefined)
+        return json(400, { error: `shaderera.json has no variant "${unknown}"` })
+      return json(200, {
+        jobs: [...new Set(many as string[])].map((v) => queueJob(format, v, params, t)),
       })
-      return json(200, { job: id })
     }
     const file = /^GET \/render\/([0-9a-f]+)\/file$/.exec(route)
     if (file) {
@@ -329,6 +377,7 @@ export const startBridge = async (o: {
         })
         if (!shared) throw new Error('Nothing was sent.')
         log('info', `shared ${shared.url}`)
+        emit({ type: 'share', film: shared.film, version: shared.version, url: shared.url })
         return json(200, { film: shared.film, version: shared.version, url: shared.url })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -341,6 +390,7 @@ export const startBridge = async (o: {
     return json(404, { error: `no route ${route}` })
   }
   const handle = async (r: BridgeRequest): Promise<BridgeReply> => {
+    visit()
     try {
       return await routes(r)
     } catch (error) {
@@ -379,6 +429,7 @@ export const startBridge = async (o: {
     if (!sameSecret(bearer ?? url.searchParams.get('s'), secret)) return refuse(403, 'secret')
 
     if (req.method === 'GET' && url.pathname === '/events') {
+      visit()
       res.writeHead(200, {
         ...cors,
         'Content-Type': 'text/event-stream',
@@ -447,6 +498,10 @@ export const startBridge = async (o: {
     onEvent: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+    onVisit: (listener) => {
+      visitors.add(listener)
+      return () => visitors.delete(listener)
     },
     close: async () => {
       clearInterval(heartbeat)

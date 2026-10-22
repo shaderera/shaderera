@@ -6,8 +6,8 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Caption, Json, Matrices, Pick, SampledClip } from '@shaderera/core'
-import type { GpuOutput, SeekStats } from '@shaderera/core/host'
+import type { Caption, Json, Matrices, Pick, Range, SampledClip } from '@shaderera/core'
+import type { GpuOutput, HdrOutput, LightLevels, SeekStats } from '@shaderera/core/host'
 import { paramDefaults } from '@shaderera/core/host'
 import type { TextRun } from '../review/measure.ts'
 import type { Fonts, Request } from './host.ts'
@@ -88,6 +88,8 @@ export type HostIdentity = {
   flags?: string[]
   /** The WebGPU adapter: vendor, architecture, description. */
   adapter?: string
+  /** Which software renderer the adapter is (softwareAdapter); absent on a hardware GPU. */
+  software?: string
   /** The project's webgpu (Dawn) version and its device's feature count (Node host). */
   webgpu?: string
   features?: number
@@ -100,15 +102,21 @@ export type ClockReads = { date: number; performance: number }
  * A frame from either host: the layers composited, as **straight** RGBA (colour not multiplied by
  * alpha), rows from the top. Encoders without alpha matte it over black themselves (`matte`).
  */
-export type Rendered = { pixels: Uint8Array; layers: { name?: string; final?: boolean }[] }
+export type Rendered = {
+  pixels: Uint8Array
+  layers: { name?: string; final?: boolean }[]
+  /** An hdr10 render's light levels, measured from its codes (decision 0023). */
+  light?: LightLevels
+}
 
 export type Child = {
   /**
    * `rgba` (the default): straight RGBA. `yuv420p`: the frame matted over black as Y'CbCr 4:2:0
    * BT.709 limited range, made on the GPU, for an mp4 (only where `has.yuv`). `rgba64`: straight
-   * RGBA at 16 bits a channel, little-endian, for a master (only where `has.deep`).
+   * RGBA at 16 bits a channel, little-endian, for a master (only where `has.deep`). An hdr10
+   * render comes out only as `rgb10` or `p010` (core's hdr-compositor.ts), with its light levels.
    */
-  render(t: number, intent: 'preview' | 'final', format?: GpuOutput): Promise<Rendered>
+  render(t: number, intent: 'preview' | 'final', format?: GpuOutput | HdrOutput): Promise<Rendered>
   inspect(t: number): Promise<Json>
   pick(t: number, x: number, y: number): Promise<Pick | null>
   camera(t: number): Promise<Matrices | null>
@@ -145,6 +153,11 @@ export type Child = {
     yuv?: boolean
     /** The host composites on the GPU and can return `rgba64` (16 bits a channel). */
     deep?: boolean
+    /**
+     * The host renders `hdr10` (decision 0023): frames come only as `p010` (or `rgb10`), with their
+     * light levels, and `yuv` and `deep` are false.
+     */
+    p010?: boolean
   }
 }
 
@@ -156,7 +169,13 @@ export const openChild = async (
     trusted?: boolean
     params?: { [key: string]: Json }
     seed?: number
+    /** The variant `project.manifest` is already sized for: the source's `host.variant`. */
+    variant?: string
+    /** The source's `host.range`: `sdr` when absent. */
+    range?: Range
     timeoutMs?: number
+    /** How long the source's open may take; timeoutMs by default (a test of a hung call raises it). */
+    openTimeoutMs?: number
     /** A sequential source's checkpoint spacing in rendering ms; tests force it small. */
     checkpointMs?: number
     /** The bakes' frames, checked against their stamps (project/bakes.ts): what io.bake reads. */
@@ -190,7 +209,7 @@ export const openChild = async (
   child.on('error', () => {})
   let next = 0
   let queue: Promise<unknown> = Promise.resolve()
-  const call = <T>(request: Request): Promise<T> => {
+  const call = <T>(request: Request, ms = o.timeoutMs ?? TIMEOUT): Promise<T> => {
     const run = () =>
       new Promise<T>((done, fail) => {
         if (child.killed || !child.connected)
@@ -198,12 +217,8 @@ export const openChild = async (
         const id = next++
         const timer = setTimeout(() => {
           child.kill()
-          fail(
-            new Error(
-              `The source took longer than ${o.timeoutMs ?? TIMEOUT} ms on ${request.type}.`,
-            ),
-          )
-        }, o.timeoutMs ?? TIMEOUT)
+          fail(new Error(`The source took longer than ${ms} ms on ${request.type}.`))
+        }, ms)
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           clearTimeout(timer)
           child.off('message', onMessage)
@@ -225,15 +240,20 @@ export const openChild = async (
     queue = result.catch(() => {})
     return result
   }
-  const has = await call<Child['has']>({
-    type: 'open',
-    root: project.root,
-    entryFile: o.entryFile,
-    manifest: project.manifest,
-    params: o.params ?? paramDefaults(project.manifest),
-    seed: o.seed ?? project.manifest.seed ?? 0,
-    checkpointMs: o.checkpointMs,
-  }).catch((error: unknown) => {
+  const has = await call<Child['has']>(
+    {
+      type: 'open',
+      root: project.root,
+      entryFile: o.entryFile,
+      manifest: project.manifest,
+      params: o.params ?? paramDefaults(project.manifest),
+      seed: o.seed ?? project.manifest.seed ?? 0,
+      ...(o.variant !== undefined ? { variant: o.variant } : {}),
+      ...(o.range ? { range: o.range } : {}),
+      checkpointMs: o.checkpointMs,
+    },
+    o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT,
+  ).catch((error: unknown) => {
     // A source that cannot open must not keep the process alive.
     child.kill()
     throw error

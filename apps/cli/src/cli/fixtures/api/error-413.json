@@ -1,0 +1,22 @@
+{
+  "route": "PUT /obj/{sha}",
+  "about": "A file over its limit (the health's limits.fileBytes). size is the body's length; its bytes are any.",
+  "request": {
+    "method": "PUT",
+    "path": "/obj/293b9207228b7854bc3ccb2959ebea1583e066d41983124a5b381d6fdf6575f8",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/octet-stream"
+    },
+    "size": 33554433
+  },
+  "response": {
+    "status": 413,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "A file is at most 32 MiB."
+    }
+  }
+}

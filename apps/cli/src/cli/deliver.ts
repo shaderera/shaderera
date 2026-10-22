@@ -1,6 +1,14 @@
+import { join } from 'node:path'
 import { batchJobs, bytes, deliverBatch } from '../deliver/batch.ts'
+import { preflightBatch } from '../deliver/disk.ts'
 import { findProject } from '../node/project.ts'
-import { DELIVERY_FLAGS, deliveryOf, readJob, videoOptionsOf } from '../project/jobs.ts'
+import {
+  checkHdr10Delivery,
+  DELIVERY_FLAGS,
+  deliveryOf,
+  readJob,
+  videoOptionsOf,
+} from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 import { requireFfmpeg } from './ffmpeg.ts'
 import { EXIT, found } from './findings.ts'
@@ -18,12 +26,13 @@ const list = (x: unknown) =>
 /**
  * `shaderera deliver [--variants a,b] [--locales en,th] [--format mp4|png|prores-hq|prores-4444]
  * [--png] [--master] [--bitrate 15M | --maxrate 10M] [--no-edit-list] [--stems] [--bits 16]
- * [--no-audio] [--loudness LUFS]
- * [--name batch] [--job a --job b] [--replace]`: a campaign batch. One job per variant × locale from
+ * [--no-audio] [--loudness LUFS] [--software-gpu] [--hdr10 [--sdr]]
+ * [--name batch] [--job a --job b] [--replace] [--force]`: a campaign batch. One job per variant × locale from
  * the project as it is now (saved once as a revision), or the given jobs; each is rendered, reviewed
  * against its own format and what requirements.json declares, and indexed in
  * out/deliveries/<batch>/index.{json,md}. Exits 1 when any output fails a check or fails to render,
- * after rendering the rest.
+ * after rendering the rest. --hdr10: every output is the film's HDR10 render (decision 0023);
+ * --sdr adds, beside each, the film's own SDR render (`<job>-sdr`), never one made from the HDR.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {
@@ -35,10 +44,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     'no-audio': { type: 'boolean' },
     loudness: { type: 'string' },
     replace: { type: 'boolean' },
+    'software-gpu': { type: 'boolean' },
+    force: { type: 'boolean' },
+    hdr10: { type: 'boolean' },
+    sdr: { type: 'boolean' },
   })
   requireFfmpeg()
   const delivery = deliveryOf(v)
   checkVideoOptions(videoOptionsOf(delivery))
+  if (v.sdr && !v.hdr10)
+    throw new Error('--sdr is the SDR render beside an HDR10 one: give it with --hdr10.')
+  if (v.hdr10) checkHdr10Delivery(delivery)
+  if (v.job !== undefined && v.hdr10)
+    throw new Error(
+      'A job froze its range: make HDR10 jobs with shaderera job --hdr10 and give those.',
+    )
   if (v.loudness !== undefined && !Number.isFinite(Number(v.loudness)))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
   const { root } = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
@@ -55,12 +75,16 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     locales: list(v.locales),
     delivery,
     replace: v.replace === true,
+    ...(v.hdr10 ? { range: 'hdr10' as const, sdr: v.sdr === true } : {}),
   })
+  // Every output must fit in the batch folder before the first renders (--force: go ahead anyway).
+  preflightBatch(jobs, join(root, 'out', 'deliveries', batch), { force: v.force === true })
   const { dir, index } = await deliverBatch(root, jobs, {
     batch,
     audio: v['no-audio'] !== true,
     ...(v.loudness === undefined ? {} : { loudness: Number(v.loudness) }),
     ...childOptions(v),
+    softwareGpu: v['software-gpu'] === true,
     onOutput: (i, n, job) => process.stderr.write(`output ${i + 1}/${n} ${job.name}\n`),
   })
   for (const o of index.outputs) {

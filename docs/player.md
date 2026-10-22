@@ -77,7 +77,8 @@ The frame draws nothing. The site takes the bridge's port and calls the runner o
 [Comlink](https://github.com/GoogleChromeLabs/comlink): `open`, `render(t)`, `inspect(t)`,
 `pixels(t)`, `audio()`, `captions()` and the rest of the runner's API. `render(t)` returns each
 layer as an `ImageBitmap`, which the site draws itself; soloing or muting a layer is the site
-choosing which to draw.
+choosing which to draw. `open({ variant: '9:16' })` opens the film as one of its variants: that
+size and params, and the name as the source's `host.variant`.
 
 ## The bridge
 

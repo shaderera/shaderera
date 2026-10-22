@@ -62,13 +62,16 @@ loop over 1.5 MB steps down in quality, then to 12 or 10 fps.
 what is kept. A maintainer uploads the renders.
 
 To look while working, from this folder (the first two lines once, and again when a plugin's
-files or the list of previews change; `make.ts` only for a plugin that has one):
+files or the list of previews change). A plugin with a `preview/make.ts` needs it run first, or
+its preview fails with ENOENT: asset-provenance, audio-beat-clock, audio-hall-ending,
+audio-listen, audio-voice-repace, image-to-png, review-av-timeline, review-picture-reuse and
+review-shots (the last two with `PYTHON` naming a Python with scenedetect and opencv).
+`node scripts/render.ts <plugin>` runs it itself.
 
 ```sh
 node scripts/assemble.ts
 node scripts/render.ts --variants
-node ../audio-beat-clock/preview/make.ts
-node ../image-to-png/preview/make.ts
+node ../audio-beat-clock/preview/make.ts    # each plugin above you look at
 node ../../../apps/cli/bin/shaderera.js still 0.5 2 3.5 5 --sheet --variant text-scramble.glitch
 node ../../../apps/cli/bin/shaderera.js render --variant look-screen-passes --out out/look.mp4
 ```

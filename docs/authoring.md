@@ -111,6 +111,10 @@ The CLI and MCP can only show and change what the source exposes.
   at closely, so `still --object` can find it.
 - **Params** are a JSON Schema in `shaderera.json` with titles and good defaults, for the few
   controls a non-programmer wants. If a param overrides a literal, say so in the README.
+- **Variants** (`16:9`, `9:16`, a cutdown) are outputs the film lays itself out for. The source
+  is opened with the variant's size in `host.manifest` and its name in `host.variant`
+  (`undefined` for the manifest's own output): lay out by the name, not by guessing from the
+  width and height.
 - **`pick(t, x, y)`** returns `{ id, point? }` through the camera in effect, so a click selects.
 
 ## Keep it deterministic
@@ -162,6 +166,30 @@ command that prints nothing looks frozen.
   approved variant: `npx shaderera still 4 16.9 --variant final --compare animatic --sheet`. It
   writes each pair side by side with PSNR and mean ΔE; it measures and never judges, so look at
   the pairs and say what differs.
+
+## HDR10
+
+A film that computes more light than SDR shows can deliver HDR10 as well, when the person asks
+for it. It opts in with an `hdr10` block in `shaderera.json`; the mastering display is the one the
+person graded on, so ask for it rather than choosing one:
+
+```json
+"hdr10": { "mastering": { "peak": 1000, "min": 0.0001, "primaries": "p3-d65" }, "dither": "tpdf" }
+```
+
+The source then reads `host.range`. In `hdr10` its float `GPUTexture` layers declare their light
+(`light: { transfer: 'linear', primaries: 'bt2020' }`, linear 1.0 at 203 cd/m²); canvases and
+bytes stay SDR and are placed at Graphics White. In `sdr` the film tone-maps its own light, with
+its own code or a plugin, and returns no layer with `light`: the SDR version is the film's own
+render, never derived from the HDR one. Look at the SDR render; read the HDR one as numbers.
+
+```sh
+npx shaderera check --hdr10
+npx shaderera deliver --hdr10 --sdr --master
+```
+
+That makes the HDR10 master (HEVC Main 10, or ProRes with `--format`) and the film's own SDR
+render beside it. It needs ffmpeg 9.0 and WebGPU; `docs/delivery.md`, "HDR10", has the rest.
 
 ## Before you finish
 

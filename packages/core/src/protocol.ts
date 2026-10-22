@@ -108,6 +108,11 @@ export type Manifest = {
    * command refuses a project whose requirements are not met. Nothing in it changes a frame.
    */
   readonly requires?: Requires
+  /**
+   * The film opts into HDR10 (decision 0023): a job may then ask for `range: 'hdr10'`, and layers
+   * may declare their `light`. Without it every render is SDR, as it always was.
+   */
+  readonly hdr10?: Hdr10
 }
 
 /** What a project needs installed: the `shaderera` range and package plugins with their ranges. */
@@ -115,6 +120,31 @@ export type Requires = {
   readonly shaderera?: string
   readonly extensions?: { readonly [name: string]: string }
 }
+
+/**
+ * How a film is delivered in HDR10. A default is given only where a standard names the value.
+ * `graphicsWhite`: where an SDR layer's white goes, in cd/m² (BT.2408's Graphics White, 203, when
+ * absent). `mastering`: the display the film was graded on (SMPTE ST 2086), which only the person
+ * knows. `dither`: before the 10-bit quantisation; no standard names one.
+ */
+export type Hdr10 = {
+  readonly graphicsWhite?: number
+  readonly mastering: MasteringDisplay
+  readonly dither: 'tpdf' | 'none'
+}
+
+/**
+ * The mastering display: its peak and minimum light in cd/m², and its primaries (P3-D65 at
+ * 1000 cd/m² is a common one).
+ */
+export type MasteringDisplay = {
+  readonly peak: number
+  readonly min: number
+  readonly primaries: 'p3-d65' | 'bt2020' | 'bt709'
+}
+
+/** The light a render delivers: SDR, or HDR10 (a film with `manifest.hdr10`). */
+export type Range = 'sdr' | 'hdr10'
 
 /** Frames made outside the host: how they are made, from what, and where they are. */
 export type Bake = {
@@ -159,8 +189,19 @@ export type Host = {
   readonly manifest: Manifest
   readonly params: { readonly [key: string]: Json }
   readonly seed: number
+  /**
+   * The variant the source is opened as (a name from `manifest.variants`, such as `9:16`), whose
+   * size and params are already in `manifest` and `params`; `undefined` for the manifest's own
+   * output. A film that lays out per output reads the name instead of guessing from the size.
+   */
+  readonly variant?: string
+  /**
+   * The light this render delivers, the job's: `sdr` unless the job asks for `hdr10`. In an SDR
+   * render a film maps its own light down to SDR; a layer with `light` is refused there.
+   */
+  readonly range: Range
   readonly io: Io
-  /** Offered when the host has WebGPU; never required. */
+  /** Offered when the host has WebGPU; never required, except for an `hdr10` range. */
   readonly gpu?: GPUDevice
 }
 
@@ -299,7 +340,12 @@ export type RenderOptions = {
  */
 export type MountDom = (
   element: HTMLElement,
-  host: { readonly manifest: Manifest; readonly params: { readonly [key: string]: Json } },
+  host: {
+    readonly manifest: Manifest
+    readonly params: { readonly [key: string]: Json }
+    /** The variant the film is opened as, as `Host.variant`. */
+    readonly variant?: string
+  },
 ) => Promise<DomView> | DomView
 
 export type DomView = {
@@ -329,6 +375,15 @@ export type LayerInfo = {
 }
 
 /**
+ * The light an HDR layer carries: `linear` is BT.2100's FP16 scale (1.0 is 203 cd/m²), `pq` is
+ * PQ code values from 0 to 1 (SMPTE ST 2084), in BT.709 or BT.2020 primaries.
+ */
+export type Light = {
+  readonly transfer: 'linear' | 'pq'
+  readonly primaries: 'bt709' | 'bt2020'
+}
+
+/**
  * Pixels at the requested size. A canvas, bitmap or video frame knows its own alpha; raw RGBA
  * bytes say how theirs is stored.
  */
@@ -341,6 +396,11 @@ export type Layer =
        */
       readonly color: Uint8Array | Uint8ClampedArray | GPUTexture
       readonly alpha: 'premultiplied' | 'straight' | 'opaque'
+      /**
+       * A `GPUTexture` of `rgba16float` or `rgba32float` may declare the light it carries, in an
+       * `hdr10` render. Without it a layer is SDR: sRGB code values, as every other layer.
+       */
+      readonly light?: Light
     } & LayerInfo)
 
 /** One distance per pixel, row by row; Infinity where the layer is nowhere. */

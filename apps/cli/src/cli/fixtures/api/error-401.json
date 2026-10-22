@@ -1,0 +1,20 @@
+{
+  "route": "GET /auth/me",
+  "about": "A request that needs a token, with one that is unknown, expired or signed out. The sentence names no command: the client adds how it signs in.",
+  "request": {
+    "method": "GET",
+    "path": "/auth/me",
+    "headers": {
+      "Authorization": "Bearer sha_signed-out-elsewhere"
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "Not signed in: no token, or it expired or was signed out."
+    }
+  }
+}

@@ -3,10 +3,11 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { shadereraVersion } from '../deliver/environment.ts'
-import { chromePath } from '../node/browser.ts'
+import { type AdapterInfo, adapterLine, softwareAdapter } from '../node/adapter.ts'
+import { browserAdapter, chromePath } from '../node/browser.ts'
 import { hostOf } from '../node/host-of.ts'
 import { findProject } from '../node/project.ts'
-import { hasNvenc } from './ffmpeg.ts'
+import { hardwareEncoder, hasHevcNvenc, hdr10Problem } from './ffmpeg.ts'
 import { EXIT, found } from './findings.ts'
 import { dayOf } from './login.ts'
 import { licenceOf } from './share.ts'
@@ -52,6 +53,7 @@ const firstLine = (cmd: string, args: string[]) => {
 const FFMPEG_PARTS = [
   ['libx264', 'encoders', 'H.264 (every mp4)', true],
   ['aac', 'encoders', 'AAC (mp4 audio)', true],
+  ['libx265', 'encoders', 'HEVC (HDR10 masters)', false],
   ['prores_ks', 'encoders', 'ProRes (--format prores-*)', false],
   ['pcm_s24le', 'encoders', '24-bit PCM (WAV, mov)', false],
   ['ebur128', 'filters', 'loudness (EBU R128)', false],
@@ -71,7 +73,7 @@ const probeGpu = (root: string) => {
     const info = adapter?.info
     process.stdout.write(JSON.stringify({
       version,
-      adapter: info ? [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') : null,
+      info: info ? { vendor: info.vendor, architecture: info.architecture, device: info.device, description: info.description, isFallbackAdapter: info.isFallbackAdapter } : null,
       features: adapter ? [...adapter.features].sort() : [],
       limits: adapter ? Object.fromEntries(${JSON.stringify(LIMITS)}.map((k) => [k, adapter.limits[k]])) : {},
     }))
@@ -84,7 +86,7 @@ const probeGpu = (root: string) => {
   try {
     return JSON.parse(r.stdout) as {
       version: string
-      adapter: string | null
+      info: AdapterInfo | null
       features: string[]
       limits: { [name: string]: number }
     }
@@ -92,6 +94,62 @@ const probeGpu = (root: string) => {
     return { error: (r.stderr || r.stdout || 'no output').trim().split(/\r?\n/)[0] as string }
   }
 }
+
+/** What to check when a host's adapter is software. */
+const SOFTWARE_FIX = {
+  node: 'Renders refuse it without --software-gpu. Check that the GPU driver is installed and, in a container, passed through (--gpus all, /dev/dri), and on Linux that a Vulkan ICD for the GPU is installed (vulkaninfo --summary lists it).',
+  browser:
+    'Renders refuse it without --software-gpu. Check that the GPU driver is installed and, in a container, passed through (--gpus all, /dev/dri), and that nothing turns off Chrome’s GPU (--disable-gpu, a blocklisted driver: chrome://gpu in a windowed Chrome says).',
+}
+
+/**
+ * The `gpu` item from the host's adapter (null: none): `warn` on a software renderer
+ * (softwareAdapter), which a render refuses without `--software-gpu`. The Node host's carries
+ * Dawn's features and limits.
+ */
+export const gpuItem = (
+  host: 'node' | 'browser',
+  info: AdapterInfo | null,
+  dawn?: { features: string[]; limits: { [name: string]: number } },
+): DoctorItem => {
+  if (!info)
+    return {
+      id: 'gpu',
+      status: 'missing',
+      detail: host === 'node' ? 'Dawn found no GPU adapter' : 'Chrome’s WebGPU found no adapter',
+      needed: true,
+    }
+  const software = softwareAdapter(info)
+  const detail = `${adapterLine(info)}${dawn ? `; ${dawn.features.length} features (${dawn.features.join(', ')}); ${limitsLine(dawn.limits)}` : ` (${host} host)`}`
+  return {
+    id: 'gpu',
+    status: software ? 'warn' : 'ok',
+    detail: software ? `software, ${software}: ${detail}` : detail,
+    needed: true,
+    ...(software ? { fix: SOFTWARE_FIX[host] } : {}),
+    ...(dawn ? { limits: dawn.limits } : {}),
+  }
+}
+
+/**
+ * The `ffmpeg:hdr10` item: whether this ffmpeg can make a film that turns on `hdr10` (9.0 or
+ * later; SDR works on older), and whether its reviews can use NVIDIA's HEVC encoder. Never needed.
+ */
+export const hdr10Item = (problem: string | undefined, hevcNvenc: boolean): DoctorItem =>
+  problem
+    ? {
+        id: 'ffmpeg:hdr10',
+        status: 'warn',
+        detail: problem,
+        needed: false,
+        fix: 'Install ffmpeg 9.0 or later (https://ffmpeg.org/download.html) for HDR10 films.',
+      }
+    : {
+        id: 'ffmpeg:hdr10',
+        status: 'ok',
+        detail: `HDR10 (a film's hdr10, ffmpeg 9.0 or later): masters with x265, reviews with ${hevcNvenc ? 'NVIDIA HEVC on the GPU' : 'x265 (no hevc_nvenc at 1920×1080 here)'}`,
+        needed: false,
+      }
 
 /** Everything doctor checks, for the machine and (inside one) the project. */
 export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
@@ -138,15 +196,16 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
           : { fix: 'Use a full ffmpeg build (gyan.dev "full", or your package manager’s).' }),
       })
     }
-    const nvenc = hasNvenc(1920, 1080)
+    const gpu = await hardwareEncoder(1920, 1080, { fresh: true })
     items.push({
-      id: 'ffmpeg:h264_nvenc',
-      status: nvenc ? 'ok' : 'warn',
-      detail: nvenc
-        ? 'NVIDIA H.264 on the GPU, at 1920×1080 (review renders use it)'
+      id: 'ffmpeg:h264-gpu',
+      status: gpu ? 'ok' : 'warn',
+      detail: gpu
+        ? `${gpu}: H.264 on the GPU, at 1920×1080 (review renders use it)`
         : 'not usable here: review renders use x264',
       needed: false,
     })
+    items.push(hdr10Item(hdr10Problem(), hasHevcNvenc(1920, 1080)))
   }
   const chrome = chromePath()
   let project: Awaited<ReturnType<typeof findProject>> | undefined
@@ -221,15 +280,7 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
         detail: `webgpu ${gpu.version} (Dawn)`,
         needed: true,
       })
-      items.push({
-        id: 'gpu',
-        status: gpu.adapter ? 'ok' : 'missing',
-        detail: gpu.adapter
-          ? `${gpu.adapter}; ${gpu.features.length} features (${gpu.features.join(', ')}); ${limitsLine(gpu.limits)}`
-          : 'Dawn found no GPU adapter',
-        needed: true,
-        ...(gpu.adapter ? { limits: gpu.limits } : {}),
-      })
+      items.push(gpuItem('node', gpu.info, gpu))
     }
     // Two Dawns in one process crash it (decision 0011, G2): more than one webgpu installed.
     const copies = webgpuCopies(project.root)
@@ -241,6 +292,18 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
         needed: false,
         fix: 'Give the library host.gpu (vgpu: initFromDevice) and dedupe webgpu to one version.',
       })
+  }
+  if (browser && chrome) {
+    try {
+      items.push(gpuItem('browser', await browserAdapter(chrome)))
+    } catch (e) {
+      items.push({
+        id: 'gpu',
+        status: 'warn',
+        detail: `Chrome’s WebGPU could not be asked: ${(e as Error).message}`,
+        needed: false,
+      })
+    }
   }
   const fonts = join(project.root, 'fonts')
   if (existsSync(fonts))

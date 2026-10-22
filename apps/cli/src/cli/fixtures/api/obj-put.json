@@ -1,0 +1,16 @@
+{
+  "route": "PUT /obj/{sha}",
+  "about": "share: uploads one object the store lacks; the path is its sha256.",
+  "request": {
+    "method": "PUT",
+    "path": "/obj/9db1f12534149477320a8d179546cb00b8d5a7c4c5f81433c5f04387747496d0",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/octet-stream"
+    },
+    "bytes": "<!doctype html><meta name=\"shaderera-parents\" content=\"https://shaderera.com\">"
+  },
+  "response": {
+    "status": 204
+  }
+}

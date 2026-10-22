@@ -58,7 +58,7 @@ export const titleOf = (root: string): string => {
 }
 
 /** Runs a few at a time. */
-const pool = async <T>(items: readonly T[], n: number, run: (item: T) => Promise<void>) => {
+export const pool = async <T>(items: readonly T[], n: number, run: (item: T) => Promise<void>) => {
   const queue = [...items]
   await Promise.all(
     Array.from({ length: Math.min(n, queue.length) }, async () => {
