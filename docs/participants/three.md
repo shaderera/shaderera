@@ -7,7 +7,7 @@ and are read back as RGBA bytes, so one code path runs in the browser Worker and
 
 ```json
 "dependencies": { "@shaderera/core": "...", "three": "0.186.1" },
-"devDependencies": { "shaderera": "...", "vite": "8.3.0", "webgpu": "0.6.2" }
+"devDependencies": { "shaderera": "...", "vite": "8.3.5", "webgpu": "0.6.2" }
 ```
 
 `webgpu` (Dawn) is what gives Node a `host.gpu`; see [webgpu.md](webgpu.md). Without it, throw

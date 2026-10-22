@@ -11,7 +11,7 @@ Dawn's in Node. It returns its output in one of two ways:
 ## `webgpu` is your project's dependency
 
 ```json
-"devDependencies": { "shaderera": "...", "vite": "8.3.0", "webgpu": "0.6.2" }
+"devDependencies": { "shaderera": "...", "vite": "8.3.5", "webgpu": "0.6.2" }
 ```
 
 The Node host resolves `webgpu` from the project root. If it is installed, the host assigns
