@@ -60,9 +60,7 @@ works in one ratio and breaks in the other shows up while the film is made, not 
    review --variant 16:9,9:16` (or `--variants all`, which adds `main` unless a variant already renders it) open one host per
    variant and run them at once; the lines are grouped under each name, each finding names its
    variant, and the exit code is the worst. MCP's `check` and `review` take `variants` too.
-5. **Preview both in the studio:** `npx shaderera studio`; the studio page can show the
-   variants side by side on one timeline (`docs/studio.md`).
-6. **Deliver both:** `npx shaderera deliver --variants 16:9,9:16` makes a job for each, then
+5. **Deliver both:** `npx shaderera deliver --variants 16:9,9:16` makes a job for each, then
    renders, reviews and indexes them in one batch.
 
 ## Delivery
