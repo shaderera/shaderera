@@ -200,15 +200,15 @@ test('hdr10Args: HEVC Main 10 as hvc1, tagged HDR10, the metadata on the input',
     )
 })
 
-test('hdr10Args: ProRes from 16-bit PQ R’G’B’A with the BT.2020 matrix; inputs checked', () => {
-  const hq = hdr10Args({ ...hdr, out: 'o.mov', input: 'rgba64', codec: 'prores-hq' }).join(' ')
-  assert.ok(hq.includes('-pix_fmt rgba64le') && hq.includes('-content_light 800,200'))
+test('hdr10Args: ProRes from the 10-bit PQ R’G’B’ codes with the BT.2020 matrix; inputs checked', () => {
+  const hq = hdr10Args({ ...hdr, out: 'o.mov', input: 'rgb10', codec: 'prores-hq' }).join(' ')
+  assert.ok(hq.includes('-pix_fmt x2bgr10le') && hq.includes('-content_light 800,200'))
   assert.ok(hq.includes('scale=out_color_matrix=bt2020:out_range=tv,format=yuv422p10le,setparams'))
   assert.ok(hq.includes('-color_trc smpte2084 -color_range tv -c:v prores_ks -profile:v 3'))
-  const alpha = hdr10Args({ ...hdr, out: 'o.mov', input: 'rgba64', codec: 'prores-4444' })
-  assert.ok(alpha.join(' ').includes('format=yuva444p10le') && alpha.includes('-alpha_bits'))
-  assert.throws(() => hdr10Args({ ...hdr, input: 'rgba64' }), /p010 or yuv420p10le/)
-  assert.throws(() => hdr10Args({ ...hdr, input: 'p010', codec: 'prores-hq' }), /rgba64/)
+  const full = hdr10Args({ ...hdr, out: 'o.mov', input: 'rgb10', codec: 'prores-4444' })
+  assert.ok(full.join(' ').includes('format=yuv444p10le') && !full.includes('-alpha_bits'))
+  assert.throws(() => hdr10Args({ ...hdr, input: 'rgb10' }), /p010 or yuv420p10le/)
+  assert.throws(() => hdr10Args({ ...hdr, input: 'p010', codec: 'prores-hq' }), /rgb10/)
 })
 
 test('ffmpegRelease reads the release in ffmpeg -version, and none from a snapshot build', () => {

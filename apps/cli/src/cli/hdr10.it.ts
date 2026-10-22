@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync } from 'node:fs'
+import {
+  cpSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { checkManifest, lightReference, rgb10Reference } from '@shaderera/core/host'
+import type { BatchIndex } from '../deliver/batch.ts'
 import type { ChunkRecord } from '../deliver/chunks.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { fixture } from '../node/fixtures/hdr/src/composition.ts'
@@ -126,10 +135,137 @@ test('render --hdr10: an HDR10 mp4 tagged, with the declared display and the mea
     readdirSync(join(root, 'out')).filter((f) => !f.endsWith('.mp4')),
     [],
   )
-  // Its frames declare light: the film's SDR render refuses them.
+  // The film's SDR render is its own: H.264 BT.709, nothing in it declares light.
   const sdr = cli(root, 'render', '--out', join(root, 'out', 'sdr.mp4'))
-  assert.equal(sdr.status, 2)
-  assert.match(sdr.stderr, /declares pq light, and this render is SDR/)
+  assert.equal(sdr.status, 0, sdr.stderr)
+  const p = probe(join(root, 'out', 'sdr.mp4'))
+  assert.equal(p.video?.codec, 'h264')
+  assert.equal(p.video?.color?.transfer, 'bt709')
+  assert.equal(p.video?.hdr10, undefined)
+})
+
+test('render --hdr10 --format prores-hq | prores-4444: ProRes from the R’G’B’ codes, tagged HDR10, the display and light in the mov’s boxes', {
+  skip: problem,
+}, () => {
+  const root = film()
+  const levels = referenceLight()
+  const units = (d: unknown) =>
+    JSON.stringify(d, (_, x) => (typeof x === 'number' ? Math.round(x * 50000) : x))
+  for (const [format, tag, pixFmt] of [
+    ['prores-hq', 'apch', 'yuv422p10le'],
+    ['prores-4444', 'ap4h', 'yuv444p12le'],
+  ] as const) {
+    const out = join(root, 'out', `${format}.mov`)
+    const r = cli(root, 'render', '--hdr10', '--format', format, '--out', out)
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /10 frames in .* prores\n/)
+    const v = probe(out).video
+    assert.equal(v?.codec, 'prores')
+    assert.equal(v?.pixFmt, pixFmt)
+    assert.equal(v?.frames, 10)
+    assert.deepEqual(v?.color, {
+      matrix: 'bt2020nc',
+      primaries: 'bt2020',
+      transfer: 'smpte2084',
+      range: 'tv',
+    })
+    // The boxes; ProRes has no chroma site and no SEI.
+    assert.equal(v?.hdr10?.codecTag, tag)
+    assert.equal(v?.hdr10?.chroma, undefined)
+    assert.equal(units(v?.hdr10?.mastering), units(masteringOf(hdr10.mastering)))
+    assert.deepEqual(v?.hdr10?.light, levels)
+  }
+  // An hdr10 ProRes job's plan holds rgb10 chunks: assemble declares their most light, and a remux
+  // of its sound (reexport audio) keeps the mov's tags, display and light.
+  const job = cli(root, 'job', '--name', 'ph', '--hdr10', '--format', 'prores-hq')
+  assert.equal(job.status, 0, job.stderr)
+  const plan = cli(root, 'plan', '--job', 'ph', '--chunks', '2')
+  assert.equal(plan.status, 0, plan.stderr)
+  assert.match(plan.stdout, /frames as rgb10/)
+  for (const i of ['0', '1']) {
+    const r = cli(root, 'render', '--job', 'ph', '--chunk', i)
+    assert.equal(r.status, 0, r.stderr)
+  }
+  const assembled = cli(root, 'assemble', '--plan', join(root, 'out', 'ph.plan'))
+  assert.equal(assembled.status, 0, assembled.stderr)
+  const mov = probe(join(root, 'out', 'ph.mov')).video
+  assert.equal(mov?.hdr10?.codecTag, 'apch')
+  assert.deepEqual(mov?.hdr10?.light, levels)
+  const again = join(root, 'out', 'ph-again.mov')
+  const re = cli(root, 'reexport', 'audio', '--job', 'ph', '--no-audio', '--out', again)
+  assert.equal(re.status, 0, re.stderr)
+  const remuxed = probe(again).video
+  assert.deepEqual(remuxed?.color, mov?.color)
+  assert.deepEqual(remuxed?.hdr10, mov?.hdr10)
+  // A png is still refused: a PQ PNG needs cICP.
+  const png = cli(root, 'job', '--name', 'p', '--hdr10', '--png')
+  assert.equal(png.status, 2)
+  assert.match(png.stderr, /a PQ PNG needs a cICP chunk/)
+})
+
+test('deliver --hdr10 --sdr: the HDR10 master passes a YouTube HDR placement, and the film’s own SDR render its own', {
+  skip: problem,
+}, () => {
+  const root = film()
+  const specs = JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../../../packages/plugins/format-placement-specs/delivery/placements.json',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    ),
+  )
+  writeFileSync(
+    join(root, 'requirements.json'),
+    JSON.stringify({
+      version: 1,
+      placements: {
+        main: specs['youtube-hdr'],
+        'main:sdr': { containers: ['mp4'], transfer: ['bt709'], bitDepth: [8] },
+      },
+    }),
+  )
+  // Without --hdr10 the file is SDR, and the placement names the flag.
+  const plain = cli(root, 'deliver', '--name', 'sdr')
+  assert.equal(plain.status, 1, plain.stderr)
+  assert.match(plain.stdout, /failing: placement/)
+  const indexOf = (batch: string) =>
+    JSON.parse(
+      readFileSync(join(root, 'out', 'deliveries', batch, 'index.json'), 'utf8'),
+    ) as BatchIndex
+  assert.match(
+    indexOf('sdr').outputs[0]?.checks.find((c) => c.id === 'placement')?.detail ?? '',
+    /^transfer bt709, not smpte2084 or arib-std-b67 \(--hdr10\); 8-bit video, not 10 or 12 \(--hdr10\); no HDR10 metadata/,
+  )
+  const r = cli(root, 'deliver', '--hdr10', '--sdr', '--master', '--name', 'yt')
+  assert.equal(r.status, 0, r.stdout + r.stderr)
+  const index = indexOf('yt')
+  const [hdr, sdr] = index.outputs
+  assert.equal(index.outputs.length, 2)
+  assert.equal(hdr?.job, 'yt-main')
+  assert.equal(hdr?.range, 'hdr10')
+  assert.equal(sdr?.job, 'yt-main-sdr')
+  assert.equal(sdr?.sdrOf, 'yt-main')
+  for (const o of index.outputs) {
+    assert.equal(o.status, 'pass', JSON.stringify(o.checks))
+    const placement = o.checks.find((c) => c.id === 'placement')
+    assert.equal(placement?.status, 'pass', placement?.detail)
+    assert.equal(placement?.required, true)
+  }
+  assert.match(
+    hdr?.checks.find((c) => c.id === 'placement')?.measured ?? '',
+    /hevc 1024×64 10 fps, .*10-bit smpte2084, MaxCLL 10000 \/ MaxFALL \d+ cd\/m²$/,
+  )
+  // The master as its encode declared it, with the light the reference measures.
+  assertHdr10(join(root, 'out', 'deliveries', 'yt', 'yt-main', 'yt-main.mp4'), referenceLight())
+  // The SDR render is the film's own, not one made from the HDR: H.264 BT.709 at 8 bits.
+  assert.equal(sdr?.probe?.video?.codec, 'h264')
+  assert.equal(sdr?.probe?.video?.color?.transfer, 'bt709')
+  // The hdr10 review reads the master's light as numbers.
+  assert.equal(hdr?.checks.find((c) => c.id === 'hdr10')?.status, 'info')
 })
 
 test('an HDR10 preroll the source fills counts in the light levels; a black one is P010 black', {

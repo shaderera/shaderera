@@ -152,7 +152,7 @@ for (const c of HEVC)
   })
 
 for (const codec of ['prores-hq', 'prores-4444'] as const)
-  test(`HDR10 ${codec} from 16-bit PQ R'G'B'A: tagged, the display and levels in the mov's boxes`, {
+  test(`HDR10 ${codec} from the hosts' 10-bit PQ R'G'B' codes: tagged, the display and levels in the mov's boxes`, {
     skip: hdr10Skip,
   }, () => {
     const dir = mkdtempSync(join(tmpdir(), 'shaderera-hdr10-'))
@@ -161,16 +161,18 @@ for (const codec of ['prores-hq', 'prores-4444'] as const)
       const args = hdr10Args({
         ...hdrBase,
         out,
-        input: 'rgba64',
+        input: 'rgb10',
         codec,
         display: P3_1000,
         levels: LEVELS,
       })
-      const r = spawnSync('ffmpeg', args, { input: frames(dir, 'rgba64le') })
+      const r = spawnSync('ffmpeg', args, { input: frames(dir, 'x2bgr10le') })
       assert.equal(r.status, 0, String(r.stderr))
       const v = probe(out).video
       assert.equal(v?.codec, 'prores')
       assert.equal(v?.frames, 10)
+      // 4444 without an alpha plane: the frame came matted.
+      assert.equal(v?.pixFmt, codec === 'prores-hq' ? 'yuv422p10le' : 'yuv444p12le')
       assert.deepEqual(v?.color, {
         matrix: 'bt2020nc',
         primaries: 'bt2020',
