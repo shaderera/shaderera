@@ -48,8 +48,9 @@ resources and passes. Stable only when consumers outside this repository need it
 ## `@shaderera/core/host`: internal
 
 What both hosts share (`checkManifest`, `withVariant`, `openSource`, `seekable`, `over`,
-`straight`, `matte`, `gpuCompositor`, `yuvFits`, `finalOnly`, `layerInfo`, `paramDefaults`,
-`fullDevice`, `timecodeOf`, `toSrt`, `toVtt`, …). A participant never imports it.
+`straight`, `matte`, `gpuCompositor`, `yuvFits`, `finalOnly`, `layerInfo`, `lightChecked`,
+`rangeOf`, `paramDefaults`, `fullDevice`, `timecodeOf`, `toSrt`, `toVtt`, …). A participant never
+imports it.
 
 ## `shaderera`: the commands are stable; the modules are internal
 

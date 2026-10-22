@@ -475,7 +475,9 @@ no scene-linear light in it to put in an EXR.
 - ffmpeg 9.0 is needed only for an HDR10 film (SDR stays tested on 8.1.1);
 - films that do not opt in do not change.
 
-Until it is built, what follows holds.
+So far the manifest's `hdr10` block, `host.range` and a layer's `light` exist
+([protocol.md](protocol.md#hdr10)): they are checked, and an SDR render refuses a layer with
+light. Nothing renders or encodes in HDR yet; until it does, what follows holds.
 
 What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
 channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance
