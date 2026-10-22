@@ -32,7 +32,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const records = checkChunks(plan, dir, v['mixed-hosts'] === true)
   const { project, child } = await openJob(root, job, childOptions(v))
   try {
-    assembledInput(plan, job, child)
+    if (job.id !== plan.jobId) assembledInput(plan, job, child)
     const video = videoOptionsOf(job.delivery)
     const loudness = v.loudness === undefined ? undefined : Number(v.loudness)
     const done = await exportVideo(project, child, {
