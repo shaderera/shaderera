@@ -119,6 +119,25 @@ test('a job rendered from an earlier plan and its changed spans is the file a fu
     cli(root, 'render', '--job', 'short', '--reuse', plan, '--changed', '1-2').stderr,
     /same format and window/,
   )
+  // A reused chunk rendered again with the same frames is the same file: the plan still takes it.
+  ok(cli(root, 'render', '--job', 'a', '--chunk', '1'))
+  same(join(root, 'out', 'b.plan'), 'rerendered')
+  // A chunk rendered again whose frames changed (here chunk 0's frames, recorded as a render
+  // would) is refused.
+  const record = join(plan, 'chunk-001.mkv.json')
+  const kept = readFileSync(record, 'utf8')
+  const keptFile = readFileSync(join(plan, 'chunk-001.mkv'))
+  cpSync(join(plan, 'chunk-000.mkv'), join(plan, 'chunk-001.mkv'))
+  writeFileSync(
+    record,
+    JSON.stringify({ ...JSON.parse(kept), sha256: sha(join(plan, 'chunk-001.mkv')) }),
+  )
+  assert.match(
+    cli(root, 'assemble', '--plan', join(root, 'out', 'b.plan')).stderr,
+    /chunk-001\.mkv of job a's plan .* is no longer the chunk that chunk \d+ reuses/,
+  )
+  writeFileSync(record, kept)
+  writeFileSync(join(plan, 'chunk-001.mkv'), keptFile)
   // A reused chunk changed after the plan reused it is refused.
   writeFileSync(join(plan, 'chunk-001.mkv'), 'x')
   assert.match(
