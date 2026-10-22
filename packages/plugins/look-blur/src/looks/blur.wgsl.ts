@@ -3,6 +3,8 @@
 // the size. blur: each pixel gathered from the pyramid by its own amount, encoded back to sRGB,
 // premultiplied; where the amount is 0 the source comes back as it was.
 
+import { SRGB_WGSL } from '../render/srgb.wgsl.ts'
+
 const FULL_VS = /* wgsl */ `
 struct V { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
 
@@ -17,11 +19,7 @@ struct V { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
 
 // A source pixel in linear light, premultiplied. alpha: 0 premultiplied, 1 straight, 2 opaque;
 // linear: the source is already linear (an -srgb texture).
-const DECODE = /* wgsl */ `
-fn toLinear(c: vec3f) -> vec3f {
-  return select(pow((c + 0.055) / 1.055, vec3f(2.4)), c / 12.92, c <= vec3f(0.04045));
-}
-
+const DECODE = /* wgsl */ `${SRGB_WGSL}
 fn decode(s: vec4f, alpha: f32, linear: f32) -> vec4f {
   var c = s;
   let mode = u32(alpha + 0.5);
@@ -200,11 +198,6 @@ fn amountAt(px: vec2f, uv: vec2f) -> f32 {
     a *= clamp(abs(z - u.d.z) / max(u.d.w, 0.000001), 0.0, 1.0);
   }
   return clamp(a, 0.0, 1.0);
-}
-
-fn toSrgb(c: vec3f) -> vec3f {
-  let x = clamp(c, vec3f(0.0), vec3f(1.0));
-  return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
 }
 
 @fragment fn blurFs(i: V) -> @location(0) vec4f {

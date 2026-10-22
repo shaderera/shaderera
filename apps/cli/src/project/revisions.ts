@@ -59,11 +59,55 @@ const ROOT_ONLY = new Set(['out', '.shaderera', 'versions', '.claude', 'NVIDIA C
 const ANYWHERE = new Set(['node_modules', '.git'])
 /**
  * Never part of a revision, at any depth: files that hold secrets (env files, direnv's, Wrangler's,
- * npm's and curl's credentials, MCP configs with keys, private keys), so neither a share nor a
- * handoff can carry one.
+ * npm's and curl's credentials, private keys), so neither a share nor a handoff can carry one.
  */
 export const SECRET =
-  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|\.mcp\.json|.+\.(pem|key|p12|pfx))$/
+  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|.+\.(pem|key|p12|pfx))$/
+
+/** Shaderera's own MCP server, as a new project's `.mcp.json` names it: `shaderera` or `shaderera@<version>`. */
+const SHADERERA_PACKAGE = /^shaderera(@[\w.+-]+)?$/
+
+const isEmptyObject = (v: unknown): boolean =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 0
+
+/** One server that is exactly Shaderera's own: `npx -y shaderera mcp`, with at most an empty env or headers. */
+const isShadereraServer = (s: unknown): boolean => {
+  if (typeof s !== 'object' || s === null || Array.isArray(s)) return false
+  const { command, args, ...rest } = s as Record<string, unknown>
+  return (
+    command === 'npx' &&
+    Array.isArray(args) &&
+    args.length === 3 &&
+    args[0] === '-y' &&
+    typeof args[1] === 'string' &&
+    SHADERERA_PACKAGE.test(args[1]) &&
+    args[2] === 'mcp' &&
+    Object.entries(rest).every(([k, v]) => (k === 'env' || k === 'headers') && isEmptyObject(v))
+  )
+}
+
+/**
+ * An MCP config (`.mcp.json`) is a revision's only when it parses and every server in it is
+ * Shaderera's own, as a new project's is. Keys can hide anywhere else (env, headers, args, a url's
+ * query or user:pass@), so any other config is kept out as a secret.
+ */
+export const mcpIsShaderera = (file: string): boolean => {
+  try {
+    const config = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    if (typeof config !== 'object' || config === null || Array.isArray(config)) return false
+    const { mcpServers, ...rest } = config as Record<string, unknown>
+    if (Object.keys(rest).length > 0) return false
+    if (typeof mcpServers !== 'object' || mcpServers === null || Array.isArray(mcpServers))
+      return false
+    return Object.values(mcpServers).every(isShadereraServer)
+  } catch {
+    return false
+  }
+}
+
+/** A file a revision never holds because it holds secrets: SECRET by name, or an MCP config other than Shaderera's own. */
+export const isSecret = (file: string, name: string): boolean =>
+  SECRET.test(name) || (name === '.mcp.json' && !mcpIsShaderera(file))
 /** writeAtomic's temporary files, which another process may be about to move into place. */
 const TEMPORARY = /\.\d+\.tmp$/
 
@@ -115,7 +159,7 @@ export const scan = (
       const path = slash(relative(root, full))
       const s = lstatSync(full)
       if (s.isSymbolicLink()) left.links?.push(path)
-      else if (s.isFile() && SECRET.test(name)) left.secrets?.push(path)
+      else if (s.isFile() && isSecret(full, name)) left.secrets?.push(path)
       else if (s.isDirectory()) keep(path, true) && walk(full)
       else if (s.isFile() && keep(path, false)) files[path] = hash(full)
     }

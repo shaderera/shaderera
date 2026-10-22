@@ -16,7 +16,12 @@ export type TextRun = {
    */
   rendered?: { family: string; custom: boolean; glyphs: number }[]
 }
-export type Shot = { id?: string; at: number; label?: string }
+/**
+ * A shot from inspect: a moment `{ id, at }` or a span `{ id, start, end }` (on screen from `start`
+ * up to `end`). `at` is the time review looks at: for a span, the middle of the part no other shot
+ * overlaps.
+ */
+export type Shot = { id?: string; at: number; start?: number; end?: number; label?: string }
 
 const luma = (px: Uint8Array, k: number) =>
   0.2126 * (px[k] as number) + 0.7152 * (px[k + 1] as number) + 0.0722 * (px[k + 2] as number)
@@ -141,13 +146,31 @@ export const textRuns = (json: Json, out: TextRun[] = []): TextRun[] => {
   return out
 }
 
-/** The source's `shots` (top level), sorted by time; [] without them. */
+/** The source's `shots` (top level), `{ id, at }` or `{ id, start, end }`, sorted by time; [] without them. */
 export const shotsOf = (json: Json): Shot[] => {
   const shots = (json as { shots?: unknown } | null)?.shots
   if (!Array.isArray(shots)) return []
-  return shots
-    .filter((s): s is Shot => typeof (s as Shot)?.at === 'number')
-    .sort((a, b) => a.at - b.at)
+  const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+  const out: Shot[] = []
+  for (const s of shots as Record<string, unknown>[]) {
+    if (!s || typeof s !== 'object') continue
+    const id = typeof s.id === 'string' ? { id: s.id } : {}
+    const label = typeof s.label === 'string' ? { label: s.label } : {}
+    if (num(s.start) && num(s.end) && s.end > s.start)
+      out.push({ ...id, ...label, at: s.start, start: s.start, end: s.end })
+    else if (num(s.at)) out.push({ ...id, ...label, at: s.at })
+  }
+  out.sort((a, b) => a.at - b.at)
+  // A span's `at`: the middle of the part the shots either side do not overlap.
+  out.forEach((s, i) => {
+    if (s.start === undefined || s.end === undefined) return
+    const before = out[i - 1]?.end
+    const after = out[i + 1]?.start
+    const from = before !== undefined && before > s.start ? Math.min(before, s.end) : s.start
+    const to = after !== undefined && after < s.end ? Math.max(after, from) : s.end
+    s.at = to > from ? (from + to) / 2 : (s.start + s.end) / 2
+  })
+  return out
 }
 
 export type Margins = { top: number; right: number; bottom: number; left: number }
@@ -273,4 +296,146 @@ export const fontFamilies = (font: string): string[] => {
     .split(',')
     .map((f) => f.trim())
     .filter(Boolean)
+}
+
+/** Limits on the subtitle sidecar, as requirements.json `captions` declares them. */
+export type CaptionLimits = {
+  /** Characters per second: grapheme clusters, spaces included, line breaks not. */
+  maxCps?: number
+  /** Characters in the longest line, as grapheme clusters. */
+  maxLineChars?: number
+  maxLines?: number
+  /** Seconds on screen. */
+  minDuration?: number
+  /** Seconds from a caption's end to the next one's start; an overlap is a negative gap. */
+  minGap?: number
+}
+
+/** One caption measured. */
+export type CaptionStat = {
+  /**
+   * Its cue number in the full-length SRT: the captions every export keeps (not blank, not
+   * refused) in order of start, from 1. null for a caption no SRT carries.
+   */
+  index: number | null
+  /** Its place in what `captions()` gave, from 1: how a caption without an SRT number is named. */
+  item: number
+  start: number
+  /** null: no finite end (an LRC cue's last line ends at Infinity). */
+  end: number | null
+  text: string
+  duration: number | null
+  cps: number | null
+  /** To the next cue by start; negative when they overlap; null for the last, an open end or no cue. */
+  gap: number | null
+  lines: number
+  longestLine: number
+  /** The cue numbers (`index`) of the other cues on screen at the same time. */
+  overlaps: number[]
+  /** Why every export refuses this caption (render and deliver write no sidecar with it). */
+  refused?: string
+}
+
+const words = new Intl.Segmenter(undefined, { granularity: 'word' })
+
+/**
+ * Copy as a review quotes it: whitespace collapsed, and past `max` characters cut at the last word
+ * boundary that fits, with an ellipsis (Thai, written without spaces, still breaks between words).
+ */
+export const excerpt = (text: string, max: number) => {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat.length <= max) return flat
+  let cut = 0
+  let first = 0
+  for (const { index } of words.segment(flat)) {
+    if (first === 0) first = index
+    if (index > max - 1) break
+    cut = index
+  }
+  // The first word longer than max: quote it whole, and nothing after it.
+  if (cut === 0) cut = first
+  if (cut === 0) return flat
+  return `${flat.slice(0, cut).replace(/[\s\p{P}]+$/u, '')}…`
+}
+
+/** Grapheme clusters: a Thai syllable with its vowel and tone marks counts as what a reader sees. */
+const graphemes = (text: string) => [...new Intl.Segmenter().segment(text)].length
+
+/**
+ * Each caption's characters per second, duration, gap to the next, line count and longest line
+ * (grapheme clusters), and the captions it overlaps, in order of start.
+ */
+export const captionStats = (captions: readonly unknown[]): CaptionStat[] => {
+  const rows = captions.map((raw, index): CaptionStat => {
+    const c = (raw ?? {}) as { start?: unknown; end?: unknown; text?: unknown }
+    const start = typeof c.start === 'number' && Number.isFinite(c.start) ? c.start : Number.NaN
+    const end = typeof c.end === 'number' && Number.isFinite(c.end) ? c.end : null
+    const text = typeof c.text === 'string' ? c.text : ''
+    const lines = text
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+    const duration = end === null || Number.isNaN(start) ? null : end - start
+    const chars = graphemes(lines.join(''))
+    const refused =
+      typeof c.text !== 'string'
+        ? 'no text'
+        : Number.isNaN(start)
+          ? `no start (start: ${String(c.start)})`
+          : end === null
+            ? `no end (end: ${String(c.end)}${c.end === Number.POSITIVE_INFINITY ? ', as an LRC cue’s last line has' : ''})`
+            : end <= start
+              ? 'ends before it starts'
+              : undefined
+    return {
+      index: null,
+      item: index + 1,
+      start,
+      end,
+      text,
+      duration,
+      cps: duration !== null && duration > 0 ? chars / duration : null,
+      gap: null,
+      lines: lines.length,
+      longestLine: Math.max(0, ...lines.map(graphemes)),
+      overlaps: [],
+      ...(refused ? { refused } : {}),
+    }
+  })
+  // Numbered as the SRT writer numbers cues (windowCaptions, toSrt): blank and refused ones dropped,
+  // the rest sorted by start, ties kept in captions() order.
+  const timed = rows.filter((r) => !Number.isNaN(r.start)).sort((a, b) => a.start - b.start)
+  const cues = timed.filter((r) => !r.refused && r.text.trim() !== '')
+  for (const [i, a] of cues.entries()) a.index = i + 1
+  for (const [i, a] of cues.entries()) {
+    const next = cues[i + 1]
+    if (next && a.end !== null) a.gap = next.start - a.end
+    for (const b of cues)
+      if (b !== a && a.start < (b.end ?? Infinity) && b.start < (a.end ?? Infinity))
+        a.overlaps.push(b.index as number)
+  }
+  return [...timed, ...rows.filter((r) => Number.isNaN(r.start))]
+}
+
+/** The cues over a declared limit, each with what it breaks; a caption no SRT carries is not judged. */
+export const captionsOver = (stats: readonly CaptionStat[], limits: CaptionLimits) => {
+  const r = (n: number) => Number(n.toFixed(3))
+  return stats.flatMap((s) => {
+    if (s.index === null) return []
+    const why: string[] = []
+    const { maxCps, maxLineChars, maxLines, minDuration, minGap } = limits
+    if (maxCps !== undefined && s.cps !== null && s.cps > maxCps + 1e-6)
+      why.push(`${r(s.cps)} cps > ${maxCps}`)
+    if (maxLineChars !== undefined && s.longestLine > maxLineChars)
+      why.push(`a line of ${s.longestLine} characters > ${maxLineChars}`)
+    if (maxLines !== undefined && s.lines > maxLines) why.push(`${s.lines} lines > ${maxLines}`)
+    if (minDuration !== undefined && s.duration !== null && s.duration + 1e-6 < minDuration)
+      why.push(`${r(s.duration)} s < ${minDuration} s`)
+    if (minGap !== undefined && s.gap !== null && s.gap + 1e-6 < minGap)
+      why.push(
+        s.gap < 0 ? `overlaps the next by ${r(-s.gap)} s` : `gap ${r(s.gap)} s < ${minGap} s`,
+      )
+    return why.length ? [{ ...s, why }] : []
+  })
 }

@@ -16,7 +16,7 @@ quality and colour and what was asked of the file (`bitrate`, `maxrate`, `editLi
 
 ## The mp4: tested SDR BT.709
 
-Every mp4 (CLI `render`, MCP `export`, `deliver`) is encoded with:
+Every mp4 (CLI `render`, MCP `render`, `deliver`) is encoded with:
 
 ```
 -f rawvideo -pix_fmt rgba -s WxH -r FPS -i -
@@ -148,7 +148,33 @@ without a group go to `ungrouped`.
 
 Captions (`captions()`, [protocol.md](protocol.md#captions)) are written as `<name>.srt` and
 `<name>.vtt` beside every export (in a png handoff, `captions.srt` and `captions.vtt`), cut to the
-export window.
+export window. Every caption needs a finite start before its end: an export refuses an LRC cue's
+last line, whose `end` is `Infinity` (`text-timed-cues`), so give it an end first.
+
+Review measures the sidecar in its `captions` check and the `captions` diagnostics, since much
+viewing is muted. For each caption:
+
+- characters per second: grapheme clusters, spaces included, line breaks not;
+- duration, and the gap to the next caption (negative when they overlap);
+- line count and the longest line, in grapheme clusters, so a Thai syllable with its vowel and
+  tone marks counts once;
+- the other captions it overlaps, by number.
+
+Review, render and the SRT number captions the same way. A caption's number is its cue number in
+the full-length SRT: the captions with text, in order of start (ties in `captions()` order), from
+1. A blank caption, which no sidecar carries and review does not judge, and a caption every export
+refuses are named by their place in `captions()` instead, from 1: `item 4 of captions()`.
+
+Nothing is judged unless requirements.json declares limits (decision 0011):
+
+```json
+{ "version": 1, "captions": { "maxCps": 17, "maxLineChars": 42, "maxLines": 2, "minDuration": 0.833, "minGap": 0.083 } }
+```
+
+Only the keys set are judged, and each fails just the captions over it. The numbers in the example
+are a common broadcast style, not a default: take them from the placement's spec. A caption every
+export refuses (no finite start or end, or an end before its start) fails the check always,
+declared or not.
 
 ## The finishing handoff (PNG + WAV)
 
@@ -172,8 +198,17 @@ A job with `delivery.format: 'png'` renders to `out/<job>/` (`deliver`:
   (`clock`), and the Shaderera and ffmpeg versions.
 - `review/`: the review's frames and contact sheet.
 
-The delivery is built in `<dir>.<pid>.partial` (the process id) and moved into place only after the
-determinism re-check passes; any failure (re-check, audio, review) removes it.
+The delivery is built in `<dir>.partial` and moved into place only after the determinism re-check
+passes. Each frame is written under a temporary name and renamed, so a frame file there is always
+whole. A run that fails (a host error, audio, review, Ctrl-C) keeps the frames it finished in
+`<dir>.partial`, and the error says how many; `render --job` (or the same `deliver`) again
+continues from the first frame missing or cut short there, and prints how many frames it rendered
+and how many were already there (`--json`: in the envelope's `log`; `deliver`: `framesKept` in
+index.json). The frames come out byte for byte as an uninterrupted run's, and the re-check still
+renders its samples from the whole window, kept frames included. `<dir>.partial/partial.json`
+names the job (its id and bit depth): a `<dir>.partial` of another job, or another revision, is
+refused, never continued. A source that fails the re-check loses its frames: they cannot be
+trusted to continue from.
 
 ## Batch
 
@@ -187,7 +222,7 @@ requirements.json (`safeArea`, or a placement's), from that platform's current s
 A locale sets the `locale` param; `shaderera.json` must declare one (and, if it has an `enum`,
 list the locale), or the batch is refused before anything renders. The batch writes
 `out/deliveries/<batch>/index.json` (`deliveries/1`: per output its file, bytes, size, length,
-frames, render time, checks, contact sheet, status, error) and `index.md` (a table, then every
+frames (a png job: and `framesKept`, the frames an earlier failed run left), render time, checks, contact sheet, status, error) and `index.md` (a table, then every
 failing check).
 
 A measured run: a Thai type film laid out for 4:5, given two variants it was not designed for
@@ -269,16 +304,25 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
 ```
 
 - `plan` splits the job's frames into chunks of whole frames and fixes the format every host hands
-  them over in (yuv420p or 16-bit RGBA from the GPU compositor, else RGBA).
+  them over in (yuv420p or 16-bit RGBA from the GPU compositor, else RGBA). It refuses a folder
+  (`--out`) that holds another job's plan or chunks, so that plan can still be assembled; the same
+  job is planned again in its own folder.
 - Each chunk renders, with its own determinism re-check, into a lossless FFV1 file (the bytes the
   host made), recorded with its sha256 and host. Its frames go round `--workers` hosts on that
   machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
   heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
+- A chunk is claimed before it renders (`<chunk>.claim` in the plan folder), so two machines never
+  render one chunk at once: the second is refused, naming who holds it. A claim whose render died
+  is taken over (its pid no longer runs here, or it went untouched for 10 minutes), with the
+  partial that render left. Ctrl-C removes the chunk's partial and claim.
+- `plan --status --plan <dir> [--verify]` says which chunks are done, missing, stale (of another
+  job or plan), partial (stopped part way) or claimed (rendering now), with the command that renders each, the frames done
+  and the time left ([cli.md](cli.md#plan-render---chunk-assemble)).
 - `assemble` refuses a missing or changed chunk, and chunks from different kinds of host (another
-  GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`. It
-  encodes the chunks once in order, with the sound, captions, stems, preroll and timecode of the
-  whole window.
+  GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`, and
+  lists every such problem at once, each with the command that fixes it. It encodes the chunks
+  once in order, with the sound, captions, stems, preroll and timecode of the whole window.
 - Measured on 2026-10-12: a job rendered in 3 chunks (out of order) and assembled is the same file,
   byte for byte, as the job rendered in one go, for an mp4 and for ProRes 422 HQ and 4444 (the mov
   muxer runs with `+bitexact`, and PCM packets are 1024 samples each). A sequential source renders
@@ -329,6 +373,43 @@ npx shaderera assemble --plan out/spot-v2.plan    # one encode, as usual
   rendered, 34 sampled) took 167 s and `assemble` 171 s, 338 s in all, and the file was the same,
   byte for byte. Each command spent about 100 s opening that film's job, so the saving grows with
   the frames there are to render, and is small for a short window.
+
+## Changing only the sound or the captions
+
+A sound edit (a gain, a clip) or a caption edit leaves every frame as it was, so neither renders
+the picture again:
+
+```sh
+npx shaderera job --name spot-v2                                  # the edited revision
+npx shaderera reexport audio --job spot-v2 --onto out/spot.mp4    # out/spot-v2.mp4
+npx shaderera reexport captions --job spot-v2                     # out/spot-v2.srt, .vtt
+```
+
+- `reexport audio` makes the job's mix (with `--loudness`, or none with `--no-audio`) and muxes it
+  with the video packets of `--onto` as they are (`-c:v copy`), with the container's flags, edit
+  list, timecode and audio codec `render` writes, tagged with the job's revision. The video
+  packets are the file's, byte for byte, and the audio is packet for packet what `render --job`
+  gives (tested for an mp4, an mp4 without edit lists and ProRes 422 HQ).
+- **The picture check.** The file's job is found by its `shaderera_revision` tag among the
+  project's jobs: one of that revision with the same host, variant, seed, window and picture
+  delivery (format, quality, rates, edit list; stems are sound). None is refused, naming what
+  differs; so is a file whose frame count or size is not the job's. When that job's revision or
+  params are not this job's, the first and last frames and about one every 10 s are rendered in
+  both jobs and compared byte for byte; a frame that differs is refused, with its `t`, and nothing
+  is written. As with `render --reuse`, the samples are a check, not a proof.
+- `reexport captions` opens the job and writes its sidecars, cut to the window (and its preroll),
+  as `render` does. No format muxes captions into the file.
+- A png job's handoff records its sound and captions in `delivery.json`: render it again.
+
+### Another delivery from the same chunks
+
+`assemble --plan <dir> --job <other>` encodes another job's delivery from a plan's chunks: a review
+and a master, an mp4 with and without edit lists, or another `--crf`, `--loudness` or
+`--no-audio`, from one render. The other job must be the plan's job in all but its delivery (the
+same revision, host, variant, params, seed, window and packages), and its host must hand frames
+over in the plan's format (an mp4 from yuv420p chunks, a mov from RGBA ones). Tested: a job without
+edit lists assembled from the chunks of one with them is the file `render --job` of that job
+gives, byte for byte.
 
 ## Handoff
 
@@ -381,10 +462,24 @@ canvas or byte layer is 8-bit to begin with, and **changing the encoder cannot r
 layer never had**. None of it is HDR: an "HDR" tag on an SDR composite would be a lie, and there is
 no scene-linear light in it to put in an EXR.
 
+**HDR10 is decided, not built.** [Decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)
+(decided 2026-10-22) sets out how it will work:
+- a film opts in, and its GPU layers declare linear or PQ light in BT.2020;
+- 8-bit layers are decoded as sRGB and placed at a graphics white (203 nits by default, after
+  ITU-R BT.2408);
+- the film keeps its own tone mapping and its own SDR render;
+- the master is HEVC Main 10 in an mp4, with the mastering display and MaxCLL/MaxFALL measured
+  on the GPU, chroma sited top-left as BT.2100 states;
+- ffmpeg 9.0 is needed only for an HDR10 film (SDR stays tested on 8.1.1);
+- films that do not opt in do not change.
+
+Until it is built, what follows holds.
+
 What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
 channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance
-houses and post facilities transcode a ProRes master to them (The Post Flow, 2026-08-24); nor HEVC,
-whose encoders carry patent-pool royalties (Access Advance). Scene-linear compositing would be a
+houses and post facilities transcode a ProRes master to them (The Post Flow, 2026-08-24). HEVC
+is not written today. Its encoders carry patent-pool royalties (Access Advance), but Shaderera
+ships no encoder: it drives the person's own ffmpeg, so decision 0023 allows HEVC for HDR10. Scene-linear compositing would be a
 protocol change (`over` in linear light), not an encoder setting.
 
 The honest routes today:

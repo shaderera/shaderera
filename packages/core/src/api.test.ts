@@ -5,6 +5,7 @@ import { test } from 'node:test'
 test('the stable, experimental and internal entries export exactly what docs/api.md lists', async () => {
   const keys = async (entry: string) => Object.keys(await import(entry)).sort()
   assert.deepEqual(await keys('./index.ts'), [
+    'NotDeterministic',
     'checkDeterminism',
     'diffJson',
     'diffPixels',
@@ -12,6 +13,8 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'flattenFrame',
     'frameAt',
     'frameTimes',
+    'parseFps',
+    'sha256',
   ])
   assert.deepEqual(await keys('./gpu.ts'), ['readBuffer', 'readTexture'])
   assert.deepEqual(await keys('./host.ts'), [
@@ -30,11 +33,9 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'openSource',
     'over',
     'paramDefaults',
-    'parseFps',
     'sampleClips',
     'sampleTimes',
     'seekable',
-    'sha256',
     'straight',
     'timecodeOf',
     'toSrt',

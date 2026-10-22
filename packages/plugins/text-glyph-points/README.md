@@ -10,5 +10,5 @@ const mark = glyphPoints(host, { text: 'SHADERERA', family: 'IBM Plex Mono SemiB
 device.queue.writeBuffer(buffer, 0, mark.points)
 ```
 
-The same text, font and seed always give the same points. The text is rasterised: for the
+The same text, font and seed always give the same points (picked by `motion-random`'s hash). The text is rasterised: for the
 outlines themselves, parse the font.

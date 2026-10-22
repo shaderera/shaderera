@@ -4,9 +4,13 @@ Before you call a draft finished, look at it and check it.
 
 1. Run review: MCP `review` (it returns the checks, the contact sheet and the principal frames as
    images) or `npx shaderera review`. Fix every failing check that is yours to fix. Errors always
-   fail (determinism, readback, missing glyphs, assets); craft rules (end hold, reading time, text
-   overlap, blank frames, safe area) fail only when requirements.json declares them, and are
-   otherwise measured as info for you to judge against the brief.
+   fail (determinism, readback, missing glyphs, assets, a caption no export accepts); craft rules
+   (end hold, reading time, text overlap, blank frames, safe area, caption limits) fail only when
+   requirements.json declares them, and are otherwise measured as info for you to judge against
+   the brief. The `captions` check measures the subtitle sidecar: characters per second, duration,
+   gap, lines and longest line (in grapheme clusters) and overlaps; declare limits in
+   requirements.json `captions` (`maxCps`, `maxLineChars`, `maxLines`, `minDuration`, `minGap`)
+   when the placement sets them.
 2. Look at the moments the brief cares about, and at least one transition, at full size:
    `npx shaderera still <t>... --sheet`, or MCP `render_frame` with `image: true` and
    `final: true`. Compare each one with the brief and with what the person asked for, not with a

@@ -17,6 +17,10 @@ import {
 } from '../render-gaussian-splats/src/render/splats.ts'
 
 Object.assign(globalThis, globals)
+// Dawn's instance must outlive the device and every pending readback, so it is held here and not
+// in the test: a local one is garbage once the device exists, and collected mid-test it crashes
+// the process (0xC0000005), more often when parallel runs make the GC busy.
+const gpu = create([])
 
 type V3 = [number, number, number]
 const SH_C0 = 0.28209479177387814
@@ -163,7 +167,6 @@ test('render-gaussian-splats: .splat and .ply decode to the same splats', async 
 })
 
 test('render-gaussian-splats: EWA splats render back to front, deterministic, nothing behind the camera', async () => {
-  const gpu = create([])
   const adapter = await gpu.requestAdapter()
   assert.ok(adapter)
   const device = await adapter.requestDevice()

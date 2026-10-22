@@ -41,9 +41,12 @@ export type ThreeHostOptions = {
   output?: 'texture' | 'bytes'
 }
 
-/** A camera in WebGPU's clip space. Set it with camera-keyframes' applyToThree or by hand. */
-export const threeCamera = (aspect: number, fov = 40) => {
-  const camera = new THREE.PerspectiveCamera(fov, aspect, 0.05, 2000)
+/**
+ * A camera in WebGPU's clip space, its vertical field of view in degrees as three.js takes it. Set
+ * it with camera-keyframes' applyToThree or by hand.
+ */
+export const threeCamera = (aspect: number, fovDeg = 40) => {
+  const camera = new THREE.PerspectiveCamera(fovDeg, aspect, 0.05, 2000)
   camera.coordinateSystem = THREE.WebGPUCoordinateSystem
   return camera
 }

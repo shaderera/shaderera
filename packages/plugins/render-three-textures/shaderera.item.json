@@ -1,0 +1,12 @@
+{
+  "name": "render-three-textures",
+  "type": "component",
+  "title": "Three.js textures",
+  "description": "Artwork and photos as three.js textures from core's io.image, the same pixels in Node and the browser, and an atlas of many images for instanced cards",
+  "category": "Rendering",
+  "tags": ["images", "textures", "photos", "artwork", "atlas", "cards", "png", "jpeg", "three.js"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "packages": { "three": "0.186.1" } },
+  "files": ["src/three/textures.ts"]
+}

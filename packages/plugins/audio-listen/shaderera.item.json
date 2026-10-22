@@ -17,10 +17,10 @@
     "clap",
     "analysis"
   ],
-  "version": "0.1.2",
+  "version": "0.2.0",
   "licence": "MIT",
   "requires": {
-    "shaderera": ">=0.1.0",
+    "shaderera": ">=0.1.5",
     "packages": { "@huggingface/transformers": "4.3.1" }
   },
   "files": ["tools/listen.ts", "src/audio/trims.ts"]

@@ -1,7 +1,7 @@
 import { cpSync, existsSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { npm } from './npm.ts'
-import { installedVersion, readLabel, setRequirement } from './requires.ts'
+import { installedPackage, installedVersion, readLabel, setRequirement } from './requires.ts'
 import { parseVersion, satisfies as satisfiesRange } from './semver.ts'
 import { parseSpec, resolve } from './store.ts'
 
@@ -36,50 +36,80 @@ export const saveFlags = (name: string, range: string): string[] => [
 ]
 
 /**
- * Adds `spec` (`name` or `name@range`) to the project at `root`: an extension is installed and
- * required; a component's, preset's or media item's files are copied in. What it requires comes
- * too, each item once, and all of it resolves before anything is copied. A piece it is built on
- * that the project already has is the project's own: only its missing files are copied. Returns
- * what was done.
+ * Adds `specs` (each `name` or `name@range`) to the project at `root`: an extension is installed
+ * and required; a component's, preset's or media item's files are copied in. What they require
+ * comes too, each item once, and all of it resolves before anything is copied: one that does not
+ * resolve stops them all. A piece one is built on that the project already has is the project's
+ * own: only its missing files are copied. A version that is not in a range another one requires
+ * (a range named on the command line, say) is refused. Returns what was done.
  */
 export const add = (
   root: string,
   registry: string,
-  spec: string,
+  specs: string | readonly string[],
   o: { force?: boolean; install?: Installer } = {},
 ): string[] => {
   const install = o.install ?? npmInstall
+  const wanted = typeof specs === 'string' ? [specs] : specs
+  const named = new Set(wanted.map((s) => parseSpec(s).name))
   const tree: ReturnType<typeof resolve>[] = []
   const seen = new Set<string>()
-  const visit = (want: string) => {
+  // Every range a piece requires, checked once all are chosen.
+  const ranges: { by: string; name: string; range: string }[] = []
+  // The named ones first, so a range given on the command line wins over one a piece requires.
+  const take = (want: string) => {
     const { name } = parseSpec(want)
-    if (seen.has(name)) return
+    if (seen.has(name)) return null
     seen.add(name)
     const v = resolve(registry, want)
     tree.push(v)
+    return v
+  }
+  const visit = (v: ReturnType<typeof resolve> | null) => {
+    if (!v) return
     for (const [ext, range] of Object.entries(v.item.requires.extensions)) {
       const have = installedVersion(root, ext)
-      if (!have || !satisfiesRange(have, range)) visit(`${ext}@${range}`)
+      if (have && satisfiesRange(have, range)) continue
+      ranges.push({ by: v.item.name, name: ext, range })
+      visit(take(`${ext}@${range}`))
     }
-    for (const [piece, range] of Object.entries(v.item.requires.items)) visit(`${piece}@${range}`)
+    for (const [piece, range] of Object.entries(v.item.requires.items)) {
+      ranges.push({ by: v.item.name, name: piece, range })
+      visit(take(`${piece}@${range}`))
+    }
   }
-  visit(spec)
-  const clash = (tree[0]?.item.files ?? []).filter((f) => existsSync(join(root, f)))
+  for (const v of wanted.map(take)) visit(v)
+  const chosen = new Map(tree.map(({ item }) => [item.name, item.version]))
+  const conflicts = ranges.flatMap(({ by, name, range }) => {
+    const version = chosen.get(name)
+    return version && !satisfiesRange(version, range)
+      ? [`${by} requires ${name} ${range}, not ${version}`]
+      : []
+  })
+  if (conflicts.length > 0)
+    throw new Error(
+      `${conflicts.join('; ')}. Name a version in the range, or add them one at a time.`,
+    )
+  const clash = tree
+    .filter(({ item }) => named.has(item.name))
+    .flatMap(({ item }) => item.files)
+    .filter((f) => existsSync(join(root, f)))
   if (clash.length > 0 && !o.force)
     throw new Error(
       `the project already has ${clash.join(', ')}; use --force to replace ${clash.length === 1 ? 'it' : 'them'}`,
     )
   const done: string[] = []
-  for (const [i, { item, dir }] of tree.entries()) {
+  for (const { item, dir } of tree) {
     if (item.type === 'extension') {
       install(root, join(dir, 'package.tgz'))
       setRequirement(root, item.name, `^${item.version}`)
       done.push(`installed ${item.name}@${item.version} (${item.licence})`)
       continue
     }
-    const files = i === 0 ? item.files : item.files.filter((f) => !existsSync(join(root, f)))
+    const own = named.has(item.name)
+    const files = own ? item.files : item.files.filter((f) => !existsSync(join(root, f)))
     for (const f of files) cpSync(join(dir, f), join(root, f), { recursive: true, force: true })
-    if (i === 0 || files.length > 0)
+    if (own || files.length > 0)
       done.push(
         `copied ${item.type} ${item.name}@${item.version}: ${files.join(', ')} (${item.licence})`,
       )
@@ -96,16 +126,28 @@ export const add = (
 }
 
 /**
- * Uninstalls a package plugin and stops requiring it. A component's, preset's or media item's
- * files were copied in and are the project's own code, so only the person deletes them.
+ * Uninstalls package plugins and stops requiring them. Each must be one the project uses (required
+ * in its label, or installed with a "shaderera" field), checked before any is uninstalled: a plain
+ * npm dependency is never touched. A component's, preset's or media item's files were copied in and are
+ * the project's own code, so only the person deletes them.
  */
-export const remove = (root: string, name: string, o: { uninstall?: Installer } = {}): string[] => {
-  const required = readLabel(root)?.requires?.extensions?.[name] !== undefined
-  if (!required && installedVersion(root, name) === null)
+export const remove = (
+  root: string,
+  names: string | readonly string[],
+  o: { uninstall?: Installer } = {},
+): string[] => {
+  const all = [...new Set(typeof names === 'string' ? [names] : names)]
+  const extensions = readLabel(root)?.requires?.extensions ?? {}
+  const not = all.filter(
+    (n) => extensions[n] === undefined && installedPackage(root, n)?.shaderera === undefined,
+  )
+  if (not.length > 0)
     throw new Error(
-      `${name} is not a package plugin this project uses. A copied plugin's files are this project's code: delete them.`,
+      `${not.join(', ')} ${not.length === 1 ? 'is not a package plugin' : 'are not package plugins'} this project uses. A copied plugin's files are this project's code: delete them.`,
     )
-  ;(o.uninstall ?? npmUninstall)(root, name)
-  setRequirement(root, name, null)
-  return [`removed ${name}: replace what imported it with your own code`]
+  return all.map((name) => {
+    ;(o.uninstall ?? npmUninstall)(root, name)
+    setRequirement(root, name, null)
+    return `removed ${name}: replace what imported it with your own code`
+  })
 }

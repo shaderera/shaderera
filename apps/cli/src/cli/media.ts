@@ -45,19 +45,21 @@ const fit = (
  * The poster and the hover loop the site shows for a shared version (#124), rendered by the CLI's
  * own host from the main variant and sized with ffmpeg into `dir`: the frame at the film's middle
  * as a webp at most 1280 px wide and 500 KB, and the first min(4 s, duration) through render's
- * export as a silent H.264 mp4 480 px wide and at most 4 MB. Either that fails is left out with a
- * warning; nothing here stops a share.
+ * export as a silent H.264 mp4 480 px wide and at most 4 MB, on the host `hostFlags` name (`--host`,
+ * `--trusted`, `--timeout`, as a render's). Either that fails is left out with a warning; nothing
+ * here stops a share.
  */
 export const renderMedia = async (
   root: string,
   dir: string,
+  hostFlags: { host?: unknown; trusted?: unknown; timeout?: unknown } = {},
 ): Promise<{ poster?: string; loop?: string; warnings: string[] }> => {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   let opened: Awaited<ReturnType<typeof open>>
   try {
     requireFfmpeg()
-    opened = await open({ root })
+    opened = await open({ ...hostFlags, root })
   } catch (e) {
     return { warnings: [`no poster or loop: ${message(e)}`] }
   }

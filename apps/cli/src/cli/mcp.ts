@@ -1,26 +1,27 @@
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { diffJson, diffPixels, type Json, type Matrices } from '@shaderera/core'
-import { sha256 } from '@shaderera/core/host'
+import { diffJson, diffPixels, type Json, type Matrices, sha256 } from '@shaderera/core'
 import { describeCamera } from '../camera/describe.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { encodePng } from '../deliver/png.ts'
+import { refuseSoftware } from '../node/adapter.ts'
 import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
-import { findProject, type Project } from '../node/project.ts'
-import { createNodeSession } from '../node/session.ts'
+import { findProject } from '../node/project.ts'
+import { createNodeSession, type NodeSession } from '../node/session.ts'
 import { createJob, listJobs, openJob, readJob, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { head, log, save } from '../project/revisions.ts'
-import { review } from '../review/review.ts'
+import { contactSheet, review, toPng } from '../review/review.ts'
 import { open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { valueAt } from './inspect.ts'
 import { exportVideo, extensionOf } from './render.ts'
+import { stillTimes } from './still.ts'
 
 type Obj = { [k: string]: Json }
 type Found = { path: string; value: Obj }
@@ -67,37 +68,63 @@ const frameStats = async (px: Uint8Array, width: number) => {
   }
 }
 
+/** An image content block of a base64 PNG. */
+const image = (data: string) => ({ type: 'image', data, mimeType: 'image/png' })
+
+/** The long side of render_frame's image unless `full`: a full HD PNG is ~3 MB of base64. */
+const IMAGE = 1024
+/** The most frames one `still` sheet holds. */
+const SHEET = 64
+/** The tools that take `variant` and `params`, and the ones that return content blocks. */
+const LOOKS = new Set(['render_frame', 'still', 'inspect', 'compare'])
+const IMAGES = new Set(['render_frame', 'still', 'review'])
+
+/** MCP `params` as `--param key=value` flags (`open` parses each value as JSON). */
+const paramFlags = (params: Obj | undefined) =>
+  Object.entries(params ?? {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+
 /** A frame's straight RGBA as a PNG, byte for byte (a canvas would premultiply on the way). */
 const png = (px: Uint8Array, width: number, height: number): string =>
   Buffer.from(encodePng(px, width, height)).toString('base64')
 
 const num = { type: 'number' }
 const str = { type: 'string' }
+const obj = { type: 'object' }
+/** `variant` and `params`: the call renders that variant of shaderera.json, these params over it. */
+const looks = { variant: str, params: obj }
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
     'render_frame',
-    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look.',
+    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version.',
     {
       t: num,
       final: { type: 'boolean' },
-      camera: { type: 'object' },
+      camera: obj,
       image: { type: 'boolean' },
+      full: { type: 'boolean' },
       region: { type: 'array', items: num },
       object: str,
       scale: num,
+      ...looks,
     },
     ['t'],
   ],
   [
+    'still',
+    'Like `shaderera still <t>... --sheet`: renders each of times (seconds), or every `every` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant and params as render_frame.',
+    { times: { type: 'array', items: num }, every: num, ...looks },
+    [],
+  ],
+  [
     'inspect',
-    "Returns the source's inspect JSON at t, or the subtree at a diffJson path (a.b, a[id=x]).",
-    { t: num, path: str },
+    "Returns the source's inspect JSON at t, or the subtree at a diffJson path (a.b, a[id=x]). variant and params as render_frame.",
+    { t: num, path: str, ...looks },
     ['t'],
   ],
   [
-    'diff',
-    'Returns diffJson of inspect(a) vs inspect(b) (under path) and diffPixels of the final frames.',
-    { a: num, b: num, path: str },
+    'compare',
+    'Compares two times: returns diffJson of inspect(a) vs inspect(b) (under path) and diffPixels of the final frames. variant and params as render_frame. (`shaderera diff` compares two revisions.)',
+    { a: num, b: num, path: str, ...looks },
     ['a', 'b'],
   ],
   [
@@ -119,35 +146,35 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
     ['id'],
   ],
   [
-    'check_determinism',
+    'check',
     'Like `shaderera check`: renders sampled t twice in two orders; returns failures and preview vs final.',
     { times: num, seed: num },
     [],
   ],
   [
-    'export',
-    'Like `shaderera render`: writes an mp4 (out: inside the project) with ffmpeg, refusing a source that is not deterministic; returns the file, frame count and seconds. With job (a name from create_job), renders that frozen job instead of the working tree.',
-    { from: num, to: num, out: str, job: str },
+    'render',
+    'Like `shaderera render`: writes an mp4 (out: inside the project) with ffmpeg, refusing a source that is not deterministic; returns the file, frame count and seconds. With job (a name from the job tool), renders that frozen job instead of the working tree. A host on a software GPU (SwiftShader, llvmpipe, WARP: 10–100× slower) is refused unless softwareGpu: true.',
+    { from: num, to: num, out: str, job: str, softwareGpu: { type: 'boolean' } },
     [],
   ],
   [
-    'save_revision',
-    'Saves the project as a revision (versions/); returns its id. The same files always have the same id.',
+    'save',
+    'Like `shaderera save`: saves the project as a revision (versions/); returns its id. The same files always have the same id.',
     { label: str, note: str },
     [],
   ],
   [
-    'list_versions',
-    'Returns the head revision, the log of saves, restores and undos, and the render jobs.',
+    'versions',
+    'Like `shaderera versions`: returns the head revision, the log of saves, restores and undos, and the render jobs.',
     {},
     [],
   ],
   [
-    'create_job',
-    'Freezes a render job: a revision (the project is saved first unless revision is given), a variant from shaderera.json, params over the defaults, an optional window. Returns the job.',
+    'job',
+    'Like `shaderera job`: freezes a render job: a revision (the project is saved first unless revision is given), a variant from shaderera.json, params over the defaults, an optional window. Returns the job.',
     {
       variant: str,
-      params: { type: 'object' },
+      params: obj,
       revision: str,
       name: str,
       label: str,
@@ -165,15 +192,41 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
 ]
 
 /**
- * An MCP server whose tools are the CLI's operations on one child, reopened (with the project read
- * again) when files change. Tool calls run one at a time, whole, so one call's camera override
- * never reaches another call's render.
+ * The project of a call: its `root` (resolved against `dir`), or else `dir` itself, and every
+ * folder above it. With none, the error says how to start one.
+ */
+const projectOf = async (dir: string, root: unknown) => {
+  const from = typeof root === 'string' ? resolve(dir, root) : dir
+  try {
+    return await findProject(from)
+  } catch (e) {
+    if (!/^No shaderera\.json/.test((e as Error).message)) throw e
+    throw new Error(
+      `No Shaderera project (shaderera.json) in ${from} or above it. Pass root: the project's folder, or start a project: npx create-shaderera@latest my-film, then npm install in it.`,
+    )
+  }
+}
+
+/**
+ * An MCP server whose tools are the CLI's operations on a project's child, reopened (with the
+ * project read again) when files change. It starts anywhere: each call finds its project from its
+ * `root`, or from `dir` (the server's folder) and above, so one server serves several projects,
+ * one session each. Tool calls run one at a time, whole, so one call's camera override never
+ * reaches another call's render.
  */
 export const createServer = (
-  project: Project,
-  flags: { trusted?: boolean; timeout?: string } = {},
+  dir: string,
+  flags: { trusted?: boolean; timeout?: string; variant?: string; host?: string } = {},
 ) => {
-  const session = createNodeSession(project.root, flags)
+  const sessions = new Map<string, NodeSession>()
+  const sessionOf = (root: string) => {
+    let session = sessions.get(root)
+    if (!session) {
+      session = createNodeSession(root, flags)
+      sessions.set(root, session)
+    }
+    return session
+  }
   let queue: Promise<unknown> = Promise.resolve()
   const serial = <T>(run: () => Promise<T>): Promise<T> => {
     const result = queue.then(run, run)
@@ -187,143 +240,200 @@ export const createServer = (
   }
   // The low-level Server does not check arguments against a tool's input schema: they come as
   // the client sent them, and each tool reads what it needs.
-  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
-  const call = async (name: string, a: { [k: string]: any }): Promise<unknown> => {
-    const opened = await session.open()
-    const { root, manifest } = opened.project
+  const call = async (
+    root: string,
+    session: NodeSession,
+    name: string,
+    // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+    a: { [k: string]: any },
+  ): Promise<unknown> => {
+    // A variant or params get their own child, closed with the call; the session's child is the
+    // server's own variant (`--variant`), with the defaults.
+    if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
+    const params = a.params && typeof a.params === 'object' ? (a.params as Obj) : undefined
+    const variant = typeof a.variant === 'string' ? a.variant : flags.variant
+    const own =
+      LOOKS.has(name) && (typeof a.variant === 'string' || params)
+        ? await open({ ...flags, root, variant, param: paramFlags(params) })
+        : undefined
+    const opened = own ?? (await session.open())
+    const { manifest } = opened.project
     const c = opened.child
-    switch (name) {
-      case 'render_frame': {
-        const start = performance.now()
-        if (a.camera) await c.override(a.camera as Matrices)
-        try {
-          const r = await c.render(a.t, a.final === false ? 'preview' : 'final')
-          const ms = performance.now() - start
-          const stats = { ...(await frameStats(r.pixels, manifest.width)), layers: r.layers, ms }
-          const text = { type: 'text', text: JSON.stringify(stats) }
-          if (!a.image) return [text]
-          const region: Region | undefined = Array.isArray(a.region)
-            ? parseRegion(a.region.join(','))
-            : typeof a.object === 'string'
-              ? objectRegion(await c.inspect(a.t), a.object)
-              : undefined
-          if (!region) {
-            const data = png(r.pixels, manifest.width, manifest.height)
-            return [text, { type: 'image', data, mimeType: 'image/png' }]
+    try {
+      switch (name) {
+        case 'render_frame': {
+          const start = performance.now()
+          if (a.camera) await c.override(a.camera as Matrices)
+          try {
+            const r = await c.render(a.t, a.final === false ? 'preview' : 'final')
+            const ms = performance.now() - start
+            const stats = { ...(await frameStats(r.pixels, manifest.width)), layers: r.layers, ms }
+            const text = { type: 'text', text: JSON.stringify(stats) }
+            if (!a.image) return [text]
+            const region: Region | undefined = Array.isArray(a.region)
+              ? parseRegion(a.region.join(','))
+              : typeof a.object === 'string'
+                ? objectRegion(await c.inspect(a.t), a.object)
+                : undefined
+            if (!region) {
+              const { width, height } = manifest
+              const k = a.full === true ? 1 : Math.min(1, IMAGE / Math.max(width, height))
+              const size = {
+                width: Math.max(1, Math.round(width * k)),
+                height: Math.max(1, Math.round(height * k)),
+              }
+              const data =
+                k === 1
+                  ? png(r.pixels, width, height)
+                  : (await toPng(r.pixels, width, height, IMAGE)).toString('base64')
+              return [text, { type: 'text', text: JSON.stringify(size) }, image(data)]
+            }
+            const part = crop(r.pixels, manifest, region, a.scale ?? 1)
+            const where = {
+              type: 'text',
+              text: JSON.stringify({
+                width: part.width,
+                height: part.height,
+                region: part.region,
+                scale: a.scale ?? 1,
+              }),
+            }
+            return [text, where, image(png(part.pixels, part.width, part.height))]
+          } finally {
+            if (a.camera) await c.override(null)
           }
-          const part = crop(r.pixels, manifest, region, a.scale ?? 1)
-          const where = {
-            type: 'text',
-            text: JSON.stringify({ region: part.region, scale: a.scale ?? 1 }),
-          }
-          const data = png(part.pixels, part.width, part.height)
-          return [text, where, { type: 'image', data, mimeType: 'image/png' }]
-        } finally {
-          if (a.camera) await c.override(null)
         }
-      }
-      case 'inspect': {
-        const json = await inspect(c, a.t)
-        const value = a.path ? valueAt(json, a.path) : json
-        if (value === undefined) throw new Error(`Nothing at ${a.path} in inspect.`)
-        return value
-      }
-      case 'diff': {
-        const [x, y] = [await inspect(c, a.a), await inspect(c, a.b)]
-        const under = (j: Json) => (a.path ? (valueAt(j, a.path) ?? null) : j)
-        const pixels = diffPixels(await final(c, a.a), await final(c, a.b))
-        return { changes: diffJson(under(x), under(y)), pixels }
-      }
-      case 'pick': {
-        const pick = await c.pick(a.t, a.x, a.y)
-        const object = pick && c.has.inspect ? byId(await c.inspect(a.t), pick.id) : undefined
-        return { pick, object: object?.value ?? null, source: object?.value.source ?? null }
-      }
-      case 'get_camera': {
-        const matrices = await c.camera(a.t)
-        if (!matrices) throw new Error('This source has no camera.')
-        const json = c.has.inspect ? await c.inspect(a.t) : null
-        const found = objects(json).find((o) => o.value.id === 'camera' || /camera$/i.test(o.path))
-        const source = found?.value.source ?? null
-        return { matrices, description: describeCamera(matrices), path: found?.path, source }
-      }
-      case 'get_source': {
-        const found = byId(await inspect(c, a.t ?? 0), a.id)
-        if (!found) throw new Error(`No object with id ${a.id} in inspect(${a.t ?? 0}).`)
-        if (typeof found.value.source !== 'string') throw new Error(`${a.id} has no source.`)
-        return { path: found.path, ...sourceAt(root, found.value.source) }
-      }
-      case 'check_determinism':
-        return checkChild(c, manifest, { times: a.times ?? 20, seed: a.seed })
-      case 'export': {
-        const out = typeof a.out === 'string' ? inside(root, a.out) : undefined
-        if (typeof a.job !== 'string')
-          return exportVideo(opened.project, c, {
-            from: a.from,
-            to: a.to,
-            out,
-            revision: save(root, { by: 'agent' }).id,
-          })
-        const job = readJob(root, a.job)
-        if (job.delivery.format === 'png')
-          throw new Error(
-            `Job ${job.name} is a png finishing handoff: shaderera render --job ${job.name}.`,
-          )
-        // The job's frozen delivery, as `shaderera render --job` exports it.
-        const video = videoOptionsOf(job.delivery)
-        const frozen = await openJob(root, job)
-        try {
-          return await exportVideo(frozen.project, frozen.child, {
-            ...video,
-            from: job.output.from,
-            to: job.output.to,
-            out: out ?? join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
-            quality: job.delivery.quality,
-            revision: job.revision,
-          })
-        } finally {
-          await frozen.child.close()
-        }
-      }
-      case 'save_revision':
-        return save(root, { by: 'agent', label: a.label, note: a.note })
-      case 'list_versions':
-        return { head: head(root), log: log(root), jobs: listJobs(root) }
-      case 'create_job':
-        return await createJob(root, { by: 'agent', ...a, replace: false })
-      case 'review': {
-        // A variant gets its own child; the session's child is the main output.
-        const variant = typeof a.variant === 'string' ? a.variant : undefined
-        const own = variant ? await open({ root, variant, ...flags }) : undefined
-        const target = own ?? opened
-        try {
-          const report = await review({
-            project: target.project,
-            child: target.child,
-            outDir: join(root, 'out', 'review', ...(variant ? [safeName(variant)] : [])),
-            requirements: outputRequirements(readRequirements(root), {
-              variant,
-              ...target.project.manifest,
-            }),
-            quick: a.quick === true,
-            reopen: async (size) => (await open({ root, variant, ...flags }, size)).child,
-          })
-          const image = (file: string) => ({
-            type: 'image',
-            data: readFileSync(file).toString('base64'),
-            mimeType: 'image/png',
-          })
+        case 'still': {
+          const given: number[] = Array.isArray(a.times) ? a.times : []
+          const every = typeof a.every === 'number' ? a.every : undefined
+          if (given.length === 0 && every === undefined)
+            throw new Error('still needs times or every.')
+          const times = stillTimes(given, every, manifest.duration)
+          if (times.length > SHEET)
+            throw new Error(
+              `${times.length} frames: a sheet holds at most ${SHEET}. Give fewer times or a longer every.`,
+            )
+          const frames = []
+          for (const t of times)
+            frames.push({ t, label: variant ?? 'main', pixels: await final(c, t) })
+          const sheet = await contactSheet(frames, manifest.width, manifest.height)
           return [
-            { type: 'text', text: JSON.stringify(report) },
-            image(report.contactSheet),
-            ...report.frames.filter((f) => f.label !== 'transition').map((f) => image(f.thumb)),
+            { type: 'text', text: JSON.stringify({ times }) },
+            image(sheet.toString('base64')),
           ]
-        } finally {
-          await own?.child.close()
+        }
+        case 'inspect': {
+          const json = await inspect(c, a.t)
+          const value = a.path ? valueAt(json, a.path) : json
+          if (value === undefined) throw new Error(`Nothing at ${a.path} in inspect.`)
+          return value
+        }
+        case 'compare': {
+          const [x, y] = [await inspect(c, a.a), await inspect(c, a.b)]
+          const under = (j: Json) => (a.path ? (valueAt(j, a.path) ?? null) : j)
+          const pixels = diffPixels(await final(c, a.a), await final(c, a.b))
+          return { changes: diffJson(under(x), under(y)), pixels }
+        }
+        case 'pick': {
+          const pick = await c.pick(a.t, a.x, a.y)
+          const object = pick && c.has.inspect ? byId(await c.inspect(a.t), pick.id) : undefined
+          return { pick, object: object?.value ?? null, source: object?.value.source ?? null }
+        }
+        case 'get_camera': {
+          const matrices = await c.camera(a.t)
+          if (!matrices) throw new Error('This source has no camera.')
+          const json = c.has.inspect ? await c.inspect(a.t) : null
+          const found = objects(json).find(
+            (o) => o.value.id === 'camera' || /camera$/i.test(o.path),
+          )
+          const source = found?.value.source ?? null
+          return { matrices, description: describeCamera(matrices), path: found?.path, source }
+        }
+        case 'get_source': {
+          const found = byId(await inspect(c, a.t ?? 0), a.id)
+          if (!found) throw new Error(`No object with id ${a.id} in inspect(${a.t ?? 0}).`)
+          if (typeof found.value.source !== 'string') throw new Error(`${a.id} has no source.`)
+          return { path: found.path, ...sourceAt(root, found.value.source) }
+        }
+        case 'check':
+          return checkChild(c, manifest, { times: a.times ?? 20, seed: a.seed })
+        case 'render': {
+          const out = typeof a.out === 'string' ? inside(root, a.out) : undefined
+          if (typeof a.job !== 'string') {
+            await refuseSoftware(c, a.softwareGpu === true, 'softwareGpu: true')
+            return exportVideo(opened.project, c, {
+              from: a.from,
+              to: a.to,
+              out,
+              revision: save(root, { by: 'agent' }).id,
+            })
+          }
+          const job = readJob(root, a.job)
+          if (job.delivery.format === 'png')
+            throw new Error(
+              `Job ${job.name} is a png finishing handoff: shaderera render --job ${job.name}.`,
+            )
+          // The job's frozen delivery, as `shaderera render --job` exports it.
+          const video = videoOptionsOf(job.delivery)
+          const frozen = await openJob(root, job)
+          try {
+            await refuseSoftware(frozen.child, a.softwareGpu === true, 'softwareGpu: true')
+            return await exportVideo(frozen.project, frozen.child, {
+              ...video,
+              from: job.output.from,
+              to: job.output.to,
+              out: out ?? join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
+              quality: job.delivery.quality,
+              revision: job.revision,
+            })
+          } finally {
+            await frozen.child.close()
+          }
+        }
+        case 'save':
+          return save(root, { by: 'agent', label: a.label, note: a.note })
+        case 'versions':
+          return { head: head(root), log: log(root), jobs: listJobs(root) }
+        case 'job':
+          return await createJob(root, {
+            by: 'agent',
+            host: flags.host,
+            variant: flags.variant,
+            ...a,
+            replace: false,
+          })
+        case 'review': {
+          // A variant gets its own child; the session's child is the server's own variant.
+          const mine =
+            typeof a.variant === 'string' ? await open({ ...flags, root, variant }) : undefined
+          const target = mine ?? opened
+          try {
+            const report = await review({
+              project: target.project,
+              child: target.child,
+              outDir: join(root, 'out', 'review', ...(variant ? [safeName(variant)] : [])),
+              requirements: outputRequirements(readRequirements(root), {
+                variant,
+                ...target.project.manifest,
+              }),
+              quick: a.quick === true,
+              reopen: async (size) => (await open({ ...flags, root, variant }, size)).child,
+            })
+            const file = (path: string) => image(readFileSync(path).toString('base64'))
+            return [
+              { type: 'text', text: JSON.stringify(report) },
+              file(report.contactSheet),
+              ...report.frames.filter((f) => f.label !== 'transition').map((f) => file(f.thumb)),
+            ]
+          } finally {
+            await mine?.child.close()
+          }
         }
       }
+      throw new Error(`Unknown tool ${name}.`)
+    } finally {
+      await own?.child.close()
     }
-    throw new Error(`Unknown tool ${name}.`)
   }
   const server = new Server(
     { name: 'shaderera', version: shadereraVersion() },
@@ -333,33 +443,43 @@ export const createServer = (
     tools: tools.map(([name, description, properties, required]) => ({
       name,
       description,
-      inputSchema: { type: 'object' as const, properties, required },
+      inputSchema: { type: 'object' as const, properties: { ...properties, root: str }, required },
     })),
   }))
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+    const a = params.arguments ?? {}
+    let session: NodeSession | undefined
     try {
-      const r = await serial(() => call(params.name, params.arguments ?? {}))
-      const content =
-        params.name === 'render_frame' || params.name === 'review'
-          ? r
-          : [{ type: 'text', text: JSON.stringify(r) }]
+      const r = await serial(async () => {
+        if (!tools.some(([n]) => n === params.name)) throw new Error(`Unknown tool ${params.name}.`)
+        const { root } = await projectOf(dir, a.root)
+        session = sessionOf(root)
+        return call(root, session, params.name, a)
+      })
+      const content = IMAGES.has(params.name) ? r : [{ type: 'text', text: JSON.stringify(r) }]
       return { content }
     } catch (e) {
-      if (/exited|took longer/.test(String(e))) session.drop()
+      if (/exited|took longer/.test(String(e))) session?.drop()
       return { content: [{ type: 'text', text: (e as Error).message }], isError: true }
     }
   })
-  server.onclose = () => session.close()
+  server.onclose = () => {
+    for (const session of sessions.values()) session.close()
+  }
   return server
 }
 
-/** `shaderera mcp [--root dir] [--trusted]`: serves the tools over stdio until stdin closes. */
+/**
+ * `shaderera mcp [--root dir] [--variant name] [--host node|browser] [--trusted]`: serves the tools over stdio until stdin closes. It
+ * starts in any folder; a call finds its project (its `root`, or `--root` or the cwd and above).
+ */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {})
-  const project = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
-  const server = createServer(project, {
+  const server = createServer(resolve(typeof v.root === 'string' ? v.root : process.cwd()), {
     trusted: v.trusted === true,
     timeout: typeof v.timeout === 'string' ? v.timeout : undefined,
+    variant: typeof v.variant === 'string' ? v.variant : undefined,
+    host: typeof v.host === 'string' ? v.host : undefined,
   })
   await server.connect(new StdioServerTransport())
   await new Promise((done) => process.stdin.once('close', done))

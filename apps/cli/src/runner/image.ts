@@ -56,7 +56,5 @@ export const decodeImage = (bytes: Uint8Array, path: string): DecodedImage => {
     const j = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true, maxMemoryUsageInMB: 2048 })
     return { width: j.width, height: j.height, bits: 8, data: new Uint8Array(j.data) }
   }
-  throw new Error(
-    `${path} is not a PNG or JPEG: convert it to PNG once (the plugin render-image-textures has tools/to-png.ts).`,
-  )
+  throw new Error(`${path} is not a PNG or JPEG: convert it to PNG once (the plugin image-to-png).`)
 }

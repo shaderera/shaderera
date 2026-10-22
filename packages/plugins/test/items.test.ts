@@ -9,44 +9,50 @@ import { pathToFileURL } from 'node:url'
 import { Canvas, GlobalFonts } from '@napi-rs/canvas'
 import type { Host } from '@shaderera/core'
 import { create, globals } from 'webgpu'
+import { decodeImage } from '../../../apps/cli/src/runner/image.ts'
 import { project } from './assemble.ts'
 
 const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { createCodeWall, readCode } = (await from(
   'src/type/code-wall.ts',
 )) as typeof import('../text-code-wall/src/type/code-wall.ts')
-const { createCaptions } = (await from(
-  'src/type/captions.ts',
-)) as typeof import('../text-feature-captions/src/type/captions.ts')
+const { createTitles } = (await from(
+  'src/type/titles.ts',
+)) as typeof import('../text-glitch-titles/src/type/titles.ts')
 const { glyphPoints } = (await from(
   'src/procedural/glyph-points.ts',
 )) as typeof import('../text-glyph-points/src/procedural/glyph-points.ts')
-const { decoded, fitWidth, glitched, scramble } = (await from(
-  'src/type/kinetic.ts',
-)) as typeof import('../text-kinetic/src/type/kinetic.ts')
-const { bandsOf, clockFromAnalysis, clockOf, fitGrid, pulse } = (await from(
+const { decoded, glitched, scramble } = (await from(
+  'src/type/scramble.ts',
+)) as typeof import('../text-scramble/src/type/scramble.ts')
+const { bandsOf, clockFromAnalysis, clockOf, fitGrid, loadAnalysis } = (await from(
   'src/music/beat.ts',
 )) as typeof import('../audio-beat-clock/src/music/beat.ts')
 const { freeCorner, safeArea } = (await from(
   'src/layout/frame.ts',
 )) as typeof import('../format-safe-areas/src/layout/frame.ts')
-const { bezier, glide, hold, path3, progress, settle, track, track3 } = (await from(
+const { bezier, glide, hold, settle } = (await from(
+  'src/motion/eases.ts',
+)) as typeof import('../motion-eases/src/motion/eases.ts')
+const { path3, track, track3 } = (await from(
   'src/motion/keyframes.ts',
 )) as typeof import('../motion-keyframes/src/motion/keyframes.ts')
-const { cameraCapability, cameraPath, cameraTrack, fit, lens, shot, viewProjection, widenFov } =
+const { cameraCapability, cameraPath, cameraTrack, fit, lensDeg, shot, viewProjection, widenFov } =
   (await from('src/motion/camera.ts')) as typeof import('../camera-keyframes/src/motion/camera.ts')
-const { hits, SHAKE, shake } = (await from(
+const { SHAKE, shake } = (await from(
   'src/motion/shake.ts',
 )) as typeof import('../camera-shake/src/motion/shake.ts')
 const { createThreeHost, threeCamera } = (await from(
   'src/three/host.ts',
 )) as typeof import('../render-three-host/src/three/host.ts')
-const { decodeImage, loadAtlas, loadTexture } = (await from(
-  'src/three/images.ts',
-)) as typeof import('../render-image-textures/src/three/images.ts')
+const { loadAtlas, loadTexture } = (await from(
+  'src/three/textures.ts',
+)) as typeof import('../render-three-textures/src/three/textures.ts')
 type Analysis = import('../audio-beat-clock/src/music/beat.ts').Analysis
 
 Object.assign(globalThis, globals)
+// Dawn's instance must outlive every device and pending readback, so it is held here.
+const gpu = create([])
 const here = join(import.meta.dirname, '..')
 GlobalFonts.registerFromPath(
   join(here, 'font-ibm-plex-mono', 'assets', 'fonts', 'IBMPlexMono-SemiBold.ttf'),
@@ -65,6 +71,7 @@ const io = {
   read: async (p: string) => new Uint8Array(readFileSync(join(project, p))),
   canvas: (w: number, h: number) => new Canvas(w, h) as unknown as OffscreenCanvas,
   font: async () => {},
+  image: async (p: string) => decodeImage(await io.read(p), p),
 }
 const hostOf = (width: number, height: number, gpu?: GPUDevice): Host =>
   ({
@@ -100,8 +107,37 @@ test('audio-beat-clock: bars, positions, bands and pulses', () => {
   } as unknown as Analysis
   assert.ok(Math.abs(clockFromAnalysis(a, { trim: 0.1, firstBar: 2 }).at(2) - 0.5) < 1e-9)
   assert.deepEqual(bandsOf(a)(1 / 60), [0.5, 1, 1, 1])
-  assert.equal(pulse(1, [0.5, 2], 0.1), Math.exp(-5))
-  assert.equal(pulse(0.2, [0.5]), 0)
+})
+
+test('audio-beat-clock: the analysis has the shared header, read from its own path, and names its song', async () => {
+  const song = new Uint8Array([1, 2, 3, 4])
+  const { sha256 } = await import('@shaderera/core')
+  const header = {
+    format: 'shaderera.analysis/1',
+    kind: 'music',
+    source: { path: 'audio/song.wav', bytes: 4, sha256: await sha256(song), seconds: 1 },
+    tool: { script: 'tools/analyze-music.ts' },
+    params: { fps: 60 },
+    silences: [{ start: 0.5, end: 0.75 }],
+  }
+  const files: Record<string, Uint8Array> = { 'audio/song.wav': song }
+  const json = (o: unknown) => new TextEncoder().encode(JSON.stringify(o))
+  const host = {
+    io: {
+      read: async (p: string) => files[p] ?? assert.fail(`no ${p}`),
+    },
+  } as unknown as Host
+  files['a.json'] = json(header)
+  const a = await loadAnalysis(host, 'a.json')
+  assert.deepEqual(a.silences, [{ start: 0.5, end: 0.75 }])
+  assert.equal(a.source.path, 'audio/song.wav')
+  files['old.json'] = json({ kind: 'shaderera.analysis/1', of: header.source })
+  await assert.rejects(loadAnalysis(host, 'old.json'), /not a shaderera.analysis\/1 music artifact/)
+  files['other.json'] = json({ ...header, source: { ...header.source, sha256: '0'.repeat(64) } })
+  await assert.rejects(
+    loadAnalysis(host, 'other.json'),
+    /measured from other bytes than audio\/song.wav/,
+  )
 })
 
 test('audio-beat-clock: the grid is fitted to the onsets, on the steps they sit on', () => {
@@ -130,24 +166,20 @@ test('audio-beat-clock: the grid is fitted to the onsets, on the steps they sit 
   )
 })
 
-test('text-kinetic: deterministic scramble, decode in and out, glitch draws', () => {
+test('text-scramble: deterministic scramble, decode in and out, glitch draws', () => {
   assert.equal(scramble('HELLO WORLD', 7, 0.5), scramble('HELLO WORLD', 7, 0.5))
   assert.notEqual(scramble('HELLO WORLD', 7, 1), 'HELLO WORLD')
-  assert.equal(decoded('BEAT', 1.5, { from: 1, to: 3, frame: 9 }).text, 'BEAT')
-  assert.ok(decoded('BEAT', 1.5, { from: 1, to: 3, frame: 9 }).settled)
-  assert.equal(decoded('BEAT', 0.5, { from: 1, to: 3, frame: 9 }).visible, false)
+  assert.equal(decoded('BEAT', 1.5, { start: 1, end: 3, frame: 9 }).text, 'BEAT')
+  assert.ok(decoded('BEAT', 1.5, { start: 1, end: 3, frame: 9 }).settled)
+  assert.equal(decoded('BEAT', 0.5, { start: 1, end: 3, frame: 9 }).visible, false)
   const c = io.canvas(640, 360)
   const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D
   // `font` is a family alone, as the README says: the functions put the size in front, and a
   // weight there ('600 "Plex Bold"' → '100px 600 "Plex Bold"') is not a CSS font, so the canvas
-  // would fall back to another face. A monospace measures every letter the same.
+  // would fall back to another face.
   const font = '"Plex Bold"'
-  assert.equal(fitWidth(ctx, font, 'iiii', 400), fitWidth(ctx, font, 'MMMM', 400))
-  const size = fitWidth(ctx, font, 'GLITCH', 400)
-  ctx.font = `${size}px ${font}`
-  assert.ok(Math.abs(ctx.measureText('GLITCH').width - 400) < 0.5)
   ctx.fillStyle = '#fff'
-  glitched(ctx, 'GLITCH', 320, 180, { font, size, frame: 3, align: 'center' })
+  glitched(ctx, 'GLITCH', 320, 180, { font, size: 111, frame: 3, align: 'center' })
   assert.ok(inked(c) > 0.05, 'glitched text drew')
 })
 
@@ -164,13 +196,17 @@ test('format-safe-areas: title-safe margins, platform zones', () => {
 })
 
 test('format-safe-areas: the corner farthest from the subject, inside the safe area', () => {
-  const corner = (s: [number, number] | [number, number, number, number]) =>
+  const corner = (s: [number, number] | { x: number; y: number; width: number; height: number }) =>
     freeCorner(s, 1920, 1080).corner
   assert.equal(corner([1800, 100]), 'bl')
   assert.equal(corner([100, 100]), 'br')
   assert.equal(corner([100, 1000]), 'tr')
   assert.equal(corner([1800, 1000]), 'tl')
-  assert.equal(corner([600, 200, 800, 400]), 'bl', 'a box counts by its centre')
+  assert.equal(
+    corner({ x: 600, y: 200, width: 800, height: 400 }),
+    'bl',
+    'a box counts by its centre',
+  )
   assert.equal(corner([960, 540]), 'bl', 'a tie goes to bl')
   const a = safeArea(1080, 1920, 'reels')
   assert.deepEqual(freeCorner([100, 1800], 1080, 1920, 'reels'), {
@@ -189,13 +225,13 @@ test('format-safe-areas: the corner farthest from the subject, inside the safe a
   })
 })
 
-test('text-feature-captions and text-code-wall draw in 16:9 and 9:16', async () => {
+test('text-glitch-titles and text-code-wall draw in 16:9 and 9:16', async () => {
   const fonts = { title: '"Plex Bold"', small: '"Plex"', note: '"Stix Italic"' }
-  const captions = createCaptions({
-    captions: [
+  const titles = createTitles({
+    titles: [
       {
-        from: 0,
-        to: 4,
+        start: 0,
+        end: 4,
         items: [
           ['AUDIO DRIVEN', 'the line is the song'],
           ['BEAT GRID', 'cut on the 1/16'],
@@ -207,9 +243,9 @@ test('text-feature-captions and text-code-wall draw in 16:9 and 9:16', async () 
     swap: 1,
   })
   const wall = createCodeWall({
-    files: await readCode(hostOf(1, 1), ['src/type/code-wall.ts', 'src/type/kinetic.ts']),
-    from: 0,
-    to: 4,
+    files: await readCode(hostOf(1, 1), ['src/type/code-wall.ts', 'src/type/scramble.ts']),
+    start: 0,
+    end: 4,
     step: 0.125,
     claim: ['EVERYTHING', 'IS SOURCE CODE'],
     fonts: { mono: '"Plex"', claim: '"Plex Bold"' },
@@ -221,8 +257,8 @@ test('text-feature-captions and text-code-wall draw in 16:9 and 9:16', async () 
     for (const t of [0.5, 1.5, 2.5, 3.5]) {
       const c = io.canvas(W, H)
       const ctx = c.getContext('2d') as OffscreenCanvasRenderingContext2D
-      captions(ctx, W, H, t, Math.round(t * 60))
-      assert.ok(inked(c) > 0.005, `caption at ${t} in ${W}x${H}`)
+      titles(ctx, W, H, t, Math.round(t * 60))
+      assert.ok(inked(c) > 0.005, `title at ${t} in ${W}x${H}`)
       const w = io.canvas(W, H)
       wall(w.getContext('2d') as OffscreenCanvasRenderingContext2D, W, H, t, Math.round(t * 60))
       assert.ok(inked(w) > 0.02, `wall at ${t} in ${W}x${H}`)
@@ -256,7 +292,6 @@ test('motion-keyframes: held, eased, cut', () => {
     ])(0.5),
     [1, 2, 3],
   )
-  assert.equal(progress(5, 4, 6), 0.5)
 })
 
 test('motion-keyframes: object keys carry an id to inspect and move as tuples do', () => {
@@ -287,30 +322,30 @@ test('motion-keyframes: object keys carry an id to inspect and move as tuples do
   assert.equal(p.inspect(0.5).id, 'b')
 })
 
-test('text-feature-captions: inspect names the caption showing and its item', () => {
-  const captions = createCaptions({
-    captions: [
+test('text-glitch-titles: inspect names the title showing and its item', () => {
+  const titles = createTitles({
+    titles: [
       {
         id: 'intro',
-        from: 0,
-        to: 2,
+        start: 0,
+        end: 2,
         items: [
           ['ONE', 'a'],
           ['TWO', 'b'],
         ],
       },
-      { from: 2, to: 3, items: [['THREE', 'c']] },
+      { start: 2, end: 3, items: [['THREE', 'c']] },
     ],
     fonts: { title: '"Plex Bold"', small: '"Plex"', note: '"Stix Italic"' },
     swap: 1,
     layouts: ['edge', 'split'],
   })
-  assert.deepEqual(captions.inspect(-1), [])
-  assert.deepEqual(captions.inspect(1.25), [
+  assert.deepEqual(titles.inspect(-1), [])
+  assert.deepEqual(titles.inspect(1.25), [
     {
       id: 'intro',
-      from: 0,
-      to: 2,
+      start: 0,
+      end: 2,
       item: 1,
       index: 1,
       title: 'TWO',
@@ -319,8 +354,8 @@ test('text-feature-captions: inspect names the caption showing and its item', ()
       u: 0.25,
     },
   ])
-  assert.deepEqual(captions.inspect(2.5), [
-    { from: 2, to: 3, item: 0, index: 2, title: 'THREE', note: 'c', layout: 'edge', u: 0.5 },
+  assert.deepEqual(titles.inspect(2.5), [
+    { start: 2, end: 3, item: 0, index: 2, title: 'THREE', note: 'c', layout: 'edge', u: 0.5 },
   ])
 })
 
@@ -342,7 +377,11 @@ test('camera-keyframes: the target lands in the middle, right is right, a tall f
   assert.ok(Math.abs(x ?? 1) < 1e-6 && Math.abs(y ?? 1) < 1e-6 && (z ?? -1) > 0 && (z ?? 2) < 1)
   assert.ok((project(viewProjection(c, 16 / 9), [1, 0, 0])[0] ?? 0) > 0, 'world +x is screen right')
   assert.ok((project(viewProjection(c, 16 / 9), [0, 1, 0])[1] ?? 0) > 0, 'world +y is screen up')
-  assert.ok(camera(0, 9 / 16).fov > c.fov)
+  assert.ok(camera(0, 9 / 16).fovDeg > c.fovDeg)
+  assert.ok(
+    Math.abs(camera(0, 9 / 16).fovDeg - (widenFov(Math.PI / 4.5, 9 / 16) * 180) / Math.PI) < 1e-9,
+    'fovDeg is degrees, opened in radians',
+  )
   assert.equal(widenFov(0.5, 16 / 9), 0.5)
   const opened = widenFov(0.5, 9 / 16)
   assert.ok(Math.abs(opened - 0.8522531745541341) < 1e-12, 'half way on a log scale')
@@ -388,13 +427,26 @@ test('camera-keyframes: orbits keep their distance, fit frames exactly, lenses, 
   const mid = camera(1, 16 / 9).eye
   assert.ok(Math.abs(Math.hypot(...mid) - 10) < 1e-6, 'an orbit keeps its distance')
   assert.ok(Math.hypot(...camera(2.5, 16 / 9).eye) < 9.9, 'a line cuts across')
-  assert.ok(Math.abs(lens(35) - 31.4) < 0.5, 'a 35 mm lens on 16:9 is about 31 degrees vertical')
-  const f = fit({ center: [0, 0, 0], radius: 1, azimuth: 0, elevation: 0, fov: 40, fill: 0.5 })
+  assert.ok(Math.abs(lensDeg(35) - 31.4) < 0.5, 'a 35 mm lens on 16:9 is about 31 degrees vertical')
+  assert.equal(lensDeg(35), (2 * Math.atan(35 / (16 / 9) / 70) * 180) / Math.PI)
+  const f = fit({
+    center: [0, 0, 0],
+    radius: 1,
+    azimuthDeg: 0,
+    elevationDeg: 0,
+    fovDeg: 40,
+    fill: 0.5,
+  })
   const d = Math.hypot(...f.eye)
   assert.ok(
     Math.abs(Math.asin(1 / d) - (0.5 * (20 * Math.PI)) / 180) < 1e-9,
     'the subject spans half the height',
   )
+  const side = fit({ center: [0, 0, 0], radius: 1, azimuthDeg: 90, elevationDeg: 30, fovDeg: 40 })
+  const sd = Math.hypot(...side.eye)
+  assert.ok(Math.abs(side.eye[1] - sd / 2) < 1e-9, '30 degrees above the horizon')
+  assert.ok(Math.abs(side.eye[2]) < 1e-9 && side.eye[0] > 0, '90 degrees round from +z is +x')
+  assert.equal(side.fovDeg, 40)
   const path = cameraPath([shot([0, 0, 10]), shot([5, 0, 5]), shot([10, 0, 0])], 0, 2)
   assert.ok(path(1, 16 / 9).eye[0] > 3 && path(1, 16 / 9).eye[0] < 7)
   const shifted = viewProjection(shot([0, 0, 10], [0, 0, 0], 40, 0, { shift: [-1 / 6, 0] }), 16 / 9)
@@ -405,20 +457,17 @@ test('camera-keyframes: orbits keep their distance, fit frames exactly, lenses, 
   )
 })
 
-test('camera-shake: the same at any t in any order, still at zero amount, kicks on a hit', () => {
+test('camera-shake: the same at any t in any order, still at zero amount', () => {
   const c = shot([0, 0, 10], [0, 0, 0], 40)
   const a = shake(c, 3.2, SHAKE.handheld)
   shake(c, 9, SHAKE.handheld)
   assert.deepEqual(shake(c, 3.2, SHAKE.handheld), a)
   assert.deepEqual(shake(c, 3.2, SHAKE.impact, 0), c)
   assert.notDeepEqual(a.target, c.target)
-  assert.equal(hits(0.5, [1]), 0)
-  assert.equal(hits(1, [1]), 1)
 })
 
-test('render-three-host + render-image-textures: an image card renders on the host GPU, the same at any t in any order, texture and bytes alike', async () => {
+test('render-three-host + render-three-textures: an image card renders on the host GPU, the same at any t in any order, texture and bytes alike', async () => {
   const THREE = await import('three/webgpu')
-  const gpu = create([])
   const adapter = await gpu.requestAdapter()
   assert.ok(adapter)
   const device = await adapter.requestDevice()
@@ -438,7 +487,7 @@ test('render-three-host + render-image-textures: an image card renders on the ho
   const W = 320
   const H = 180
   const host = hostOf(W, H, device)
-  const png = decodeImage(new Uint8Array(readFileSync(join(project, 'painting.png'))))
+  const png = await io.image('painting.png')
   assert.deepEqual([png.width, png.height, png.data[0], png.data[2]], [64, 48, 0xc0, 0x20])
   const { texture, aspect } = await loadTexture(host, 'painting.png')
   const atlas = await loadAtlas(host, ['painting.png', 'painting.png'], { cell: 32 })
