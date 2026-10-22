@@ -1,0 +1,27 @@
+{
+  "route": "POST /uploads/missing",
+  "about": "share: which of the version's objects (source, player, poster, loop) the store lacks.",
+  "request": {
+    "method": "POST",
+    "path": "/uploads/missing",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "hashes": [
+        "9db1f12534149477320a8d179546cb00b8d5a7c4c5f81433c5f04387747496d0",
+        "9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf"
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "missing": ["9db1f12534149477320a8d179546cb00b8d5a7c4c5f81433c5f04387747496d0"]
+    }
+  }
+}

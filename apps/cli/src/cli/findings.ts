@@ -49,7 +49,7 @@ export const errorFinding = (e: unknown): Finding => {
       ? 'usage'
       : shader
         ? 'shader'
-        : /needs ffmpeg|ffprobe cannot|no GPU adapter|cannot encode with NVENC|Chrome/.test(message)
+        : /needs ffmpeg|ffprobe cannot|GPU adapter|cannot encode with NVENC|Chrome/.test(message)
           ? 'environment'
           : /not deterministic/.test(message)
             ? 'determinism'

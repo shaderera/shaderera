@@ -1,0 +1,34 @@
+{
+  "route": "POST /films/{film}/versions",
+  "about": "Over a write route's limit for the hour (here limits.publishesPerHour). Retry-After is the whole seconds until a retry can pass, at least 1.",
+  "request": {
+    "method": "POST",
+    "path": "/films/2phicdywpg/versions",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "files": {
+        "shaderera.json": "9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf"
+      },
+      "player": {
+        "runner.html": "9db1f12534149477320a8d179546cb00b8d5a7c4c5f81433c5f04387747496d0",
+        "files/shaderera.json": "9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf"
+      },
+      "licence": "MIT",
+      "shaderera": "0.1.5"
+    }
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "Content-Type": "application/json",
+      "Retry-After": "1800"
+    },
+    "body": {
+      "error": "Over 20 publishes an hour."
+    }
+  },
+  "records": ["request.body.files", "request.body.player"]
+}

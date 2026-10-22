@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -50,8 +50,11 @@ test('the output holds the previous film until the new one is complete; a failed
   const partial = `${out}.${process.pid}.partial`
   writeFileSync(out, 'the previous film')
   // Another render to the same out, still running in another process: its file is its own.
-  const other = `${out}.999999999.partial`
+  const other = `${out}.${process.ppid}.partial`
   writeFileSync(other, 'another render')
+  // One killed outright, whose process is gone: what it left goes.
+  const killed = `${out}.${spawnSync(process.execPath, ['-e', '']).pid}.partial`
+  writeFileSync(killed, 'a killed render')
   // Interrupted midway (Ctrl-C): the new frames went to .partial, never to the output.
   const stop = new AbortController()
   await assert.rejects(
@@ -68,6 +71,7 @@ test('the output holds the previous film until the new one is complete; a failed
     /Interrupted/,
   )
   assert.equal(existsSync(partial), false)
+  assert.equal(existsSync(killed), false)
   assert.equal(readFileSync(out, 'utf8'), 'the previous film')
 
   // A host whose device is lost at 0.5 s: the render fails with that frame and never writes it.
@@ -95,6 +99,16 @@ test('the output holds the previous film until the new one is complete; a failed
     /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.\d+\.partial/,
   )
   assert.equal(probe(`${blocked}.${process.pid}.partial`).video?.frames, 10)
+  // Such a kept film, left by a process that is gone, survives the next render of its out; a
+  // half-written partial of a dead process does not.
+  const kept = join(dirname(out), 'kept.mp4')
+  const finishedFilm = `${kept}.${spawnSync(process.execPath, ['-e', '']).pid}.partial`
+  const halfFilm = `${kept}.${spawnSync(process.execPath, ['-e', '']).pid}.partial`
+  copyFileSync(`${blocked}.${process.pid}.partial`, finishedFilm)
+  writeFileSync(halfFilm, readFileSync(finishedFilm).subarray(0, 600))
+  await exportVideo(project, child, { out: kept, revision: 'test' })
+  assert.equal(probe(finishedFilm).video?.frames, 10)
+  assert.equal(existsSync(halfFilm), false)
 
   // In the project but not in out/: it would be saved into every later revision.
   await assert.rejects(

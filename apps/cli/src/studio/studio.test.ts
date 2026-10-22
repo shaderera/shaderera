@@ -103,7 +103,7 @@ after(async () => {
 })
 const root = fixture()
 before(async () => {
-  bridge = await startBridge({ root, to: SITE, origins: [SITE, DEV], settleMs: 50 })
+  bridge = await startBridge({ root, api: SITE, site: SITE, origins: [SITE, DEV], settleMs: 50 })
   relay = await startRelay({ ttlMs: 300 })
 })
 
@@ -461,7 +461,7 @@ test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and 
   const manifest = JSON.parse(readFileSync(join(thai, 'shaderera.json'), 'utf8'))
   manifest.variants['16:9'] = { params: { grey: 50 } }
   writeFileSync(join(thai, 'shaderera.json'), JSON.stringify(manifest))
-  const b = await startBridge({ root: thai, to: SITE, origins: [SITE], settleMs: 50 })
+  const b = await startBridge({ root: thai, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
   try {
     const sse = events(b)
     await sse.opened
@@ -503,6 +503,81 @@ test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and 
   }
 })
 
+test('a film in two ratios: /info gives their sizes, /runner frames each, /render does both', async () => {
+  const two = fixture()
+  const manifest = JSON.parse(readFileSync(join(two, 'shaderera.json'), 'utf8'))
+  manifest.variants = {
+    '16:9': { width: 32, height: 18 },
+    '9:16': { width: 18, height: 32, duration: 0.5 },
+  }
+  writeFileSync(join(two, 'shaderera.json'), JSON.stringify(manifest))
+  const b = await startBridge({ root: two, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
+  try {
+    const info = jsonOf(await call(b.port, { path: '/info', headers: asPage(b) }))
+    assert.deepEqual(info.film.sizes, {
+      '16:9': { width: 32, height: 18, duration: 1, fps: 10 },
+      '9:16': { width: 18, height: 32, duration: 0.5, fps: 10 },
+    })
+    // The variants stay in shaderera.json's own shape.
+    assert.deepEqual(info.film.variants, manifest.variants)
+
+    // One frame a variant: the runner page gets the name, and the bridge knows every one.
+    const runner = (variant: string) =>
+      call(b.port, { path: `/runner?s=${b.secret}&variant=${encodeURIComponent(variant)}` })
+    const framed = await runner('9:16')
+    assert.equal(framed.status, 302)
+    const location = new URL(String(framed.headers.location))
+    assert.equal(location.searchParams.get('variant'), '9:16')
+    assert.equal((await fetch(location)).status, 200)
+    const unknown = await runner('4:5')
+    assert.equal(unknown.status, 400)
+    assert.match(jsonOf(unknown).error, /no variant "4:5"/)
+
+    // Several variants at once: one job each, in the order asked.
+    const sse = events(b)
+    await sse.opened
+    const asked = await call(b.port, {
+      method: 'POST',
+      path: '/render',
+      headers: asPage(b),
+      body: { format: 'png', variants: ['9:16', '16:9'], t: 0.25 },
+    })
+    assert.equal(asked.status, 200, asked.body.toString())
+    const { jobs } = jsonOf(asked) as { jobs: string[] }
+    assert.equal(jobs.length, 2)
+    for (const job of jobs) {
+      const end = await sse.next(
+        (e) => e.type === 'job' && e.id === job && (e.state === 'done' || e.state === 'failed'),
+      )
+      assert.equal(end.type === 'job' && end.state, 'done', JSON.stringify(end))
+    }
+    sse.close()
+    const sizes = []
+    for (const [k, job] of jobs.entries()) {
+      const name = `${basename(two)}-${k === 0 ? '9_16' : '16_9'}-${job}.png`
+      const png = readFileSync(join(two, 'out', 'studio', name))
+      sizes.push([png.readUInt32BE(16), png.readUInt32BE(20)])
+    }
+    assert.deepEqual(sizes, [
+      [18, 32],
+      [32, 18],
+    ])
+
+    // Every name is checked before a job is queued; variant and variants do not go together.
+    for (const body of [
+      { format: 'png', variants: ['16:9', '4:5'] },
+      { format: 'png', variants: [] },
+      { format: 'png', variants: '16:9' },
+      { format: 'png', variant: '16:9', variants: ['9:16'] },
+    ]) {
+      const bad = await call(b.port, { method: 'POST', path: '/render', headers: asPage(b), body })
+      assert.equal(bad.status, 400, JSON.stringify(body))
+    }
+  } finally {
+    await b.close()
+  }
+})
+
 test('/render makes an mp4 with ffmpeg', { skip: !ffmpeg && 'no ffmpeg' }, async () => {
   const job = await renderJob({ format: 'mp4', params: { grey: 200 } })
   const file = await call(bridge.port, { path: `/render/${job}/file`, headers: asPage(bridge) })
@@ -512,6 +587,8 @@ test('/render makes an mp4 with ffmpeg', { skip: !ffmpeg && 'no ffmpeg' }, async
 })
 
 test('/share without a login says how to log in', async () => {
+  // A project that can be shared: its licence is checked before the token.
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ license: 'MIT' }))
   const r = await call(bridge.port, {
     method: 'POST',
     path: '/share',

@@ -64,6 +64,11 @@ export const createCodeWall = (o: CodeWallOptions) => {
     shown.forEach((file, c) => {
       if (!file) return
       const scroll = Math.floor((t - o.start) * (34 + 21 * c)) + k * (7 + c * 5)
+      // Each file keeps to its column: a thrown line is cut at the edge, never runs into the next.
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(pad + c * colW - 6, 0, colW - 6, H)
+      ctx.clip()
       for (let r = 0; r < rows; r++) {
         if (r / rows > built || rnd(r * 977 + c * 31 + 5) < gone) continue
         const y = pad + r * lead
@@ -90,6 +95,7 @@ export const createCodeWall = (o: CodeWallOptions) => {
             : `rgba(222,230,242,${0.35 + 0.35 * rnd(r * 13 + c)})`
         ctx.fillText(g < 0.3 ? scramble(line, frame + r, 0.25) : line, x + throwX, y)
       }
+      ctx.restore()
     })
 
     // The claim, cut out of the code, for as long as the wall stands.

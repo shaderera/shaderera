@@ -56,17 +56,61 @@ export const hostOpener = async (
     openChild(sized, { ...common, entryFile: built.entryFile, trusted: o.trusted === true })
 }
 
+/** What a GPU says when it cannot go on: a lost or removed device, or memory it could not get. */
+const DEVICE =
+  /device was lost|device removed|DXGI_ERROR|out of memory|E_OUTOFMEMORY|CreateCommittedResource|WebGPU reported/i
+
+/** A host process that crashed in native code: a Windows NTSTATUS code (0xC0000000 up) or a signal. */
+const crashed = (message: string): boolean => {
+  const code = /The source process exited \((\w+)\)/.exec(message)?.[1]
+  return code !== undefined && (/^SIG/.test(code) || Number(code) >= 0xc0000000)
+}
+
+/**
+ * The usual way out of a GPU device error or a host crash when `hosts` shared the GPU: every host
+ * holds its own copy of the film's GPU memory, so fewer hosts need less. '' otherwise.
+ */
+const workersHint = (message: string, hosts: number): string =>
+  hosts > 1 && (DEVICE.test(message) || crashed(message))
+    ? ` ${hosts} hosts (--workers ${hosts}) shared the GPU, each with its own memory: render with fewer --workers (--workers 1 for one).`
+    : ''
+
+/**
+ * A host's error with the frame it happened at. A device error or a crash also names the way out:
+ * fewer hosts (workersHint), or with one, less other work on the GPU.
+ */
+export const frameError = (error: unknown, t: number, fps: number, hosts: number): Error => {
+  const message = error instanceof Error ? error.message : String(error)
+  const way =
+    hosts > 1
+      ? workersHint(message, hosts)
+      : DEVICE.test(message)
+        ? ' The GPU ran out or reset: close other work on it, or make the film need less memory.'
+        : ''
+  return new Error(`Frame ${Math.round(t * fps)} (t ${t} s) failed: ${message}${way}`, {
+    cause: error,
+  })
+}
+
 /**
  * `n` more hosts from an opener, all opening at once (each runs the source's open). If one
- * fails, the ones that opened are closed and its error is thrown.
+ * fails, the ones that opened are closed and its error is thrown, with workersHint for the
+ * `hosts` the run asked for (`n` by default; one more when its first is already open).
  */
-export const openHosts = async (more: () => Promise<Child>, n: number): Promise<Child[]> => {
+export const openHosts = async (
+  more: () => Promise<Child>,
+  n: number,
+  hosts = n,
+): Promise<Child[]> => {
   const opened = await Promise.allSettled(Array.from({ length: n }, () => more()))
-  const hosts = opened.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+  const ok = opened.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
   const failed = opened.find((r) => r.status === 'rejected')
   if (failed) {
-    await Promise.all(hosts.map((h) => h.close()))
-    throw (failed as PromiseRejectedResult).reason
+    await Promise.all(ok.map((h) => h.close()))
+    const error = (failed as PromiseRejectedResult).reason
+    const message = error instanceof Error ? error.message : String(error)
+    const way = workersHint(message, hosts)
+    throw way ? new Error(`${message}${way}`, { cause: error }) : error
   }
-  return hosts
+  return ok
 }
