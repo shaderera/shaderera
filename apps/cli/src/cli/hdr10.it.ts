@@ -18,7 +18,14 @@ import type { ChunkRecord } from '../deliver/chunks.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { fixture } from '../node/fixtures/hdr/src/composition.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
-import { hasHevcNvenc, hdr10Problem, masteringOf, probe } from './ffmpeg.ts'
+import {
+  canEncode,
+  encodersFile,
+  hasHevcNvenc,
+  hdr10Problem,
+  masteringOf,
+  probe,
+} from './ffmpeg.ts'
 import { exportVideo } from './render.ts'
 
 // The HDR exactness fixture (docs/adr/0023) as a film that opts in: rendered to HDR10 mp4s and
@@ -266,6 +273,46 @@ test('deliver --hdr10 --sdr: the HDR10 master passes a YouTube HDR placement, an
   assert.equal(sdr?.probe?.video?.color?.transfer, 'bt709')
   // The hdr10 review reads the master's light as numbers.
   assert.equal(hdr?.checks.find((c) => c.id === 'hdr10')?.status, 'info')
+})
+
+test('an HDR10 review never uses the kept H.264 answers: a failed encode is not retried, and HEVC is never kept', {
+  skip: problem,
+}, async (t) => {
+  const home = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE }
+  process.env.HOME = process.env.USERPROFILE = tempDir('home')
+  try {
+    // This ffmpeg's key, then a kept H.264 NVENC yes for this size: an SDR review would pick it.
+    await canEncode('nvenc', 68, 40)
+    const { ffmpeg: key } = JSON.parse(readFileSync(encodersFile(), 'utf8'))
+    const answers = { 'nvenc 72x40': true, 'qsv 72x40': false, 'amf 72x40': false }
+    writeFileSync(
+      encodersFile(),
+      JSON.stringify({ ffmpeg: key, answers: { ...answers, 'videotoolbox 72x40': false } }),
+    )
+    const before = readFileSync(encodersFile(), 'utf8')
+    const warn = t.mock.method(console, 'warn', () => {})
+    const hdr = {
+      mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' as const },
+      dither: 'none' as const,
+    }
+    const project = memoryProject({ hdr10: hdr })
+    const child = memoryChild({
+      size: { width: 72, height: 40 },
+      frame: () => new Uint8Array(72 * 40 * 4).fill(40),
+      hdr: { hdr10: { graphicsWhite: 203, ...hdr }, fps: 10 },
+    })
+    // A crf x265 refuses: ffmpeg exits, and the HDR10 render fails without a retry.
+    const out = join(project.root, 'out', 'film.mp4')
+    await assert.rejects(
+      exportVideo(project, child, { out, revision: 'r', crf: 99 }),
+      /ffmpeg exited/,
+    )
+    assert.equal(warn.mock.callCount(), 0)
+    // The H.264 yes is left as it was, and the HEVC answer was not added.
+    assert.equal(readFileSync(encodersFile(), 'utf8'), before)
+  } finally {
+    Object.assign(process.env, home)
+  }
 })
 
 test('an HDR10 preroll the source fills counts in the light levels; a black one is P010 black', {
