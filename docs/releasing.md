@@ -47,9 +47,9 @@ The site's commands for steps 2, 3, 4 and 6 are in the shaderera.com repository'
      pack --pack-destination ../release
    ```
    Check that `create-shaderera`'s tarball holds `files/project/`, `files/AUTHORING.md`, the nine
-   `files/guides/*.md`, `files/skills/shaderera/SKILL.md` and
-   `files/skills/shaderera-plugins/SKILL.md`, and that `shaderera`'s holds `guides/` (nine files)
-   and `docs/` (the reference, with `participants/` and `plugins.md`). Then, in a folder outside
+   `files/guides/*.md`, and that `shaderera`'s holds `guides/` (nine files) and `docs/` (the
+   reference, with `participants/` and `plugins.md`). A new project holds no skills: they are
+   installed once, with the Claude Code plugin or `npx skills add`. Then, in a folder outside
    the monorepo:
    ```bash
    npm exec --package=<create-shaderera.tgz> -- create-shaderera film

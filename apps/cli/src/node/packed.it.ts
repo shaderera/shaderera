@@ -35,7 +35,7 @@ test.before(() => {
   assert.equal(tarballs.length, 2)
   cpSync(join(import.meta.dirname, 'fixtures', 'tiny'), project, { recursive: true })
   writeFileSync(join(project, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
-  const r = sh(`npm install --no-audit --no-fund vite@8.3.0 ../${tarballs.join(' ../')}`, project)
+  const r = sh(`npm install --no-audit --no-fund vite@8.3.5 ../${tarballs.join(' ../')}`, project)
   assert.equal(r.status, 0, r.out)
 })
 
