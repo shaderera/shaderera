@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -47,6 +47,29 @@ test('chunks rendered apart and assembled give the very file one render gives', 
   // A chunk changed after it was rendered is refused.
   writeFileSync(join(plan, 'chunk-001.mkv'), 'x')
   assert.match(cli(root, 'assemble', '--plan', plan).stderr, /chunk-001\.mkv changed/)
+  // Chunk 0 is gone and chunk 2 stopped part way: --status says where each chunk stands.
+  rmSync(join(plan, 'chunk-000.mkv.json'))
+  rmSync(join(plan, 'chunk-002.mkv.json'))
+  writeFileSync(join(plan, 'chunk-002.mkv.99999.partial.mkv'), 'part')
+  const text = cli(root, 'plan', '--status', '--plan', plan, '--verify')
+  assert.equal(text.status, 0, text.stderr)
+  assert.match(text.stdout, /chunk +0 +missing/)
+  assert.match(text.stdout, /chunk +1 +changed/)
+  assert.match(text.stdout, /chunk +2 +partial/)
+  assert.match(text.stdout, /0\/10 frames done/)
+  const json = cli(root, 'plan', '--status', '--plan', plan, '--verify', '--json')
+  const status = JSON.parse(json.stdout).result
+  assert.deepEqual(
+    status.chunks.map((c: { status: string }) => c.status),
+    ['missing', 'changed', 'partial'],
+  )
+  assert.deepEqual(status.frames, { done: 0, total: 10 })
+  // assemble lists every problem at once, each with the command that fixes it.
+  const all = cli(root, 'assemble', '--plan', plan)
+  assert.equal(all.status, 2)
+  assert.match(all.stderr, /3 problems in the plan/)
+  for (const i of [0, 1, 2])
+    assert.match(all.stderr, new RegExp(`shaderera render --job p --chunk ${i} --plan`))
 })
 
 // The frames a file holds, decoded (Matroska's own header differs from one write to the next).
