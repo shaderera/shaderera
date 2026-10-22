@@ -166,7 +166,7 @@ test('deliver spreads an output over several hosts, as render --job does, and cl
 
 test('deliver --variants 16:9,9:16 names each job by its variant made safe for a file name', {
   skip: !ffmpeg && 'no ffmpeg',
-}, () => {
+}, async () => {
   const root = fixture('mcp')
   const file = join(root, 'shaderera.json')
   const manifest = JSON.parse(readFileSync(file, 'utf8'))
@@ -176,7 +176,7 @@ test('deliver --variants 16:9,9:16 names each job by its variant made safe for a
   }
   writeFileSync(file, JSON.stringify({ ...manifest, variants }))
   writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 0 }))
-  const r = cli('deliver', '--root', root, '--variants', '16:9,9:16', '--name', 'r')
+  const r = await cli('deliver', '--root', root, '--variants', '16:9,9:16', '--name', 'r')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   const dir = join(root, 'out', 'deliveries', 'r')
   const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
