@@ -23,6 +23,9 @@ canvases.dispose()
 - One texture per size, made on the first upload of that size and kept until `dispose()`. The next
   upload of the same size writes over it, so two canvases of one size read in the same pass need
   an uploader each.
+- `upload` returns that same `GPUTexture` object for every upload of a size, so a bind group made
+  from it can be cached (by texture, or by size) and reused on every frame. It changes only when
+  the size does, or after `dispose()`.
 
 It does one job. The bind groups, views and samplers stay in your pass. Mip levels, other formats
 and premultiplying are not part of it. Needs WebGPU (`host.gpu`), in the browser or in Node with
