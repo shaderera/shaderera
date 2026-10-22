@@ -73,13 +73,7 @@ test('chunks rendered apart and assembled give the very file one render gives', 
     assert.match(all.stderr, new RegExp(`shaderera render --job p --chunk ${i} --plan`))
 })
 
-// The frames a file holds, decoded (Matroska's own header differs from one write to the next).
-const frames = (file: string) =>
-  spawnSync('ffmpeg', ['-loglevel', 'error', '-i', file, '-f', 'framemd5', '-'], {
-    encoding: 'utf8',
-  }).stdout.replace(/^#.*\n/gm, '')
-
-test('a chunk spread over several hosts holds the frames one host makes', {
+test('a chunk rendered again, on one host or several, is the same file', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
   const root = tempDir('chunk-workers')
@@ -93,11 +87,14 @@ test('a chunk spread over several hosts holds the frames one host makes', {
   const one = cli(root, 'render', '--job', 'w', '--chunk', '0', '--workers', '1')
   assert.equal(one.status, 0, one.stderr)
   assert.match(one.stdout, /on 1 host\(s\)/)
-  const single = frames(file)
+  const single = sha(file)
+  const again = cli(root, 'render', '--job', 'w', '--chunk', '0', '--workers', '1')
+  assert.equal(again.status, 0, again.stderr)
+  assert.equal(sha(file), single, 'the same bytes rendered again')
   const two = cli(root, 'render', '--job', 'w', '--chunk', '0', '--workers', '2')
   assert.equal(two.status, 0, two.stderr)
   assert.match(two.stdout, /on 2 host\(s\)/)
-  assert.equal(frames(file), single, 'the same frames on two hosts')
+  assert.equal(sha(file), single, 'the same bytes on two hosts')
 })
 
 test('a killed render leaves nothing on re-run, and a chunk another render holds is refused', {
