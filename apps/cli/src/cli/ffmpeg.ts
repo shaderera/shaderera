@@ -16,48 +16,70 @@ import { fpsFraction, matte } from '@shaderera/core/host'
 
 export type Quality = 'review' | 'master'
 
-/** x264 settings per delivery quality. */
+/**
+ * x264 settings per delivery quality. A review is preset veryfast at crf 16: a third of medium's
+ * CPU at its crf 18 quality, in a file about 20% larger (docs/delivery.md, measured on 9.0.2).
+ */
 export const QUALITIES = {
-  review: { crf: 18, preset: 'medium' },
+  review: { crf: 16, preset: 'veryfast' },
   master: { crf: 12, preset: 'slow' },
 } as const
 
 /**
- * `x264`: libx264 on the CPU. `nvenc`: NVIDIA's H.264 encoder on the GPU, about 2.5× faster and
- * off the CPU the hosts render on, with larger files at a like quality (measured: +48% at cq 19
- * against crf 18): a review encode, never a master (owner decision, 2026-10-09).
+ * `x264`: libx264 on the CPU. The others are H.264 on the GPU, off the CPU the hosts render on,
+ * with larger files at a like quality: a review encode, never a master unless asked (owner
+ * decision, 2026-10-09). `nvenc` is NVIDIA's (measured: +48% at cq 19 against x264 medium crf
+ * 18), `qsv` Intel's Quick Sync, `amf` AMD's, `videotoolbox` Apple's.
  */
-export type Encoder = 'x264' | 'nvenc'
+export type Encoder = 'x264' | Hardware
+export type Hardware = 'nvenc' | 'qsv' | 'amf' | 'videotoolbox'
+/** The GPU encoders, in the order a review tries them. */
+export const HARDWARE: readonly Hardware[] = ['nvenc', 'qsv', 'amf', 'videotoolbox']
+export const ENCODERS: readonly Encoder[] = ['x264', ...HARDWARE]
 const NVENC = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-b:v', '0']
-/** NVENC's constant quality for a review, near x264's crf 18. */
-const NVENC_CQ = 19
+/** A GPU encoder's constant quality for a review, near x264's. */
+const CQ = 19
+/**
+ * Each GPU encoder at a constant quality `cq` on crf's scale (VideoToolbox's -q:v runs 1-100,
+ * higher better, and only Apple silicon has it). Only NVENC takes --bitrate and --maxrate.
+ */
+const constantQuality: Record<Hardware, (cq: number) => string[]> = {
+  nvenc: (cq) => [...NVENC, '-cq', String(cq)],
+  qsv: (cq) => ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(cq)],
+  amf: (cq) => {
+    const qp = String(cq)
+    return ['-c:v', 'h264_amf', '-quality', 'quality', '-rc', 'cqp', '-qp_i', qp, '-qp_p', qp]
+  },
+  videotoolbox: (cq) => ['-c:v', 'h264_videotoolbox', '-q:v', String(100 - 2 * cq)],
+}
 
 /**
- * Where hasNvenc keeps what it found: one ffmpeg (its file, mtime and version) and its sizes, for
- * H.264 NVENC (the NVENC settings) only. HDR10's HEVC Main 10 is asked apart (hasHevcNvenc).
+ * Where the probe keeps what it found: one ffmpeg (its file, mtime and version) and its answers, for
+ * the H.264 GPU encoders (constantQuality's settings) only. HDR10's HEVC Main 10 is asked apart
+ * (hasHevcNvenc) and never kept here.
  */
-export const nvencFile = (): string => join(homedir(), '.shaderera', 'nvenc.json')
+export const encodersFile = (): string => join(homedir(), '.shaderera', 'encoders.json')
 
-/** The sizes nvencFile keeps for this ffmpeg (`key`); none for another or an unreadable file. */
-const keptSizes = (key: string): Record<string, boolean> => {
+/** The answers encodersFile keeps for this ffmpeg (`key`); none for another or an unreadable file. */
+const keptAnswers = (key: string): Record<string, boolean> => {
   try {
-    const kept = JSON.parse(readFileSync(nvencFile(), 'utf8'))
-    return kept.ffmpeg === key ? kept.sizes : {}
+    const kept = JSON.parse(readFileSync(encodersFile(), 'utf8'))
+    return kept.ffmpeg === key ? kept.answers : {}
   } catch {
     return {}
   }
 }
 
-const keep = (key: string, sizes: Record<string, boolean>) => {
+const keep = (key: string, answers: Record<string, boolean>) => {
   try {
-    mkdirSync(dirname(nvencFile()), { recursive: true })
-    writeFileSync(nvencFile(), JSON.stringify({ ffmpeg: key, sizes }))
+    mkdirSync(dirname(encodersFile()), { recursive: true })
+    writeFileSync(encodersFile(), JSON.stringify({ ffmpeg: key, answers }))
   } catch {
     // Not kept: the next command asks again.
   }
 }
 
-/** The ffmpeg the PATH runs, as its file, its mtime and its version: what an NVENC answer is of. */
+/** The ffmpeg the PATH runs, as its file, its mtime and its version: what an answer is of. */
 const ffmpegKey = (): string => {
   const version = requireFfmpeg()
   const names = process.platform === 'win32' ? ['ffmpeg.exe', 'ffmpeg'] : ['ffmpeg']
@@ -70,30 +92,33 @@ const ffmpegKey = (): string => {
   return version
 }
 
-/** Whether ffmpeg encodes a black 0.1 s at this size with NVENC, without blocking the thread. */
-const encodesNvenc = (size: string) =>
+/** Whether ffmpeg encodes a black 0.1 s at this size with this encoder, without blocking the thread. */
+const encodes = (encoder: Hardware, size: string) =>
   new Promise<boolean>((done) => {
     const args = ['-loglevel', 'error', '-f', 'lavfi', '-i', `color=black:s=${size}:d=0.1`]
-    spawn('ffmpeg', [...args, ...NVENC, '-f', 'null', '-'], { stdio: 'ignore' })
+    const encode = [...args, ...constantQuality[encoder](CQ), '-f', 'null', '-']
+    spawn('ffmpeg', encode, { stdio: 'ignore' })
       .on('error', () => done(false))
       .on('close', (code) => done(code === 0))
   })
 
-const nvenc = new Map<string, Promise<boolean>>()
-/** The sizes whose yes came from nvencFile, not from a test encode in this process. */
+const answers = new Map<string, Promise<boolean>>()
+/** The answers whose yes came from encodersFile, not from a test encode in this process. */
 const keptYes = new Set<string>()
 /**
- * Whether this ffmpeg can encode a frame this size with NVENC here (a GPU and driver it accepts;
- * NVENC refuses small frames, such as 32×16). Asked once per size and kept in nvencFile for this
- * ffmpeg (a 0.25 s test encode otherwise); `fresh` asks again (doctor). False without ffmpeg.
+ * Whether this ffmpeg can encode a frame this size with this GPU encoder here (a GPU and driver it
+ * accepts; NVENC refuses small frames, such as 32x16). Asked once per encoder and size and kept in
+ * encodersFile for this ffmpeg (a 0.25 s test encode otherwise); `fresh` asks again (doctor).
+ * False without ffmpeg.
  */
-export const hasNvenc = (
+export const canEncode = (
+  encoder: Hardware,
   width: number,
   height: number,
   o: { fresh?: boolean } = {},
 ): Promise<boolean> => {
-  const size = `${width}x${height}`
-  const known = nvenc.get(size)
+  const id = `${encoder} ${width}x${height}`
+  const known = answers.get(id)
   if (known && !o.fresh) return known
   const asked = (async () => {
     let key: string
@@ -102,31 +127,46 @@ export const hasNvenc = (
     } catch {
       return false
     }
-    const kept = keptSizes(key)[size]
+    const kept = keptAnswers(key)[id]
     if (kept !== undefined && !o.fresh) {
-      if (kept) keptYes.add(size)
+      if (kept) keptYes.add(id)
       return kept
     }
-    keptYes.delete(size)
-    const has = await encodesNvenc(size)
-    keep(key, { ...keptSizes(key), [size]: has })
+    keptYes.delete(id)
+    const has = await encodes(encoder, `${width}x${height}`)
+    keep(key, { ...keptAnswers(key), [id]: has })
     return has
   })()
-  nvenc.set(size, asked)
+  answers.set(id, asked)
   return asked
 }
 
 /**
- * Drops a kept NVENC yes for this size, whose encode has just failed (a GPU or driver gone since):
- * false when the yes was not a kept one. This process then answers no; the next one tests again.
+ * The first GPU encoder (HARDWARE's order) that encodes this size here, all asked at once;
+ * undefined for none. `rated` (--bitrate or --maxrate): NVENC only.
  */
-export const forgetNvenc = (width: number, height: number): boolean => {
-  const size = `${width}x${height}`
-  if (!keptYes.delete(size)) return false
-  nvenc.set(size, Promise.resolve(false))
+export const hardwareEncoder = async (
+  width: number,
+  height: number,
+  o: { fresh?: boolean; rated?: boolean } = {},
+): Promise<Hardware | undefined> => {
+  const tried = o.rated ? (['nvenc'] as const) : HARDWARE
+  const has = await Promise.all(tried.map((e) => canEncode(e, width, height, o)))
+  return tried.find((_, i) => has[i])
+}
+
+/**
+ * Drops a kept yes for this encoder and size, whose encode has just failed (a GPU or driver gone
+ * since): false when the yes was not a kept one. This process then answers no; the next one tests
+ * again.
+ */
+export const forgetEncoder = (encoder: Hardware, width: number, height: number): boolean => {
+  const id = `${encoder} ${width}x${height}`
+  if (!keptYes.delete(id)) return false
+  answers.set(id, Promise.resolve(false))
   try {
     const key = ffmpegKey()
-    const { [size]: _, ...rest } = keptSizes(key)
+    const { [id]: _, ...rest } = keptAnswers(key)
     keep(key, rest)
   } catch {
     // No ffmpeg to key it by: nothing kept to drop.
@@ -238,7 +278,7 @@ export const ffmpegArgs = (o: {
   from: number
   to: number
   out: string
-  /** x264 settings: `review` is crf 18 / preset medium, `master` crf 12 / preset slow. */
+  /** x264 settings: `review` is crf 16 / preset veryfast, `master` crf 12 / preset slow. */
   quality?: Quality
   /** Overrides the quality's crf. */
   crf?: number
@@ -250,7 +290,7 @@ export const ffmpegArgs = (o: {
    * GPU (decision 0007), tagged the same.
    */
   input?: Input
-  /** libx264 (the default), or the GPU's H.264 encoder (exportVideo picks it for review). */
+  /** libx264 (the default), or a GPU's H.264 encoder (exportVideo picks one for review). */
   encoder?: Encoder
   /** `h264` (the default, mp4), or ProRes in a mov with 48 kHz 24-bit PCM. */
   codec?: Codec
@@ -308,13 +348,18 @@ export const ffmpegArgs = (o: {
   const sdr: readonly string[] = yuv ? ['-vf', TAGS, ...SDR_BT709.slice(2)] : SDR_BT709
   args.push(...sdr)
   const cap = (rate: string) => ['-maxrate', rate, '-bufsize', doubled(rate)]
+  const cq = o.crf === undefined ? CQ : o.crf + 1
   if (o.encoder === 'nvenc') {
     if (o.bitrate)
       args.push(...NVENC.slice(0, 6), '-rc', 'cbr', '-b:v', o.bitrate, ...cap(o.bitrate))
     else {
-      args.push(...NVENC, '-cq', String(o.crf === undefined ? NVENC_CQ : o.crf + 1))
+      args.push(...constantQuality.nvenc(cq))
       if (o.maxrate) args.push(...cap(o.maxrate))
     }
+  } else if (o.encoder && o.encoder !== 'x264') {
+    if (o.bitrate || o.maxrate)
+      throw new Error(`--bitrate and --maxrate are for x264 and nvenc, not ${o.encoder}.`)
+    args.push(...constantQuality[o.encoder](cq))
   } else {
     args.push('-c:v', 'libx264', '-preset', q.preset)
     if (o.bitrate)
