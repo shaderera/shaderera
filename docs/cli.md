@@ -299,19 +299,20 @@ A job holds execution inputs and references, never the film.
 
 `shaderera deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master]
 [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS]
-[--hdr10 [--sdr]] [--name batch] [--job a --job b] [--replace] [--software-gpu]` saves the project once, makes one job per variant ×
+[--hdr10 [--sdr]] [--name batch] [--job a --job b] [--replace] [--software-gpu] [--force]` saves the project once, makes one job per variant ×
 locale (named `<batch>-<variant>[-<locale>]`), renders and reviews each, and writes
 `out/deliveries/<batch>/`. `--hdr10` makes each an HDR10 job of a film with `hdr10`, and `--sdr`
 adds the film's own SDR render beside each (`<job>-sdr`, checked against the placement
 `<variant>:sdr`); never with `--job`, whose jobs froze their range ([HDR10](delivery.md#hdr10)). A batch name that holds other inputs is refused unless `--replace`.
 Exit 1 when any output fails, after rendering the rest. See [delivery.md](delivery.md#batch).
+Before the first output renders, the batch must fit on the disk ([disk space](#disk-space)).
 An output whose host is on a software GPU fails unless `--software-gpu`, as in
 [`render`](#a-software-gpu).
 
 ## `plan`, `render --chunk`, `assemble`
 
-`shaderera plan --job <name> [--chunks 4] [--out dir]`, then `shaderera render --job <name>
---chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
+`shaderera plan --job <name> [--chunks 4] [--out dir] [--force]`, then `shaderera render --job <name>
+--chunk <i> [--plan dir] [--force]` on any machine, then `shaderera assemble --plan <dir> [--out file]
 [--mixed-hosts] [--no-audio] [--loudness=LUFS] [--crf n] [--job name]`: the same file as one
 `render --job`. See [delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's
 frames go round `--workers` hosts on its machine (the same default as `render`), and its file
@@ -340,6 +341,28 @@ nobody has touched it for 10 minutes (a render on another machine that died); ta
 removes the partials earlier renders of the chunk left. The chunk's record is written to a temp
 file and renamed, after the old record is removed, so a chunk file is never paired with another
 render's record: a file without its record is not rendered.
+
+### Disk space
+
+`plan`, `render --chunk`, a png job (`render --job`) and `deliver` estimate the bytes they will
+write and check them against the free space on the volume they write to before they start. Not
+enough is refused, naming the estimate, the free space and `--force`, which goes ahead anyway;
+less than a quarter of the estimate (at least 1 GB) left over is a warning. The estimate is a
+`disk` finding in the [`--json`](#--json-one-envelope) envelope either way.
+
+- `plan`: every chunk it plans, as FFV1 (an hdr10 job's from its P010 or 10-bit R'G'B' frames), plus the file `assemble` writes, in the plan folder.
+- `render --chunk`: that chunk's FFV1 file, in the plan folder.
+- a png job: its PNG frames and `audio.wav`, in its folder.
+- `deliver`: every output, in `out/deliveries/<batch>/`; an `--hdr10` output also its one
+  lossless chunk (P010, or 10-bit R'G'B' for ProRes), the largest counted once.
+
+FFV1 and PNG frames are estimated from three frames the host renders and encodes (spread over the
+window), and at the raw-pixel ceiling (width × height × 4 bytes, 8 at 16 bits, 3 for P010) for a sequential
+source or when a sample fails. A lossless frame varies a lot with what it shows: about 150 KB at
+720p for a flat Canvas2D film, up to 4.7 MB at 1080p with grain. `deliver` checks before any host
+opens, so its png outputs count at the ceiling. A final mp4 or mov counts by its `--bitrate` or
+`--maxrate`, else roughly (H.264, or HDR10's HEVC, at 0.5 bits a pixel, 1 for `--master`; ProRes HQ at 3.6 and 4444
+at 5.4), plus its sound.
 
 ```
 $ shaderera plan --status --plan out/spot.plan
