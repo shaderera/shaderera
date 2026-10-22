@@ -312,8 +312,12 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
   machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
   heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
+- A chunk is claimed before it renders (`<chunk>.claim` in the plan folder), so two machines never
+  render one chunk at once: the second is refused, naming who holds it. A claim whose render died
+  is taken over (its pid no longer runs here, or it went untouched for 10 minutes), with the
+  partial that render left. Ctrl-C removes the chunk's partial and claim.
 - `plan --status --plan <dir> [--verify]` says which chunks are done, missing, stale (of another
-  job or plan) or partial (stopped part way), with the command that renders each, the frames done
+  job or plan), partial (stopped part way) or claimed (rendering now), with the command that renders each, the frames done
   and the time left ([cli.md](cli.md#plan-render---chunk-assemble)).
 - `assemble` refuses a missing or changed chunk, and chunks from different kinds of host (another
   GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`, and

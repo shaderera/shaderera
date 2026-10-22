@@ -178,7 +178,9 @@ The file is written as `<out>.<pid>.partial` (the render's process id, so two re
 `<out>` is the previous film or nothing, never half a film. A render that fails or is
 stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
-kept as `<out>.<pid>.partial` and the error says so. A host error fails the render with
+kept as `<out>.<pid>.partial` and the error says so. A render killed outright (the process ended,
+the power cut) cannot clean up: the next render of the same `<out>` removes the `.partial` files
+of processes of this machine that no longer run. A host error fails the render with
 its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
@@ -286,12 +288,21 @@ job and a fresh `--out`; planning the same job again in its folder replaces its 
 `shaderera plan --status --plan <dir> [--verify] [--json]` (or `--job <name>` for its default
 folder) lists each chunk as `done` (its record and file are there), `verified` (with `--verify`,
 the file's sha256 checked again), `changed` (with `--verify`, the file differs from its record),
-`stale` (rendered for another job or plan), `partial` (a render of it stopped part way) or
-`missing`, with the `render --chunk` command for each that is not done, then the frames done of
+`stale` (rendered for another job or plan), `partial` (a render of it stopped part way),
+`claimed` (a live render holds it, named) or `missing`, with the `render --chunk` command for each that is not done, then the frames done of
 the total and the time left at the pace the rendered chunks recorded (on one machine). `--json`
 gives the same as `result`: `frames` {done, total}, `eta` in seconds (null before any chunk is
 rendered) and `chunks`. `assemble` lists every problem it finds before it starts, each with the
 command that fixes it.
+
+`render --chunk` claims the chunk first with `<chunk>.claim` in the plan folder (host, pid and
+time; touched every minute while it renders) and removes it when done, failed or stopped (Ctrl-C,
+which also removes its partial). A chunk another live render holds is refused, naming its host
+and pid. A claim is stale, and taken over, when its pid no longer runs on this machine, or when
+nobody has touched it for 10 minutes (a render on another machine that died); taking it over
+removes the partials earlier renders of the chunk left. The chunk's record is written to a temp
+file and renamed, after the old record is removed, so a chunk file is never paired with another
+render's record: a file without its record is not rendered.
 
 ```
 $ shaderera plan --status --plan out/spot.plan

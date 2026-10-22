@@ -50,8 +50,11 @@ test('the output holds the previous film until the new one is complete; a failed
   const partial = `${out}.${process.pid}.partial`
   writeFileSync(out, 'the previous film')
   // Another render to the same out, still running in another process: its file is its own.
-  const other = `${out}.999999999.partial`
+  const other = `${out}.${process.ppid}.partial`
   writeFileSync(other, 'another render')
+  // One killed outright, whose process is gone: what it left goes.
+  const killed = `${out}.${spawnSync(process.execPath, ['-e', '']).pid}.partial`
+  writeFileSync(killed, 'a killed render')
   // Interrupted midway (Ctrl-C): the new frames went to .partial, never to the output.
   const stop = new AbortController()
   await assert.rejects(
@@ -68,6 +71,7 @@ test('the output holds the previous film until the new one is complete; a failed
     /Interrupted/,
   )
   assert.equal(existsSync(partial), false)
+  assert.equal(existsSync(killed), false)
   assert.equal(readFileSync(out, 'utf8'), 'the previous film')
 
   // A host whose device is lost at 0.5 s: the render fails with that frame and never writes it.

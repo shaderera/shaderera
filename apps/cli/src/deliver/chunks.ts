@@ -15,6 +15,7 @@ import type { Child, HostIdentity } from '../node/child.ts'
 import { frameError } from '../node/open-host.ts'
 import { type Job, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { hashFile } from '../project/revisions.ts'
+import { claim, holder, readClaim, removePartials } from './claim.ts'
 
 /**
  * A job split into chunks of whole frames: each chunk can render on any machine that has the
@@ -181,7 +182,11 @@ export const refuseOtherPlan = (dir: string, job: Pick<Job, 'name' | 'id'>) => {
  * Renders one chunk on this machine into `<dir>/<file>` (written beside it and moved into place),
  * with exportFrames's determinism re-check on its own frames, and records it in `<file>.json`.
  * Frames go round `hosts` (the first also re-checks and is recorded), two ahead a host; the
- * caller opens and closes them.
+ * caller opens and closes them. The chunk is claimed first (claim.ts): refused while another live
+ * process renders it; once claimed, the partials earlier renders of it left are removed. The old
+ * record goes before the file is replaced and the new one is written to a temp file and renamed,
+ * so a file is never paired with another render's record. `signal` (Ctrl-C) stops it between
+ * frames, leaving no partial and no claim.
  */
 export const renderChunk = async (
   hosts: readonly [Child, ...Child[]],
@@ -189,9 +194,9 @@ export const renderChunk = async (
   index: number,
   dir: string,
   onFrame?: (i: number, n: number) => void,
+  signal?: AbortSignal,
 ): Promise<ChunkRecord> => {
   requireFfmpeg()
-  const child = hosts[0]
   const chunk = plan.chunks[index]
   if (!chunk) throw new Error(`The plan has chunks 0 to ${plan.chunks.length - 1}, not ${index}.`)
   if (chunk.reused)
@@ -204,7 +209,32 @@ export const renderChunk = async (
     throw new Error('This plan hands frames over at 16 bits, made on the GPU: this host has none.')
   mkdirSync(dir, { recursive: true })
   const out = join(dir, chunk.file)
+  const claimed = claim(dir, chunk.file)
+  try {
+    // Nobody else renders this chunk now: whatever earlier renders of it left goes.
+    removePartials(out, '.partial.mkv', true)
+    removePartials(`${out}.json`, '.tmp', true)
+    return await renderClaimed(hosts, plan, chunk, out, claimed.ours, onFrame, signal)
+  } finally {
+    claimed.release()
+  }
+}
+
+/** renderChunk's render, once the chunk is claimed. */
+const renderClaimed = async (
+  hosts: readonly [Child, ...Child[]],
+  plan: Plan,
+  chunk: Plan['chunks'][number],
+  out: string,
+  ours: () => boolean,
+  onFrame?: (i: number, n: number) => void,
+  signal?: AbortSignal,
+): Promise<ChunkRecord> => {
+  const child = hosts[0]
+  const index = chunk.index
   const partial = `${out}.${process.pid}.partial.mkv`
+  const json = `${out}.json`
+  const temp = `${json}.${process.pid}.tmp`
   const start = performance.now()
   const args = [
     '-y',
@@ -246,37 +276,53 @@ export const renderChunk = async (
       inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
       sink,
       onFrame,
+      signal,
       ahead: hosts.length * 2,
     })
     if (frames !== chunk.frames)
       throw new Error(`Chunk ${index} rendered ${frames} frames; the plan has ${chunk.frames}.`)
+    const record: ChunkRecord = {
+      index,
+      jobId: plan.jobId,
+      input: plan.input,
+      from: chunk.from,
+      to: chunk.to,
+      frames: chunk.frames,
+      sha256: hashFile(partial),
+      seconds: (performance.now() - start) / 1000,
+      host: await child.identity(),
+    }
+    writeFileSync(temp, `${JSON.stringify(record, null, 1)}\n`)
+    if (!ours())
+      throw new Error(`${chunk.file}'s claim was taken over by another render while this one ran.`)
+    // The old record first: between the renames the chunk reads as not rendered, never as this
+    // file with another render's record.
+    rmSync(json, { force: true })
     renameSync(partial, out)
+    renameSync(temp, json)
+    return record
   } catch (error) {
     rmSync(partial, { force: true })
+    rmSync(temp, { force: true })
     throw error
   }
-  const record: ChunkRecord = {
-    index,
-    jobId: plan.jobId,
-    input: plan.input,
-    from: chunk.from,
-    to: chunk.to,
-    frames: chunk.frames,
-    sha256: hashFile(out),
-    seconds: (performance.now() - start) / 1000,
-    host: await child.identity(),
-  }
-  writeFileSync(`${out}.json`, `${JSON.stringify(record, null, 1)}\n`)
-  return record
 }
 
 /**
  * Where a chunk of a plan stands: `done` (its record and file are there, rendered for this plan),
  * `verified` (done, and the file's sha256 checked again), `changed` (the file differs from its
  * record), `stale` (the record is of another job or plan), `partial` (not rendered, but a render
- * of it stopped part way and left a `.partial`) or `missing`.
+ * of it stopped part way and left a `.partial`), `missing`, or `claimed` (not done, and a live
+ * render holds its claim: claim.ts).
  */
-export type ChunkStatus = 'done' | 'verified' | 'changed' | 'stale' | 'partial' | 'missing'
+export type ChunkStatus =
+  | 'done'
+  | 'verified'
+  | 'changed'
+  | 'stale'
+  | 'partial'
+  | 'missing'
+  | 'claimed'
 
 export type ChunkState = {
   index: number
@@ -287,6 +333,8 @@ export type ChunkState = {
   record?: ChunkRecord
   /** `.partial` files a render of this chunk left. */
   partials: string[]
+  /** Who renders a claimed chunk. */
+  claim?: { host?: string; pid?: number; at?: string }
   /** For a reused chunk: the earlier plan's folder and job. */
   reused?: { plan: string; job: string }
   /** Why the chunk cannot be assembled as it is. */
@@ -309,7 +357,7 @@ export const chunkStates = (plan: Plan, dir: string, verify = false): ChunkState
   const hashes = new Map<string, string>()
   const hashOf = (file: string) => hashes.get(file) ?? hashes.set(file, hashFile(file)).get(file)
   const names = existsSync(dir) ? readdirSync(dir) : []
-  return plan.chunks.map((c): ChunkState => {
+  const stateOf = (c: Plan['chunks'][number]): ChunkState => {
     const file = chunkFile(dir, c)
     const partials = c.reused
       ? []
@@ -390,6 +438,20 @@ export const chunkStates = (plan: Plan, dir: string, verify = false): ChunkState
           problem: `${c.file} changed after it was rendered`,
           fix,
         }
+  }
+  return plan.chunks.map((c) => {
+    const state = stateOf(c)
+    if (c.reused || state.status === 'done' || state.status === 'verified') return state
+    // Being rendered now: whatever it was, a live render is replacing it.
+    const held = readClaim(dir, c.file)
+    if (!held?.live) return state
+    const { fix: _, ...rest } = state
+    return {
+      ...rest,
+      status: 'claimed',
+      claim: { host: held.host, pid: held.pid, at: held.at },
+      problem: `${c.file} is being rendered by ${holder(held)}`,
+    }
   })
 }
 

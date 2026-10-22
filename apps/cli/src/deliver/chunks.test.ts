@@ -13,6 +13,7 @@ import {
   progressOf,
   refuseOtherPlan,
 } from './chunks.ts'
+import { claim } from './claim.ts'
 
 const sha = (file: string) => createHash('sha256').update(readFileSync(file)).digest('hex')
 
@@ -146,4 +147,28 @@ test('the state of every chunk: done, verified, changed, missing, partial and st
       return true
     },
   )
+})
+
+test('a chunk is done only with its record; one a live render holds is claimed', () => {
+  const dir = join(tempDir('plan-claimed'), 'plan')
+  mkdirSync(dir)
+  const job = { name: 'j', id: 'abc', output: { width: 8, height: 8, fps: 4, from: 0, to: 1 } }
+  const plan = makePlan(job as unknown as Job, 'rgba', 2)
+  // A file without its record (a render stopped between its renames) is not rendered.
+  writeFileSync(join(dir, 'chunk-000.mkv'), 'frames')
+  writeFileSync(join(dir, 'chunk-000.mkv.123.partial.mkv'), 'part')
+  const held = claim(dir, 'chunk-001.mkv')
+  try {
+    const states = chunkStates(plan, dir)
+    assert.deepEqual(
+      states.map((s) => s.status),
+      ['partial', 'claimed'],
+    )
+    assert.equal(states[1]?.claim?.pid, process.pid)
+    assert.equal(states[1]?.fix, undefined)
+    assert.throws(() => checkChunks(plan, dir), /chunk-001\.mkv is being rendered by /)
+  } finally {
+    held.release()
+  }
+  assert.equal(chunkStates(plan, dir)[1]?.status, 'missing')
 })

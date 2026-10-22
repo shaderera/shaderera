@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -97,4 +98,47 @@ test('a chunk spread over several hosts holds the frames one host makes', {
   assert.equal(two.status, 0, two.stderr)
   assert.match(two.stdout, /on 2 host\(s\)/)
   assert.equal(frames(file), single, 'the same frames on two hosts')
+})
+
+test('a killed render leaves nothing on re-run, and a chunk another render holds is refused', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const root = tempDir('chunk-claims')
+  cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
+    recursive: true,
+  })
+  writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1 }))
+  assert.equal(cli(root, 'job', '--name', 'k').status, 0)
+  assert.equal(cli(root, 'plan', '--job', 'k', '--chunks', '1').status, 0)
+  const plan = join(root, 'out', 'k.plan')
+  // What a killed chunk render leaves: its partial, a record cut short, and its claim.
+  const gone = spawnSync(process.execPath, ['-e', '']).pid as number
+  writeFileSync(join(plan, `chunk-000.mkv.${gone}.partial.mkv`), 'part')
+  writeFileSync(join(plan, `chunk-000.mkv.json.${gone}.tmp`), '{')
+  writeFileSync(
+    join(plan, 'chunk-000.mkv.claim'),
+    JSON.stringify({ host: hostname(), pid: gone, at: 'then' }),
+  )
+  const again = cli(root, 'render', '--job', 'k', '--chunk', '0')
+  assert.equal(again.status, 0, again.stderr)
+  assert.deepEqual(readdirSync(plan).sort(), ['chunk-000.mkv', 'chunk-000.mkv.json', 'plan.json'])
+  // A chunk a live render holds is refused, naming it, and left as it was.
+  const before = sha(join(plan, 'chunk-000.mkv'))
+  writeFileSync(
+    join(plan, 'chunk-000.mkv.claim'),
+    JSON.stringify({ host: hostname(), pid: process.pid, at: 'now' }),
+  )
+  const refused = cli(root, 'render', '--job', 'k', '--chunk', '0')
+  assert.equal(refused.status, 2)
+  assert.ok(
+    refused.stderr.includes(`being rendered by ${hostname()} (pid ${process.pid}`),
+    refused.stderr,
+  )
+  assert.equal(sha(join(plan, 'chunk-000.mkv')), before)
+  assert.ok(existsSync(join(plan, 'chunk-000.mkv.claim')), "the other render's claim stays")
+  // A plain render removes what a killed render of the same file left.
+  const film = join(root, 'out', 'k.mp4')
+  writeFileSync(`${film}.${gone}.partial`, 'part')
+  assert.equal(cli(root, 'render', '--job', 'k', '--out', film).status, 0)
+  assert.equal(existsSync(`${film}.${gone}.partial`), false)
 })
