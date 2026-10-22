@@ -103,6 +103,11 @@ export const eachVariant = async <
     json?: boolean
     /** Why this run takes one variant only (a flag given that compares two): refused for several. */
     one?: string
+    /**
+     * Run once every variant has: what several make together (still's side-by-side sheet), as a
+     * line printed after them and keys added beside `variants` in `--json`.
+     */
+    after?: (names: (string | undefined)[]) => Promise<{ line: string; result: object } | undefined>
   } = {},
 ): Promise<number> => {
   const { manifest } = await findProject(
@@ -143,6 +148,7 @@ export const eachVariant = async <
       return { variant, lines, findings, result, error, exit }
     }),
   )
+  const together = await o.after?.(names)
   for (const r of runs) {
     for (const f of r.findings) found(f)
     if (r.error !== undefined && !o.json)
@@ -157,6 +163,7 @@ export const eachVariant = async <
             variant: nameOf(r.variant),
             ...(r.error !== undefined ? { error: r.error } : r.result),
           })),
+          ...together?.result,
         },
         null,
         2,
@@ -169,5 +176,6 @@ export const eachVariant = async <
       for (const line of r.lines) console.log(line.replace(/^/gm, '  '))
     }
   }
+  if (together && !o.json) console.log(together.line)
   return Math.max(...runs.map((r) => r.exit))
 }

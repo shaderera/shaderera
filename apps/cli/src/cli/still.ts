@@ -3,13 +3,15 @@ import { join, relative, resolve } from 'node:path'
 import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
 import { safeName } from '../project/jobs.ts'
+import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { type Comparison, compareFrames, sideBySide } from '../review/compare.ts'
 import { contactSheet, pngWriter, toPng } from '../review/review.ts'
+import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { EXIT } from './findings.ts'
-import { eachVariant, type Output } from './variants.ts'
+import { eachVariant, nameOf, type Output } from './variants.ts'
 
 /**
  * The times to render: the times given, plus every `every` seconds from 0 when asked. Each must be
@@ -90,11 +92,24 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     },
     { command: 'still', times: true },
   )
-  return eachVariant(values, (v, out) => stillOne(v, times, out), {
+  // Several variants with --sheet: each one's frames, for one sheet of them side by side.
+  const kept: (VariantFrames & { outDir: string })[] = []
+  return eachVariant(values, (v, out) => stillOne(v, times, out, kept), {
     json: values.json === true,
     ...(values.compare !== undefined
       ? { one: '--compare puts one variant beside another: give one --variant with it.' }
       : {}),
+    after: async (names) => {
+      if (kept.length < 2) return undefined
+      const order = names.map(nameOf)
+      kept.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))
+      const file = join(
+        (kept[0] as { outDir: string }).outDir,
+        `${kept.map((k) => safeName(k.name)).join('-')}-sheet.png`,
+      )
+      writeFileSync(file, await variantSheet(kept))
+      return { line: relative(process.cwd(), file), result: { sheet: file } }
+    },
   })
 }
 
@@ -112,6 +127,7 @@ const stillOne = async (
   },
   given: readonly number[],
   out: Output,
+  kept: (VariantFrames & { outDir: string })[],
 ): Promise<number> => {
   if (v.region && v.object) throw new Error('Give --region or --object, not both.')
   const scale = v.scale === undefined ? 1 : Number(v.scale)
@@ -146,6 +162,7 @@ const stillOne = async (
     const sheetWidth = other ? width * 2 : width
     const rendered: { t: number; label: string; pixels: Uint8Array }[] = []
     const stills: Still[] = []
+    const frames: { t: number; pixels: Uint8Array }[] = []
     let history = 0
     const pngs = pngWriter()
     for (const t of times) {
@@ -196,12 +213,20 @@ const stillOne = async (
         s.compare = { variant: v.compare as string, file, ...compareFrames(pixels, theirs) }
       }
       // Kept only for the sheet: `--every` over a long film would hold every frame in memory.
-      if (v.sheet) rendered.push({ t, label: pair, pixels: shown })
+      if (v.sheet && !out.several) rendered.push({ t, label: pair, pixels: shown })
+      if (v.sheet && out.several) frames.push({ t, pixels })
       stills.push(s)
       if (!v.json) out.log(lineOf(s))
     }
     let sheet: string | undefined
-    if (v.sheet) {
+    // Several variants: one sheet of them side by side instead (run, after).
+    if (v.sheet && out.several) {
+      const { safeArea } = outputRequirements(readRequirements(project.root), {
+        ...(variant === 'main' ? {} : { variant }),
+        ...project.manifest,
+      })
+      kept.push({ name: variant, width, height, ...(safeArea ? { safeArea } : {}), frames, outDir })
+    } else if (v.sheet) {
       sheet = join(outDir, `${pair}-sheet.png`)
       await pngs.write(sheet, contactSheet(rendered, sheetWidth, height))
     }

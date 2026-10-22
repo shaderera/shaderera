@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
 import { tempDir } from '../fixtures/temp.ts'
+import { labelSize } from '../review/variant-sheet.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
 const root = fileURLToPath(new URL('./fixtures/ratios/', import.meta.url))
@@ -103,4 +104,36 @@ test('still, check and review take several variants: one host each, grouped, the
       .map((f: { output: string }) => f.output),
   )
   assert.deepEqual([...outputs].sort(), ['16:9', '9:16'])
+})
+
+test('still --sheet with several variants: one sheet, a row per moment, the variants side by side', () => {
+  const out = tempDir('variant-sheet')
+  const r = cli('still', '0.5', '1.5', '--variant', '16:9,9:16', '--sheet', '--out', out, '--json')
+  assert.equal(r.status, 0, r.stderr)
+  const { sheet, variants } = JSON.parse(r.stdout).result
+  assert.equal(sheet, join(out, '16_9-9_16-sheet.png'))
+  assert.equal(variants.length, 2)
+  // No sheet of each variant's own: the one sheet holds them.
+  assert.ok(!existsSync(join(out, '16_9-sheet.png')))
+  const png = decode(readFileSync(sheet))
+  // Each at 720 px high: 1280 + 405 wide with 8 px between, two rows with their labels: 24 px
+  // type (3% of 720 is 22, but 24 stays 14 px when the sheet is shown 1024 px wide), padded to 44.
+  assert.equal(labelSize(720, 1709), 24)
+  assert.ok((24 * 1024) / 1709 >= 14)
+  assert.equal(labelSize(200, 400), 14)
+  assert.equal(labelSize(2000, 1000), 60)
+  assert.deepEqual([png.width, png.height], [1709, 8 + 2 * (720 + 44 + 8)])
+  // The safe area requirements.json declares is drawn on the sheet (dashed, #38d6ff)…
+  let safe = 0
+  const channels = png.channels
+  for (let i = 0; i < png.data.length; i += channels)
+    if (png.data[i] === 0x38 && png.data[i + 1] === 0xd6 && png.data[i + 2] === 0xff) safe++
+  assert.ok(safe > 1000, `${safe} safe-area pixels`)
+  // …and never on the stills: the same bytes as a still of that variant alone.
+  const alone = tempDir('variant-alone')
+  assert.equal(cli('still', '1.5', '--variant', '9:16', '--out', alone).status, 0)
+  assert.deepEqual(
+    readFileSync(join(out, '9_16-1.500.png')),
+    readFileSync(join(alone, '9_16-1.500.png')),
+  )
 })
