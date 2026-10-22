@@ -28,6 +28,8 @@ const painted = (canvas: DrawingCanvas) =>
 const mount = async (
   manifest: Manifest,
   params: { [key: string]: Json },
+  /** The variant the film is opened as (`host.variant`). */
+  variant: string | undefined,
   /** A saved revision's DOM module; the live project's otherwise. */
   module?: string,
 ) => {
@@ -60,7 +62,11 @@ const mount = async (
         await import('/__shaderera/dom.js')
   ) as { default: MountDom | null }
   if (!loaded.default) throw new Error('manifest.dom has no default export.')
-  const view: DomView = await loaded.default(element, { manifest, params })
+  const view: DomView = await loaded.default(element, {
+    manifest,
+    params,
+    ...(variant !== undefined ? { variant } : {}),
+  })
   await document.fonts.ready
   /** CSS animations and transitions on the page's clock would differ run to run: held at t. */
   const hold = (t: number) => {
@@ -221,13 +227,18 @@ export const domHost = (port: MessagePort) => {
     const m = e.data as {
       id: number
       t?: number
-      mount?: { manifest: Manifest; params: { [key: string]: Json }; module?: string }
+      mount?: {
+        manifest: Manifest
+        params: { [key: string]: Json }
+        variant?: string
+        module?: string
+      }
       text?: number
     }
     try {
       if (m.mount) {
         current?.dispose()
-        current = await mount(m.mount.manifest, m.mount.params, m.mount.module)
+        current = await mount(m.mount.manifest, m.mount.params, m.mount.variant, m.mount.module)
         // For a host's checks: the DOM drawn at t, as bytes, without a render.
         ;(window as unknown as { __shadereraDom: unknown }).__shadereraDom = async (t: number) => {
           const bitmap = await current?.draw(t)

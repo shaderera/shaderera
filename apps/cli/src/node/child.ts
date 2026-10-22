@@ -156,6 +156,8 @@ export const openChild = async (
     trusted?: boolean
     params?: { [key: string]: Json }
     seed?: number
+    /** The variant `project.manifest` is already sized for: the source's `host.variant`. */
+    variant?: string
     timeoutMs?: number
     /** A sequential source's checkpoint spacing in rendering ms; tests force it small. */
     checkpointMs?: number
@@ -232,6 +234,7 @@ export const openChild = async (
     manifest: project.manifest,
     params: o.params ?? paramDefaults(project.manifest),
     seed: o.seed ?? project.manifest.seed ?? 0,
+    ...(o.variant !== undefined ? { variant: o.variant } : {}),
     checkpointMs: o.checkpointMs,
   }).catch((error: unknown) => {
     // A source that cannot open must not keep the process alive.

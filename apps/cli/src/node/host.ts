@@ -69,6 +69,8 @@ export type Open = {
   manifest: Manifest
   params: { [key: string]: Json }
   seed: number
+  /** The variant the source is opened as (`host.variant`); none for the manifest's own output. */
+  variant?: string
   /** A sequential source's checkpoint spacing in rendering ms (the host's default otherwise). */
   checkpointMs?: number
 }
@@ -318,6 +320,7 @@ const handle = async (m: Request): Promise<unknown> => {
       manifest: m.manifest,
       params: m.params,
       seed: m.seed,
+      ...(m.variant !== undefined ? { variant: m.variant } : {}),
       gpu: device,
       io: {
         read,
