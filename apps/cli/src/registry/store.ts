@@ -187,6 +187,7 @@ export const resolve = (registry: string, spec: string): Version & { dir: string
   const v = entry.versions[version] as Version
   const { item } = checkItem(v.item, `${name}@${version} in ${registry}`)
   const dir = versionDir(registry, item.name, version)
+  if (!existsSync(dir)) throw new Error(`${name}@${version} in ${registry} has no files`)
   if (hashDir(dir) !== v.sha256)
     throw new Error(`${name}@${version} in ${registry} does not match its sha256`)
   return { ...v, item, dir }

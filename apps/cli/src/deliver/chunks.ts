@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { exportFrames, frameTimes } from '@shaderera/core'
 import { ffmpegSink, type Input, requireFfmpeg } from '../cli/ffmpeg.ts'
 import type { Child, HostIdentity } from '../node/child.ts'
+import { frameError } from '../node/open-host.ts'
 import { type Job, videoOptionsOf } from '../project/jobs.ts'
 import { hashFile } from '../project/revisions.ts'
 
@@ -192,8 +193,14 @@ export const renderChunk = async (
       from: chunk.from,
       to: chunk.to,
       // Frames go round the hosts in the order exportFrames asks for them.
-      render: async (t) =>
-        (await (hosts[next++ % hosts.length] as Child).render(t, 'final', plan.input)).pixels,
+      render: async (t) => {
+        const host = hosts[next++ % hosts.length] as Child
+        try {
+          return (await host.render(t, 'final', plan.input)).pixels
+        } catch (error) {
+          throw frameError(error, t, plan.fps, hosts.length)
+        }
+      },
       inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
       sink,
       onFrame,

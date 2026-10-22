@@ -20,8 +20,8 @@ const clip = await host.io.video!('assets/shot.mp4') // in open
 const frame = host.io.canvas(clip.width, clip.height) // in open
 const data = await clip.frame(Math.floor(t * clip.fps))
 toCanvas(host.io, { width: clip.width, height: clip.height, data }, frame)
-const s = cover(clip, box).source
-ctx.drawImage(frame, s.x, s.y, s.width, s.height, box.x, box.y, box.width, box.height)
+const c = cover(clip, box)
+drawFrom(ctx, frame, c.source, c.target)
 ```
 
 - `toCanvas(io, pixels, into?)` puts straight RGBA on a canvas of its size: an `io.image` (8 or
@@ -33,12 +33,13 @@ ctx.drawImage(frame, s.x, s.y, s.width, s.height, box.x, box.y, box.width, box.h
   placed by `align` (`[0, 0]` top left, `[1, 1]` bottom right; centred by default).
 - `crop(picture, aspect, focus?, width?)` is the same crop at any width, shrunk to fit and slid
   back in: `camera-ken-burns` moves a view with it.
-- A fit is `{ source, target }`, what `drawImage` takes; `ctx.drawImage(canvas, s.x, s.y, s.width,
-  s.height, t.x, t.y, t.width, t.height)` draws it without the pyramid.
+- A fit is `{ source, target }`, what `drawImage` takes.
 - `pyramid(io, canvas, smallest?)` keeps the picture and copies halved down to `smallest` px (64)
-  on the long side, about a third more memory. `drawFrom(ctx, pyramid, source, target)` draws from
-  the level no more than twice the size drawn, with bilinear smoothing, the source kept inside the
-  level and the target cut to match, so no pixel is sampled past the picture's edge.
+  on the long side, about a third more memory.
+- `drawFrom(ctx, picture, source, target)` draws a fit with bilinear smoothing, the source kept
+  inside the picture and the target cut to match, so no pixel is sampled past the picture's edge.
+  `picture` is a pyramid, drawn from the level no more than twice the size drawn, or a plain
+  canvas (a footage frame, one per shot), drawn once as it is.
 
 Measured with `@napi-rs/canvas` 1.0.10 on Windows 11: twelve stills up to 8000 px wide, drawn
 through `drawFrom` scaled down into 1920×1080 (48 fits: cover, cover on a focus, contain, a small

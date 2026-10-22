@@ -8,7 +8,7 @@ import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
-import { openHosts } from '../node/open-host.ts'
+import { frameError, openHosts } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
 import {
@@ -193,7 +193,7 @@ export const exportVideo = async (
   let finished = false
   let stemsWritten = false
   try {
-    if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1)
+    if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1, workers)
     const hosts = [child, ...(o.hosts ?? opened)]
     // Every host must give the same bytes in the same format.
     const input: Input = o.frames
@@ -566,23 +566,4 @@ const encodeFrames = async (
     throw error
   }
   return { frames }
-}
-
-/** What a GPU says when it cannot go on: a lost or removed device, or memory it could not get. */
-const DEVICE = /device was lost|device removed|DXGI_ERROR|out of memory|WebGPU reported/i
-
-/**
- * A host's error with the frame it happened at. A device error also names the usual way out:
- * every host holds its own copy of the film's GPU memory, so fewer hosts need less.
- */
-export const frameError = (error: unknown, t: number, fps: number, hosts: number): Error => {
-  const message = error instanceof Error ? error.message : String(error)
-  const way = !DEVICE.test(message)
-    ? ''
-    : hosts > 1
-      ? ` ${hosts} hosts shared the GPU, each with its own memory: render with fewer --workers (--workers 1 for one).`
-      : ' The GPU ran out or reset: close other work on it, or make the film need less memory.'
-  return new Error(`Frame ${Math.round(t * fps)} (t ${t} s) failed: ${message}${way}`, {
-    cause: error,
-  })
 }

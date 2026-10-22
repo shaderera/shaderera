@@ -27,9 +27,13 @@ only the plugin named. Once copied, the files are the project's own code: to sto
 delete its files.
 
 `add` and `remove` take several names. `add` resolves every one, and what each is built on,
-before it copies anything: if one is missing, nothing is copied. `remove` checks that each is a
-package plugin the project uses before it uninstalls any. `publish` takes several folders and
-publishes each in turn. A folder that fails does not stop the rest: the end names each one that
+before it copies anything: if one is missing, nothing is copied. A range named on the command
+line wins over the one a plugin requires, but a version outside a range another plugin requires
+is refused, naming both: name a version in that range, or add them one at a time. `remove`
+checks that each is a package plugin the project uses (required in `shaderera.item.json`, or
+installed with a `shaderera` field) before it uninstalls any; it never uninstalls a plain npm
+dependency. `publish` takes several folders (a bare name such as `my-plugin` is a folder here,
+never an npm package) and publishes each in turn. A folder that fails does not stop the rest: the end names each one that
 failed, and the command exits with an error.
 
 ## Where plugins come from

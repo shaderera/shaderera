@@ -52,6 +52,10 @@ npx shaderera add camera-keyframes look-vignette   # several at once: all of the
   files are the project's code: to stop using one, delete its files.
 - **A package plugin** (type `extension`) is an npm package. `add` installs it and records it
   in `shaderera.item.json` under `requires`; `npx shaderera remove <name>...` uninstalls it.
+  `remove` refuses a plain npm dependency: it only uninstalls package plugins.
+- **A range on the command line** (`name@0.1.0`) wins over what a plugin requires, but if
+  another plugin needs a version outside it, `add` refuses and names both. Name a version in
+  that range, or add them one at a time.
 - **`--site <dir>`** wants a folder of published plugins (with an `index.json`). If it says the folder
   holds plugin sources, publish them into a folder first (section 6), then add from that.
 

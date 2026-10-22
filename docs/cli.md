@@ -179,8 +179,10 @@ The file is written as `<out>.<pid>.partial` (the render's process id, so two re
 stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
 kept as `<out>.<pid>.partial` and the error says so. A host error fails the render with
-its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
-memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
+its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
+removed, out of memory) or a host process that crashed in native code, at a frame or while the
+hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
+memory. This holds for `render`, `render --chunk` and `deliver`; nothing is retried.
 The file must hold every frame rendered; one ffmpeg finished short is refused.
 
 Every file says which revision made it. `render` saves the project first, as `job` does (the same
@@ -421,8 +423,8 @@ Plugins come from the site's `/r`: `--site <origin>`, else `SHADERERA_SITE`, els
 |---|---|
 | `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
-| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not stops them all |
-| `remove <name>...` | uninstalls package plugins and stops requiring them; each must be one the project uses, or none is removed |
+| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not, or a version outside a range another requires, stops them all |
+| `remove <name>...` | uninstalls package plugins and stops requiring them; each must be a package plugin the project uses, never a plain npm dependency, or none is removed |
 | `publish [dir]... --site <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
 
 `add` never replaces a file the project already has; `--force` replaces only the plugin named. A
