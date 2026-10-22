@@ -5,7 +5,31 @@ import { create, projectDir } from './create.ts'
 
 const here = import.meta.dirname
 const { version } = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'))
-const { positionals } = parseArgs({ allowPositionals: true, options: {} })
+const usage = `Usage: npm create shaderera@latest [dir]
+       create-shaderera [dir] [--help]
+
+Makes an empty Shaderera project in dir (default my-film): render(t) in src/composition.ts,
+shaderera.json, AUTHORING.md, guides/, AGENTS.md / CLAUDE.md and the agent skills.
+
+  dir                                        the new project's folder; it must be empty or missing
+  -h, --help                                 print this usage
+
+Docs: https://github.com/shaderera/shaderera/tree/main/packages/create-shaderera, and after
+npm install, AUTHORING.md and node_modules/shaderera/docs/.`
+
+const args = (() => {
+  try {
+    return parseArgs({ allowPositionals: true, options: { help: { type: 'boolean', short: 'h' } } })
+  } catch (error) {
+    const flag = /'([^']+)'/.exec((error as Error).message)?.[1] ?? (error as Error).message
+    console.error(`Unknown option: ${flag}. See create-shaderera --help.`)
+    process.exit(2)
+  }
+})()
+if (args.values.help) {
+  console.log(usage)
+  process.exit(0)
+}
 const files = join(here, '..', 'files')
 const packed = existsSync(join(files, 'AUTHORING.md'))
 const repo = join(here, '..', '..', '..')
@@ -19,7 +43,7 @@ const guides = {
   '.claude/skills/shaderera': join(skills, 'shaderera'),
   '.claude/skills/shaderera-plugins': join(skills, 'shaderera-plugins'),
 }
-const target = positionals[0] ?? 'my-film'
+const target = args.positionals[0] ?? 'my-film'
 
 try {
   create({ from: projectDir(here), target, version, guides })

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -96,4 +97,32 @@ test('the Claude Code plugin declares the MCP server', () => {
     command: 'npx',
     args: ['-y', 'shaderera', 'mcp'],
   })
+})
+
+/** Runs the create-shaderera bin with these arguments in a new temp folder. */
+const bin = (...args: string[]) =>
+  spawnSync(
+    process.execPath,
+    [join(import.meta.dirname, '..', 'bin', 'create-shaderera.js'), ...args],
+    { cwd: temp(), encoding: 'utf8' },
+  )
+
+test('--help and -h print the usage and exit 0, making nothing', () => {
+  for (const flag of ['--help', '-h']) {
+    const { status, stdout, stderr } = bin(flag)
+    assert.equal(status, 0, stderr)
+    assert.match(stdout, /^Usage: npm create shaderera@latest \[dir\]/)
+    assert.match(stdout, /--help/)
+    assert.match(stdout, /Docs: /)
+    assert.doesNotMatch(stdout, /Created/)
+  }
+})
+
+test('an unknown flag prints one line pointing to --help and exits 2', () => {
+  const { status, stdout, stderr } = bin('--nope')
+  assert.equal(status, 2)
+  assert.equal(stdout, '')
+  assert.deepEqual(stderr.trimEnd().split('\n'), [
+    'Unknown option: --nope. See create-shaderera --help.',
+  ])
 })
