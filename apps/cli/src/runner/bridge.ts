@@ -18,6 +18,8 @@ const origin =
     ? undefined
     : parentOrigin(allowed, new URLSearchParams(location.search).get('parent'))
 const files = meta(FILES_META)
+// The studio's `/runner?variant=`: the variant the worker opens when the page names none.
+const variant = new URLSearchParams(location.search).get('variant')
 // Framed with an opaque origin, Vite's client cannot make the SharedWorker it pings with once the
 // CLI stops (a SecurityError); without one it pings from the page.
 if (files) Reflect.deleteProperty(globalThis, 'SharedWorker')
@@ -25,7 +27,7 @@ const at = new URL(import.meta.url.replace(/bridge\.(ts|js)/, 'worker.$1')).href
 const worker = files
   ? new Worker(
       `data:text/javascript,${encodeURIComponent(
-        `import { configureRunner } from ${JSON.stringify(at)}; configureRunner({ files: ${JSON.stringify(files)} });`,
+        `import { configureRunner } from ${JSON.stringify(at)}; configureRunner(${JSON.stringify({ files, ...(variant !== null ? { variant } : {}) })});`,
       )}`,
       { type: 'module' },
     )
