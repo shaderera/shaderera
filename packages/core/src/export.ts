@@ -23,6 +23,15 @@ const describe = (failures: readonly DeterminismFailure[]): string =>
     })
     .join('; ')
 
+/** An export refused because frames rendered again came out different: its frames cannot be trusted. */
+export class NotDeterministic extends Error {
+  readonly failures: readonly DeterminismFailure[]
+  constructor(failures: readonly DeterminismFailure[]) {
+    super(`Not exported: the source is not deterministic (${describe(failures)}).`)
+    this.failures = failures
+  }
+}
+
 /**
  * Renders every frame in [from, to) in order into a sink, waiting on each write. The export is also
  * the first pass of a determinism check: before the sink ends, up to 8 of its frames (the first, the
@@ -89,7 +98,7 @@ export const exportFrames = async (o: {
     o.signal?.throwIfAborted()
     const failures = await revisit(first, o, times.at(-1) ?? null)
     if (failures.length > 0) {
-      throw new Error(`Not exported: the source is not deterministic (${describe(failures)}).`)
+      throw new NotDeterministic(failures)
     }
     await o.sink.end()
   } catch (error) {

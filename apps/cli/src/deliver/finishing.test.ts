@@ -12,6 +12,7 @@ import {
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { NotDeterministic } from '@shaderera/core'
 import { tempDir } from '../fixtures/temp.ts'
 import type { Child } from '../node/child.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
@@ -128,12 +129,34 @@ test('a non-deterministic source leaves no partial delivery', {
     output: { width: 64, height: 36, fps: 10, from: 0, to: 1 },
   } as Job
   const dir = join(project.root, 'out', 'bad')
-  await assert.rejects(
-    exportFinishing(project, child, job, { dir, quick: true }),
-    /not deterministic/,
-  )
+  await assert.rejects(exportFinishing(project, child, job, { dir, quick: true }), NotDeterministic)
   assert.equal(existsSync(dir), false)
   assert.equal(existsSync(`${dir}.partial`), false)
+})
+
+test('a png job keeps its frames on any other error, whatever its message says', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  // Only the determinism re-check's NotDeterministic deletes the frames, never the words of a message.
+  const project = memoryProject({ width: 16, height: 16 })
+  const child = memoryChild({
+    size: { width: 16, height: 16 },
+    frame: (t) => {
+      if (t === 0.4) throw new Error('the GPU says this is not deterministic')
+      return new Uint8Array(16 * 16 * 4).fill(Math.round(t * 10))
+    },
+  })
+  const job = {
+    name: 'worded',
+    id: 'worded',
+    output: { width: 16, height: 16, fps: 10, from: 0, to: 1 },
+  } as Job
+  const dir = join(project.root, 'out', 'worded')
+  await assert.rejects(
+    exportFinishing(project, child, job, { dir, quick: true }),
+    (error: unknown) => !(error instanceof NotDeterministic) && /4 frames kept/.test(String(error)),
+  )
+  assert.equal(readdirSync(join(`${dir}.partial`, 'frames')).length, 4)
 })
 
 /** A job of 20 frames (2 s at 10 fps) whose render fails once, at `failAt` s, while `failing`. */

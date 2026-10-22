@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { exportFrames, frameTimes, type Json } from '@shaderera/core'
+import { exportFrames, frameTimes, type Json, NotDeterministic } from '@shaderera/core'
 import { fpsFraction, toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { type Loudness, requireFfmpeg } from '../cli/ffmpeg.ts'
 import { mixWav } from '../cli/mix.ts'
@@ -305,7 +305,7 @@ export const exportFinishing = async (
     return { dir, record, review: report, seconds, rendered: frames.length - kept, kept }
   } catch (error) {
     // Frames that differ when rendered again cannot be continued from: they go.
-    if (error instanceof Error && /not deterministic/.test(error.message)) {
+    if (error instanceof NotDeterministic) {
       rmSync(partial, { recursive: true, force: true })
       if (placed) rmSync(dir, { recursive: true, force: true })
       throw error

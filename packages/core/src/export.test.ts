@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { exportFrames } from './export.ts'
+import { exportFrames, NotDeterministic } from './export.ts'
 
 const recorder = () => {
   const log: string[] = []
@@ -63,7 +63,13 @@ test('exportFrames refuses a source whose frames depend on what came before, and
       },
       sink: { ...sink, abort: async () => void log.push('abort') },
     }),
-    /not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
+    (error: unknown) => {
+      // A typed error, so a caller never has to read the message to know what failed.
+      assert.ok(error instanceof NotDeterministic)
+      assert.ok(error.failures.length > 0)
+      assert.match(error.message, /not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/)
+      return true
+    },
   )
   assert.equal(log.length, 11)
   assert.equal(log.at(-1), 'abort')
