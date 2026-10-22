@@ -11,7 +11,7 @@ export {
 export { sampleTimes } from './determinism.ts'
 export { fullDevice } from './device.ts'
 export { gainAt, sampleClips } from './gain.ts'
-export { checkManifest, withVariant } from './manifest.ts'
+export { checkManifest, GRAPHICS_WHITE, withVariant } from './manifest.ts'
 export { openSource } from './open.ts'
 export { matte, over, type RgbaLayer, straight } from './over.ts'
 export { paramDefaults } from './params.ts'
@@ -23,7 +23,7 @@ export {
   seekable,
 } from './sequential.ts'
 export { formatShaderError, type Locate, type ShaderWatch, watchShaders } from './shaders.ts'
-export { finalOnly, layerInfo } from './stack.ts'
+export { finalOnly, layerInfo, lightChecked, rangeOf } from './stack.ts'
 export {
   dropFrame,
   fpsFraction,

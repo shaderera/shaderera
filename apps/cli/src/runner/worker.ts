@@ -7,6 +7,7 @@ import type {
   Manifest,
   Matrices,
   Pick,
+  Range,
   SampledClip,
   Source,
 } from '@shaderera/core'
@@ -20,9 +21,11 @@ import {
   type GpuOutput,
   gpuCompositor,
   layerInfo,
+  lightChecked,
   openSource,
   over,
   paramDefaults,
+  rangeOf,
   type Seekable,
   type ShaderWatch,
   sampleClips,
@@ -85,6 +88,8 @@ const counted = async <T>(run: () => Promise<T>): Promise<T> => {
 
 let source: Source | undefined
 let manifest: Manifest
+/** The open source's `host.range`. */
+let range: Range = 'sdr'
 /** The latest render's signal: a newer render aborts it, because a scrub made it stale. */
 let latest: AbortController | undefined
 /** The Studio's exploration camera: applied to preview renders only, kept across a reopen. */
@@ -407,6 +412,8 @@ export type OpenOptions = {
   params?: { [key: string]: Json }
   /** The source's `host.seed` (a job's own); by default the manifest's, or 0. */
   seed?: number
+  /** The source's `host.range` (a job's own): `sdr` when absent. */
+  range?: Range
   /** A saved revision, opened from its frozen copy under .shaderera/revisions/: a render job. */
   revision?: string
   /** A variant from shaderera.json, applied to the manifest the source opens with. */
@@ -433,12 +440,15 @@ const api = {
         ? await import(/* @vite-ignore */ url(declared.entry))
         : // @ts-expect-error: served by the runner plugin, which re-exports manifest.entry.
           await import('/__shaderera/entry.js')
+      const gpu = await gpuDevice()
+      range = rangeOf(manifest, o.range, gpu)
       const host = {
         manifest,
         params: o.params ?? { ...paramDefaults(manifest), ...variant.params },
         seed: o.seed ?? manifest.seed ?? 0,
+        range,
         io,
-        gpu: await gpuDevice(),
+        gpu,
       }
       // A revision's DOM is its own frozen file, beside its entry; never the live one.
       if (manifest.dom !== undefined)
@@ -493,7 +503,7 @@ const api = {
           }),
         )
         for (const layer of await depthTested(
-          finalOnly(flattenFrame(frame), intent, t),
+          lightChecked(finalOnly(flattenFrame(frame), intent, t), range),
           width,
           height,
         )) {
@@ -629,7 +639,7 @@ const composite = async (
         ...(dom ? { dom } : {}),
       }),
     )
-    const layers = finalOnly(flattenFrame(frame), intent, t)
+    const layers = lightChecked(finalOnly(flattenFrame(frame), intent, t), range)
     const info = layers.map(layerInfo)
     const c = await compositorFor()
     if (c)

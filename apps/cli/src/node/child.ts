@@ -6,7 +6,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Caption, Json, Matrices, Pick, SampledClip } from '@shaderera/core'
+import type { Caption, Json, Matrices, Pick, Range, SampledClip } from '@shaderera/core'
 import type { GpuOutput, SeekStats } from '@shaderera/core/host'
 import { paramDefaults } from '@shaderera/core/host'
 import type { TextRun } from '../review/measure.ts'
@@ -158,6 +158,8 @@ export const openChild = async (
     trusted?: boolean
     params?: { [key: string]: Json }
     seed?: number
+    /** The source's `host.range`: `sdr` when absent. */
+    range?: Range
     timeoutMs?: number
     /** A sequential source's checkpoint spacing in rendering ms; tests force it small. */
     checkpointMs?: number
@@ -234,6 +236,7 @@ export const openChild = async (
     manifest: project.manifest,
     params: o.params ?? paramDefaults(project.manifest),
     seed: o.seed ?? project.manifest.seed ?? 0,
+    ...(o.range ? { range: o.range } : {}),
     checkpointMs: o.checkpointMs,
   }).catch((error: unknown) => {
     // A source that cannot open must not keep the process alive.

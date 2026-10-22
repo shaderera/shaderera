@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createCanvas, GlobalFonts, ImageData } from '@napi-rs/canvas'
-import type { Host, Json, Layer, Manifest, Matrices, Source } from '@shaderera/core'
+import type { Host, Json, Layer, Manifest, Matrices, Range, Source } from '@shaderera/core'
 import { flattenFrame, frameAt } from '@shaderera/core'
 import {
   finalOnly,
@@ -17,9 +17,11 @@ import {
   gpuCompositor,
   type Locate,
   layerInfo,
+  lightChecked,
   openSource,
   over,
   type RgbaLayer,
+  rangeOf,
   type Seekable,
   type ShaderWatch,
   sampleClips,
@@ -70,6 +72,8 @@ export type Open = {
   manifest: Manifest
   params: { [key: string]: Json }
   seed: number
+  /** The job's range: `sdr` when absent; `hdr10` needs the manifest's hdr10 and a GPU. */
+  range?: Range
   /** A sequential source's checkpoint spacing in rendering ms (the host's default otherwise). */
   checkpointMs?: number
 }
@@ -89,6 +93,7 @@ export type Fonts = {
 
 let source: Source | undefined
 let manifest: Manifest
+let range: Range = 'sdr'
 // Dawn's GPU object is garbage-collected under a live device unless something holds it.
 let gpu: unknown
 /** The adapter the device came from, for the capture record, and the software renderer it is. */
@@ -306,6 +311,7 @@ const handle = async (m: Request): Promise<unknown> => {
     // In Node a source may find its project files from the working directory.
     process.chdir(m.root)
     const device = await gpuDevice(m.root)
+    range = rangeOf(m.manifest, m.range, device)
     try {
       compositor?.destroy()
     } catch {
@@ -322,6 +328,7 @@ const handle = async (m: Request): Promise<unknown> => {
       manifest: m.manifest,
       params: m.params,
       seed: m.seed,
+      range,
       gpu: device,
       io: {
         read,
@@ -358,12 +365,15 @@ const handle = async (m: Request): Promise<unknown> => {
     case 'render': {
       const { width, height } = manifest
       const frame = frameAt(m.t, manifest.fps)
-      const layers = finalOnly(
-        flattenFrame(
-          await counted(() => s.render(m.t, { width, height, intent: m.intent, frame })),
+      const layers = lightChecked(
+        finalOnly(
+          flattenFrame(
+            await counted(() => s.render(m.t, { width, height, intent: m.intent, frame })),
+          ),
+          m.intent,
+          m.t,
         ),
-        m.intent,
-        m.t,
+        range,
       )
       // Straight RGBA by default, as the browser host returns it (docs/determinism.md,
       // Pixels); yuv420p for an mp4 and rgba64 for a master, made on the GPU.
