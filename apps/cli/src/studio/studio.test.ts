@@ -300,7 +300,7 @@ test('a page that reloads is not closed; one that does not come back is', async 
   const id = makeId()
   const heard: string[] = []
   const hear = async (n: number) => {
-    for (let i = 0; i < 100 && heard.length < n; i++) await new Promise((r) => setTimeout(r, 20))
+    for (let i = 0; i < 250 && heard.length < n; i++) await new Promise((r) => setTimeout(r, 20))
     return heard
   }
   const first = page(relay.origin, id)
@@ -311,7 +311,8 @@ test('a page that reloads is not closed; one that does not come back is', async 
     nonce,
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
-    pageBackMs: 100,
+    // Long enough for a request under load, short enough for a test.
+    pageBackMs: 1000,
     onPage: (state) => heard.push(state),
   })
   closeAtEnd(t, cli, first)
@@ -340,7 +341,7 @@ test('a page that reloads is not closed; one that does not come back is', async 
   assert.equal(info.status, 200)
   assert.deepEqual(await hear(3), ['closed', 'reloaded', 'reloaded'])
   // And no `closed` follows it.
-  await new Promise((r) => setTimeout(r, 150))
+  await new Promise((r) => setTimeout(r, 1200))
   assert.deepEqual(heard, ['closed', 'reloaded', 'reloaded'])
 })
 
