@@ -31,6 +31,14 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 - **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused.
   In the files named after it (`out/<project>-<variant>.mp4`, `out/stills/<variant>-<t>.png`,
   `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
+  `main` names the manifest's own output, as in `deliver`.
+- **Several variants** (`check`, `still`, `review`): `--variant 16:9,9:16`, or `--variants
+  16:9,9:16`, or `--variants all` (`main` and every variant the manifest declares). Each variant
+  opens its own host and they run at once. The lines are printed under each variant's name, in
+  the order given; with `--json` the result is `{ "variants": [{ "variant": "16:9", ... }] }`, each
+  entry the command's own result (or `error`), and each finding names its variant as `output`. One
+  that fails to run is reported and the others finish; the exit code is the worst of them. A
+  `review --out <dir>` puts each variant in `<dir>/<variant>/`.
 - **`--host node|browser`**: overrides the manifest's `host` for this run. A project with `dom`
   cannot be run with `--host node`.
 - **`--trusted`**: run the project without Node's permission model
@@ -113,6 +121,7 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 |---|---|
 | `--times <n>` | 50 |
 | `--seed <n>` | 1 |
+| `--variant a,b`, `--variants all` | one: each variant in its own host, at once ([several variants](#common-flags)) |
 
 ```
 $ shaderera check --times 5
@@ -148,8 +157,16 @@ Stills of any moment straight from the source, rendered by the same host as `che
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
-| `--compare <variant>` | none. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
+| `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
 | `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet` |
+
+```
+$ shaderera still 1 --variant 16:9,9:16
+16:9:
+  out/stills/16_9-1.000.png  41 ms
+9:16:
+  out/stills/9_16-1.000.png  39 ms
+```
 
 ```
 $ shaderera still 0 2.5 --sheet --diff
@@ -299,7 +316,7 @@ Exit 1 if `--verify` finds a frame that differs. See [delivery.md](delivery.md#h
 
 ## `review`
 
-`shaderera review [--variant name] [--out dir] [--requirements file] [--quick] [--json]` renders
+`shaderera review [--variant name | --variant a,b | --variants all] [--out dir] [--requirements file] [--quick] [--json]` renders
 the principal frames, writes them with a contact sheet, and runs the technical checks. The CLI and
 the `review` MCP tool run the same code (`src/review/review.ts`).
 

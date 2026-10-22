@@ -8,7 +8,8 @@ import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { insideFilm, open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
-import { EXIT, found } from './findings.ts'
+import { EXIT } from './findings.ts'
+import { eachVariant, type Output } from './variants.ts'
 
 /**
  * The times to render: the times given, plus every `every` seconds from 0 when asked. Each must be
@@ -69,10 +70,11 @@ const lineOf = (s: Still) => {
  * writing a black frame. `--region` (frame pixels) or `--object` (an inspected object's `bbox`)
  * also writes that part of each still, enlarged `--scale` times by whole pixels: a close look.
  * `--compare <variant>` renders each t in that variant too and writes the pair side by side with
- * PSNR and mean ΔE between them: measured, never judged (decision 0011).
+ * PSNR and mean ΔE between them: measured, never judged (decision 0011). `--variant a,b` or
+ * `--variants all` renders the same times in each variant, in its own host, at once (eachVariant).
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const { values: v, times: given } = parseRendering(
+  const { values, times } = parseRendering(
     argv,
     {
       every: { type: 'string' },
@@ -84,9 +86,33 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       scale: { type: 'string' },
       compare: { type: 'string' },
       json: { type: 'boolean' },
+      variants: { type: 'string' },
     },
     { command: 'still', times: true },
   )
+  return eachVariant(values, (v, out) => stillOne(v, times, out), {
+    json: values.json === true,
+    ...(values.compare !== undefined
+      ? { one: '--compare puts one variant beside another: give one --variant with it.' }
+      : {}),
+  })
+}
+
+const stillOne = async (
+  v: Parameters<typeof open>[0] & {
+    every?: string
+    sheet?: boolean
+    diff?: boolean
+    out?: string
+    region?: string
+    object?: string
+    scale?: string
+    compare?: string
+    json?: boolean
+  },
+  given: readonly number[],
+  out: Output,
+): Promise<number> => {
   if (v.region && v.object) throw new Error('Give --region or --object, not both.')
   const scale = v.scale === undefined ? 1 : Number(v.scale)
   const variant = typeof v.variant === 'string' ? v.variant : 'main'
@@ -153,7 +179,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         s.differing = n
         if (n > 0) {
           history++
-          found({
+          out.found({
             code: 'history',
             severity: 'error',
             message: `${n} channels differ after a jump: the frame depends on history`,
@@ -172,7 +198,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       // Kept only for the sheet: `--every` over a long film would hold every frame in memory.
       if (v.sheet) rendered.push({ t, label: pair, pixels: shown })
       stills.push(s)
-      if (!v.json) console.log(lineOf(s))
+      if (!v.json) out.log(lineOf(s))
     }
     let sheet: string | undefined
     if (v.sheet) {
@@ -180,18 +206,16 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       await pngs.write(sheet, contactSheet(rendered, sheetWidth, height))
     }
     await pngs.done()
-    if (sheet && !v.json) console.log(relative(process.cwd(), sheet))
+    if (sheet && !v.json) out.log(relative(process.cwd(), sheet))
     const warning = clockWarning(await child.clock())
     if (warning) {
-      if (!v.json) console.log(`! ${warning}`)
-      found({ code: 'clock', severity: 'warning', message: warning })
+      if (!v.json) out.log(`! ${warning}`)
+      out.found({ code: 'clock', severity: 'warning', message: warning })
     }
     // PSNR of identical frames is Infinity, which JSON writes as null.
-    if (v.json) console.log(JSON.stringify({ stills, ...(sheet ? { sheet } : {}) }, null, 2))
+    if (v.json) out.result({ stills, ...(sheet ? { sheet } : {}) })
     else if (history > 0)
-      console.log(
-        `${history} frame(s) depend on history: export will refuse them (shaderera check).`,
-      )
+      out.log(`${history} frame(s) depend on history: export will refuse them (shaderera check).`)
     return history > 0 ? EXIT.failed : EXIT.ok
   } finally {
     await Promise.all([child.close(), other?.child.close()])

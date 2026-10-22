@@ -4,7 +4,8 @@ import { safeName } from '../project/jobs.ts'
 import { outputRequirements, type Requirements, readRequirements } from '../project/requirements.ts'
 import { type Check, review } from '../review/review.ts'
 import { open, parseRendering } from './args.ts'
-import { EXIT, type Finding, found } from './findings.ts'
+import { EXIT, type Finding } from './findings.ts'
+import { eachVariant, type Output } from './variants.ts'
 
 const SEVERITY = { fail: 'error', unknown: 'warning', info: 'info' } as const
 
@@ -37,18 +38,34 @@ export const formatCheck = (c: Check): string =>
   [`${mark[c.status]} ${c.title}`, c.measured, c.detail].filter(Boolean).join(' · ') +
   (c.at?.length ? ` @ ${c.at.slice(0, 8).join(', ')}` : '')
 
-/** `shaderera review [--variant name] [--out dir] [--requirements file] [--quick] [--param k=v]...` */
+/**
+ * `shaderera review [--variant a,b | --variants all] [--out dir] [--requirements file] [--quick]
+ * [--param k=v]...`: each variant in its own host, at once (eachVariant), into its own folder.
+ */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const { values: v } = parseRendering(
+  const { values } = parseRendering(
     argv,
     {
       out: { type: 'string' },
       requirements: { type: 'string' },
       quick: { type: 'boolean' },
       json: { type: 'boolean' },
+      variants: { type: 'string' },
     },
     { command: 'review', times: false },
   )
+  return eachVariant(values, reviewOne, { json: values.json === true })
+}
+
+const reviewOne = async (
+  v: Parameters<typeof open>[0] & {
+    out?: string
+    requirements?: string
+    quick?: boolean
+    json?: boolean
+  },
+  out: Output,
+): Promise<number> => {
   const { project, child } = await open(v)
   try {
     const variant = typeof v.variant === 'string' ? v.variant : undefined
@@ -57,10 +74,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       typeof v.requirements === 'string'
         ? JSON.parse(readFileSync(resolve(v.requirements), 'utf8'))
         : outputRequirements(readRequirements(project.root), { variant, ...project.manifest })
+    // Several variants given --out: each in its own folder under it, as out/review/ holds them.
+    const folder = safeName(variant ?? 'main')
     const outDir =
       typeof v.out === 'string'
-        ? resolve(v.out)
-        : join(project.root, 'out', 'review', ...(variant ? [safeName(variant)] : []))
+        ? join(resolve(v.out), ...(out.several ? [folder] : []))
+        : join(project.root, 'out', 'review', ...(variant ? [folder] : []))
     const r = await review({
       project,
       child,
@@ -69,14 +88,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       quick: v.quick === true,
       reopen: async (size) => (await open(v, size)).child,
     })
-    if (v.json) console.log(JSON.stringify(r, null, 2))
+    if (v.json) out.result(r)
     else {
-      for (const c of r.checks) console.log(formatCheck(c))
-      console.log(
-        `${r.contactSheet}\n${r.frames.length} frames in ${(r.elapsedMs / 1000).toFixed(1)} s`,
-      )
+      for (const c of r.checks) out.log(formatCheck(c))
+      out.log(`${r.contactSheet}
+${r.frames.length} frames in ${(r.elapsedMs / 1000).toFixed(1)} s`)
     }
-    for (const f of checkFindings(r.checks, variant)) found(f)
+    for (const f of checkFindings(r.checks, variant)) out.found(f)
     return r.checks.some((c) => c.status === 'fail') ? EXIT.failed : EXIT.ok
   } finally {
     await child.close()

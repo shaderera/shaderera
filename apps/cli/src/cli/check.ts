@@ -4,7 +4,8 @@ import { type SeekStats, sampleTimes } from '@shaderera/core/host'
 import type { Child, ClockReads } from '../node/child.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { EXIT, found } from './findings.ts'
+import { EXIT } from './findings.ts'
+import { eachVariant, type Output } from './variants.ts'
 
 export type CheckResult = DeterminismReport & {
   times: number[]
@@ -69,13 +70,23 @@ export const checkChild = async (
   return { ...report, times, what, msPerFrame, previewVsFinal: { mean, max, at }, seeks, clock }
 }
 
-/** `shaderera check [--times 50] [--seed 1] [--param k=v]...` */
+/**
+ * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--variant a,b | --variants all]`: each
+ * variant in its own host, at once (eachVariant).
+ */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const { values: v } = parseRendering(
+  const { values } = parseRendering(
     argv,
-    { times: { type: 'string' }, seed: { type: 'string' } },
+    { times: { type: 'string' }, seed: { type: 'string' }, variants: { type: 'string' } },
     { command: 'check', times: false },
   )
+  return eachVariant(values, checkOne)
+}
+
+const checkOne = async (
+  v: Parameters<typeof open>[0] & { times?: string; seed?: string },
+  out: Output,
+): Promise<number> => {
   const { project, child } = await open(v)
   try {
     const r = await checkChild(child, project.manifest, {
@@ -85,20 +96,20 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const { mean, max, at } = r.previewVsFinal
     const compare = `  preview vs final: mean ${mean.toFixed(3)}, max ${max} over ${at.length} t`
     if (r.failures.length === 0) {
-      console.log(
+      out.log(
         `✓ deterministic: ${r.times.length} timestamps, two orders, ${r.what} (${r.msPerFrame.toFixed(1)} ms/frame)`,
       )
-      console.log(compare)
+      out.log(compare)
       const seeks = describeSeeks(r.seeks, project.manifest.sequential)
-      if (seeks) console.log(seeks)
+      if (seeks) out.log(seeks)
       const warning = clockWarning(r.clock)
       if (warning) {
-        console.log(`! ${warning}`)
-        found({ code: 'clock', severity: 'warning', message: warning })
+        out.log(`! ${warning}`)
+        out.found({ code: 'clock', severity: 'warning', message: warning })
       }
       return EXIT.ok
     }
-    console.log(`✗ not deterministic: ${r.failures.length} of ${r.times.length} timestamps differ`)
+    out.log(`✗ not deterministic: ${r.failures.length} of ${r.times.length} timestamps differ`)
     for (const f of r.failures) {
       const detail =
         f.kind === 'inspect'
@@ -107,21 +118,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
               .map((c) => c.path)
               .join(', ')
           : `${f.first.slice(0, 12)} != ${f.second.slice(0, 12)}`
-      console.log(`  ✗ t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`)
-      found({
+      out.log(`  ✗ t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`)
+      out.found({
         code: 'determinism',
         severity: 'error',
         message: `t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`,
         t: [f.t],
       })
     }
-    console.log(compare)
+    out.log(compare)
     const seeks = describeSeeks(r.seeks, project.manifest.sequential)
-    if (seeks) console.log(seeks)
+    if (seeks) out.log(seeks)
     const warning = clockWarning(r.clock)
     if (warning) {
-      console.log(`! ${warning}`)
-      found({ code: 'clock', severity: 'warning', message: warning })
+      out.log(`! ${warning}`)
+      out.found({ code: 'clock', severity: 'warning', message: warning })
     }
     return EXIT.failed
   } finally {
