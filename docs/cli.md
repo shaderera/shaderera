@@ -247,7 +247,10 @@ adapter before the first frame and refuse it, before saving anything:
 shaderera: The browser host's WebGPU adapter is software, SwiftShader (google swiftshader): a render runs 10–100× slower than on a GPU. Pass --software-gpu to render on it anyway, or give the host a GPU: npx shaderera doctor says what to check.
 ```
 
-`--software-gpu` renders on it all the same, with that line on stderr. The adapter is software
+`--software-gpu` renders on it all the same, with that line on stderr. The MCP `render` tool
+refuses it the same way, unless `softwareGpu: true` ([mcp.md](mcp.md)). `render --job`, `--chunk`
+and `--reuse` are checked as `render` is; `handoff --verify` (a few frames to compare) and
+`assemble` (it encodes frames already rendered) are not. The adapter is software
 when its vendor, architecture, device or description names one of those renderers, or when it
 says it is the fallback adapter (`isFallbackAdapter`). `doctor` warns on it as its `gpu` item.
 

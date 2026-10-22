@@ -37,16 +37,20 @@ export const softwareAdapter = (info: AdapterInfo): string | undefined => {
 
 /**
  * Before a render: a host on a software adapter says so on stderr, and is refused unless the
- * person accepted it (`--software-gpu`). It renders 10–100× slower than a GPU, and nothing else
- * would say why.
+ * person accepted it (`accept`: the CLI's `--software-gpu`, MCP's `softwareGpu: true`). It renders
+ * 10–100× slower than a GPU, and nothing else would say why.
  */
-export const refuseSoftware = async (child: Child, accepted: boolean): Promise<void> => {
+export const refuseSoftware = async (
+  child: Child,
+  accepted: boolean,
+  accept = '--software-gpu',
+): Promise<void> => {
   const { host, software, adapter } = await child.identity()
   if (!software) return
   const line = `The ${host} host's WebGPU adapter is software, ${software} (${adapter}): a render runs 10–100× slower than on a GPU.`
   if (!accepted)
     throw new Error(
-      `${line} Pass --software-gpu to render on it anyway, or give the host a GPU: npx shaderera doctor says what to check.`,
+      `${line} Pass ${accept} to render on it anyway, or give the host a GPU: npx shaderera doctor says what to check.`,
     )
   process.stderr.write(`${line}\n`)
 }
