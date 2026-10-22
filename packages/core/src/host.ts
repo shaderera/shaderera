@@ -11,6 +11,14 @@ export {
 export { sampleTimes } from './determinism.ts'
 export { fullDevice } from './device.ts'
 export { gainAt, sampleClips } from './gain.ts'
+export {
+  type LightLevels,
+  lightReference,
+  p010Reference,
+  type ReferenceLayer,
+  rgb10Reference,
+} from './hdr.ts'
+export { type HdrCompositor, type HdrOutput, hdrCompositor, p010Fits } from './hdr-compositor.ts'
 export { checkManifest, GRAPHICS_WHITE, withVariant } from './manifest.ts'
 export { openSource } from './open.ts'
 export { matte, over, type RgbaLayer, straight } from './over.ts'

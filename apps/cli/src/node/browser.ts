@@ -417,14 +417,20 @@ export const openBrowserChild = async (
         // one HTTP body, not base64 over the DevTools protocol.
         const key = randomUUID()
         const arrived = new Promise<Buffer>((done) => frameUploads.set(key, done))
-        let layers: Rendered['layers']
+        let sent: Omit<Rendered, 'pixels'>
         try {
-          layers = await call<Rendered['layers']>('send', t, intent, format, `${FRAME_PATH}${key}`)
+          sent = await call<Omit<Rendered, 'pixels'>>(
+            'send',
+            t,
+            intent,
+            format,
+            `${FRAME_PATH}${key}`,
+          )
         } finally {
           frameUploads.delete(key)
         }
         const bytes = await arrived
-        return { pixels: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), layers }
+        return { pixels: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), ...sent }
       },
       inspect: (t) => call('inspect', t),
       pick: (t, x, y) => call('pick', t, x, y),

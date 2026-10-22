@@ -7,7 +7,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Caption, Json, Matrices, Pick, Range, SampledClip } from '@shaderera/core'
-import type { GpuOutput, SeekStats } from '@shaderera/core/host'
+import type { GpuOutput, HdrOutput, LightLevels, SeekStats } from '@shaderera/core/host'
 import { paramDefaults } from '@shaderera/core/host'
 import type { TextRun } from '../review/measure.ts'
 import type { Fonts, Request } from './host.ts'
@@ -102,15 +102,21 @@ export type ClockReads = { date: number; performance: number }
  * A frame from either host: the layers composited, as **straight** RGBA (colour not multiplied by
  * alpha), rows from the top. Encoders without alpha matte it over black themselves (`matte`).
  */
-export type Rendered = { pixels: Uint8Array; layers: { name?: string; final?: boolean }[] }
+export type Rendered = {
+  pixels: Uint8Array
+  layers: { name?: string; final?: boolean }[]
+  /** An hdr10 render's light levels, measured from its codes (decision 0023). */
+  light?: LightLevels
+}
 
 export type Child = {
   /**
    * `rgba` (the default): straight RGBA. `yuv420p`: the frame matted over black as Y'CbCr 4:2:0
    * BT.709 limited range, made on the GPU, for an mp4 (only where `has.yuv`). `rgba64`: straight
-   * RGBA at 16 bits a channel, little-endian, for a master (only where `has.deep`).
+   * RGBA at 16 bits a channel, little-endian, for a master (only where `has.deep`). An hdr10
+   * render comes out only as `rgb10` or `p010` (core's hdr-compositor.ts), with its light levels.
    */
-  render(t: number, intent: 'preview' | 'final', format?: GpuOutput): Promise<Rendered>
+  render(t: number, intent: 'preview' | 'final', format?: GpuOutput | HdrOutput): Promise<Rendered>
   inspect(t: number): Promise<Json>
   pick(t: number, x: number, y: number): Promise<Pick | null>
   camera(t: number): Promise<Matrices | null>
