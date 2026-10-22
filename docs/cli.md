@@ -151,21 +151,22 @@ Stills of any moment straight from the source, rendered by the same host as `che
 |---|---|
 | `<t>...`, `--time <s>` (repeatable) | the times, see [the common flags](#common-flags): `still 6` fails on a 6 s film |
 | `--every <s>` | also a frame every s seconds from 0 |
-| `--sheet` | also a contact sheet, `<variant>-sheet.png` |
+| `--sheet` | also a contact sheet, `<variant>-sheet.png`. With several variants, one sheet of them side by side instead, `<a>-<b>-sheet.png`: a row per t, each variant's frame at the same height (at most 720 px), labelled with its name, t and size, and the safe area requirements.json declares for it drawn as a dashed line. Only the sheet is scaled and drawn on: each still is the same bytes as a still of that variant alone |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
 | `--out <dir>` | `out/stills/` |
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
-| `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet` |
+| `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet`. Several variants: `variants`, one entry each, and the side-by-side `sheet` |
 
 ```
-$ shaderera still 1 --variant 16:9,9:16
+$ shaderera still 1 --variant 16:9,9:16 --sheet
 16:9:
   out/stills/16_9-1.000.png  41 ms
 9:16:
   out/stills/9_16-1.000.png  39 ms
+out/stills/16_9-9_16-sheet.png
 ```
 
 ```
