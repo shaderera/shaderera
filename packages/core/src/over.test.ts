@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { over, straight } from './over.ts'
+import { matte, over, straight } from './over.ts'
 
 const px = (...v: number[]) => new Uint8Array(v)
 
@@ -68,4 +68,17 @@ test('layers without depth composite as before when another has depth', () => {
   }
   const plain = { data: px(0, 255, 0, 255), alpha: 'straight' as const }
   assert.deepEqual(over([back, plain], 1, 1), px(0, 255, 0, 255))
+})
+
+test('matte is round(c × a / 255) over black, alpha made opaque, for every alpha and channel', () => {
+  const data = new Uint8Array(65536 * 4)
+  for (let a = 0; a < 256; a++)
+    for (let c = 0; c < 256; c++) data.set([c, 255 - c, c ^ 85, a], ((a << 8) | c) * 4)
+  const out = matte(data)
+  for (let i = 0; i < data.length; i += 4) {
+    const a = data[i + 3] as number
+    const want = [0, 1, 2].map((k) => Math.round(((data[i + k] as number) * a) / 255))
+    assert.deepEqual([...out.subarray(i, i + 4)], [...want, 255], `pixel ${i / 4}`)
+  }
+  assert.notEqual(out.buffer, data.buffer, 'a new array: the frame stays straight')
 })
