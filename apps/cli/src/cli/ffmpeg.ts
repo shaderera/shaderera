@@ -701,29 +701,109 @@ export const requireFfmpeg = (): string => {
 }
 
 /**
+ * An encoder ffmpeg that failed under a Sink: it exited while frames were still coming (`exit`,
+ * even with 0) or read nothing for the watchdog's seconds while a frame waited (`stall`). `stderr`
+ * is its last lines. Retrying the render may help (it may have run out of memory).
+ */
+export class FfmpegError extends Error {
+  override name = 'FfmpegError'
+  readonly reason: 'exit' | 'stall'
+  /** Signed; null when a signal ended it, or for a stall. */
+  readonly code: number | null
+  readonly stderr: string
+  constructor(message: string, reason: 'exit' | 'stall', code: number | null, stderr: string) {
+    super(stderr ? `${message}\n${stderr}` : message)
+    this.reason = reason
+    this.code = code
+    this.stderr = stderr
+  }
+}
+
+/** Seconds a Sink waits for ffmpeg to read a frame before it gives up: SHADERERA_FFMPEG_STALL, 300. */
+export const stallSeconds = (): number => {
+  const s = Number(process.env.SHADERERA_FFMPEG_STALL)
+  return Number.isFinite(s) && s > 0 ? s : 300
+}
+
+/** The last few lines of what ffmpeg said (a progress line ends in \r, not \n). */
+const lastLines = (text: string, n = 5) =>
+  text
+    .split(/[\r\n]+/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(-n)
+    .join('\n')
+
+/**
  * Starts ffmpeg and returns a Sink that writes frames to its stdin, honouring backpressure. Its
- * stdout is ignored: it may be MCP's stream.
+ * stdout is ignored: it may be MCP's stream. Its stderr goes on to ours, and its tail into the
+ * FfmpegError a write fails with when ffmpeg exits before `end` (a clean exit too: ffmpeg takes a
+ * demuxing error, such as out of memory, as the end of its input) or stops reading for
+ * `stallSeconds`.
  */
 export const ffmpegSink = (
   args: readonly string[],
   input: Input | HdrInput = 'rgba',
   /** `false`: the codec keeps alpha (ProRes 4444), so straight RGBA goes as it is. */
   matted = true,
+  /** For tests: another program in ffmpeg's place (`command` then `args`), another watchdog. */
+  o: { command?: readonly string[]; stall?: number } = {},
 ): Sink => {
-  const ff = spawn('ffmpeg', args, { stdio: ['pipe', 'ignore', 'inherit'] })
+  const [bin = 'ffmpeg', ...pre] = o.command ?? []
+  const ff = spawn(bin, [...pre, ...args], { stdio: ['pipe', 'ignore', 'pipe'] })
+  let said = ''
+  ff.stderr.on('data', (d: Buffer) => {
+    process.stderr.write(d)
+    said = (said + d.toString()).slice(-4096)
+  })
+  let ending = false
+  // Set once ffmpeg is gone or given up on: every write from then on fails with it.
+  let failed: Error | null = null
+  let pending: { done: () => void; fail: (e: Error) => void; timer: NodeJS.Timeout } | null = null
+  const settle = (error: Error | null) => {
+    if (!pending) return
+    const p = pending
+    pending = null
+    clearTimeout(p.timer)
+    error ? p.fail(error) : p.done()
+  }
   const exited = new Promise<void>((done, fail) => {
-    ff.once('error', fail)
-    ff.once('exit', (code) =>
-      code === 0 ? done() : fail(new Error(`ffmpeg exited with ${code}.`)),
-    )
+    ff.once('error', (error) => {
+      failed = error
+      settle(error)
+      fail(error)
+    })
+    // 'close', not 'exit': stderr has been read to its end, so its last lines are known.
+    ff.once('close', (raw: number | null, signal: NodeJS.Signals | null) => {
+      // Windows hands -1 back as 4294967295.
+      const code = raw === null ? null : raw | 0
+      if (code === 0 && ending) return done()
+      const error =
+        failed ??
+        new FfmpegError(
+          code === null
+            ? `ffmpeg was ended by ${signal}.`
+            : code === 0
+              ? 'ffmpeg exited with 0 while frames were still coming: it stopped reading its input.'
+              : `ffmpeg exited with ${code}.`,
+          'exit',
+          code,
+          lastLines(said),
+        )
+      failed = error
+      settle(error)
+      fail(error)
+    })
   })
   exited.catch(() => {})
   // An ffmpeg that exits early closes the pipe: the write fails with EPIPE, and `exited` says why.
   ff.stdin.on('error', () => {})
+  const stall = o.stall ?? stallSeconds()
   return {
     // Straight RGBA is matted over black here (an mp4 has no alpha); Y'CbCr came matted.
     write: (pixels) =>
       new Promise<void>((done, fail) => {
+        if (failed) return fail(failed)
         const bytes =
           !matted ||
           input === 'yuv420p' ||
@@ -735,14 +815,26 @@ export const ffmpegSink = (
               ? matte(pixels)
               : matte64(pixels)
         if (ff.stdin.write(bytes)) return done()
-        ff.stdin.once('drain', done)
-        exited.catch(fail)
+        const timer = setTimeout(() => {
+          failed = new FfmpegError(
+            `ffmpeg read nothing for ${stall} s while a frame waited: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
+            'stall',
+            null,
+            lastLines(said),
+          )
+          settle(failed)
+          ff.kill()
+        }, stall * 1000)
+        pending = { done, fail, timer }
+        ff.stdin.once('drain', () => settle(null))
       }),
     end: async () => {
+      ending = true
       ff.stdin.end()
       await exited
     },
     abort: async () => {
+      ending = true
       ff.kill()
       await exited.catch(() => {})
     },
