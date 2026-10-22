@@ -330,16 +330,17 @@ test('MCP still, check and review take variants: one host each, one sheet side b
       ],
     })
     const sheet = decode(Buffer.from(still.content[1].data, 'base64'))
-    assert.deepEqual([sheet.width, sheet.height], [8 + 1280 + 8 + 405 + 8, 8 + 2 * (720 + 22 + 8)])
+    assert.deepEqual([sheet.width, sheet.height], [8 + 1280 + 8 + 405 + 8, 8 + 2 * (720 + 44 + 8)])
 
+    // 16:9 is main's size, fps, duration and params: all runs it once, and says so.
     const check = await call('check', { times: 2, variants: 'all' })
+    assert.equal(check.main, '16:9')
     assert.deepEqual(
       check.variants.map((v: { variant: string; failures: unknown[] }) => [
         v.variant,
         v.failures.length,
       ]),
       [
-        ['main', 0],
         ['16:9', 0],
         ['9:16', 0],
       ],

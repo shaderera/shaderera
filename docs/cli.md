@@ -35,7 +35,9 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
   `host.variant` ([protocol.md](protocol.md#shadererajson)). One film made in 16:9 and 9:16 at
   once: [guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once).
 - **Several variants** (`check`, `still`, `review`): `--variant 16:9,9:16`, or `--variants
-  16:9,9:16`, or `--variants all` (`main` and every variant the manifest declares). Each variant
+  16:9,9:16`, or `--variants all` (`main` and every variant the manifest declares; main is left out when a variant has its
+  width, height, fps, duration and params, and `main = <variant>` is printed once, `main` in
+  `--json`). Each variant
   opens its own host and they run at once. The lines are printed under each variant's name, in
   the order given; with `--json` the result is `{ "variants": [{ "variant": "16:9", ... }] }`, each
   entry the command's own result (or `error`), and each finding names its variant as `output`. One

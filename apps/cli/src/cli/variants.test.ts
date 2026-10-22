@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import type { Manifest } from '@shaderera/core'
 import { EXIT, findings } from './findings.ts'
-import { eachVariant, variantNames } from './variants.ts'
+import { eachVariant, sameAsMain, variantNames } from './variants.ts'
 
 const manifest = {
   entry: './src/composition.ts',
@@ -19,7 +19,11 @@ test('variantNames: one, a list, all, main as undefined, and an unknown name ref
   assert.deepEqual(variantNames({ variant: '9:16' }, manifest), ['9:16'])
   assert.deepEqual(variantNames({ variant: '16:9, 9:16' }, manifest), ['16:9', '9:16'])
   assert.deepEqual(variantNames({ variants: '9:16,main,9:16' }, manifest), ['9:16', undefined])
-  assert.deepEqual(variantNames({ variants: 'all' }, manifest), [undefined, '16:9', '9:16'])
+  assert.deepEqual(variantNames({ variants: 'all' }, { ...manifest, width: 1280 }), [
+    undefined,
+    '16:9',
+    '9:16',
+  ])
   // A declared name is taken whole, comma and all.
   const odd = { ...manifest, variants: { 'a,b': { duration: 1 } } }
   assert.deepEqual(variantNames({ variant: 'a,b' }, odd), ['a,b'])
@@ -52,7 +56,7 @@ test('eachVariant: one variant runs as given; several run at once, grouped, tagg
   lines.length = 0
   const order: string[] = []
   const several = await eachVariant(
-    { root, variants: 'all' } as { root: string; variant?: string; variants?: string },
+    { root, variants: 'main,16:9,9:16' } as { root: string; variant?: string; variants?: string },
     async (flags, out) => {
       const name = String(flags.variant ?? 'main')
       assert.equal('variants' in flags, false)
@@ -106,4 +110,52 @@ test('eachVariant: one variant runs as given; several run at once, grouped, tagg
     /only one/,
   )
   findings.length = 0
+})
+
+test('--variants all leaves main out when a variant renders the same, and says so once', async (t) => {
+  const lines: string[] = []
+  t.mock.method(console, 'log', (line: string) => lines.push(line))
+  const ran: string[] = []
+  const all = { root, variants: 'all' } as { root: string; variant?: string; variants?: string }
+  await eachVariant(all, async (flags, out) => {
+    ran.push(String(flags.variant ?? 'main'))
+    out.log('ok')
+    return EXIT.ok
+  })
+  assert.deepEqual(ran.sort(), ['16:9', '9:16'])
+  assert.deepEqual(lines, ['main = 16:9', '16:9:', '  ok', '9:16:', '  ok'])
+  lines.length = 0
+  await eachVariant(
+    all,
+    async (_, out) => {
+      out.result({})
+      return EXIT.ok
+    },
+    { json: true },
+  )
+  assert.deepEqual(JSON.parse(lines.join('\n')), {
+    main: '16:9',
+    variants: [{ variant: '16:9' }, { variant: '9:16' }],
+  })
+
+  // 16:9 is main's size, fps, duration and params: the same output.
+  assert.equal(sameAsMain(manifest), '16:9')
+  assert.deepEqual(variantNames({ variants: 'all' }, manifest), ['16:9', '9:16'])
+  assert.deepEqual(variantNames({ variants: 'main,16:9' }, manifest), [undefined, '16:9'])
+  const differs = (v: object) =>
+    sameAsMain({
+      ...manifest,
+      params: { properties: { word: { default: 'a' } } },
+      variants: { x: { width: 1920, ...v } },
+    })
+  assert.equal(differs({}), 'x')
+  assert.equal(differs({ params: { word: 'a' } }), 'x')
+  assert.equal(differs({ params: { word: 'b' } }), undefined)
+  assert.equal(differs({ fps: 30 }), undefined)
+  assert.equal(differs({ duration: 3 }), undefined)
+  assert.equal(differs({ height: 1081 }), undefined)
+  assert.equal(
+    sameAsMain({ ...manifest, variants: { '9:16': { width: 1080, height: 1920 } } }),
+    undefined,
+  )
 })

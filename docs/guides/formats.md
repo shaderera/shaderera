@@ -57,7 +57,7 @@ works in one ratio and breaks in the other shows up while the film is made, not 
    their name, t and size, with the safe area `requirements.json` declares drawn on it. Through
    MCP: `still` with `variants: ["16:9", "9:16"]` returns that sheet.
 4. **Check and review both:** `npx shaderera check --variant 16:9,9:16` and `npx shaderera
-   review --variant 16:9,9:16` (or `--variants all`, which adds `main`) open one host per
+   review --variant 16:9,9:16` (or `--variants all`, which adds `main` unless a variant already renders it) open one host per
    variant and run them at once; the lines are grouped under each name, each finding names its
    variant, and the exit code is the worst. MCP's `check` and `review` take `variants` too.
 5. **Preview both in the studio:** `npx shaderera studio`; the studio page can show the

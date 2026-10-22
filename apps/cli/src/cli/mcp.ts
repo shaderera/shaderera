@@ -22,7 +22,7 @@ import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { valueAt } from './inspect.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { stillTimes } from './still.ts'
-import { nameOf, variantList } from './variants.ts'
+import { nameOf, sameAsMain, variantList } from './variants.ts'
 
 type Obj = { [k: string]: Json }
 type Found = { path: string; value: Obj }
@@ -96,7 +96,7 @@ const looks = { variant: str, params: obj }
 /** `variants`: several outputs in one call, each in its own host, at once. */
 const several = { variants: { oneOf: [{ type: 'array', items: str }, { const: 'all' }] } }
 const SEVERAL =
-  'variants (a list of names, main for the manifest\'s own output, or "all": main and every variant) runs each in its own host at once, instead of variant.'
+  'variants (a list of names, main for the manifest\'s own output, or "all": main and every variant, main left out (and named as main) when a variant renders the same) runs each in its own host at once, instead of variant.'
 
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
@@ -256,7 +256,11 @@ export const createServer = (
     params: Obj | undefined,
   ): Promise<unknown> => {
     if (typeof a.variant === 'string') throw new Error('Give variant or variants, not both.')
-    const names = variantList(a.variants, (await findProject(root)).manifest)
+    const { manifest } = await findProject(root)
+    const names = variantList(a.variants, manifest)
+    /** `all` left main out for the variant that renders the same. */
+    const same = a.variants === 'all' ? sameAsMain(manifest) : undefined
+    const main = same ? { main: same } : {}
     const opening = await Promise.allSettled(
       names.map((variant) => open({ ...flags, root, variant, param: paramFlags(params) })),
     )
@@ -271,7 +275,7 @@ export const createServer = (
         const results = await each((o) =>
           checkChild(o.child, o.project.manifest, { times: a.times ?? 20, seed: a.seed }),
         )
-        return { variants: results.map((r, i) => ({ variant: nameOf(names[i]), ...r })) }
+        return { ...main, variants: results.map((r, i) => ({ variant: nameOf(names[i]), ...r })) }
       }
       const required = readRequirements(root)
       if (name === 'still') {
@@ -301,7 +305,7 @@ export const createServer = (
         const sheet = await variantSheet(frames)
         const sizes = frames.map((f) => ({ variant: f.name, width: f.width, height: f.height }))
         return [
-          { type: 'text', text: JSON.stringify({ times, variants: sizes }) },
+          { type: 'text', text: JSON.stringify({ times, ...main, variants: sizes }) },
           image(sheet.toString('base64')),
         ]
       }
@@ -320,6 +324,7 @@ export const createServer = (
         {
           type: 'text',
           text: JSON.stringify({
+            ...main,
             variants: reports.map((r, i) => ({ variant: nameOf(names[i]), ...r })),
           }),
         },
