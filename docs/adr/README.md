@@ -34,5 +34,8 @@ One file per decision, in the order they were made.
   is one shared with its source (amends 0019).
 - [0021](0021-studio-drives-the-local-cli.md): the studio is a page on shaderera.com that drives
   the person's local CLI; code reaches the site only when they share.
+- [0022](0022-chunks-on-a-rented-gpu.md): a plan's chunks on a rented GPU machine
+  (`render --on runpod`), RunPod first behind a provider seam, always deleted, and resumable
+  (proposed).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
