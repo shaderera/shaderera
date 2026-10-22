@@ -7,7 +7,7 @@ import { type AdapterInfo, adapterLine, softwareAdapter } from '../node/adapter.
 import { browserAdapter, chromePath } from '../node/browser.ts'
 import { hostOf } from '../node/host-of.ts'
 import { findProject } from '../node/project.ts'
-import { hardwareEncoder } from './ffmpeg.ts'
+import { hardwareEncoder, hasHevcNvenc, hdr10Problem } from './ffmpeg.ts'
 import { EXIT, found } from './findings.ts'
 import { dayOf } from './login.ts'
 import { licenceOf } from './share.ts'
@@ -53,6 +53,7 @@ const firstLine = (cmd: string, args: string[]) => {
 const FFMPEG_PARTS = [
   ['libx264', 'encoders', 'H.264 (every mp4)', true],
   ['aac', 'encoders', 'AAC (mp4 audio)', true],
+  ['libx265', 'encoders', 'HEVC (HDR10 masters)', false],
   ['prores_ks', 'encoders', 'ProRes (--format prores-*)', false],
   ['pcm_s24le', 'encoders', '24-bit PCM (WAV, mov)', false],
   ['ebur128', 'filters', 'loudness (EBU R128)', false],
@@ -130,6 +131,26 @@ export const gpuItem = (
   }
 }
 
+/**
+ * The `ffmpeg:hdr10` item: whether this ffmpeg can make a film that turns on `hdr10` (9.0 or
+ * later; SDR works on older), and whether its reviews can use NVIDIA's HEVC encoder. Never needed.
+ */
+export const hdr10Item = (problem: string | undefined, hevcNvenc: boolean): DoctorItem =>
+  problem
+    ? {
+        id: 'ffmpeg:hdr10',
+        status: 'warn',
+        detail: problem,
+        needed: false,
+        fix: 'Install ffmpeg 9.0 or later (https://ffmpeg.org/download.html) for HDR10 films.',
+      }
+    : {
+        id: 'ffmpeg:hdr10',
+        status: 'ok',
+        detail: `HDR10 (a film's hdr10, ffmpeg 9.0 or later): masters with x265, reviews with ${hevcNvenc ? 'NVIDIA HEVC on the GPU' : 'x265 (no hevc_nvenc at 1920×1080 here)'}`,
+        needed: false,
+      }
+
 /** Everything doctor checks, for the machine and (inside one) the project. */
 export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
   const items: DoctorItem[] = []
@@ -184,6 +205,7 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
         : 'not usable here: review renders use x264',
       needed: false,
     })
+    items.push(hdr10Item(hdr10Problem(), hasHevcNvenc(1920, 1080)))
   }
   const chrome = chromePath()
   let project: Awaited<ReturnType<typeof findProject>> | undefined

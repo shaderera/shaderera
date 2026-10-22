@@ -4,7 +4,7 @@ import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
 import { safeName } from '../project/jobs.ts'
 import { type Comparison, compareFrames, sideBySide } from '../review/compare.ts'
-import { contactSheet, toPng } from '../review/review.ts'
+import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { insideFilm, open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
@@ -121,12 +121,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const rendered: { t: number; label: string; pixels: Uint8Array }[] = []
     const stills: Still[] = []
     let history = 0
+    const pngs = pngWriter()
     for (const t of times) {
       const started = performance.now()
       const { pixels } = await child.render(t, 'final')
       const ms = performance.now() - started
       const s: Still = { t, file: join(outDir, `${name}-${t.toFixed(3)}.png`), ms }
-      writeFileSync(s.file, toPng(pixels, width, height))
+      await pngs.write(s.file, toPng(pixels, width, height))
       const region: Region | undefined = v.region
         ? parseRegion(v.region)
         : v.object
@@ -165,7 +166,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         const theirs = (await other.child.render(t, 'final')).pixels
         shown = sideBySide(pixels, theirs, width, height)
         const file = join(outDir, `${pair}-${t.toFixed(3)}.png`)
-        writeFileSync(file, toPng(shown, sheetWidth, height))
+        await pngs.write(file, toPng(shown, sheetWidth, height))
         s.compare = { variant: v.compare as string, file, ...compareFrames(pixels, theirs) }
       }
       // Kept only for the sheet: `--every` over a long film would hold every frame in memory.
@@ -176,9 +177,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     let sheet: string | undefined
     if (v.sheet) {
       sheet = join(outDir, `${pair}-sheet.png`)
-      writeFileSync(sheet, contactSheet(rendered, sheetWidth, height))
-      if (!v.json) console.log(relative(process.cwd(), sheet))
+      await pngs.write(sheet, contactSheet(rendered, sheetWidth, height))
     }
+    await pngs.done()
+    if (sheet && !v.json) console.log(relative(process.cwd(), sheet))
     const warning = clockWarning(await child.clock())
     if (warning) {
       if (!v.json) console.log(`! ${warning}`)

@@ -4,11 +4,11 @@ import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { cli } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { createJob } from '../project/jobs.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
-const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
 
 test('a handoff renders the same frames from a fresh folder', {
   skip: !ffmpeg && 'no ffmpeg',
@@ -18,9 +18,7 @@ test('a handoff renders the same frames from a fresh folder', {
     recursive: true,
   })
   await createJob(root, { by: 'cli', name: 'h', variant: 'square', delivery: { format: 'png' } })
-  const handoff = spawnSync(process.execPath, [main, 'handoff', 'h', '--root', root, '--verify'], {
-    encoding: 'utf8',
-  })
+  const handoff = await cli('handoff', 'h', '--root', root, '--verify')
   assert.equal(handoff.status, 0, handoff.stdout + handoff.stderr)
   assert.match(handoff.stdout, /reproduced in a fresh folder .*: every sampled frame matches/)
   const dir = join(root, 'out', 'handoff', 'h')
@@ -42,12 +40,12 @@ test('a handoff renders the same frames from a fresh folder', {
   assert.match(md, /relocation; not a clean install/)
 
   // The documented command, run in a copy of the handoff, gives the original's frame hashes.
-  const original = spawnSync(process.execPath, [main, 'render', '--root', root, '--job', 'h'])
-  assert.equal(original.status, 0, String(original.stderr))
+  const original = await cli('render', '--root', root, '--job', 'h')
+  assert.equal(original.status, 0, original.stderr)
   const copy = tempDir('handoff-copy')
   cpSync(dir, copy, { recursive: true })
-  const again = spawnSync(process.execPath, [main, 'render', '--root', copy, '--job', 'h'])
-  assert.equal(again.status, 0, String(again.stderr))
+  const again = await cli('render', '--root', copy, '--job', 'h')
+  assert.equal(again.status, 0, again.stderr)
   const hashes = (r: string) =>
     JSON.parse(readFileSync(join(r, 'out', 'h', 'delivery.json'), 'utf8')).frames.map(
       (f: { sha256: string }) => f.sha256,
@@ -69,9 +67,7 @@ test('a clean-install check installs the lock file in a fresh folder and renders
     JSON.stringify({ ...pkg, lockfileVersion: 3, requires: true, packages: { '': pkg } }),
   )
   await createJob(root, { by: 'cli', name: 'c' })
-  const r = spawnSync(process.execPath, [main, 'handoff', 'c', '--root', root, '--clean-install'], {
-    encoding: 'utf8',
-  })
+  const r = await cli('handoff', 'c', '--root', root, '--clean-install')
   assert.equal(r.status, 0, r.stdout + r.stderr)
   assert.match(r.stdout, /reproducible from a clean install: yes/)
   assert.match(r.stdout, /reproduced from a clean install .*: every sampled frame matches/)

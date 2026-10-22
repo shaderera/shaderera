@@ -4,6 +4,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSyn
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { cli as run } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import type { Child } from '../node/child.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
@@ -21,14 +22,16 @@ const copy = (dir: string) => {
 }
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
+// The other CLI tests run it in their own process (fixtures/cli.ts); this one starts it as a user
+// does, through bin/shaderera.js, piped.
 test('a piped render reports progress only when asked (a parent process asks); a variant renders at its own length', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
-  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const bin = fileURLToPath(new URL('../../bin/shaderera.js', import.meta.url))
   const root = copy('./fixtures/mcp/')
   const out = join(tempDir('render'), 'film.mp4')
   const render = (...flags: string[]) =>
-    spawnSync(process.execPath, [main, 'render', '--root', root, '--out', out, ...flags], {
+    spawnSync(process.execPath, [bin, 'render', '--root', root, '--out', out, ...flags], {
       encoding: 'utf8',
     })
   const asked = render('--progress')
@@ -124,40 +127,37 @@ test('the output holds the previous film until the new one is complete; a failed
 
 test('render saves the revision it renders and tags the file; render --job saves nothing', {
   skip: !ffmpeg && 'no ffmpeg',
-}, () => {
-  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+}, async () => {
   const root = copy('./fixtures/mcp/')
-  const cli = (...args: string[]) =>
-    spawnSync(process.execPath, [main, ...args, '--root', root], { encoding: 'utf8' })
+  const cli = (...args: string[]) => run(...args, '--root', root)
   const out = join(root, 'out', 'film.mp4')
-  const r = cli('render', '--out', out)
+  const r = await cli('render', '--out', out)
   assert.equal(r.status, 0, r.stderr)
   const id = /^revision: (\w+)$/m.exec(r.stdout)?.[1]
-  const versions = () => JSON.parse(cli('versions', '--json').stdout).result
-  assert.equal(versions().head, id)
+  const versions = async () => JSON.parse((await cli('versions', '--json')).stdout).result
+  assert.equal((await versions()).head, id)
   assert.equal(probe(out).revision, id)
 
   // Unchanged files: the same revision, and save says so instead of echoing its label.
   assert.equal(
-    cli('save', '--label', 'again').stdout.trim(),
+    (await cli('save', '--label', 'again')).stdout.trim(),
     `same files as revision ${id}; label added`,
   )
 
-  const job = cli('job', '--name', 'final', '--to', '0.5')
+  const job = await cli('job', '--name', 'final', '--to', '0.5')
   assert.equal(job.status, 0, job.stderr)
   writeFileSync(join(root, 'notes.txt'), 'a change after the job')
-  const saves = versions().log.length
-  const frozen = cli('render', '--job', 'final')
+  const saves = (await versions()).log.length
+  const frozen = await cli('render', '--job', 'final')
   assert.equal(frozen.status, 0, frozen.stderr)
-  assert.equal(versions().log.length, saves)
+  assert.equal((await versions()).log.length, saves)
   assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
 })
 
 // The mix's rules are tested in mix.it.ts; this proves render reaches them.
 test('render reaches the mix: a src without sound is no error, an unreadable one is named', {
   skip: !ffmpeg && 'no ffmpeg',
-}, () => {
-  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+}, async () => {
   const root = copy('./fixtures/clip-audio/')
   // A video with no sound, as a film's clip param may name, and a file that is not media.
   const made = spawnSync('ffmpeg', [
@@ -167,24 +167,17 @@ test('render reaches the mix: a src without sound is no error, an unreadable one
   assert.equal(made.status, 0, String(made.stderr))
   writeFileSync(join(root, 'broken.mp4'), 'not a video')
   const dir = tempDir('clip-audio')
-  const render = (name: string, ...flags: string[]) => {
+  const render = async (name: string, ...flags: string[]) => {
     const out = join(dir, name)
-    const r = spawnSync(
-      process.execPath,
-      [main, 'render', '--root', root, '--out', out, ...flags],
-      {
-        encoding: 'utf8',
-      },
-    )
-    return { ...r, out }
+    return { ...(await run('render', '--root', root, '--out', out, ...flags)), out }
   }
 
   // The tone made in code is heard; the video without sound is not, and does not fail.
-  const silent = render('silent.mp4', '--param', 'clip=picture.mp4')
+  const silent = await render('silent.mp4', '--param', 'clip=picture.mp4')
   assert.equal(silent.status, 0, silent.stderr)
   assert.equal(probe(silent.out).audio?.codec, 'aac')
 
-  const broken = render('broken.mp4', '--param', 'clip=broken.mp4')
+  const broken = await render('broken.mp4', '--param', 'clip=broken.mp4')
   assert.notEqual(broken.status, 0)
   assert.match(broken.stderr, /Audio clip 1 \(broken\.mp4\) cannot be read: .*broken\.mp4/s)
   assert.equal(existsSync(broken.out), false)
