@@ -175,6 +175,28 @@ test('render --hdr10 --format prores-hq | prores-4444: ProRes from the R’G’B
     assert.equal(units(v?.hdr10?.mastering), units(masteringOf(hdr10.mastering)))
     assert.deepEqual(v?.hdr10?.light, levels)
   }
+  // An hdr10 ProRes job's plan holds rgb10 chunks: assemble declares their most light, and a remux
+  // of its sound (reexport audio) keeps the mov's tags, display and light.
+  const job = cli(root, 'job', '--name', 'ph', '--hdr10', '--format', 'prores-hq')
+  assert.equal(job.status, 0, job.stderr)
+  const plan = cli(root, 'plan', '--job', 'ph', '--chunks', '2')
+  assert.equal(plan.status, 0, plan.stderr)
+  assert.match(plan.stdout, /frames as rgb10/)
+  for (const i of ['0', '1']) {
+    const r = cli(root, 'render', '--job', 'ph', '--chunk', i)
+    assert.equal(r.status, 0, r.stderr)
+  }
+  const assembled = cli(root, 'assemble', '--plan', join(root, 'out', 'ph.plan'))
+  assert.equal(assembled.status, 0, assembled.stderr)
+  const mov = probe(join(root, 'out', 'ph.mov')).video
+  assert.equal(mov?.hdr10?.codecTag, 'apch')
+  assert.deepEqual(mov?.hdr10?.light, levels)
+  const again = join(root, 'out', 'ph-again.mov')
+  const re = cli(root, 'reexport', 'audio', '--job', 'ph', '--no-audio', '--out', again)
+  assert.equal(re.status, 0, re.stderr)
+  const remuxed = probe(again).video
+  assert.deepEqual(remuxed?.color, mov?.color)
+  assert.deepEqual(remuxed?.hdr10, mov?.hdr10)
   // A png is still refused: a PQ PNG needs cICP.
   const png = cli(root, 'job', '--name', 'p', '--hdr10', '--png')
   assert.equal(png.status, 2)
