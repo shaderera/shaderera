@@ -20,6 +20,7 @@ const known = new Set([
   'timecode',
   'textless',
   'bakes',
+  'hdr10',
 ])
 
 /** Problems with `bakes`: each a command, its inputs, a folder, and frame names with `#`s. */
@@ -43,6 +44,47 @@ const bakeProblems = (bakes: unknown): string[] => {
       if (!['command', 'inputs', 'dir', 'frames'].includes(key))
         p.push(`bakes.${name}: unknown key "${key}"`)
   }
+  return p
+}
+
+/** BT.2408's Graphics White, in cd/m²: where an SDR layer's white goes in an HDR10 frame. */
+export const GRAPHICS_WHITE = 203
+/** PQ's 1.0 (SMPTE ST 2084), in cd/m². */
+const PQ_PEAK = 10000
+
+/** Problems with `hdr10`: the mastering display and the dither are required, the rest checked. */
+const hdr10Problems = (h: unknown): string[] => {
+  if (!isObject(h)) return ['hdr10 must be an object']
+  const p: string[] = []
+  const d = h.mastering
+  if (d === undefined)
+    p.push(
+      'hdr10.mastering is required: the display the film was graded on, { peak, min, primaries } (SMPTE ST 2086 describes one but names none; P3-D65 at 1000 cd/m² is common)',
+    )
+  else if (!isObject(d)) p.push('hdr10.mastering must be { peak, min, primaries }')
+  else {
+    if (!(positive(d.peak) && (d.peak as number) <= PQ_PEAK))
+      p.push(`hdr10.mastering.peak must be in cd/m², above 0 and at most ${PQ_PEAK} (PQ's peak)`)
+    const peak = positive(d.peak) ? (d.peak as number) : Infinity
+    if (!(typeof d.min === 'number' && d.min >= 0 && d.min < peak))
+      p.push('hdr10.mastering.min must be in cd/m², from 0 and below the peak')
+    if (!['p3-d65', 'bt2020', 'bt709'].includes(d.primaries as string))
+      p.push('hdr10.mastering.primaries must be "p3-d65", "bt2020" or "bt709"')
+    for (const key of Object.keys(d))
+      if (!['peak', 'min', 'primaries'].includes(key))
+        p.push(`hdr10.mastering: unknown key "${key}"`)
+  }
+  if (h.dither === undefined)
+    p.push('hdr10.dither is required: "tpdf" or "none" (no standard names a dither for 10-bit PQ)')
+  else if (h.dither !== 'tpdf' && h.dither !== 'none')
+    p.push('hdr10.dither must be "tpdf" or "none"')
+  if (h.graphicsWhite !== undefined && !positive(h.graphicsWhite))
+    p.push(
+      `hdr10.graphicsWhite must be in cd/m², above 0 (BT.2408's Graphics White is ${GRAPHICS_WHITE})`,
+    )
+  for (const key of Object.keys(h))
+    if (!['graphicsWhite', 'mastering', 'dither'].includes(key))
+      p.push(`hdr10: unknown key "${key}"`)
   return p
 }
 
@@ -170,15 +212,18 @@ export const checkManifest = (value: unknown): Manifest => {
     problems.push('$schema must be a string')
   if (m.variants !== undefined) problems.push(...variantProblems(m.variants))
   if (m.bakes !== undefined) problems.push(...bakeProblems(m.bakes))
+  if (m.hdr10 !== undefined) problems.push(...hdr10Problems(m.hdr10))
   problems.push(...deliveryProblems(m, ''))
   for (const key of Object.keys(m)) if (!known.has(key)) problems.push(`unknown key "${key}"`)
   if (problems.length > 0) throw new Error(`shaderera.json: ${problems.join('; ')}`)
   // The rate as a number, exactly: 23.976 and "24000/1001" are both 24000 / 1001.
   const fps = (v: unknown) => (parseFps(v) as { fps: number }).fps
   const variants = m.variants as Record<string, Record<string, unknown>> | undefined
+  const hdr10 = m.hdr10 as Record<string, unknown> | undefined
   return {
     ...m,
     fps: fps(m.fps),
+    ...(hdr10 ? { hdr10: { graphicsWhite: GRAPHICS_WHITE, ...hdr10 } } : {}),
     ...(variants
       ? {
           variants: Object.fromEntries(
