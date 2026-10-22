@@ -2,6 +2,7 @@ import { join, resolve } from 'node:path'
 import { checkChunks, chunkFrames, isHdr, mostLight, readPlan } from '../deliver/chunks.ts'
 import { assembledInput, assembledJob } from '../deliver/reexport.ts'
 import { findProject } from '../node/project.ts'
+import { retriesOf } from '../node/retry.ts'
 import { openJob, videoOptionsOf } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 import { loudnessLine, probeLine } from './ffmpeg.ts'
@@ -9,11 +10,13 @@ import { exportVideo, extensionOf, lightLine } from './render.ts'
 
 /**
  * `shaderera assemble --plan <dir> [--out file] [--mixed-hosts] [--no-audio] [--loudness=LUFS]
- * [--job name] [--crf n]`: encodes a plan's rendered chunks once, in order, with the whole window's
- * sound, captions and preroll, as `render --job` would on one machine. Refuses a chunk that is
- * missing or changed, and chunks from different kinds of host unless --mixed-hosts. --job: another
- * delivery of the plan's job from the same chunks (assembledJob). An hdr10 plan's file declares the
- * most light any of its chunks measured (decision 0023).
+ * [--job name] [--crf n] [--retries n]`: encodes a plan's rendered chunks once, in order, with the
+ * whole window's sound, captions and preroll, as `render --job` would on one machine. Refuses a
+ * chunk that is missing or changed, and chunks from different kinds of host unless --mixed-hosts.
+ * --job: another delivery of the plan's job from the same chunks (assembledJob). An hdr10 plan's
+ * file declares the most light any of its chunks measured (decision 0023). --retries: an encode
+ * that fails transiently (a stall, out of memory, a crash) is done again from the first chunk, up
+ * to n times.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {
@@ -24,7 +27,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     loudness: { type: 'string' },
     job: { type: 'string' },
     crf: { type: 'string' },
+    retries: { type: 'string' },
   })
+  const retries = retriesOf(v.retries)
   if (typeof v.plan !== 'string') throw new Error('assemble needs --plan <dir>.')
   const dir = resolve(v.plan)
   const plan = readPlan(dir)
@@ -47,6 +52,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       quality: job.delivery.quality,
       ...(v.crf === undefined ? {} : { crf: Number(v.crf) }),
       revision: job.revision,
+      retries,
       audio: v['no-audio'] !== true,
       ...(loudness === undefined ? {} : { loudness }),
       frames: {
