@@ -312,7 +312,9 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
   (`--out`) that holds another job's plan or chunks, so that plan can still be assembled; the same
   job is planned again in its own folder.
 - Each chunk renders, with its own determinism re-check, into a lossless FFV1 file (the bytes the
-  host made), recorded with its sha256 and host. Its frames go round `--workers` hosts on that
+  host made), recorded with its sha256 and host. The file is written bit-exactly (no random
+  Matroska UID, date or version string), so a chunk rendered again with the same frames and the
+  same ffmpeg is the same file, and a plan that reuses it still takes it. Its frames go round `--workers` hosts on that
   machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
   heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
@@ -377,6 +379,45 @@ npx shaderera assemble --plan out/spot-v2.plan    # one encode, as usual
   rendered, 34 sampled) took 167 s and `assemble` 171 s, 338 s in all, and the file was the same,
   byte for byte. Each command spent about 100 s opening that film's job, so the saving grows with
   the frames there are to render, and is small for a short window.
+
+## Changing only the sound or the captions
+
+A sound edit (a gain, a clip) or a caption edit leaves every frame as it was, so neither renders
+the picture again:
+
+```sh
+npx shaderera job --name spot-v2                                  # the edited revision
+npx shaderera reexport audio --job spot-v2 --onto out/spot.mp4    # out/spot-v2.mp4
+npx shaderera reexport captions --job spot-v2                     # out/spot-v2.srt, .vtt
+```
+
+- `reexport audio` makes the job's mix (with `--loudness`, or none with `--no-audio`) and muxes it
+  with the video packets of `--onto` as they are (`-c:v copy`), with the container's flags, edit
+  list, timecode and audio codec `render` writes, tagged with the job's revision. The video
+  packets are the file's, byte for byte, and the audio is packet for packet what `render --job`
+  gives (tested for an mp4, an mp4 without edit lists and ProRes 422 HQ). An HDR10 file keeps its
+  colour tags, mastering display and MaxCLL/MaxFALL (boxes and SEI) as its encode declared them; a
+  remux that lost or changed any is refused.
+- **The picture check.** The file's job is found by its `shaderera_revision` tag among the
+  project's jobs: one of that revision with the same host, variant, seed, window and picture
+  delivery (format, quality, rates, edit list; stems are sound). None is refused, naming what
+  differs; so is a file whose frame count or size is not the job's. When that job's revision or
+  params are not this job's, the first and last frames and about one every 10 s are rendered in
+  both jobs and compared byte for byte; a frame that differs is refused, with its `t`, and nothing
+  is written. As with `render --reuse`, the samples are a check, not a proof.
+- `reexport captions` opens the job and writes its sidecars, cut to the window (and its preroll),
+  as `render` does. No format muxes captions into the file.
+- A png job's handoff records its sound and captions in `delivery.json`: render it again.
+
+### Another delivery from the same chunks
+
+`assemble --plan <dir> --job <other>` encodes another job's delivery from a plan's chunks: a review
+and a master, an mp4 with and without edit lists, or another `--crf`, `--loudness` or
+`--no-audio`, from one render. The other job must be the plan's job in all but its delivery (the
+same revision, host, variant, params, seed, window and packages), and its host must hand frames
+over in the plan's format (an mp4 from yuv420p chunks, a mov from RGBA ones). Tested: a job without
+edit lists assembled from the chunks of one with them is the file `render --job` of that job
+gives, byte for byte.
 
 ## Handoff
 

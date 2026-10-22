@@ -310,6 +310,12 @@ const renderClaimed = async (
     '3',
     '-pix_fmt',
     FFV1[plan.input],
+    // No random segment UID, date or version string: the same frames give the same file, so a
+    // chunk rendered again is still the one a reuse plan recorded by its sha256.
+    '-fflags',
+    '+bitexact',
+    '-flags:v',
+    '+bitexact',
     partial,
   ]
   // Not matted: the bytes the host hands over are the bytes stored.

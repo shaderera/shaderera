@@ -310,4 +310,17 @@ test('an hdr10 job renders in chunks, each with its light, and assemble writes t
   const check = cli(root, 'check', '--hdr10', '--times', '3')
   assert.equal(check.status, 0, check.stderr)
   assert.match(check.stdout, /HDR10: P010 hashed; at most 10000 cd\/m² \(MaxCLL\)/)
+  // Another delivery of the job from the same chunks (assemble --job) declares their light too,
+  // and a remux of its sound (reexport audio) keeps the display and light it declared.
+  const review = cli(root, 'job', '--name', 'hr', '--hdr10')
+  assert.equal(review.status, 0, review.stderr)
+  const other = join(root, 'out', 'hr.mp4')
+  const b = cli(root, 'assemble', '--plan', dir, '--job', 'hr', '--out', other)
+  assert.equal(b.status, 0, b.stderr)
+  assertHdr10(other, most)
+  const again = join(root, 'out', 'hr-again.mp4')
+  const re = cli(root, 'reexport', 'audio', '--job', 'hr', '--no-audio', '--out', again)
+  assert.equal(re.status, 0, re.stderr)
+  assert.match(re.stdout, /no frames rendered or encoded/)
+  assertHdr10(again, most)
 })
