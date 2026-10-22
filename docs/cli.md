@@ -13,6 +13,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`save`, `versions`, `undo`, `restore`, `diff`, `job`](#versions-and-jobs) | revisions and frozen render jobs |
 | [`deliver`](#deliver) | a batch of every variant × locale into `out/deliveries/<batch>/` |
 | [`plan`, `assemble`](#plan-render---chunk-assemble) | render a job's chunks on several machines |
+| [`reexport`](#reexport) | a job's sound on a delivered file's own picture, or its caption sidecars, with no frame rendered |
 | [`handoff`](#handoff) | a frozen project, its job and `REPRODUCE.md` in `out/handoff/<job>/` |
 | [`review`](#review) | principal frames, a contact sheet and technical checks |
 | [`bake`](#bake) | run a bake's command and stamp the frames it made outside the host |
@@ -302,11 +303,15 @@ An output whose host is on a software GPU fails unless `--software-gpu`, as in
 
 `shaderera plan --job <name> [--chunks 4] [--out dir]`, then `shaderera render --job <name>
 --chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
-[--mixed-hosts] [--no-audio] [--loudness=LUFS]`: the same file as one `render --job`. See
-[delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's frames go round
-`--workers` hosts on its machine (the same default as `render`), and its file holds the same
-frames however many. `plan` refuses a folder that holds another job's plan or chunks, naming that
-job and a fresh `--out`; planning the same job again in its folder replaces its plan.
+[--mixed-hosts] [--no-audio] [--loudness=LUFS] [--crf n] [--job name]`: the same file as one
+`render --job`. See [delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's
+frames go round `--workers` hosts on its machine (the same default as `render`), and its file
+holds the same frames however many. `--crf` is `render`'s. `--job` encodes another job's delivery
+(another format, quality, rate or edit list) from the same chunks: a job of the same revision,
+host, variant, params, seed, window and packages whose frames are handed over in the plan's format
+([another delivery](delivery.md#another-delivery-from-the-same-chunks)). `plan` refuses a
+folder that holds another job's plan or chunks, naming that job and a fresh `--out`; planning the
+same job again in its folder replaces its plan.
 
 `shaderera plan --status --plan <dir> [--verify] [--json]` (or `--job <name>` for its default
 folder) lists each chunk as `done` (its record and file are there), `verified` (with `--verify`,
@@ -349,6 +354,26 @@ $ shaderera render --job b5 --reuse out/a5.plan --changed 330-331
 chunk 1: 25 frames from 330 s in 3.2 s on 1 host(s)
 /path/to/project/out/b5.plan/plan.json: 25 frames rendered, 7475 reused from /path/to/project/out/a5.plan; 34 reused frames rendered again matched
 then: npx shaderera assemble --plan /path/to/project/out/b5.plan
+```
+
+## `reexport`
+
+`shaderera reexport audio --job <name> [--onto file] [--out file] [--no-audio] [--loudness=LUFS]`
+writes the job's mix again onto a delivered file's own video packets (`ffmpeg -c:v copy`): no
+frame is rendered or encoded. `--onto` is the file whose picture is kept (by default
+`out/<job>.mp4`, or `.mov`), `--out` the file written (by default `out/<job>.mp4`; the same file
+is replaced only once the new one is whole). The stems are written again for a job with
+`--stems`. A png job is refused. `shaderera reexport captions --job <name> [--out file]` writes the
+job's `<name>.srt` and `<name>.vtt` beside `--out`, as `render` does, without rendering. See
+[delivery.md](delivery.md#changing-only-the-sound-or-the-captions).
+
+```
+$ shaderera reexport audio --job spot-v2 --onto out/spot.mp4
+/path/to/project/out/spot-v2.mp4
+the video of /path/to/project/out/spot.mp4 (job spot), no frames rendered or encoded
+file: h264 High yuv420p 1920×1080 25 fps, 8.12 Mb/s, aac 48 kHz 2 ch, edit list
+revision: 5d1f0c2a9b7e4f13
+audio: -22.1 LUFS, true peak -3.4 dBTP, range 4.8 LU
 ```
 
 ## `handoff`
