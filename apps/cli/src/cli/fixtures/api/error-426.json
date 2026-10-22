@@ -1,0 +1,26 @@
+{
+  "route": "POST /uploads/missing",
+  "about": "Any route, asked by a shaderera older than the API takes, by its User-Agent (shaderera/<version>). The sentence names the version needed, and minimum is it. A User-Agent that is not shaderera/<version> is never refused this way.",
+  "request": {
+    "method": "POST",
+    "path": "/uploads/missing",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/json",
+      "User-Agent": "shaderera/0.1.0"
+    },
+    "body": {
+      "hashes": ["9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf"]
+    }
+  },
+  "response": {
+    "status": 426,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "This shaderera (0.1.0) is older than the films API takes: update to 0.1.5 or later (npx shaderera@latest).",
+      "minimum": "0.1.5"
+    }
+  }
+}
