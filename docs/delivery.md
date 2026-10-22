@@ -391,7 +391,9 @@ npx shaderera reexport captions --job spot-v2                     # out/spot-v2.
   with the video packets of `--onto` as they are (`-c:v copy`), with the container's flags, edit
   list, timecode and audio codec `render` writes, tagged with the job's revision. The video
   packets are the file's, byte for byte, and the audio is packet for packet what `render --job`
-  gives (tested for an mp4, an mp4 without edit lists and ProRes 422 HQ).
+  gives (tested for an mp4, an mp4 without edit lists and ProRes 422 HQ). An HDR10 file keeps its
+  colour tags, mastering display and MaxCLL/MaxFALL (boxes and SEI) as its encode declared them; a
+  remux that lost or changed any is refused.
 - **The picture check.** The file's job is found by its `shaderera_revision` tag among the
   project's jobs: one of that revision with the same host, variant, seed, window and picture
   delivery (format, quality, rates, edit list; stems are sound). None is refused, naming what
