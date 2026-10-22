@@ -59,11 +59,36 @@ const ROOT_ONLY = new Set(['out', '.shaderera', 'versions', '.claude', 'NVIDIA C
 const ANYWHERE = new Set(['node_modules', '.git'])
 /**
  * Never part of a revision, at any depth: files that hold secrets (env files, direnv's, Wrangler's,
- * npm's and curl's credentials, MCP configs with keys, private keys), so neither a share nor a
- * handoff can carry one.
+ * npm's and curl's credentials, private keys), so neither a share nor a handoff can carry one.
  */
 export const SECRET =
-  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|\.mcp\.json|.+\.(pem|key|p12|pfx))$/
+  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|.+\.(pem|key|p12|pfx))$/
+
+/**
+ * An MCP config (`.mcp.json`) is a revision's like any file, such as the one a new project has,
+ * which names commands only. One that gives a server `env` or `headers` (where keys go), or that
+ * does not parse, is kept out as a secret.
+ */
+export const mcpHoldsKeys = (file: string): boolean => {
+  try {
+    const servers = (JSON.parse(readFileSync(file, 'utf8')) as { mcpServers?: unknown }).mcpServers
+    return Object.values((servers ?? {}) as Record<string, Record<string, unknown> | null>).some(
+      (s) =>
+        !s ||
+        typeof s !== 'object' ||
+        ['env', 'headers'].some((k) => {
+          const v = s[k]
+          return v !== undefined && !(typeof v === 'object' && v && Object.keys(v).length === 0)
+        }),
+    )
+  } catch {
+    return true
+  }
+}
+
+/** A file a revision never holds because it holds secrets: SECRET by name, or an MCP config with keys. */
+export const isSecret = (file: string, name: string): boolean =>
+  SECRET.test(name) || (name === '.mcp.json' && mcpHoldsKeys(file))
 /** writeAtomic's temporary files, which another process may be about to move into place. */
 const TEMPORARY = /\.\d+\.tmp$/
 
@@ -115,7 +140,7 @@ export const scan = (
       const path = slash(relative(root, full))
       const s = lstatSync(full)
       if (s.isSymbolicLink()) left.links?.push(path)
-      else if (s.isFile() && SECRET.test(name)) left.secrets?.push(path)
+      else if (s.isFile() && isSecret(full, name)) left.secrets?.push(path)
       else if (s.isDirectory()) keep(path, true) && walk(full)
       else if (s.isFile() && keep(path, false)) files[path] = hash(full)
     }

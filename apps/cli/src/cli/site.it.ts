@@ -45,6 +45,8 @@ const fakeSite = async () => {
     needsPlayer: false,
     page: true,
     parents: null as unknown,
+    /** How the health answers: as the API does, or a proxy's HTML page. */
+    health: 'json' as 'json' | 'html',
     limits: {} as { fileBytes?: number; hashesPerAsk?: number; filesPerVersion?: number },
   }
   const asks: number[] = []
@@ -65,6 +67,11 @@ const fakeSite = async () => {
     const obj = /^\/obj\/([0-9a-f]{64})$/.exec(path)
     const filmPath = /^\/films\/([a-z0-9]+)(\/versions)?$/.exec(path)
     const revision = /^\/versions\/([0-9a-f]{64})\/revision$/.exec(path)
+    if (method === 'GET' && path === '/films/health' && options.health === 'html') {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end('<!doctype html>\n<html><body>a proxy page</body></html>')
+      return
+    }
     if (method === 'GET' && path === '/films/health')
       return json(res, 200, {
         ok: true,
@@ -322,7 +329,7 @@ test('share --dry-run needs no token, builds the player, and sends nothing', asy
     said.stdout,
     /^share: \d+ files, .* to http:\/\/127\.0\.0\.1:\d+ as a new film "neon-rain"/m,
   )
-  assert.match(said.stdout, /not signed in to .*Sign in: npx shaderera login --api/)
+  assert.match(said.stdout, /not signed in to \S+; sign in: npx shaderera login --api/)
   assert.match(said.stdout, /Nothing was sent \(--dry-run\)\.\n$/)
 })
 
@@ -638,4 +645,62 @@ test('an API answer that is not JSON shows its status and first line, never the 
     `shaderera: GET /films/film1 on ${api}: 404 (not the films API's answer) <!doctype html>`,
   )
   assert.doesNotMatch(r.stderr, /xxxx|<body>/)
+})
+
+test("a share stops before uploading when it can't read the API's limits; a dry run warns and says limitsChecked: false", async () => {
+  const s = await fakeSite()
+  s.options.health = 'html'
+  const home = temp('home')
+  const root = project()
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')
+  assert.equal(r.status, 2)
+  assert.match(
+    r.stderr,
+    new RegExp(
+      `couldn't read the films API's limits at ${s.site}: it answered 200 with something other than JSON: <!doctype html>\\. Nothing was sent\\.`,
+    ),
+  )
+  assert.deepEqual(
+    s.requests.map((q) => q.path),
+    ['/films/health'],
+  )
+
+  const dry = await cli(home, root, 'share', '--api', s.site, '--dry-run', '--no-media', '--json')
+  assert.equal(dry.status, 0, dry.stdout + dry.stderr)
+  assert.equal(JSON.parse(dry.stdout).result.limitsChecked, false)
+  assert.match(dry.stderr, /! couldn't read the films API's limits at .*other than JSON/)
+
+  // An API that is not there at all.
+  const down = await cli(
+    home,
+    root,
+    'share',
+    '--api',
+    'http://127.0.0.1:1',
+    '--dry-run',
+    '--no-media',
+  )
+  assert.equal(down.status, 0, down.stdout + down.stderr)
+  assert.match(
+    down.stderr,
+    /couldn't read the films API's limits at http:\/\/127\.0\.0\.1:1: cannot be reached/,
+  )
+
+  s.options.health = 'json'
+  const ok = await cli(home, root, 'share', '--api', s.site, '--dry-run', '--no-media', '--json')
+  assert.equal(JSON.parse(ok.stdout).result.limitsChecked, true)
+})
+
+test('the flags before --api and --site say what to use instead; render keeps its --from and --to', async () => {
+  const home = temp('home')
+  const to = await cli(home, home, 'share', '--to', 'https://a.example')
+  assert.equal(to.status, 2)
+  assert.match(to.stderr, /shaderera share has no --to: use --api <origin>\./)
+  const from = await cli(home, home, 'add', 'x', '--from=/tmp/plugins')
+  assert.match(from.stderr, /shaderera add has no --from: use --site <origin\|folder>\./)
+  const parent = await cli(home, home, 'studio', '--parent', 'https://a.example')
+  assert.match(parent.stderr, /has no --parent: the player's parents come from the films API/)
+  const render = await cli(home, home, 'render', '--from', '0', '--to', '1')
+  assert.doesNotMatch(render.stderr, /has no --/)
 })

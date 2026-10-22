@@ -238,7 +238,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `.mcp.json`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, at any depth |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and a `.mcp.json` that gives a server `env` or `headers` (where keys go) or does not parse, at any depth. A `.mcp.json` that only names commands, as a new project's does, is stored like any file |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
@@ -521,14 +521,21 @@ checked against its sha256 as it is read.
 version, hashes an ask, a poster's and a loop's bytes). After the poster and loop, and before
 anything is uploaded, `share` checks the version against them: one over a limit is refused with
 each limit it breaks, and nothing is sent. An API that names none is not checked here; its
-routes still refuse what is over.
+routes still refuse what is over. An API whose health does not answer in 10 s, answers an error,
+or answers something other than JSON (a proxy's page) stops the share before the build, with
+`couldn't read the films API's limits at <api>: <why>`.
 
 **`--dry-run`** does everything a share does on this machine and sends nothing: it needs no
 token (it says whether you are signed in), builds the player, renders the poster and loop
-(unless `--no-media`), and names each limit the version would break. It exits 0 when a share
-would go through, 1 when it is over a limit. With `--json` its result is `dryRun`, `api`,
-`signedIn`, `film` (null for a new one), `title`, `licence`, `files`, `bytes`, `player`,
-`parents`, `notSent`, `poster`, `loop`, `warnings`, `limits` and `over`.
+(unless `--no-media`), and names each limit the version would break. When it cannot read the
+limits it warns with the same line and goes on, unchecked (`limitsChecked: false`). It exits 0
+when a share would go through, 1 when it is over a limit. With `--json` its result is `dryRun`,
+`api`, `signedIn`, `film` (null for a new one), `title`, `licence`, `files`, `bytes`, `player`,
+`parents`, `notSent`, `poster`, `loop`, `warnings`, `limits`, `limitsChecked` and `over`.
+
+`--to`, `--from` and `--parent` are gone from these commands and the plugin commands: each
+says what to use instead (`--api <origin>`, `--site <origin|folder>`). `render`'s and `job`'s
+`--from` and `--to` are times, as before.
 
 - **The licence** is package.json's `license`: an SPDX id such as `MIT`, or `UNLICENSED` for all
   rights reserved, which a new project starts with. A project without one is refused before

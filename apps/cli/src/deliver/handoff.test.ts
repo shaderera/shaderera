@@ -24,3 +24,32 @@ test('files that hold secrets are in no revision, so neither a share nor a hando
   assert.ok(existsSync(join(dir, 'shaderera.json')))
   for (const f of secrets) assert.equal(existsSync(join(dir, f)), false, f)
 })
+
+test('an .mcp.json without keys is sent like any file; one that gives a server env or headers is a secret', () => {
+  const root = tempDir('mcp-json')
+  cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
+    recursive: true,
+  })
+  const plain = { mcpServers: { shaderera: { command: 'npx', args: ['shaderera', 'mcp'] } } }
+  writeFileSync(join(root, '.mcp.json'), JSON.stringify(plain))
+  let shared = shareFiles(root)
+  assert.ok('.mcp.json' in shared.files)
+  assert.deepEqual(shared.secrets, [])
+  // An empty env is no key either.
+  plain.mcpServers.shaderera = { ...plain.mcpServers.shaderera, env: {} } as never
+  writeFileSync(join(root, '.mcp.json'), JSON.stringify(plain))
+  assert.ok('.mcp.json' in shareFiles(root).files)
+  for (const keyed of [
+    { mcpServers: { x: { command: 'x', env: { API_KEY: 'never-leaves' } } } },
+    {
+      mcpServers: {
+        x: { type: 'http', url: 'https://x.example', headers: { Authorization: 'k' } },
+      },
+    },
+  ]) {
+    writeFileSync(join(root, '.mcp.json'), JSON.stringify(keyed))
+    shared = shareFiles(root)
+    assert.deepEqual(shared.secrets, ['.mcp.json'])
+    assert.equal('.mcp.json' in shared.files, false)
+  }
+})

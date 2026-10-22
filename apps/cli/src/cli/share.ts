@@ -283,6 +283,12 @@ const prepare = async (o: ShareOptions, needToken: boolean) => {
   // The player is built for the pages the API names (the site that shows its films), else for the
   // site alone: only they may frame it and get its port.
   const health = await healthOf(api)
+  if (health.error) {
+    const why = `couldn't read the films API's limits at ${api}: ${health.error}`
+    // A share does not upload what it could not check; a dry run says so and goes on.
+    if (needToken) throw new Error(`${why}. Nothing was sent.`)
+    ;(o.warn ?? say)(why)
+  }
   const parents = health.parents.length > 0 ? [...new Set(health.parents)] : [site]
   const dir = playerDir(root)
   const player = await buildPlayer(project, {
@@ -312,6 +318,7 @@ const prepare = async (o: ShareOptions, needToken: boolean) => {
     count,
     parents,
     limits: health.limits,
+    limitsChecked: health.error === undefined,
     dir,
     player,
   }
@@ -442,6 +449,7 @@ export const dryRunShare = async (o: ShareOptions) => {
     loop: loop?.bytes ?? null,
     warnings: media.warnings,
     limits: p.limits,
+    limitsChecked: p.limitsChecked,
     over,
   }
 }
@@ -488,7 +496,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const plan = await dryRunShare(options)
     if (v.json) console.log(JSON.stringify(plan, null, 2))
     else {
-      if (!plan.signedIn) console.log(`  not signed in to ${plan.api}: ${signInHint(plan.api)}`)
+      if (!plan.signedIn)
+        console.log(`  not signed in to ${plan.api}; ${signInHint(plan.api).replace(/^S/, 's')}`)
       for (const o of plan.over) console.log(`  over: ${o}`)
       console.log(
         plan.over.length > 0
