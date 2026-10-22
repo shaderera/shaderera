@@ -86,7 +86,7 @@ export const variantList = (
   manifest: Manifest,
 ): (string | undefined)[] => {
   const declared = Object.keys(manifest.variants ?? {})
-  const given = names === 'all' ? ['main', ...declared] : names
+  const given = names === 'all' ? (sameAsMain(manifest) ? declared : ['main', ...declared]) : names
   if (!Array.isArray(given) || given.length === 0 || given.some((n) => typeof n !== 'string'))
     throw new Error(
       `variants is "all" or a list of variant names (main: the manifest's own output).`,
