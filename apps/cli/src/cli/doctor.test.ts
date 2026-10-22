@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { limitsLine, shareItem, signInItem } from './doctor.ts'
+import { gpuItem, limitsLine, shareItem, signInItem } from './doctor.ts'
 import { saveToken } from './site.ts'
 
 test('limitsLine names the limits films run into, in MB and pixels', () => {
@@ -18,6 +18,44 @@ test('limitsLine names the limits films run into, in MB and pixels', () => {
     }),
     'buffers to 2048 MB, storage binding 128 MB, textures to 16384 px, 2048 layers',
   )
+})
+
+test('doctor warns on a software adapter, says what to check, and passes a GPU', () => {
+  const swiftShader = gpuItem('browser', {
+    vendor: 'google',
+    architecture: 'swiftshader',
+    device: '',
+    description: '',
+    isFallbackAdapter: true,
+  })
+  assert.equal(swiftShader.status, 'warn')
+  assert.equal(swiftShader.detail, 'software, SwiftShader: google swiftshader (browser host)')
+  assert.match(swiftShader.fix ?? '', /--software-gpu.*driver.*--disable-gpu/)
+  const warp = gpuItem(
+    'node',
+    {
+      vendor: 'microsoft',
+      architecture: 'warp',
+      device: 'microsoft-basic-render-driver',
+      description: 'D3D12 driver version 10.0.26100.9711',
+      isFallbackAdapter: true,
+    },
+    { features: ['float32-filterable'], limits: { maxTextureDimension2D: 16384 } },
+  )
+  assert.equal(warp.status, 'warn')
+  assert.match(
+    warp.detail,
+    /^software, WARP \(Microsoft Basic Render Driver\): microsoft warp D3D12/,
+  )
+  assert.match(warp.fix ?? '', /Vulkan ICD/)
+  assert.deepEqual(warp.limits, { maxTextureDimension2D: 16384 })
+  assert.deepEqual(gpuItem('browser', { vendor: 'nvidia', architecture: 'blackwell' }), {
+    id: 'gpu',
+    status: 'ok',
+    detail: 'nvidia blackwell (browser host)',
+    needed: true,
+  })
+  assert.equal(gpuItem('node', null).status, 'missing')
 })
 
 test('doctor says whether this machine is signed in, as whom, and whether the project can be shared', async () => {

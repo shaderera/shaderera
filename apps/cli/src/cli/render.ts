@@ -6,6 +6,7 @@ import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
+import { refuseSoftware } from '../node/adapter.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
 import { frameError, openHosts } from '../node/open-host.ts'
@@ -343,6 +344,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       changed: { type: 'string' },
       fix: { type: 'boolean' },
       loudness: { type: 'string' },
+      'software-gpu': { type: 'boolean' },
       ...DELIVERY_FLAGS,
     },
     { command: 'render', times: false },
@@ -404,6 +406,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)
   const hosts = [child, ...extra] as const
+  // On a software adapter, refused unless accepted, before anything is saved.
+  await refuseSoftware(child, v['software-gpu'] === true).catch(async (error) => {
+    await Promise.all(hosts.map((h) => h.close()))
+    throw error
+  })
   // What the output is traced to: the job's revision, or the working tree saved now (the same
   // files give the same id, so an unchanged project saves nothing new). Saved once the source
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.

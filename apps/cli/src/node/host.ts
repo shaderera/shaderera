@@ -29,6 +29,7 @@ import {
   yuvFits,
 } from '@shaderera/core/host'
 import { type Ask, extraIo } from '../runner/io.ts'
+import { adapterLine, softwareAdapter } from './adapter.ts'
 import { insideForRead } from './inside.ts'
 import type { ServiceRequest } from './services.ts'
 
@@ -90,8 +91,9 @@ let source: Source | undefined
 let manifest: Manifest
 // Dawn's GPU object is garbage-collected under a live device unless something holds it.
 let gpu: unknown
-/** The adapter the device came from, for the capture record. */
+/** The adapter the device came from, for the capture record, and the software renderer it is. */
 let adapterInfo: string | undefined
+let software: string | undefined
 /** The project's webgpu version and how many features its device has, for the capture record. */
 let dawnInfo: { webgpu: string; features: number } | undefined
 
@@ -212,8 +214,10 @@ const gpuDevice = async (root: string): Promise<GPUDevice | undefined> => {
   const adapter = await (gpu as GPU).requestAdapter()
   if (!adapter) process.stderr.write('webgpu is installed, but Dawn found no GPU adapter here.\n')
   const info = adapter?.info
-  if (info)
-    adapterInfo = [info.vendor, info.architecture, info.description].filter(Boolean).join(' ')
+  if (info) {
+    adapterInfo = adapterLine(info)
+    software = softwareAdapter(info)
+  }
   try {
     const version = createRequire(join(root, 'package.json'))('webgpu/package.json').version
     dawnInfo = { webgpu: String(version), features: adapter ? adapter.features.size : 0 }
@@ -396,6 +400,7 @@ const handle = async (m: Request): Promise<unknown> => {
         host: 'node',
         node: process.version,
         ...(adapterInfo ? { adapter: adapterInfo } : {}),
+        ...(software ? { software } : {}),
         ...(dawnInfo ?? {}),
       }
     case 'seeks':
