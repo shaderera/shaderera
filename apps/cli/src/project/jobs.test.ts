@@ -135,7 +135,16 @@ test('a job asks for hdr10 only for a film with hdr10, and an SDR job keeps its 
   writeFileSync(file, JSON.stringify({ ...manifest, hdr10 }))
   const hdr = await createJob(root, { by: 'cli', range: 'hdr10' })
   assert.equal(hdr.range, 'hdr10')
+  // Its delivery says the colour it is: never SDR BT.709.
+  assert.equal(hdr.delivery.color, 'hdr10-bt2020-pq')
   assert.deepEqual(readJob(root, hdr.name), hdr)
+  // HDR10 is an mp4 encoded by quality.
+  for (const [delivery, message] of [
+    [{ format: 'png' }, /not png: a png handoff is 8- or 16-bit sRGB/],
+    [{ format: 'prores-hq' }, /not prores-hq/],
+    [{ bitrate: '15M' }, /--bitrate and --maxrate are for H\.264/],
+  ] as const)
+    await assert.rejects(createJob(root, { by: 'cli', range: 'hdr10', delivery }), message)
   // The film's SDR version is the same revision without the range: another job.
   const second = await createJob(root, { by: 'cli', revision: hdr.revision })
   assert.notEqual(second.id, hdr.id)

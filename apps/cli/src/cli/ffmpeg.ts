@@ -304,6 +304,25 @@ export type MasteringDisplay = {
   min: number
 }
 
+/** The CIE 1931 xy chromaticities of the primaries a manifest's mastering display names, D65 white. */
+const PRIMARIES = {
+  'p3-d65': { red: [0.68, 0.32], green: [0.265, 0.69], blue: [0.15, 0.06] },
+  bt2020: { red: [0.708, 0.292], green: [0.17, 0.797], blue: [0.131, 0.046] },
+  bt709: { red: [0.64, 0.33], green: [0.3, 0.6], blue: [0.15, 0.06] },
+} as const
+const D65 = [0.3127, 0.329] as const
+
+/**
+ * A manifest's mastering display (its `hdr10.mastering`: peak, min and the primaries' name) as ST
+ * 2086 describes it: SMPTE RP 431-2's P3 primaries with D65 white, or BT.2020's or BT.709's (ITU-R
+ * BT.2020 and BT.709 Table 1).
+ */
+export const masteringOf = (m: {
+  peak: number
+  min: number
+  primaries: keyof typeof PRIMARIES
+}): MasteringDisplay => ({ ...PRIMARIES[m.primaries], white: D65, peak: m.peak, min: m.min })
+
 /** CTA-861.3's MaxCLL and MaxFALL in cd/m²: the brightest pixel's max(R,G,B) and the highest frame average of it. */
 export type LightLevels = { maxCLL: number; maxFALL: number }
 
@@ -547,7 +566,7 @@ export const requireFfmpeg = () => {
  */
 export const ffmpegSink = (
   args: readonly string[],
-  input: Input = 'rgba',
+  input: Input | HdrInput = 'rgba',
   /** `false`: the codec keeps alpha (ProRes 4444), so straight RGBA goes as it is. */
   matted = true,
 ): Sink => {
@@ -562,11 +581,11 @@ export const ffmpegSink = (
   // An ffmpeg that exits early closes the pipe: the write fails with EPIPE, and `exited` says why.
   ff.stdin.on('error', () => {})
   return {
-    // Straight RGBA is matted over black here (an mp4 has no alpha); yuv420p came matted.
+    // Straight RGBA is matted over black here (an mp4 has no alpha); Y'CbCr came matted.
     write: (pixels) =>
       new Promise<void>((done, fail) => {
         const bytes =
-          !matted || input === 'yuv420p'
+          !matted || input === 'yuv420p' || input === 'p010' || input === 'yuv420p10le'
             ? pixels
             : input === 'rgba'
               ? matte(pixels)
@@ -793,6 +812,54 @@ export const requireFrames = (file: string, p: Probe, written: number) => {
   if (frames !== undefined && frames !== written)
     throw new Error(
       `ffmpeg wrote ${frames} of the ${written} frames it was given to ${file} and exited 0: the file is not the film (ffmpeg's own error is above; it may have run out of memory). Render again.`,
+    )
+}
+
+/**
+ * Throws unless an HDR10 file says what its encode declared (decision 0023): HEVC Main 10 as `hvc1`,
+ * 10-bit narrow range, the four colour tags and the top-left chroma site, and the mastering display
+ * and light levels both in the mp4's `mdcv`/`clli` boxes and in the first frame's SEI, each equal to
+ * `display` and `levels` (rounded up, as `-content_light` takes them) in the units of its field.
+ */
+export const requireHdr10 = (
+  file: string,
+  p: Probe,
+  display: MasteringDisplay,
+  levels: LightLevels,
+) => {
+  const v = p.video
+  const h = v?.hdr10
+  const units = (d?: MasteringDisplay) =>
+    d
+      ? [
+          ...[d.red, d.green, d.blue, d.white].flatMap((xy) =>
+            xy.map((c) => Math.round(c * 50000)),
+          ),
+          Math.round(d.peak * 10000),
+          Math.round(d.min * 10000),
+        ].join(',')
+      : 'none'
+  const light = (l?: LightLevels) => (l ? `${l.maxCLL},${l.maxFALL}` : 'none')
+  const want = { display: units(display), light: contentLightArg(levels) }
+  const wrong = [
+    ...(v?.profile === 'Main 10' ? [] : [`profile ${v?.profile ?? 'none'}, not Main 10`]),
+    ...(v?.pixFmt === 'yuv420p10le' ? [] : [`${v?.pixFmt ?? 'no video'}, not yuv420p10le`]),
+    ...(['bt2020nc', 'bt2020', 'smpte2084', 'tv'].join() ===
+    [v?.color?.matrix, v?.color?.primaries, v?.color?.transfer, v?.color?.range].join()
+      ? []
+      : [`colour ${JSON.stringify(v?.color ?? {})}, not bt2020nc/bt2020/smpte2084/tv`]),
+    ...(h?.codecTag === 'hvc1' ? [] : [`codec tag ${h?.codecTag ?? 'none'}, not hvc1`]),
+    ...(h?.chroma === 'topleft' ? [] : [`chroma site ${h?.chroma ?? 'none'}, not topleft`]),
+    ...(units(h?.mastering) === want.display ? [] : [`mdcv ${units(h?.mastering)}`]),
+    ...(light(h?.light) === want.light ? [] : [`clli ${light(h?.light)}`]),
+    ...(units(h?.sei?.mastering) === want.display
+      ? []
+      : [`SEI display ${units(h?.sei?.mastering)}`]),
+    ...(light(h?.sei?.light) === want.light ? [] : [`SEI light ${light(h?.sei?.light)}`]),
+  ]
+  if (wrong.length > 0)
+    throw new Error(
+      `${file} is not the HDR10 file its encode declared (display ${want.display}, light ${want.light}): ${wrong.join('; ')}.`,
     )
 }
 

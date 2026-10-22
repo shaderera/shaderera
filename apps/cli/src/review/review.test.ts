@@ -9,6 +9,55 @@ import type { Requirements } from '../project/requirements.ts'
 import { shotsOf } from './measure.ts'
 import { readingShort, review, reviewTimes } from './review.ts'
 
+test('a film with hdr10 is reviewed in SDR, its HDR10 render reported as numbers', async () => {
+  const hdr10 = {
+    graphicsWhite: 203,
+    mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' as const },
+    dither: 'none' as const,
+  }
+  const project = memoryProject({ hdr10 })
+  const size = { width: 64, height: 36 }
+  // An opaque white frame: every pixel at Graphics White, none above it.
+  const white = () => new Uint8Array(64 * 36 * 4).fill(255)
+  const child = memoryChild({ size, frame: white })
+  const outDir = join(tempDir('review-hdr'), 'review')
+  const r = await review({
+    project,
+    child,
+    outDir,
+    quick: true,
+    hdr: async () => memoryChild({ size, frame: white, hdr: { hdr10, fps: 10 } }),
+  })
+  const check = r.checks.find((c) => c.id === 'hdr10')
+  assert.equal(check?.status, 'info')
+  assert.match(
+    check?.measured ?? '',
+    /MaxCLL 20\d(\.\d+)? cd\/m², .* 0 % of pixels above Graphics White \(203 cd\/m²\)/,
+  )
+  assert.equal(r.diagnostics.hdr10?.length, r.frames.length)
+  assert.ok(r.diagnostics.hdr10?.every((f) => Math.abs(f.maxCll - 203) < 2 && f.aboveWhite === 0))
+  // Without an hdr10 host the light is not known; past the peak it fails.
+  const unknown = await review({ project, child, outDir, quick: true })
+  assert.equal(unknown.checks.find((c) => c.id === 'hdr10')?.status, 'unknown')
+  const dim = { ...hdr10, mastering: { ...hdr10.mastering, peak: 100 } }
+  const over = await review({
+    project,
+    child,
+    outDir,
+    quick: true,
+    hdr: async () => memoryChild({ size, frame: white, hdr: { hdr10: dim, fps: 10 } }),
+  })
+  const failed = over.checks.find((c) => c.id === 'hdr10')
+  assert.equal(failed?.status, 'fail')
+  assert.match(failed?.detail ?? '', /above the mastering display's peak of 100/)
+  // An SDR film has no such check.
+  const sdr = await review({ project: memoryProject(), child, outDir, quick: true })
+  assert.equal(
+    sdr.checks.some((c) => c.id === 'hdr10'),
+    false,
+  )
+})
+
 /** fixtures/mcp's film in memory: a red box that the camera slides left, inspected and pickable. */
 const film = () => {
   const project = memoryProject()
