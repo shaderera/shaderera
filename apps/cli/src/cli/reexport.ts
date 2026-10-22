@@ -3,7 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { isDeepStrictEqual, parseArgs } from 'node:util'
 import { frameTimes } from '@shaderera/core'
 import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
-import { jobOfFile, remux, remuxArgs, sameFrames } from '../deliver/reexport.ts'
+import { hdr10Changes, jobOfFile, remux, remuxArgs, sameFrames } from '../deliver/reexport.ts'
 import { outside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
 import { listJobs, openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
@@ -26,6 +26,8 @@ import { extensionOf } from './render.ts'
  * the job's mix, made again, on a delivered file's own video packets (`-c:v copy`): no frame is
  * rendered or encoded. The file's job is found by its revision tag among the project's jobs; when
  * its revision or params are not this job's, a sample of frames is rendered in both and must match.
+ * An HDR10 file keeps its colour tags, mastering display and light levels (boxes and SEI) as they
+ * were: the light its encode measured, not measured again (hdr10Changes).
  *
  * `shaderera reexport captions --job <name> [--out file]`: the job's SRT and WebVTT sidecars,
  * written beside `--out` as render writes them, without rendering.
@@ -147,6 +149,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     )
     const probed = probe(partial)
     requireFrames(out, probed, frames)
+    // An HDR10 file keeps the display and the light its frames (or its plan's chunks) declared.
+    const changed = hdr10Changes(was, probed)
+    if (changed.length > 0)
+      throw new Error(
+        `${out} lost the HDR10 signalling of ${onto} in the remux (${changed.join('; ')}): render job ${job.name} instead.`,
+      )
     const measured = mix.clips.length > 0 ? measureLoudness(partial) : null
     renameSync(partial, out)
     const stems = job.delivery.stems && mix.clips.length > 0 ? mix.stems(`${base}.stems`) : []

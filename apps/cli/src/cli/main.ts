@@ -6,9 +6,9 @@ const usage = `Usage: shaderera <command> [--root <dir>] [--variant <name>] [--t
 
 Commands:
   inspect <t> [--path a.b] [--json]          print the source's state at t
-  check [--times 50] [--seed 1]              render each t twice in two orders and compare
+  check [--times 50] [--seed 1] [--hdr10]    render each t twice in two orders and compare
   still <t>... [--every s] [--sheet] [--diff] [--compare variant] [--out dir] [--json]   stills of any moment, and a contact sheet
-  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--crf 18] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--software-gpu]   export an mp4 or a ProRes mov (a png job: frames + audio.wav + delivery.json)
+  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--crf 18] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--software-gpu] [--hdr10]   export an mp4 or a ProRes mov (a png job: frames + audio.wav + delivery.json)
   deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS] [--name batch] [--job j]... [--replace] [--software-gpu]   campaign batch into out/deliveries/<batch>/
   plan --job j [--chunks 4] [--out dir]        split a job into chunks any machine renders (render --job j --chunk i)
   plan --status --plan dir [--verify]        which chunks of a plan are done, missing, stale, partial or claimed
@@ -26,7 +26,7 @@ Versions and jobs:
   undo                                       back to the previous revision
   restore <revision>                         make the project that revision
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
-  job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems]   freeze a render job
+  job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems] [--hdr10]   freeze a render job
 
 shaderera.com: the films API is --api <origin>, else SHADERERA_API, else https://api.shaderera.com;
 the site (film pages, the studio page, plugins) is --site <origin>, else SHADERERA_SITE, else https://shaderera.com:

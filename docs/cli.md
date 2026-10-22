@@ -114,6 +114,7 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 |---|---|
 | `--times <n>` | 50 |
 | `--seed <n>` | 1 |
+| `--hdr10` | off. Checks the film's HDR10 render ([HDR10](delivery.md#higher-precision-hdr-scene-linear-exr-aovs)): its P010 bytes in two orders, every frame within the mastering display's peak, every layer's `light` one it can carry. Prints the most light it saw |
 
 ```
 $ shaderera check --times 5
@@ -213,7 +214,8 @@ of footage it takes a moment, not the time to read all of it.
 | `--stems` | off. One WAV per clip `group` beside the file ([stems](delivery.md#stems-and-captions)) |
 | `--no-audio` | off. No audio stream (a png job: no `audio.wav`) |
 | `--loudness=<LUFS>` | none. Move the mix to a target by one constant gain ([loudness](delivery.md#loudness)). Write it with `=`, since the value starts with a dash |
-| `--encoder <x264\|nvenc>` | a review: `nvenc` where this ffmpeg and machine take the frame size, else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives NVENC cq n + 1 |
+| `--encoder <x264\|nvenc>` | a review: `nvenc` where this ffmpeg and machine take the frame size, else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives NVENC cq n + 1. With `--hdr10`: `x265` or `nvenc` (HEVC), `x265` for a master |
+| `--hdr10` | off. An HDR10 mp4 (HEVC Main 10) of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#higher-precision-hdr-scene-linear-exr-aovs)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
 | `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome |
 | `--progress` | off: the progress line goes only to a terminal; on, also to a pipe |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
@@ -272,7 +274,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
 | `diff <a> [<b>] [--stat]` | files added, removed and changed from revision a to b (or the working tree), with a unified diff of text files |
-| `job [--variant v] [--params json] [--revision id] [--name n] [--label l] [--from s] [--to s] [--host h] [--format f] [--png] [--master] [--bitrate r \| --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--replace]` | freezes a render job (`job/3`) in `versions/jobs/<name>.json`: the revision (the project is saved first unless one is given), the host, the variant, the complete params (an unknown name is refused), the seed, the window, the delivery settings and the installed packages the source and its DOM import, by content, and the stamp of every bake it reads ([what a job pins](delivery.md#handoff)). Its `id` hashes all of that. The same inputs return the job already there; a `--name` that holds different inputs is refused unless `--replace` |
+| `job [--variant v] [--params json] [--revision id] [--name n] [--label l] [--from s] [--to s] [--host h] [--format f] [--png] [--master] [--bitrate r \| --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--hdr10] [--replace]` | freezes a render job (`job/3`) in `versions/jobs/<name>.json`: the revision (the project is saved first unless one is given), the host, the variant, the complete params (an unknown name is refused), the seed, the window, the delivery settings and the installed packages the source and its DOM import, by content, and the stamp of every bake it reads ([what a job pins](delivery.md#handoff)). Its `id` hashes all of that. The same inputs return the job already there; a `--name` that holds different inputs is refused unless `--replace`. `--hdr10`: the job renders in an `hdr10` range to an HDR10 mp4 (`range: "hdr10"`, `delivery.color: "hdr10-bt2020-pq"`); a png, ProRes or a bitrate is refused for it |
 | `render --job <name>` | renders exactly that job in its host, from the revision's frozen copy, whatever the project became; refuses another `--host`, a package the job executes that changed, or another Shaderera version |
 
 ```

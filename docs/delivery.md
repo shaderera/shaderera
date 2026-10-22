@@ -394,7 +394,9 @@ npx shaderera reexport captions --job spot-v2                     # out/spot-v2.
   with the video packets of `--onto` as they are (`-c:v copy`), with the container's flags, edit
   list, timecode and audio codec `render` writes, tagged with the job's revision. The video
   packets are the file's, byte for byte, and the audio is packet for packet what `render --job`
-  gives (tested for an mp4, an mp4 without edit lists and ProRes 422 HQ).
+  gives (tested for an mp4, an mp4 without edit lists and ProRes 422 HQ). An HDR10 file keeps its
+  colour tags, mastering display and MaxCLL/MaxFALL (boxes and SEI) as its encode declared them; a
+  remux that lost or changed any is refused.
 - **The picture check.** The file's job is found by its `shaderera_revision` tag among the
   project's jobs: one of that revision with the same host, variant, seed, window and picture
   delivery (format, quality, rates, edit list; stems are sound). None is refused, naming what
@@ -467,8 +469,8 @@ canvas or byte layer is 8-bit to begin with, and **changing the encoder cannot r
 layer never had**. None of it is HDR: an "HDR" tag on an SDR composite would be a lie, and there is
 no scene-linear light in it to put in an EXR.
 
-**HDR10 is decided, not built.** [Decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)
-(decided 2026-10-22) sets out how it will work:
+**HDR10.** [Decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)
+(decided 2026-10-22) sets out how it works:
 - a film opts in, and its GPU layers declare linear or PQ light in BT.2020;
 - 8-bit layers are decoded as sRGB and placed at a graphics white (203 nits by default, after
   ITU-R BT.2408);
@@ -478,9 +480,9 @@ no scene-linear light in it to put in an EXR.
 - ffmpeg 9.0 is needed only for an HDR10 film (SDR stays tested on 8.1.1);
 - films that do not opt in do not change.
 
-So far the manifest's `hdr10` block, `host.range` and a layer's `light` exist
-([protocol.md](protocol.md#hdr10)): they are checked, and an SDR render refuses a layer with
-light. An `hdr10` range composites in HDR in both hosts:
+The manifest's `hdr10` block, `host.range` and a layer's `light` are checked
+([protocol.md](protocol.md#hdr10)), and an SDR render refuses a layer with light. An `hdr10`
+range composites in HDR in both hosts:
 - `over` in linear BT.2020 light in 32-bit floats, then PQ and 10-bit R'G'B' codes, dithered
   (TPDF, seeded by the frame index, never on black) when `dither` is `tpdf`;
 - P010 from those codes, held to a float64 reference: on this repository's test fixture no sample
@@ -490,14 +492,47 @@ light. An `hdr10` range composites in HDR in both hosts:
 - a frame whose light passes the mastering display's peak fails, naming the frame and its cd/m²:
   it is never clipped.
 
-No command renders or encodes HDR10 yet; until one does, what follows holds.
+`render --hdr10` (or a job made with `job --hdr10`, or MCP `render` with `hdr10: true`) makes the
+HDR10 mp4:
 
-What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
-channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance
-houses and post facilities transcode a ProRes master to them (The Post Flow, 2026-08-24). HEVC
-is not written today. Its encoders carry patent-pool royalties (Access Advance), but Shaderera
-ships no encoder: it drives the person's own ffmpeg, so decision 0023 allows HEVC for HDR10. Scene-linear compositing would be a
-protocol change (`over` in linear light), not an encoder setting.
+```sh
+npx shaderera job --name hdr --hdr10 --master
+npx shaderera render --job hdr
+# out/hdr.mp4
+# file: hevc Main 10 yuv420p10le 3840×2160 …, HDR10 hvc1, MaxCLL 1000 / MaxFALL 180 cd/m², …
+# light: MaxCLL 999.5 cd/m², MaxFALL 179.3 cd/m² measured (the file says 1000 / 180)
+```
+
+- **Refused** without the manifest's `hdr10`, on ffmpeg older than 9.0, or on a host without a
+  `GPUDevice` (the Node host needs the project's `webgpu`; the Skia path is SDR only).
+- **Through lossless chunks.** The light levels are known only after the last frame, so every
+  HDR10 render writes its frames first as P010 into FFV1 `yuv420p10le` chunks, each recording its
+  levels beside it (`chunk-NNN.mkv.json`, `light`). A plain render is a one-chunk plan in
+  `<out>.<pid>.chunks/`, removed after. `plan` / `render --chunk` / `assemble` work as for SDR
+  (`frames as p010`); `assemble` writes the most light over the chunks.
+- **One encode** with ffmpeg 9.0's `-mastering_display` and `-content_light`: x265 for a master
+  (and without NVIDIA), NVIDIA's HEVC for a review where it works (`--encoder x265|nvenc`). The
+  levels are rounded up to whole cd/m². After the encode the file is probed: Main 10, `hvc1`,
+  `yuv420p10le` narrow range, BT.2020 / PQ / BT.2020 NCL, chroma top-left, and the `mdcv` / `clli`
+  boxes and the first frame's SEI equal to the declared display and the measured levels. A file
+  that differs is an error.
+- **A preroll** is P010 black, or the source's own frames, measured with the programme.
+- **HDR10 is an mp4.** A png handoff (8- or 16-bit sRGB), ProRes, `--bitrate` and `--maxrate` are
+  refused for an `hdr10` job. Its `delivery.color` is `hdr10-bt2020-pq`, never SDR BT.709.
+- **`check --hdr10`** hashes the P010 bytes in two orders, and fails a frame past the mastering
+  peak or a layer that declares light it cannot carry. It prints the most light it saw.
+- **Stills and review stay SDR**: they show the film's SDR render (the same job without the
+  range). For a film with `hdr10`, `review` also opens the HDR10 render and reports, per principal
+  frame, MaxCLL, MaxFALL and the share of pixels above Graphics White, as numbers (the `hdr10`
+  check). A PQ image shown as sRGB would mislead. `deliver` reviews an hdr10 job the same way.
+
+What does not exist: scene-linear compositing, an EXR writer, AOV (depth, normals, mattes)
+channels, HLG, an HDR10 ProRes or PNG from the hosts. Nor broadcast playout formats (MXF, XDCAM,
+AVC-Intra, IMF): clearance houses and post facilities transcode a ProRes master to them (The Post
+Flow, 2026-08-24). HEVC is written only for HDR10. Its encoders carry patent-pool royalties
+(Access Advance), but Shaderera ships no encoder: it drives the person's own ffmpeg, so decision
+0023 allows HEVC for HDR10. Scene-linear compositing would be a protocol change (`over` in linear
+light), not an encoder setting.
 
 The honest routes today:
 

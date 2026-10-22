@@ -51,7 +51,8 @@ What both hosts share (`checkManifest`, `withVariant`, `openSource`, `seekable`,
 `straight`, `matte`, `gpuCompositor`, `yuvFits`, `hdrCompositor`, `p010Fits`, `finalOnly`,
 `layerInfo`, `lightChecked`, `rangeOf`, `paramDefaults`, `fullDevice`, `timecodeOf`, `toSrt`,
 `toVtt`, …), and the float64 references the HDR compositor is held to (`rgb10Reference`,
-`p010Reference`, `lightReference`). A participant never imports it.
+`p010Reference`, `lightReference`) and the numbers they share with the CLI (`CODE_LIGHT`,
+`peakCode`, `whiteOf`). A participant never imports it.
 
 ## `shaderera`: the commands are stable; the modules are internal
 

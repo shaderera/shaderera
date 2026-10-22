@@ -153,6 +153,11 @@ export type Child = {
     yuv?: boolean
     /** The host composites on the GPU and can return `rgba64` (16 bits a channel). */
     deep?: boolean
+    /**
+     * The host renders `hdr10` (decision 0023): frames come only as `p010` (or `rgb10`), with their
+     * light levels, and `yuv` and `deep` are false.
+     */
+    p010?: boolean
   }
 }
 
