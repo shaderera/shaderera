@@ -15,14 +15,28 @@ const list = (x: unknown) =>
         .filter(Boolean)
     : undefined
 
+/** Writes, over itself, each started output's frames so far: `b-16_9 1200/9000  b-9_16 1100/9000`. */
+const progressLine = (names: readonly string[]) => {
+  const done = new Map<number, string>()
+  return (i: number, frame: number, frames: number) => {
+    done.set(i, `${names[i]} ${frame + 1}/${frames}`)
+    const line = [...done.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, s]) => s)
+      .join('  ')
+    process.stderr.write(`\r${line}`)
+  }
+}
+
 /**
  * `shaderera deliver [--variants a,b] [--locales en,th] [--format mp4|png|prores-hq|prores-4444]
  * [--png] [--master] [--bitrate 15M | --maxrate 10M] [--no-edit-list] [--stems] [--bits 16]
  * [--no-audio] [--loudness LUFS]
- * [--name batch] [--job a --job b] [--replace]`: a campaign batch. One job per variant × locale from
+ * [--name batch] [--job a --job b] [--replace] [--workers n] [--progress]`: a campaign batch. One job per variant × locale from
  * the project as it is now (saved once as a revision), or the given jobs; each is rendered, reviewed
  * against its own format and what requirements.json declares, and indexed in
- * out/deliveries/<batch>/index.{json,md}. Exits 1 when any output fails a check or fails to render,
+ * out/deliveries/<batch>/index.{json,md}. The outputs render at once, sharing --workers hosts
+ * (hostBudget by default). Exits 1 when any output fails a check or fails to render,
  * after rendering the rest.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
@@ -35,6 +49,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     'no-audio': { type: 'boolean' },
     loudness: { type: 'string' },
     replace: { type: 'boolean' },
+    workers: { type: 'string' },
+    progress: { type: 'boolean' },
   })
   requireFfmpeg()
   const delivery = deliveryOf(v)
@@ -47,6 +63,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       ? v.name
       : `batch-${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}`
   if (!/^[\w.-]+$/.test(batch)) throw new Error(`A batch name is letters, digits, . _ -: ${batch}`)
+  const workers = v.workers === undefined ? undefined : Number(v.workers)
+  if (workers !== undefined && !(Number.isInteger(workers) && workers > 0))
+    throw new Error('--workers is a whole number of hosts, such as 2.')
   const given = Array.isArray(v.job) ? v.job.map((j) => readJob(root, String(j))) : undefined
   const jobs = await batchJobs(root, {
     batch,
@@ -56,13 +75,19 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     delivery,
     replace: v.replace === true,
   })
+  // One line for every output rendering at once, to a terminal or a reader that asks (--progress).
+  const progress =
+    process.stderr.isTTY || v.progress === true ? progressLine(jobs.map((j) => j.name)) : undefined
   const { dir, index } = await deliverBatch(root, jobs, {
     batch,
     audio: v['no-audio'] !== true,
     ...(v.loudness === undefined ? {} : { loudness: Number(v.loudness) }),
     ...childOptions(v),
-    onOutput: (i, n, job) => process.stderr.write(`output ${i + 1}/${n} ${job.name}\n`),
-  })
+    ...(workers ? { workers } : {}),
+    onOutput: (i, n, job, hosts) =>
+      process.stderr.write(`output ${i + 1}/${n} ${job.name} on ${hosts} host(s)\n`),
+    ...(progress ? { onFrame: progress } : {}),
+  }).finally(() => progress && process.stderr.write('\n'))
   for (const o of index.outputs) {
     for (const f of checkFindings(
       o.checks.map((c) => (c.required && c.status !== 'pass' ? { ...c, status: 'fail' } : c)),

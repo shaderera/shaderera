@@ -48,14 +48,15 @@ import { found } from './findings.ts'
 import { openMix } from './mix.ts'
 import { blackFrame, fileTimecode, prerollOf, writePreroll } from './preroll.ts'
 
+/** How many hosts render at once at most (decision 0007): up to 4, two cores left free. */
+export const hostBudget = (): number => Math.max(1, Math.min(4, availableParallelism() - 2))
+
 /**
- * How many hosts an export uses by default (decision 0007): up to 4, two cores left free, at
- * least 30 frames each; one for a sequential source, which cannot be split.
+ * How many hosts an export uses by default: hostBudget, at least 30 frames each; one for a
+ * sequential source, which cannot be split.
  */
-export const defaultWorkers = (manifest: Project['manifest'], frames: number): number =>
-  manifest.sequential
-    ? 1
-    : Math.max(1, Math.min(4, availableParallelism() - 2, Math.floor(frames / 30)))
+export const defaultWorkers = (manifest: Pick<Manifest, 'sequential'>, frames: number): number =>
+  manifest.sequential ? 1 : Math.max(1, Math.min(hostBudget(), Math.floor(frames / 30)))
 
 /** Options a video export shares with jobs and batches: what file, at what rate, with what sound. */
 export type VideoOptions = {

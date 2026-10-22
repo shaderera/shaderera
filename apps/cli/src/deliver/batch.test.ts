@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { cpSync } from 'node:fs'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
 import { outputRequirements, requiredChecks } from '../project/requirements.ts'
-import { batchJobs } from './batch.ts'
+import { batchJobs, shareHosts } from './batch.ts'
 
 const fixture = (name: string) => {
   const root = tempDir(name)
@@ -59,5 +60,27 @@ test('a batch refuses a locale the project does not declare, before rendering', 
   await assert.rejects(
     batchJobs(fixture('deliver'), { batch: 'l', locales: ['fr'], delivery: {} }),
     /Unknown locale fr: the locale param allows en, th/,
+  )
+})
+
+test('a batch shares its hosts: one each while they last, then the rest to the outputs that want more', () => {
+  assert.deepEqual(shareHosts([4, 4], 4), [2, 2])
+  // A sequential source keeps its one host; the other output takes the rest.
+  assert.deepEqual(shareHosts([1, 4], 4), [1, 3])
+  assert.deepEqual(shareHosts([4, 4, 4], 4), [2, 1, 1])
+  // More outputs than hosts: the later ones wait for a host.
+  assert.deepEqual(shareHosts([4, 4, 4, 4, 4], 3), [1, 1, 1, 0, 0])
+  assert.deepEqual(shareHosts([1, 1], 4), [1, 1])
+})
+
+test('a batch names a job by its variant made safe for a file name (16:9)', async () => {
+  const root = fixture('mcp')
+  const file = join(root, 'shaderera.json')
+  const manifest = JSON.parse(readFileSync(file, 'utf8'))
+  writeFileSync(file, JSON.stringify({ ...manifest, variants: { '16:9': { duration: 0.5 } } }))
+  const jobs = await batchJobs(root, { batch: 'r', variants: ['16:9'], delivery: {} })
+  assert.deepEqual(
+    jobs.map((j) => [j.name, j.variant]),
+    [['r-16_9', '16:9']],
   )
 })

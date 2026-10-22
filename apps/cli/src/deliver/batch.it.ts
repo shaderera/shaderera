@@ -37,7 +37,7 @@ test('deliver renders and reviews each variant with its own format and writes th
   writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 0 }))
   const r = cli('deliver', '--root', root, '--variants', 'short,teaser', '--name', 'b')
   assert.equal(r.status, 0, r.stdout + r.stderr)
-  assert.match(r.stderr, /output 1\/2 b-short\noutput 2\/2 b-teaser/)
+  assert.match(r.stderr, /output 1\/2 b-short on 1 host\(s\)\noutput 2\/2 b-teaser on 1 host\(s\)/)
   const dir = join(root, 'out', 'deliveries', 'b')
   const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'))
   assert.deepEqual(
@@ -161,4 +161,58 @@ test('deliver spreads an output over several hosts, as render --job does, and cl
   assert.equal(index.outputs[0]?.status, 'pass', JSON.stringify(index.outputs[0]))
   assert.equal(opened, 2)
   assert.equal(closed, 2)
+})
+
+test('a batch renders its outputs at once on one budget of hosts, each file as rendered alone', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = fixture('mcp')
+  // 9 s at 10 fps, landscape and portrait: 90 frames each.
+  const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
+  const variants = { '16:9': { width: 64, height: 36 }, '9:16': { width: 36, height: 64 } }
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ ...manifest, duration: 9, variants }),
+  )
+  writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1, endHold: 0 }))
+  const jobs = await batchJobs(root, { batch: 'both', variants: ['16:9', '9:16'], delivery: {} })
+  assert.deepEqual(
+    jobs.map((j) => j.name),
+    ['both-16_9', 'both-9_16'],
+  )
+  let open = 0
+  let most = 0
+  const tracked = async (job: Job) => {
+    const opened = await inMemory(job)
+    most = Math.max(most, ++open)
+    const close = async () => {
+      open--
+      await opened.child.close()
+    }
+    return { ...opened, child: { ...opened.child, close } }
+  }
+  const started: number[] = []
+  const { dir, index } = await deliverBatch(root, jobs, {
+    batch: 'both',
+    workers: 4,
+    open: tracked,
+    onOutput: (i) => started.push(i),
+  })
+  assert.deepEqual(
+    index.outputs.map((o) => [o.job, o.status]),
+    [
+      ['both-16_9', 'pass'],
+      ['both-9_16', 'pass'],
+    ],
+  )
+  assert.equal(most, 2, 'both outputs were open at once')
+  assert.deepEqual(started, [0, 1])
+  for (const [i, job] of jobs.entries()) {
+    const alone = await deliverBatch(root, [job], { batch: `alone-${i}`, open: inMemory })
+    const file = (d: string, o?: BatchOutput) => readFileSync(join(d, o?.file as string))
+    assert.ok(
+      file(dir, index.outputs[i]).equals(file(alone.dir, alone.index.outputs[0])),
+      `${job.name} is the same file rendered alone`,
+    )
+  }
 })

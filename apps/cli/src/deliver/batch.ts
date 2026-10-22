@@ -2,7 +2,7 @@ import { mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { frameTimes } from '@shaderera/core'
 import type { Loudness, Probe } from '../cli/ffmpeg.ts'
-import { defaultWorkers, exportVideo, extensionOf } from '../cli/render.ts'
+import { defaultWorkers, exportVideo, extensionOf, hostBudget } from '../cli/render.ts'
 import type { Child } from '../node/child.ts'
 import type { Project } from '../node/project.ts'
 import {
@@ -11,6 +11,7 @@ import {
   type Job,
   manifestAt,
   openJob,
+  safeName,
   videoOptionsOf,
 } from '../project/jobs.ts'
 import {
@@ -122,7 +123,8 @@ export const batchJobs = async (
           revision,
           variant,
           params: locale ? { locale } : undefined,
-          name: [o.batch, variant ?? 'main', locale].filter(Boolean).join('-'),
+          // A variant may be named what a job name cannot hold (16:9).
+          name: [o.batch, safeName(variant ?? 'main'), locale].filter(Boolean).join('-'),
           delivery: o.delivery,
           replace: o.replace,
         }),
@@ -131,11 +133,163 @@ export const batchJobs = async (
 }
 
 /**
+ * How many hosts each of a batch's jobs renders on, out of one budget: one each while the budget
+ * lasts, then the rest go round the jobs that want more (`wants`: defaultWorkers, 1 for a
+ * sequential source or a png handoff). A job given 0 waits for a host to come free.
+ */
+export const shareHosts = (wants: readonly number[], budget: number): number[] => {
+  const got = wants.map(() => 0)
+  let left = Math.max(1, Math.floor(budget))
+  for (let more = true; more && left > 0; ) {
+    more = false
+    for (const [i, want] of wants.entries())
+      if (left > 0 && (got[i] as number) < want) {
+        got[i] = (got[i] as number) + 1
+        left--
+        more = true
+      }
+  }
+  return got
+}
+
+type Opened = { project: Project; child: Child; more?: () => Promise<Child> }
+
+/** What deliverBatch passes on to each output. */
+type OutputOptions = {
+  dir: string
+  base: Requirements
+  audio?: boolean
+  loudness?: number
+  open: (job: Job) => Promise<Opened>
+  onFrame?: (i: number, n: number) => void
+}
+
+/**
+ * Renders one output of a batch into `<dir>/<job>/` on `workers` hosts and reviews it on the first
+ * against output-specific requirements. A failure is recorded in the output, never thrown.
+ */
+const deliverOutput = async (job: Job, workers: number, o: OutputOptions): Promise<BatchOutput> => {
+  const { dir } = o
+  const { width, height, fps, from, to } = job.output
+  const out: BatchOutput = {
+    job: job.name,
+    ...(job.variant ? { variant: job.variant } : {}),
+    ...(typeof job.params.locale === 'string' ? { locale: job.params.locale } : {}),
+    format: job.delivery.format,
+    quality: job.delivery.quality,
+    width,
+    height,
+    duration: to - from,
+    checks: [],
+    status: 'fail',
+  }
+  const jobDir = join(dir, job.name)
+  const requirements: Requirements = {
+    ...outputRequirements(o.base, {
+      variant: job.variant,
+      width,
+      height,
+      fps,
+      duration: to - from,
+    }),
+    format: { width, height, fps, duration: to - from },
+  }
+  let opened: Opened | undefined
+  try {
+    opened = await o.open(job)
+    const { project, child, more } = opened
+    // A textless variant: no copy is asked of it (outputRequirements).
+    if (project.manifest.textless) requirements.copy = []
+    let report: Awaited<ReturnType<typeof review>>
+    if (job.delivery.format === 'png') {
+      const done = await exportFinishing(project, child, job, {
+        dir: jobDir,
+        requirements,
+        audio: o.audio,
+        loudness: o.loudness,
+        ...(o.onFrame ? { onFrame: o.onFrame } : {}),
+        ...(job.delivery.bits ? { bits: job.delivery.bits } : {}),
+        ...(job.delivery.stems ? { stems: true } : {}),
+      })
+      report = done.review
+      if (requirements.placement)
+        report.checks.push({
+          id: 'placement',
+          title: 'placement',
+          status: 'unknown',
+          detail: 'a png handoff is a folder of frames, not a file a placement takes',
+        })
+      Object.assign(out, {
+        file: job.name,
+        frames: done.record.frameCount,
+        seconds: done.seconds,
+        loudness: done.record.audio?.loudness ?? null,
+      })
+    } else {
+      const video0 = videoOptionsOf(job.delivery)
+      const file = join(jobDir, `${job.name}${extensionOf(video0.codec)}`)
+      const video = await exportVideo(project, child, {
+        ...video0,
+        from,
+        to,
+        out: file,
+        quality: job.delivery.quality,
+        revision: job.revision,
+        audio: o.audio,
+        loudness: o.loudness,
+        // Its share of the batch's hosts (one for a sequential source), closed by exportVideo.
+        workers,
+        ...(more ? { more } : {}),
+        ...(o.onFrame ? { onFrame: o.onFrame } : {}),
+      })
+      report = await review({ project, child, outDir: join(jobDir, 'review'), requirements })
+      if (requirements.placement) {
+        const p = checkPlacement(requirements.placement, file, video.probe, video.loudness)
+        report.checks.push({
+          id: 'placement',
+          title: `placement${requirements.placement.name ? ` ${requirements.placement.name}` : ''}`,
+          status: p.failures.length ? 'fail' : 'pass',
+          measured: p.measured,
+          ...(p.failures.length ? { detail: p.failures.join('; ') } : {}),
+        })
+      }
+      Object.assign(out, {
+        file: slash(relative(dir, file)),
+        frames: video.frames,
+        seconds: video.seconds,
+        loudness: video.loudness,
+        probe: video.probe,
+      })
+    }
+    out.bytes = dirSize(join(dir, out.file as string))
+    out.contactSheet = slash(relative(dir, report.contactSheet))
+    out.checks = gate(
+      report.checks.map((c) => ({
+        id: c.id,
+        title: c.title,
+        status: c.status,
+        ...(c.measured ? { measured: c.measured } : {}),
+        ...(c.detail ? { detail: c.detail } : {}),
+        ...(c.at?.length ? { at: c.at } : {}),
+      })),
+      requirements,
+    )
+    out.status = out.checks.some((c) => c.required && c.status !== 'pass') ? 'fail' : 'pass'
+  } catch (error) {
+    out.error = (error as Error).message
+  } finally {
+    await opened?.child.close()
+  }
+  return out
+}
+
+/**
  * Renders a batch into `out/deliveries/<batch>/<job>/` and reviews each output on its own child
  * against output-specific requirements: the output's own size, rate and length as the format,
  * and only what requirements.json declares besides (no default safe area: decision 0011).
- * Writes `index.json` and
- * `index.md`. One output's failure is recorded and the rest still render.
+ * The outputs render at once on one budget of hosts (shareHosts), each file the same as its job
+ * rendered alone. Writes `index.json` and `index.md`, in the jobs' order. One output's failure is
+ * recorded and the rest still render.
  */
 export const deliverBatch = async (
   root: string,
@@ -148,135 +302,53 @@ export const deliverBatch = async (
     loudness?: number
     trusted?: boolean
     timeoutMs?: number
-    onOutput?: (i: number, n: number, job: Job) => void
+    /** How many hosts the whole batch renders on at once: hostBudget() by default. */
+    workers?: number
+    /** An output starts, on `hosts` hosts. */
+    onOutput?: (i: number, n: number, job: Job, hosts: number) => void
+    /** Output `i` rendered frame `frame` of its `frames`. */
+    onFrame?: (i: number, frame: number, frames: number) => void
     /**
      * Opens a job's host, and `more` opens another for a parallel export: openJob by default;
      * tests give an in-memory Child.
      */
-    open?: (job: Job) => Promise<{ project: Project; child: Child; more?: () => Promise<Child> }>
+    open?: (job: Job) => Promise<Opened>
   },
 ): Promise<{ dir: string; index: BatchIndex }> => {
-  const openOne =
+  const open =
     o.open ?? ((job: Job) => openJob(root, job, { trusted: o.trusted, timeoutMs: o.timeoutMs }))
   const dir = join(root, 'out', 'deliveries', o.batch)
   mkdirSync(dir, { recursive: true })
   const base = readRequirements(root)
+  const wants = jobs.map((job) =>
+    job.delivery.format === 'png'
+      ? 1
+      : defaultWorkers(
+          manifestAt(root, job.revision),
+          frameTimes(job.output.fps, job.output.from, job.output.to).length,
+        ),
+  )
+  const shares = shareHosts(wants, o.workers ?? hostBudget())
+  // As many outputs at once as got hosts; one that got none waits for the first to finish.
+  const lanes = Math.max(1, shares.filter((n) => n > 0).length)
   const outputs: BatchOutput[] = []
-  for (const [i, job] of jobs.entries()) {
-    o.onOutput?.(i, jobs.length, job)
-    const { width, height, fps, from, to } = job.output
-    const out: BatchOutput = {
-      job: job.name,
-      ...(job.variant ? { variant: job.variant } : {}),
-      ...(typeof job.params.locale === 'string' ? { locale: job.params.locale } : {}),
-      format: job.delivery.format,
-      quality: job.delivery.quality,
-      width,
-      height,
-      duration: to - from,
-      checks: [],
-      status: 'fail',
-    }
-    outputs.push(out)
-    const jobDir = join(dir, job.name)
-    const requirements: Requirements = {
-      ...outputRequirements(base, {
-        variant: job.variant,
-        width,
-        height,
-        fps,
-        duration: to - from,
-      }),
-      format: { width, height, fps, duration: to - from },
-    }
-    let opened: { project: Project; child: Child; more?: () => Promise<Child> } | undefined
-    try {
-      opened = await openOne(job)
-      const { project, child, more } = opened
-      // A textless variant: no copy is asked of it (outputRequirements).
-      if (project.manifest.textless) requirements.copy = []
-      let report: Awaited<ReturnType<typeof review>>
-      if (job.delivery.format === 'png') {
-        const done = await exportFinishing(project, child, job, {
-          dir: jobDir,
-          requirements,
-          audio: o.audio,
-          loudness: o.loudness,
-          ...(job.delivery.bits ? { bits: job.delivery.bits } : {}),
-          ...(job.delivery.stems ? { stems: true } : {}),
-        })
-        report = done.review
-        if (requirements.placement)
-          report.checks.push({
-            id: 'placement',
-            title: 'placement',
-            status: 'unknown',
-            detail: 'a png handoff is a folder of frames, not a file a placement takes',
-          })
-        Object.assign(out, {
-          file: job.name,
-          frames: done.record.frameCount,
-          seconds: done.seconds,
-          loudness: done.record.audio?.loudness ?? null,
-        })
-      } else {
-        const video0 = videoOptionsOf(job.delivery)
-        const file = join(jobDir, `${job.name}${extensionOf(video0.codec)}`)
-        const video = await exportVideo(project, child, {
-          ...video0,
-          from,
-          to,
-          out: file,
-          quality: job.delivery.quality,
-          revision: job.revision,
-          audio: o.audio,
-          loudness: o.loudness,
-          // As render --job: several hosts (one for a sequential source), closed by exportVideo.
-          workers: defaultWorkers(
-            project.manifest,
-            frameTimes(project.manifest.fps, from, to).length,
-          ),
-          ...(more ? { more } : {}),
-        })
-        report = await review({ project, child, outDir: join(jobDir, 'review'), requirements })
-        if (requirements.placement) {
-          const p = checkPlacement(requirements.placement, file, video.probe, video.loudness)
-          report.checks.push({
-            id: 'placement',
-            title: `placement${requirements.placement.name ? ` ${requirements.placement.name}` : ''}`,
-            status: p.failures.length ? 'fail' : 'pass',
-            measured: p.measured,
-            ...(p.failures.length ? { detail: p.failures.join('; ') } : {}),
-          })
-        }
-        Object.assign(out, {
-          file: slash(relative(dir, file)),
-          frames: video.frames,
-          seconds: video.seconds,
-          loudness: video.loudness,
-          probe: video.probe,
-        })
-      }
-      out.bytes = dirSize(join(dir, out.file as string))
-      out.contactSheet = slash(relative(dir, report.contactSheet))
-      out.checks = gate(
-        report.checks.map((c) => ({
-          id: c.id,
-          title: c.title,
-          status: c.status,
-          ...(c.measured ? { measured: c.measured } : {}),
-          ...(c.detail ? { detail: c.detail } : {}),
-          ...(c.at?.length ? { at: c.at } : {}),
-        })),
-        requirements,
-      )
-      out.status = out.checks.some((c) => c.required && c.status !== 'pass') ? 'fail' : 'pass'
-    } catch (error) {
-      out.error = (error as Error).message
-    } finally {
-      await opened?.child.close()
+  let next = 0
+  const lane = async () => {
+    for (let i = next++; i < jobs.length; i = next++) {
+      const job = jobs[i] as Job
+      const hosts = Math.max(1, shares[i] as number)
+      o.onOutput?.(i, jobs.length, job, hosts)
+      outputs[i] = await deliverOutput(job, hosts, {
+        dir,
+        base,
+        audio: o.audio,
+        loudness: o.loudness,
+        open,
+        ...(o.onFrame ? { onFrame: (f: number, n: number) => o.onFrame?.(i, f, n) } : {}),
+      })
     }
   }
+  await Promise.all(Array.from({ length: Math.min(lanes, jobs.length) }, lane))
   const index: BatchIndex = {
     shaderera: 'deliveries/1',
     batch: o.batch,
