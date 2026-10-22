@@ -47,8 +47,9 @@ variant's params and the defaults, as `--param`): the call then opens its own ch
 version, and closes it after. `still`, `check` and `review` take `variants?` instead: a list of
 names (`["16:9", "9:16"]`, `main` for the manifest's own output) or `"all"` (`main` and every
 variant). Each variant opens its own child, with `params`, and they run at once, as the CLI's
-`--variant a,b` does ([cli.md](cli.md#common-flags)). Errors come back as `isError` with
-the message.
+`--variant a,b` does ([cli.md](cli.md#common-flags)): one call looks at, checks or reviews a
+film in 16:9 and 9:16 together ([guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once)).
+Errors come back as `isError` with the message.
 
 | Tool | Input | Output |
 |---|---|---|
