@@ -8,7 +8,7 @@
       "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
       "Content-Type": "application/octet-stream"
     },
-    "size": 5242881
+    "size": 33554433
   },
   "response": {
     "status": 413,
