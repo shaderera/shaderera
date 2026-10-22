@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -99,6 +99,16 @@ test('the output holds the previous film until the new one is complete; a failed
     /The film is finished, but .*blocked\.mp4 could not be replaced .* The new film is .*blocked\.mp4\.\d+\.partial/,
   )
   assert.equal(probe(`${blocked}.${process.pid}.partial`).video?.frames, 10)
+  // Such a kept film, left by a process that is gone, survives the next render of its out; a
+  // half-written partial of a dead process does not.
+  const kept = join(dirname(out), 'kept.mp4')
+  const finishedFilm = `${kept}.${spawnSync(process.execPath, ['-e', '']).pid}.partial`
+  const halfFilm = `${kept}.${spawnSync(process.execPath, ['-e', '']).pid}.partial`
+  copyFileSync(`${blocked}.${process.pid}.partial`, finishedFilm)
+  writeFileSync(halfFilm, readFileSync(finishedFilm).subarray(0, 600))
+  await exportVideo(project, child, { out: kept, revision: 'test' })
+  assert.equal(probe(finishedFilm).video?.frames, 10)
+  assert.equal(existsSync(halfFilm), false)
 
   // In the project but not in out/: it would be saved into every later revision.
   await assert.rejects(

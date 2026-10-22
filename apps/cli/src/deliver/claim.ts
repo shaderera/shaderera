@@ -118,9 +118,15 @@ export const claim = (dir: string, file: string) => {
 /**
  * Removes what earlier renders of `out` left beside it (`<name>.<pid><suffix>`): those of
  * processes of this machine no longer running, or with `all` every one but this process's (a
- * chunk this process has claimed, which nobody else renders).
+ * chunk this process has claimed, which nobody else renders). One `keep` says to keep (a finished
+ * film whose rename failed) stays.
  */
-export const removePartials = (out: string, suffix: string, all = false) => {
+export const removePartials = (
+  out: string,
+  suffix: string,
+  all = false,
+  keep: (file: string) => boolean = () => false,
+) => {
   const name = basename(out)
   let names: string[]
   try {
@@ -132,6 +138,7 @@ export const removePartials = (out: string, suffix: string, all = false) => {
     if (!f.startsWith(`${name}.`) || !f.endsWith(suffix)) continue
     const pid = Number(f.slice(name.length + 1, f.length - suffix.length))
     if (!Number.isInteger(pid) || pid === process.pid) continue
-    if (all || !alive(pid)) rmSync(join(dirname(out), f), { force: true })
+    const file = join(dirname(out), f)
+    if ((all || !alive(pid)) && !keep(file)) rmSync(file, { force: true })
   }
 }

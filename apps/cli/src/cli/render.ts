@@ -181,8 +181,19 @@ export const exportVideo = async (
   mkdirSync(dirname(out), { recursive: true })
   // Named by the process: two renders to one out never write one file or remove each other's.
   const partial = `${out}.${process.pid}.partial`
-  // What renders of this out that died (killed, the power cut) left.
-  removePartials(out, '.partial')
+  // What renders of this out that died (killed, the power cut) left, half written. A film ffprobe
+  // reads is one that finished but could not replace out (below): it is kept, and named.
+  removePartials(out, '.partial', false, (file) => {
+    try {
+      probe(file)
+    } catch {
+      return false
+    }
+    console.warn(
+      `! ${file} is a finished film an earlier render could not move into place: rename it to ${out} to keep it.`,
+    )
+    return true
+  })
   const clips = o.audio === false ? [] : ((await child.audio()) ?? [])
   // The mix's temporary files go in the finally (or with its own throw).
   const mix = openMix(root, clips, { from: head, to }, { loudness: o.loudness })

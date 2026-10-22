@@ -180,7 +180,8 @@ stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included.
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
 kept as `<out>.<pid>.partial` and the error says so. A render killed outright (the process ended,
 the power cut) cannot clean up: the next render of the same `<out>` removes the `.partial` files
-of processes of this machine that no longer run. A host error fails the render with
+of processes of this machine that no longer run and that ffprobe cannot read (half written); a
+finished film kept that way stays, and the render names it. A host error fails the render with
 its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
