@@ -1,6 +1,6 @@
 # 0023: HDR10 delivery, with the film's own tone mapping
 
-2026-10-22. Proposed; waiting for the owner's approval (#295). No code until it is approved.
+2026-10-22. The owner decided (#295).
 
 **Context.** Shaderera delivers SDR only. The host composites sRGB code values in a half-float
 accumulator clamped to 1.0. A host with a GPU hands ffmpeg 8-bit `yuv420p` (BT.709) for an mp4

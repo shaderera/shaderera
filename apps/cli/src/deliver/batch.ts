@@ -37,6 +37,8 @@ export type BatchOutput = {
   height: number
   duration: number
   frames?: number
+  /** A png job: frames an earlier, failed run of the job had left, not rendered again. */
+  framesKept?: number
   seconds?: number
   /** The output's audio, measured (EBU R128); null without audio. */
   loudness?: Loudness | null
@@ -216,6 +218,7 @@ export const deliverBatch = async (
         Object.assign(out, {
           file: job.name,
           frames: done.record.frameCount,
+          framesKept: done.kept,
           seconds: done.seconds,
           loudness: done.record.audio?.loudness ?? null,
         })

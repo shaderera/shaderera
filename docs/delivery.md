@@ -198,8 +198,17 @@ A job with `delivery.format: 'png'` renders to `out/<job>/` (`deliver`:
   (`clock`), and the Shaderera and ffmpeg versions.
 - `review/`: the review's frames and contact sheet.
 
-The delivery is built in `<dir>.<pid>.partial` (the process id) and moved into place only after the
-determinism re-check passes; any failure (re-check, audio, review) removes it.
+The delivery is built in `<dir>.partial` and moved into place only after the determinism re-check
+passes. Each frame is written under a temporary name and renamed, so a frame file there is always
+whole. A run that fails (a host error, audio, review, Ctrl-C) keeps the frames it finished in
+`<dir>.partial`, and the error says how many; `render --job` (or the same `deliver`) again
+continues from the first frame missing or cut short there, and prints how many frames it rendered
+and how many were already there (`--json`: in the envelope's `log`; `deliver`: `framesKept` in
+index.json). The frames come out byte for byte as an uninterrupted run's, and the re-check still
+renders its samples from the whole window, kept frames included. `<dir>.partial/partial.json`
+names the job (its id and bit depth): a `<dir>.partial` of another job, or another revision, is
+refused, never continued. A source that fails the re-check loses its frames: they cannot be
+trusted to continue from.
 
 ## Batch
 
@@ -213,7 +222,7 @@ requirements.json (`safeArea`, or a placement's), from that platform's current s
 A locale sets the `locale` param; `shaderera.json` must declare one (and, if it has an `enum`,
 list the locale), or the batch is refused before anything renders. The batch writes
 `out/deliveries/<batch>/index.json` (`deliveries/1`: per output its file, bytes, size, length,
-frames, render time, checks, contact sheet, status, error) and `index.md` (a table, then every
+frames (a png job: and `framesKept`, the frames an earlier failed run left), render time, checks, contact sheet, status, error) and `index.md` (a table, then every
 failing check).
 
 A measured run: a Thai type film laid out for 4:5, given two variants it was not designed for
@@ -295,16 +304,25 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
 ```
 
 - `plan` splits the job's frames into chunks of whole frames and fixes the format every host hands
-  them over in (yuv420p or 16-bit RGBA from the GPU compositor, else RGBA).
+  them over in (yuv420p or 16-bit RGBA from the GPU compositor, else RGBA). It refuses a folder
+  (`--out`) that holds another job's plan or chunks, so that plan can still be assembled; the same
+  job is planned again in its own folder.
 - Each chunk renders, with its own determinism re-check, into a lossless FFV1 file (the bytes the
   host made), recorded with its sha256 and host. Its frames go round `--workers` hosts on that
   machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
   heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
+- A chunk is claimed before it renders (`<chunk>.claim` in the plan folder), so two machines never
+  render one chunk at once: the second is refused, naming who holds it. A claim whose render died
+  is taken over (its pid no longer runs here, or it went untouched for 10 minutes), with the
+  partial that render left. Ctrl-C removes the chunk's partial and claim.
+- `plan --status --plan <dir> [--verify]` says which chunks are done, missing, stale (of another
+  job or plan), partial (stopped part way) or claimed (rendering now), with the command that renders each, the frames done
+  and the time left ([cli.md](cli.md#plan-render---chunk-assemble)).
 - `assemble` refuses a missing or changed chunk, and chunks from different kinds of host (another
-  GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`. It
-  encodes the chunks once in order, with the sound, captions, stems, preroll and timecode of the
-  whole window.
+  GPU or driver may round pixels differently, and a seam would show) unless `--mixed-hosts`, and
+  lists every such problem at once, each with the command that fixes it. It encodes the chunks
+  once in order, with the sound, captions, stems, preroll and timecode of the whole window.
 - Measured on 2026-10-12: a job rendered in 3 chunks (out of order) and assembled is the same file,
   byte for byte, as the job rendered in one go, for an mp4 and for ProRes 422 HQ and 4444 (the mov
   muxer runs with `+bitexact`, and PCM packets are 1024 samples each). A sequential source renders
