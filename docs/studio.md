@@ -8,7 +8,7 @@ machine until you share the film.
 This is protocol v0: the contract between the studio page and the bridge.
 
 ```
-npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origin <dev origin>]...
+npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
                      [--no-open]
 ```
 
@@ -20,15 +20,16 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--to <origin>] [--origi
   page that holds that nonce (below). From the web, that is a new tab: the page that
   showed the command never pairs, and says the studio opened elsewhere once the new tab joins.
   `--no-open` prints the address instead, for you to open; keep it to yourself.
-- **`--site <origin>`** is the site: `https://shaderera.com` by default, else `SHADERERA_SITE`,
-  as for `share`. It is https, or plain http on this machine only (`localhost`, `127.0.0.1`).
-- **`--to <origin>`** is where Share sends films, as `share --to`: `https://shaderera.com` by
-  default, else `SHADERERA_SITE`. It is not `--site`: the studio page and the films can be on
-  different sites. Your login for it is `shaderera login --token <token> --to <origin>`.
+- **`--site <origin>`** is the site, the studio page and its relay: `https://shaderera.com` by
+  default, else `SHADERERA_SITE`, as for `share`. It is https, or plain http on this machine only
+  (`localhost`, `127.0.0.1`).
+- **`--api <origin>`** is the films API Share sends films to, as `share --api`:
+  `https://api.shaderera.com` by default, else `SHADERERA_API`. You sign in to it with
+  `shaderera login --api <origin>`.
 - **`--origin <origin>`** (repeatable) adds a page origin the bridge answers, for developing the
   page on another origin than the relay's.
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
-  to the renders the page asks for.
+  to the renders the page asks for, and to a share's poster and loop.
 
 It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
 rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
@@ -41,8 +42,8 @@ then, in a project:
 npx shaderera studio --site http://127.0.0.1:5197
 ```
 
-Add `--to <origin>` to share to a local films site as well, for example
-`--to http://127.0.0.1:5193`, after `shaderera login --token <token> --to http://127.0.0.1:5193`.
+Add `--api <origin>` to share to a local films API as well, for example
+`--api http://127.0.0.1:5193`, after `shaderera login --token <token> --api http://127.0.0.1:5193`.
 
 ## Ids and origins
 
@@ -140,7 +141,7 @@ network access.
 ```json
 {
   "version": "0.1.5",
-  "film": { "title": "…", "manifest": { … }, "variants": { … }, "schema": { … } },
+  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
   "telemetry": true
 }
 ```
@@ -149,14 +150,23 @@ network access.
 - `manifest` is shaderera.json as the CLI and the runner read it.
 - `variants` is shaderera.json's `variants`, in its own shape (`{}` when there are none): name →
   `{ label?, width?, height?, duration?, fps?, params? }`.
+- `sizes` is each variant's output as a host opens it, the film's own values filled in: name →
+  `{ width, height, duration, fps }` (`{}` when there are none). The page lays out one frame a
+  variant from it.
 - `schema` is shaderera.json's `params` schema, or `null`.
 - Each request reads the project again, so an agent's edit to shaderera.json shows.
 
-### `GET /runner?s=<secret>&parent=<page origin>`
+### `GET /runner?s=<secret>&parent=<page origin>[&variant=<name>]`
 
 The project's runner page, for the page to frame with packages/ui's `connect({ runnerUrl })`. That
 frame is sandboxed with `allow-scripts` alone, and the page talks to the runner worker over the
 port the frame posts, as with the web player.
+
+- **`variant`** names a variant in shaderera.json's `variants`: that frame's runner opens the film
+  as that variant whenever `open` names none (an `open` that names one still wins). Without it,
+  the runner opens the film itself. An unknown name is `400`. The page frames one runner a variant
+  to show them side by side, and drives them on one timeline itself; each frame is a runner of
+  its own.
 
 - **The bridge redirects (`302`) to the runner page**, keeping the query but `s`. The runner page
   is served by the project's own Vite, on another port of 127.0.0.1, under a path that is itself a
@@ -198,12 +208,17 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 - **Job states** are `queued`, `running`, `done` and `failed`. `done` and `failed` end a job.
   `progress` runs from 0 to 1.
 
-### `POST /render {variant?, params?, format, t?}` → `{job}`
+### `POST /render {variant? | variants?, params?, format, t?}` → `{job}` or `{jobs}`
 
 Renders on your machine, with the CLI's own hosts and ffmpeg, one job at a time in the order
 asked.
 
-- **`variant`** is a name in shaderera.json's `variants`. Leave it out for the film itself.
+- **`variant`** is a name in shaderera.json's `variants`. Leave it out for the film itself. The
+  answer is `{job}`.
+- **`variants`** is a list of those names, for several at once, in place of `variant` (not with
+  it). Every name is checked first: an unknown one is `400` and nothing is queued. The answer is
+  `{jobs}`, one job a name (a name given twice renders once), queued in the order given, each
+  with its own `job` events and file. `params`, `format` and `t` apply to every one.
 - **`params`** go over the defaults and the variant's. An undeclared name fails the job.
 - **`format`** is one of:
   - `"mp4"`: H.264, the same file `shaderera render` makes;
@@ -226,15 +241,15 @@ A job that is not done gets `409`. An unknown one gets `404`.
 
 ### `POST /share {title?}` → `{film, version, url}`
 
-Runs `shaderera share` as you, with your own login (`shaderera login`), to `--to`. Pressing
+Runs `shaderera share` as you, with your own sign-in (`npx shaderera login`), to `--api`. Pressing
 Share in the page is the confirmation. A new film is titled `title`, else as `share` titles it.
 `url` is the film's page, as `share` prints it; a poster or loop that did not render is a `warn`
 log line.
 
-- **Not logged in** (no token for `--to`, or it refused the token): `401` with
-  `{error:"login", command:"npx shaderera login"}`.
-- **Anything else** that stops the share (no licence, a player that does not build, the site
-  unreachable): `500` with `{error}`.
+- **Not signed in** (no token for `--api`, or it refused the token): `401` with
+  `{error:"login", command:"npx shaderera login"}`. The page shows the command to run.
+- **Anything else** that stops the share (no licence, a player that does not build, a version
+  over the API's limits, the API unreachable): `500` with `{error}`.
 
 ## The relay fallback
 
@@ -253,7 +268,8 @@ blocks local access)".
 - **Events** go through the relay once the page has sent its first `rpc`.
 - **A file comes in one frame** in v0. A large file through the relay will need chunking later.
 - **`/runner` is not available through the relay**: a frame cannot go through it. It answers
-  `400`.
+  `400`. The preview needs the direct connection; the page says so, and Export and Share still
+  work.
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
 
 ## Telemetry

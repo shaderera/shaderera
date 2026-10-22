@@ -140,9 +140,10 @@ const assetProvenance: OpenPreview = async (host, state) => {
         until: recording ? CREDITS - t : duration - t,
         frame: o.frame,
       })
+      const files = data.records.filter((_, i) => t >= ROW(i)).length
       theme.bigWord({
         text: recording
-          ? `${data.records.filter((_, i) => t >= ROW(i)).length} files`
+          ? `${files} ${files === 1 ? 'file' : 'files'}`
           : `check exit ${data.check.exitCode}`,
         corner: 'br',
         since: recording ? t : t - CREDITS,

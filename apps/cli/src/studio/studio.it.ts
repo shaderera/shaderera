@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { cpSync, writeFileSync } from 'node:fs'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
@@ -57,12 +57,20 @@ test('shaderera studio --connect says so when the id expired', async () => {
   gone.ws.close()
 })
 
-test("shaderera studio --to: Share sends films there, not to the studio page's site", async () => {
-  // A films site of its own, the only one with a token: it records the calls and refuses them.
+test("shaderera studio --api: Share sends films there, not to the studio page's site", async () => {
+  // A films API of its own, the only one with a token: it records the calls and refuses them,
+  // but for its health, which names the parents of its players.
   const seen: { path?: string; auth?: string }[] = []
   const films = createServer((req, res) => {
     seen.push({ path: req.url, auth: req.headers.authorization })
     req.resume()
+    if (req.url === '/api/v1/films/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(
+        JSON.stringify({ ok: true, parents: ['https://app.example', 'https://site.example'] }),
+      )
+      return
+    }
     res.writeHead(503, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'the films site, as asked' }))
   })
@@ -86,7 +94,7 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
       id,
       '--site',
       slow.origin,
-      '--to',
+      '--api',
       to,
       '--no-open',
       '--root',
@@ -129,8 +137,19 @@ test("shaderera studio --to: Share sends films there, not to the studio page's s
     assert.equal(r.status, 500, out)
     assert.match(jsonOf(r).error, new RegExp(`on ${to}: 503 the films site, as asked`))
     assert.ok(seen.length > 0, 'the films site was called')
-    assert.ok(seen.every((s) => s.path?.startsWith('/api/v1/') && s.auth === 'Bearer films-token'))
+    assert.ok(seen.every((s) => s.path?.startsWith('/api/v1/')))
+    // The token goes with the writes; the health is a read, without it.
+    assert.ok(
+      seen.every(
+        (s) => s.auth === (s.path === '/api/v1/films/health' ? undefined : 'Bearer films-token'),
+      ),
+    )
     assert.match(out, new RegExp(`share to ${to}`))
+    // The player was built for the parents the API names.
+    assert.match(
+      readFileSync(join(project, '.shaderera', 'player', 'runner.html'), 'utf8'),
+      /name="shaderera-parents" content="https:\/\/app\.example https:\/\/site\.example"/,
+    )
   } finally {
     cli.kill('SIGINT')
     await exited

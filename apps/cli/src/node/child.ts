@@ -88,6 +88,8 @@ export type HostIdentity = {
   flags?: string[]
   /** The WebGPU adapter: vendor, architecture, description. */
   adapter?: string
+  /** Which software renderer the adapter is (softwareAdapter); absent on a hardware GPU. */
+  software?: string
   /** The project's webgpu (Dawn) version and its device's feature count (Node host). */
   webgpu?: string
   features?: number
@@ -206,10 +208,10 @@ export const openChild = async (
             ),
           )
         }, o.timeoutMs ?? TIMEOUT)
-        const onExit = (code: number | null) => {
+        const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           clearTimeout(timer)
           child.off('message', onMessage)
-          fail(new Error(`The source process exited (${code}).`))
+          fail(new Error(`The source process exited (${code ?? signal}).`))
         }
         const onMessage = (m: { id: number; result?: T; error?: string; stack?: string }) => {
           if (m.id !== id) return

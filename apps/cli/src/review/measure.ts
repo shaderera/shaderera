@@ -311,20 +311,26 @@ export type CaptionLimits = {
   minGap?: number
 }
 
-/** One caption measured; `index` is its number in what `captions()` gave, from 1 as SRT and WebVTT number cues. */
+/** One caption measured. */
 export type CaptionStat = {
-  index: number
+  /**
+   * Its cue number in the full-length SRT: the captions every export keeps (not blank, not
+   * refused) in order of start, from 1. null for a caption no SRT carries.
+   */
+  index: number | null
+  /** Its place in what `captions()` gave, from 1: how a caption without an SRT number is named. */
+  item: number
   start: number
   /** null: no finite end (an LRC cue's last line ends at Infinity). */
   end: number | null
   text: string
   duration: number | null
   cps: number | null
-  /** To the next caption by start; negative when they overlap; null for the last or an open end. */
+  /** To the next cue by start; negative when they overlap; null for the last, an open end or no cue. */
   gap: number | null
   lines: number
   longestLine: number
-  /** The numbers (`index`) of the other captions on screen at the same time. */
+  /** The cue numbers (`index`) of the other cues on screen at the same time. */
   overlaps: number[]
   /** Why every export refuses this caption (render and deliver write no sidecar with it). */
   refused?: string
@@ -340,11 +346,14 @@ export const excerpt = (text: string, max: number) => {
   const flat = text.replace(/\s+/g, ' ').trim()
   if (flat.length <= max) return flat
   let cut = 0
+  let first = 0
   for (const { index } of words.segment(flat)) {
+    if (first === 0) first = index
     if (index > max - 1) break
     cut = index
   }
-  // One word longer than max: no boundary to cut at, so quote it whole.
+  // The first word longer than max: quote it whole, and nothing after it.
+  if (cut === 0) cut = first
   if (cut === 0) return flat
   return `${flat.slice(0, cut).replace(/[\s\p{P}]+$/u, '')}…`
 }
@@ -380,7 +389,8 @@ export const captionStats = (captions: readonly unknown[]): CaptionStat[] => {
               ? 'ends before it starts'
               : undefined
     return {
-      index: index + 1,
+      index: null,
+      item: index + 1,
       start,
       end,
       text,
@@ -393,21 +403,26 @@ export const captionStats = (captions: readonly unknown[]): CaptionStat[] => {
       ...(refused ? { refused } : {}),
     }
   })
+  // Numbered as the SRT writer numbers cues (windowCaptions, toSrt): blank and refused ones dropped,
+  // the rest sorted by start, ties kept in captions() order.
   const timed = rows.filter((r) => !Number.isNaN(r.start)).sort((a, b) => a.start - b.start)
-  for (const [i, a] of timed.entries()) {
-    const next = timed[i + 1]
+  const cues = timed.filter((r) => !r.refused && r.text.trim() !== '')
+  for (const [i, a] of cues.entries()) a.index = i + 1
+  for (const [i, a] of cues.entries()) {
+    const next = cues[i + 1]
     if (next && a.end !== null) a.gap = next.start - a.end
-    for (const b of timed)
+    for (const b of cues)
       if (b !== a && a.start < (b.end ?? Infinity) && b.start < (a.end ?? Infinity))
-        a.overlaps.push(b.index)
+        a.overlaps.push(b.index as number)
   }
   return [...timed, ...rows.filter((r) => Number.isNaN(r.start))]
 }
 
-/** The captions over a declared limit, each with what it breaks. */
+/** The cues over a declared limit, each with what it breaks; a caption no SRT carries is not judged. */
 export const captionsOver = (stats: readonly CaptionStat[], limits: CaptionLimits) => {
   const r = (n: number) => Number(n.toFixed(3))
   return stats.flatMap((s) => {
+    if (s.index === null) return []
     const why: string[] = []
     const { maxCps, maxLineChars, maxLines, minDuration, minGap } = limits
     if (maxCps !== undefined && s.cps !== null && s.cps > maxCps + 1e-6)

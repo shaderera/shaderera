@@ -1,7 +1,7 @@
 import { cpSync, existsSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { npm } from './npm.ts'
-import { installedVersion, readLabel, setRequirement } from './requires.ts'
+import { installedPackage, installedVersion, readLabel, setRequirement } from './requires.ts'
 import { parseVersion, satisfies as satisfiesRange } from './semver.ts'
 import { parseSpec, resolve } from './store.ts'
 
@@ -40,7 +40,8 @@ export const saveFlags = (name: string, range: string): string[] => [
  * and required; a component's, preset's or media item's files are copied in. What they require
  * comes too, each item once, and all of it resolves before anything is copied: one that does not
  * resolve stops them all. A piece one is built on that the project already has is the project's
- * own: only its missing files are copied. Returns what was done.
+ * own: only its missing files are copied. A version that is not in a range another one requires
+ * (a range named on the command line, say) is refused. Returns what was done.
  */
 export const add = (
   root: string,
@@ -53,6 +54,8 @@ export const add = (
   const named = new Set(wanted.map((s) => parseSpec(s).name))
   const tree: ReturnType<typeof resolve>[] = []
   const seen = new Set<string>()
+  // Every range a piece requires, checked once all are chosen.
+  const ranges: { by: string; name: string; range: string }[] = []
   // The named ones first, so a range given on the command line wins over one a piece requires.
   const take = (want: string) => {
     const { name } = parseSpec(want)
@@ -66,12 +69,27 @@ export const add = (
     if (!v) return
     for (const [ext, range] of Object.entries(v.item.requires.extensions)) {
       const have = installedVersion(root, ext)
-      if (!have || !satisfiesRange(have, range)) visit(take(`${ext}@${range}`))
+      if (have && satisfiesRange(have, range)) continue
+      ranges.push({ by: v.item.name, name: ext, range })
+      visit(take(`${ext}@${range}`))
     }
-    for (const [piece, range] of Object.entries(v.item.requires.items))
+    for (const [piece, range] of Object.entries(v.item.requires.items)) {
+      ranges.push({ by: v.item.name, name: piece, range })
       visit(take(`${piece}@${range}`))
+    }
   }
   for (const v of wanted.map(take)) visit(v)
+  const chosen = new Map(tree.map(({ item }) => [item.name, item.version]))
+  const conflicts = ranges.flatMap(({ by, name, range }) => {
+    const version = chosen.get(name)
+    return version && !satisfiesRange(version, range)
+      ? [`${by} requires ${name} ${range}, not ${version}`]
+      : []
+  })
+  if (conflicts.length > 0)
+    throw new Error(
+      `${conflicts.join('; ')}. Name a version in the range, or add them one at a time.`,
+    )
   const clash = tree
     .filter(({ item }) => named.has(item.name))
     .flatMap(({ item }) => item.files)
@@ -108,8 +126,9 @@ export const add = (
 }
 
 /**
- * Uninstalls package plugins and stops requiring them. Each must be one the project uses, checked
- * before any is uninstalled. A component's, preset's or media item's files were copied in and are
+ * Uninstalls package plugins and stops requiring them. Each must be one the project uses (required
+ * in its label, or installed with a "shaderera" field), checked before any is uninstalled: a plain
+ * npm dependency is never touched. A component's, preset's or media item's files were copied in and are
  * the project's own code, so only the person deletes them.
  */
 export const remove = (
@@ -119,7 +138,9 @@ export const remove = (
 ): string[] => {
   const all = [...new Set(typeof names === 'string' ? [names] : names)]
   const extensions = readLabel(root)?.requires?.extensions ?? {}
-  const not = all.filter((n) => extensions[n] === undefined && installedVersion(root, n) === null)
+  const not = all.filter(
+    (n) => extensions[n] === undefined && installedPackage(root, n)?.shaderera === undefined,
+  )
   if (not.length > 0)
     throw new Error(
       `${not.join(', ')} ${not.length === 1 ? 'is not a package plugin' : 'are not package plugins'} this project uses. A copied plugin's files are this project's code: delete them.`,

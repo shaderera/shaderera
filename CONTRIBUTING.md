@@ -30,7 +30,7 @@ A plugin can go two ways:
    preview. The owner curates what gets in: it should come from a real film, carry no film's
    numbers, and be useful to another film as it is.
 2. **Into your own library**, in your own repository, under your own licence and names. People use
-   it with `npx shaderera add <name> --from <url>`. Nothing here needs to change.
+   it with `npx shaderera add <name> --site <url>`. Nothing here needs to change.
 
 [docs/plugin-guide.md](docs/plugin-guide.md) covers both: the label, naming, the rules the code
 follows, versions, testing, the preview and hosting a library.

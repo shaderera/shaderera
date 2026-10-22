@@ -12,7 +12,7 @@ import { mirror } from './remote.ts'
 import { assertRequirements, requirementProblems } from './requires.ts'
 import { search } from './search.ts'
 import { satisfies, validRange } from './semver.ts'
-import { newest, publish, resolve } from './store.ts'
+import { newest, publish, registryDir, resolve } from './store.ts'
 
 const temp = (name: string) => tempDir(`plugins-${name}`)
 const write = (dir: string, files: { [path: string]: unknown }) => {
@@ -409,7 +409,7 @@ test('search --tag matches a tag with a space', async () => {
   const log = console.log
   console.log = (s: string) => printed.push(s)
   try {
-    await run('search', ['--tag', 'Motion Blur', '--json', '--from', registry])
+    await run('search', ['--tag', 'Motion Blur', '--json', '--site', registry])
   } finally {
     console.log = log
   }
@@ -488,6 +488,19 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
   }
 })
 
+test("--site names where plugins come from: a site's /r, a URL's own path, or a folder", () => {
+  assert.equal(registryDir('https://you.example'), 'https://you.example/r')
+  assert.equal(registryDir('https://you.example/'), 'https://you.example/r')
+  assert.equal(registryDir('https://you.github.io/lib/r/'), 'https://you.github.io/lib/r')
+  assert.equal(registryDir('http://127.0.0.1:8080'), 'http://127.0.0.1:8080/r')
+  assert.equal(registryDir('/teams/plugins'), '/teams/plugins')
+  assert.throws(() => registryDir('http://you.example'), /--site is reached over https/)
+  assert.equal(
+    registryDir(),
+    `${process.env.SHADERERA_SITE ? new URL(process.env.SHADERERA_SITE).origin : 'https://shaderera.com'}/r`,
+  )
+})
+
 const quiet = async (command: string, argv: string[]): Promise<string[]> => {
   const printed: string[] = []
   const log = console.log
@@ -506,19 +519,19 @@ test('add takes several names: all of them are copied, or none when one does not
   publish(piece('top', ['src/top.ts'], { requires: { items: { frame: '^0.1.0' } } }), registry)
   publish(piece('side', ['src/side.ts']), registry)
   const root = project()
-  const printed = await quiet('add', ['top', 'side', 'frame', '--from', registry, '--root', root])
+  const printed = await quiet('add', ['top', 'side', 'frame', '--site', registry, '--root', root])
   for (const f of ['frame', 'top', 'side']) assert.ok(existsSync(join(root, 'src', `${f}.ts`)))
   assert.equal(printed.at(-1), 'added top, side, frame')
 
   const other = project()
   await assert.rejects(
-    quiet('add', ['side', 'gone', '--from', registry, '--root', other]),
+    quiet('add', ['side', 'gone', '--site', registry, '--root', other]),
     /gone is not a plugin in/,
   )
   assert.ok(!existsSync(join(other, 'src', 'side.ts')))
   // A name the project already has is refused like one alone.
   await assert.rejects(
-    quiet('add', ['side', 'top', '--from', registry, '--root', root]),
+    quiet('add', ['side', 'top', '--site', registry, '--root', root]),
     /already has src\/side\.ts, src\/top\.ts/,
   )
 })
@@ -543,7 +556,7 @@ test('publish takes several folders; one that fails is named, and the rest are p
       piece('one', ['src/one.ts']),
       empty,
       piece('two', ['src/two.ts']),
-      '--from',
+      '--site',
       registry,
     ]),
     (e: Error) => /published 2 of 3; 1 failed/.test(e.message) && e.message.includes(empty),
@@ -555,12 +568,116 @@ test('publish takes several folders; one that fails is named, and the rest are p
 test('an extra argument is never ignored, and a folder of plugin sources says to publish it first', async () => {
   const registry = temp('reg')
   publish(piece('one', ['src/one.ts']), registry)
-  await assert.rejects(quiet('info', ['one', 'two', '--from', registry]), /one plugin at a time/)
+  await assert.rejects(quiet('info', ['one', 'two', '--site', registry]), /one plugin at a time/)
 
   const sources = temp('sources')
   write(sources, { 'look-x/shaderera.item.json': { name: 'look-x' } })
   await assert.rejects(
-    quiet('add', ['look-x', '--from', sources, '--root', project()]),
-    /holds plugin sources, not published plugins.*npx shaderera publish .*--from <folder>/,
+    quiet('add', ['look-x', '--site', sources, '--root', project()]),
+    /holds plugin sources, not published plugins.*npx shaderera publish .*--site <folder>/,
   )
+})
+
+test('a range named on the command line wins over a URL too, in either order, and a conflict is refused', async () => {
+  const folder = temp('served')
+  publish(piece('qa-base', ['src/base.ts']), folder)
+  for (const version of ['0.2.0', '0.2.1'])
+    publish(piece('qa-base', ['src/base.ts'], { version }), folder)
+  publish(piece('qa-top', ['src/top.ts'], { requires: { items: { 'qa-base': '^0.2.0' } } }), folder)
+  // Served under /r, where --site <origin> looks.
+  const server = createServer((req, res) => {
+    const file = join(folder, decodeURIComponent((req.url ?? '/').replace(/^\/r/, '')))
+    if (!existsSync(file) || statSync(file).isDirectory()) return void res.writeHead(404).end()
+    res.end(readFileSync(file))
+  })
+  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok))
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  process.env.SHADERERA_CACHE = temp('cache')
+  try {
+    for (const args of [
+      ['qa-top', 'qa-base@0.2.0'],
+      ['qa-base@0.2.0', 'qa-top'],
+    ]) {
+      const printed = await quiet('add', [...args, '--site', url, '--root', project()])
+      assert.ok(printed.some((l) => l.startsWith('copied component qa-base@0.2.0')))
+    }
+    for (const args of [
+      ['qa-top', 'qa-base@0.1.0'],
+      ['qa-base@0.1.0', 'qa-top'],
+    ]) {
+      const root = project()
+      await assert.rejects(
+        quiet('add', [...args, '--site', url, '--root', root]),
+        /qa-top requires qa-base \^0\.2\.0, not 0\.1\.0/,
+      )
+      assert.ok(!existsSync(join(root, 'src', 'base.ts')))
+    }
+  } finally {
+    server.close()
+    delete process.env.SHADERERA_CACHE
+  }
+})
+
+test('a range conflict from a folder is refused before anything is copied', () => {
+  const registry = temp('reg')
+  publish(piece('qa-base', ['src/base.ts']), registry)
+  publish(piece('qa-base', ['src/base.ts'], { version: '0.2.0' }), registry)
+  publish(
+    piece('qa-top', ['src/top.ts'], { requires: { items: { 'qa-base': '^0.2.0' } } }),
+    registry,
+  )
+  const root = project()
+  assert.throws(
+    () => add(root, registry, ['qa-top', 'qa-base@0.1.0']),
+    /qa-top requires qa-base \^0\.2\.0, not 0\.1\.0/,
+  )
+  assert.ok(!existsSync(join(root, 'src', 'top.ts')))
+})
+
+test('remove never uninstalls a plain npm dependency, even one in a parent node_modules', () => {
+  const parent = write(temp('parent'), {
+    'node_modules/three/package.json': { name: 'three', version: '0.186.1' },
+    'node_modules/@x/ext/package.json': { name: '@x/ext', version: '1.0.0', shaderera: {} },
+  })
+  const root = write(join(parent, 'film'), {
+    'shaderera.json': { entry: 'src/composition.ts' },
+    'package.json': { name: 'film', type: 'module' },
+  })
+  const uninstalled: string[] = []
+  const uninstall = (_r: string, name: string) => void uninstalled.push(name)
+  assert.throws(() => remove(root, 'three', { uninstall }), /three is not a package plugin/)
+  assert.deepEqual(uninstalled, [])
+  remove(root, '@x/ext', { uninstall })
+  assert.deepEqual(uninstalled, ['@x/ext'])
+})
+
+test('publish reads a bare relative folder as a folder, not an npm package', async () => {
+  const registry = temp('reg')
+  const parent = temp('cwd')
+  write(join(parent, 'ext-one'), {
+    'package.json': {
+      name: 'ext-one',
+      version: '0.1.0',
+      license: 'MIT',
+      type: 'module',
+      shaderera: { category: 'Somewhere new' },
+    },
+    'index.js': 'export const one = 1\n',
+  })
+  const cwd = process.cwd()
+  process.chdir(parent)
+  try {
+    const printed = await quiet('publish', ['ext-one', '--site', registry])
+    assert.match(printed[0] ?? '', /^published ext-one@0\.1\.0/)
+    assert.ok(printed.some((l) => /new for an extension/.test(l)))
+  } finally {
+    process.chdir(cwd)
+  }
+})
+
+test('the plugin-sources hint is worded for the command that was run', async () => {
+  const sources = temp('sources')
+  write(sources, { 'look-x/shaderera.item.json': { name: 'look-x' } })
+  await assert.rejects(quiet('search', ['x', '--site', sources]), /then search that:/)
+  await assert.rejects(quiet('info', ['look-x', '--site', sources]), /then run info on that:/)
 })

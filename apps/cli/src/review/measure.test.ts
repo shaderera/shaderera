@@ -165,7 +165,8 @@ test('captionStats: an LRC cue ending at Infinity is an open end, not a crash', 
   ])
   assert.deepEqual(s[1] && [s[1].end, s[1].duration, s[1].cps, s[1].gap], [null, null, null, null])
   assert.match(s[1]?.refused ?? '', /no end \(end: Infinity, as an LRC/)
-  assert.equal(s[0]?.gap, 0)
+  // The refused cue is in no SRT: no gap to it.
+  assert.equal(s[0]?.gap, null)
   assert.deepEqual(
     captionsOver(s, { maxCps: 1, minDuration: 5 }).map((c) => c.index),
     [1],
@@ -183,4 +184,9 @@ test('excerpt: whole copy when it fits, else cut at a word boundary with an elli
   assert.equal(excerpt('ส่งตรงจากสวนถึงบ้านคุณทุกวัน', 13), 'ส่งตรงจากสวน…')
   // One word longer than the limit: no boundary to cut at, quoted whole.
   assert.equal(excerpt('Supercalifragilistic', 10), 'Supercalifragilistic')
+  // A first word longer than the limit: that word whole, then an ellipsis, never the whole text.
+  assert.equal(
+    excerpt('Donaudampfschifffahrtsgesellschaftskapitän und noch sehr viele weitere Worte …', 30),
+    'Donaudampfschifffahrtsgesellschaftskapitän…',
+  )
 })

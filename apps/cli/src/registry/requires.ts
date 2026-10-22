@@ -3,17 +3,24 @@ import { dirname, join } from 'node:path'
 import { ITEM_FILE } from './item.ts'
 import { satisfies, validRange } from './semver.ts'
 
-/** The version of an installed package, looked up from `root` through parent node_modules. */
-export const installedVersion = (root: string, name: string): string | null => {
+/** The package.json of an installed package, looked up from `root` through parent node_modules. */
+export const installedPackage = (
+  root: string,
+  name: string,
+): { version?: string; shaderera?: unknown } | null => {
   let dir = root
   for (;;) {
     const file = join(dir, 'node_modules', ...name.split('/'), 'package.json')
-    if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8')).version ?? null
+    if (existsSync(file)) return JSON.parse(readFileSync(file, 'utf8'))
     const parent = dirname(dir)
     if (parent === dir) return null
     dir = parent
   }
 }
+
+/** The version of an installed package, looked up from `root` through parent node_modules. */
+export const installedVersion = (root: string, name: string): string | null =>
+  installedPackage(root, name)?.version ?? null
 
 type Label = {
   [key: string]: unknown
