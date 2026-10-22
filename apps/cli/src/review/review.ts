@@ -280,6 +280,38 @@ const GENERIC = new Set([
   'fangsong',
 ])
 
+/** Frames a contact sheet without shots spreads evenly: 7 up to 70 s, one per 10 s, at most 24. */
+export const sheetFrames = (duration: number) =>
+  Math.min(24, Math.max(7, Math.round(duration / 10)))
+
+/** Seconds between the 0.25 s samples: what review inspects and reads the text at. */
+const SAMPLE = 0.25
+
+/** Every how many 0.25 s samples review renders away from text and shot changes: 1 up to 30 s, then about 120 renders a film (each 2.5 s at 5 minutes). */
+export const previewStride = (duration: number) => Math.max(1, Math.round(duration / 120 / SAMPLE))
+
+/**
+ * Which of the 0.25 s samples review renders, for blank frames and motion: one every
+ * previewStride, the last, both sides of a sample where the text on screen (`text`, one signature
+ * a sample) changes, and every sample within 0.5 s of a shot.
+ */
+export const previewTimes = (
+  sampleT: readonly number[],
+  text: readonly string[],
+  shots: readonly number[],
+  duration: number,
+): number[] => {
+  const stride = previewStride(duration)
+  return sampleT.filter(
+    (t, i) =>
+      i % stride === 0 ||
+      i === sampleT.length - 1 ||
+      (i > 0 && text[i] !== text[i - 1]) ||
+      (i + 1 < sampleT.length && text[i] !== text[i + 1]) ||
+      shots.some((s) => Math.abs(s - t) <= 0.5 + 1e-9),
+  )
+}
+
 /**
  * Frame times (snapped to frames) and labels: each shot, each transition (the overlap of two spans,
  * else the midpoint between two moments) and the last frame.
@@ -304,7 +336,8 @@ export const reviewTimes = (
       } else out.push({ t: snap((s.at + next.at) / 2), label: 'transition' })
     })
   } else {
-    for (let i = 0; i < 7; i++) out.push({ t: snap((i * duration) / 7), label: `${i + 1}/7` })
+    const n = sheetFrames(duration)
+    for (let i = 0; i < n; i++) out.push({ t: snap((i * duration) / n), label: `${i + 1}/${n}` })
   }
   out.push({ t: last, label: 'last frame' })
   const seen = new Set<number>()
@@ -405,24 +438,54 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     })
   }
 
-  // Samples every 0.25 s (preview) for blank frames, motion and text.
+  // Samples every 0.25 s for text.
   const sampleT = [
-    ...new Set(Array.from({ length: Math.floor(last / 0.25) + 1 }, (_, i) => snap(i * 0.25))),
+    ...new Set(Array.from({ length: Math.floor(last / SAMPLE) + 1 }, (_, i) => snap(i * SAMPLE))),
   ]
   if (!sampleT.includes(last)) sampleT.push(last)
+
+  // Text, at every sample and principal t: what the source reports through inspect, and the DOM
+  // text the host measured itself. Neither renders a frame, so no text is missed on a long film.
+  const textT = [...new Set([...sampleT, ...picked.map((p) => p.t)])].sort((a, b) => a - b)
+  const runs: (TextRun & { t: number })[] = []
+  const runsAt = new Map<number, TextRun[]>()
+  for (const t of textT) {
+    const at = [...(child.has.inspect ? textRuns(await inspect(t)) : []), ...(await child.text(t))]
+    runsAt.set(t, at)
+    for (const r of at) runs.push({ ...r, t })
+  }
+  const noText =
+    runs.length > 0
+      ? undefined
+      : child.has.inspect
+        ? 'neither inspect nor the DOM shows text'
+        : 'the source has no inspect(t) and no DOM text'
+
+  // Renders (preview) for blank frames and motion: dense where the text or a shot changes, sparse
+  // elsewhere on a long film (previewTimes).
+  const renderT = previewTimes(
+    sampleT,
+    sampleT.map((t) => layoutSignature(runsAt.get(t) ?? [], null)),
+    shots.map((s) => s.at),
+    duration,
+  )
   const samples: { t: number; std: number; diff: number | null }[] = []
   let prev: Uint8Array | null = null
-  for (const t of sampleT) {
+  for (const t of renderT) {
     const { pixels } = await child.render(t, 'preview')
     samples.push({ t, std: frameStats(pixels).std, diff: prev ? meanAbsDiff(prev, pixels) : null })
     prev = pixels
   }
+  const every =
+    renderT.length === sampleT.length
+      ? 'every 0.25 s'
+      : `every ${previewStride(duration) * SAMPLE} s, every 0.25 s where text or shots change`
   const blank = blankTimes(samples, duration)
   checks.push({
     id: 'blank-frames',
     title: 'blank frames',
     status: judged(req.noBlankFrames === true, blank.length > 0),
-    measured: `${blank.length} of ${samples.length} samples (every 0.25 s) flat (luma std-dev < 1) outside the first and last 0.3 s`,
+    measured: `${blank.length} of ${samples.length} samples (${every}) flat (luma std-dev < 1) outside the first and last 0.3 s`,
     at: blank.length ? blank : undefined,
   })
 
@@ -461,21 +524,6 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     status: judged(needHold !== undefined, hold + 1e-6 < (needHold ?? 0)),
     measured: `${say(hold)} held at the end${needHold === undefined ? '' : ` (need ${needHold} s)`}: pixels still ${say(stillPixels)}${child.has.inspect ? `, text and camera still ${say(stillLayout)}` : ''}`,
   })
-
-  // Text, at every sampled and principal t.
-  const textT = [...new Set([...sampleT, ...picked.map((p) => p.t)])].sort((a, b) => a - b)
-  // What the source reports through inspect, and the DOM text the host measured itself.
-  const runs: (TextRun & { t: number })[] = []
-  for (const t of textT) {
-    if (child.has.inspect) for (const r of textRuns(await inspect(t))) runs.push({ ...r, t })
-    for (const r of await child.text(t)) runs.push({ ...r, t })
-  }
-  const noText =
-    runs.length > 0
-      ? undefined
-      : child.has.inspect
-        ? 'neither inspect nor the DOM shows text'
-        : 'the source has no inspect(t) and no DOM text'
 
   // reading: each text stays visible long enough to read, from the 0.25 s samples.
   if (noText)

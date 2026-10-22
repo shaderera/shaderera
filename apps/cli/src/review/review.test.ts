@@ -3,12 +3,21 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createCanvas } from '@napi-rs/canvas'
+import type { Json } from '@shaderera/core'
 import { toSrt, windowCaptions } from '@shaderera/core/host'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Requirements } from '../project/requirements.ts'
 import { shotsOf } from './measure.ts'
-import { pngWriter, readingShort, review, reviewTimes, toPng } from './review.ts'
+import {
+  pngWriter,
+  previewTimes,
+  readingShort,
+  review,
+  reviewTimes,
+  sheetFrames,
+  toPng,
+} from './review.ts'
 
 test('a film with hdr10 is reviewed in SDR, its HDR10 render reported as numbers', async () => {
   const hdr10 = {
@@ -268,6 +277,58 @@ test("review writes a frame that fits the thumb as its own thumb, and pngWriter 
   const pngs = pngWriter()
   await pngs.write(join(outDir, 'x.png'), Promise.reject(new Error('no encode')))
   await assert.rejects(pngs.done(), /no encode/)
+})
+
+test('review renders every 0.25 s sample up to 30 s, then sparsely, dense where text or shots change', () => {
+  const sampleT = Array.from({ length: 41 }, (_, i) => i * 0.25)
+  const none = sampleT.map(() => '')
+  assert.deepEqual(previewTimes(sampleT, none, [], 10), sampleT)
+  // 5 minutes: one in 10 samples (each 2.5 s), the last, both sides of a text change, around a shot.
+  const long = Array.from({ length: 1201 }, (_, i) => i * 0.25)
+  const text = long.map((t) => (t >= 100 && t < 100.5 ? 'title' : ''))
+  const picked = previewTimes(long, text, [200], 300)
+  for (const t of [0, 2.5, 297.5, 300, 99.75, 100, 100.25, 100.5, 199.5, 200, 200.5])
+    assert.ok(picked.includes(t), `renders ${t}`)
+  assert.ok(!picked.includes(50.25))
+  assert.ok(picked.length < 150, `${picked.length} renders`)
+})
+
+test('a contact sheet without shots spreads frames sized to the film: 7 up to 70 s, at most 24', () => {
+  assert.equal(sheetFrames(1), 7)
+  assert.equal(sheetFrames(70), 7)
+  assert.equal(sheetFrames(120), 12)
+  assert.equal(sheetFrames(300), 24)
+  const times = reviewTimes([], 30, 300)
+  assert.equal(times.length, 25)
+  assert.equal(times[1]?.label, '2/24')
+})
+
+test('review on a 5-minute film renders a tenth of the samples and still reads a text shown for 0.25 s', async () => {
+  const project = memoryProject({ duration: 300 })
+  let renders = 0
+  const child = memoryChild({
+    size: { width: 64, height: 36 },
+    frame: (t, intent) => {
+      if (intent === 'preview') renders++
+      return boxFrame(64, 36)(t % 1)
+    },
+    // Between two sparse samples (2.5 s apart): on screen at 101.25 only.
+    inspect: (t): Json =>
+      t > 101.1 && t < 101.4
+        ? { title: { id: 'title', text: 'BLINK', box: [10, 10, 20, 8], opacity: 1 } }
+        : {},
+  })
+  const outDir = tempDir('review')
+  try {
+    const r = await review({ project, child, outDir, quick: true })
+    const by = Object.fromEntries(r.checks.map((c) => [c.id, c]))
+    assert.match(by.reading?.measured ?? '', /title "BLINK"/)
+    assert.match(by['text-fit']?.measured ?? '', /^1 runs/)
+    assert.ok(renders < 150, `${renders} preview renders`)
+    assert.equal(r.frames.length, 25)
+  } finally {
+    await child.close()
+  }
 })
 
 test('captions: measured as info; a declared maxCps fails exactly the caption over it', async () => {
