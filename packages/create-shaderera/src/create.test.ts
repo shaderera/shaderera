@@ -35,6 +35,8 @@ test('create copies the empty project as an ordinary project', () => {
   create({ from, target, version: '0.1.0' })
   const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
   assert.equal(pkg.name, 'my-film')
+  // All rights reserved until the person chooses a licence: share needs one.
+  assert.equal(pkg.license, 'UNLICENSED')
   assert.equal(pkg.dependencies['@shaderera/core'], '^0.1.0')
   assert.equal(pkg.devDependencies.shaderera, '^0.1.0')
   assert.equal(pkg.devDependencies.webgpu, '0.6.2')

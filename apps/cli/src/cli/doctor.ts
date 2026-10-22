@@ -8,6 +8,10 @@ import { hostOf } from '../node/host-of.ts'
 import { findProject } from '../node/project.ts'
 import { hasNvenc } from './ffmpeg.ts'
 import { EXIT, found } from './findings.ts'
+import { dayOf } from './login.ts'
+import { licenceOf } from './share.ts'
+import { apiOf, readToken, signInHint } from './site.ts'
+import { whoIs } from './whoami.ts'
 
 /** One thing the machine or the project has, or lacks. `missing` on a needed item fails doctor. */
 export type DoctorItem = {
@@ -176,6 +180,13 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
     needed: browser,
     ...(chrome ? {} : { fix: 'Install Google Chrome, or set CHROME to its executable.' }),
   })
+  let api: string | undefined
+  try {
+    api = apiOf()
+  } catch (e) {
+    items.push({ id: 'sign-in', status: 'warn', detail: (e as Error).message, needed: false })
+  }
+  if (api) items.push(await signInItem(api))
   if (!project) return items
   items.push({
     id: 'project',
@@ -183,6 +194,7 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
     detail: `${project.root} (${project.manifest.width}×${project.manifest.height}, ${project.manifest.fps} fps, ${project.manifest.duration} s, ${browser ? 'browser' : 'node'} host)`,
     needed: true,
   })
+  items.push(shareItem(project.root))
   let webgpu = false
   try {
     createRequire(join(project.root, 'package.json')).resolve('webgpu')
@@ -239,6 +251,56 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
       needed: false,
     })
   return items
+}
+
+/**
+ * Whether this machine is signed in to the films API (`SHADERERA_API`, else api.shaderera.com),
+ * and as whom: `GET /api/v1/auth/me`, given 5 s. Never needed: only `share` signs in.
+ */
+export const signInItem = async (api: string): Promise<DoctorItem> => {
+  const base = { id: 'sign-in', needed: false }
+  if (!readToken(api))
+    return { ...base, status: 'warn', detail: `not signed in to ${api}`, fix: signInHint(api) }
+  try {
+    const me = await Promise.race([
+      whoIs(api),
+      new Promise<never>((_, no) =>
+        setTimeout(() => no(new Error('no answer in 5 s')), 5000).unref(),
+      ),
+    ])
+    if (me)
+      return {
+        ...base,
+        status: 'ok',
+        detail: `${me.handle} on ${api} (this machine as "${me.name}", until ${dayOf(me.expiresAt)})`,
+      }
+  } catch (e) {
+    const message = (e as Error).message
+    if (/: 401 /.test(message))
+      return {
+        ...base,
+        status: 'warn',
+        detail: `the token here is no longer signed in to ${api}`,
+        fix: signInHint(api),
+      }
+    return { ...base, status: 'warn', detail: `a token for ${api}, not checked: ${message}` }
+  }
+  return { ...base, status: 'warn', detail: `not signed in to ${api}`, fix: signInHint(api) }
+}
+
+/** Whether the project can be shared: it declares a licence (package.json's `license`). */
+export const shareItem = (root: string): DoctorItem => {
+  try {
+    return { id: 'share', status: 'ok', detail: `licence ${licenceOf(root)}`, needed: false }
+  } catch {
+    return {
+      id: 'share',
+      status: 'warn',
+      detail: 'no licence: share refuses the project',
+      needed: false,
+      fix: 'Set "license" in package.json (an SPDX id such as MIT, or UNLICENSED for all rights reserved).',
+    }
+  }
 }
 
 /**

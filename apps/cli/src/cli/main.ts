@@ -32,7 +32,7 @@ the site (film pages, the studio page, plugins) is --site <origin>, else SHADERE
   login --token <token> [--api origin]       keep a token given by hand instead
   whoami [--api origin] [--json]             who this machine is signed in as
   logout [--api origin] [--all]              sign this machine out (--all: every machine)
-  share [--film id] [--title t] [--no-media] [--yes] [--api origin] [--site origin] [--json]   send the project's files as a new film or version
+  share [--film id] [--title t] [--no-media] [--dry-run] [--host h] [--trusted] [--timeout s] [--yes] [--api origin] [--site origin] [--json]   send the project's files as a new film or version (--dry-run: send nothing)
   fork <film|url>[@version] [dir] [--api origin] [--site origin] [--json]   copy a published version into a new folder
   studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]   the local bridge of the studio page
   telemetry off|on|status                    whether the studio page counts how the studio is used
@@ -88,6 +88,25 @@ const OWN_JSON = new Set([
 /** Commands that own stdout (a protocol, or a bridge that runs until Ctrl-C): never wrapped. */
 const STREAMS = new Set(['mcp', 'studio'])
 
+/** The commands that talk to the films API or the site: they take --api and --site. */
+const ONLINE = new Set(['login', 'logout', 'whoami', 'share', 'fork', 'studio', ...PLUGIN])
+/** Their flags before --api and --site (#207), named so the error says what to use instead. */
+const GONE: Record<string, string> = {
+  '--to': 'use --api <origin>',
+  '--from': 'use --site <origin|folder>',
+  '--parent': "the player's parents come from the films API (--api <origin>)",
+}
+
+/** A flag an online command no longer takes: what to use instead, or null. */
+export const goneFlag = (command: string, args: readonly string[]): string | null => {
+  if (!ONLINE.has(command)) return null
+  for (const a of args) {
+    const flag = a.split('=')[0] ?? ''
+    if (flag in GONE) return `shaderera ${command} has no ${flag}: ${GONE[flag]}.`
+  }
+  return null
+}
+
 const main = async (argv: readonly string[]): Promise<number> => {
   const [command, ...rest] = argv
   const help = !command || ['--help', '-h'].some((h) => command === h || rest.includes(h))
@@ -96,6 +115,8 @@ const main = async (argv: readonly string[]): Promise<number> => {
     if (!help) found({ code: 'usage', severity: 'error', message: `Unknown command: ${command}` })
     return help ? EXIT.ok : EXIT.error
   }
+  const gone = goneFlag(command, rest)
+  if (gone) throw new Error(gone)
   const url = new URL(`./${command}${import.meta.url.slice(-3)}`, import.meta.url)
   if (!existsSync(url)) {
     console.error(`shaderera ${command} is not available yet`)

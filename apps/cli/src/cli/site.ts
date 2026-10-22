@@ -168,23 +168,67 @@ export const call = async (
 }
 
 /**
- * What the API's health (`GET /api/v1/films/health`, read without a token) says a share needs:
- * `parents`, the origins that may frame a shared film's player and get its port (its films app
- * and the site that shows its films). An API without the field, or that does not answer, names
- * none; an entry that is not an origin is left out.
+ * The upload limits a films API names in its health (shaderera.com API.md, "Limits"): bytes a file
+ * and a version, files a version, hashes one `POST /uploads/missing`, a poster's and a loop's
+ * bytes. Each is a positive number, or absent when the API does not name it.
  */
-export const healthOf = async (api: string): Promise<{ parents: string[] }> => {
+export type Limits = Partial<
+  Record<
+    'fileBytes' | 'versionBytes' | 'filesPerVersion' | 'hashesPerAsk' | 'posterBytes' | 'loopBytes',
+    number
+  >
+>
+const LIMIT_NAMES = [
+  'fileBytes',
+  'versionBytes',
+  'filesPerVersion',
+  'hashesPerAsk',
+  'posterBytes',
+  'loopBytes',
+] as const
+
+/**
+ * What the API's health (`GET /api/v1/films/health`, read without a token, given 10 s) says a
+ * share needs: `parents`, the origins that may frame a shared film's player and get its port (the
+ * site that shows its films), and `limits`, which a share checks before it uploads. An entry that
+ * is not an origin, or a limit that is not a positive number, is left out. An API that does not
+ * answer, answers an error or answers something other than JSON names none, and `error` says why.
+ */
+export const healthOf = async (
+  api: string,
+): Promise<{ parents: string[]; limits: Limits; error?: string }> => {
+  const none = (error: string) => ({ parents: [], limits: {}, error })
+  let r: Response
   try {
-    const r = await fetch(`${api}/api/v1/films/health`)
-    if (!r.ok) return { parents: [] }
-    const { parents } = (await r.json()) as { parents?: unknown }
+    r = await fetch(`${api}/api/v1/films/health`, { signal: AbortSignal.timeout(10_000) })
+  } catch (e) {
+    const name = (e as Error).name
+    return none(
+      name === 'TimeoutError' ? 'no answer in 10 s' : `cannot be reached (${(e as Error).message})`,
+    )
+  }
+  const text = await r.text().catch(() => '')
+  if (!r.ok) return none(`it answered ${r.status} ${firstLine(text)}`.trim())
+  let body: { parents?: unknown; limits?: unknown }
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return none(`it answered ${r.status} with something other than JSON: ${firstLine(text)}`)
+  }
+  {
+    const { parents, limits } = body ?? {}
+    const given = (limits && typeof limits === 'object' ? limits : {}) as Record<string, unknown>
     return {
       parents: Array.isArray(parents)
         ? parents.filter((p): p is string => typeof p === 'string' && isOrigin(p))
         : [],
+      limits: Object.fromEntries(
+        LIMIT_NAMES.flatMap((k) => {
+          const n = given[k]
+          return typeof n === 'number' && Number.isFinite(n) && n > 0 ? [[k, n]] : []
+        }),
+      ),
     }
-  } catch {
-    return { parents: [] }
   }
 }
 
