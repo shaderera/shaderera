@@ -244,7 +244,7 @@ opens it in a child process started with Node's permission model:
   so project output never mixes with a command's result or MCP's stream.
 
 The parent writes the output file and runs ffmpeg. Every project file the parent reads or writes
-must resolve inside the project, with symbolic links followed: MCP's `get_source` and `export`
+must resolve inside the project, with symbolic links followed: MCP's `get_source` and `render`
 output, and the host's `io.read` and `io.font`. It does not stop: network access (Node 24's
 permission model does not cover it); reads by the source's own `fs` calls through a symbolic link
 inside the project (Node's permission model follows links); any installed native addon, which runs

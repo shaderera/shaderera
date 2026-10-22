@@ -237,6 +237,8 @@ test('variant and params reach render_frame, inspect, compare and still; --varia
     assert.deepEqual(diff.changes, [{ path: 't', a: 0, b: 0.5 }])
     await assert.rejects(call('inspect', { t: 0, params: { nope: 1 } }), /Unknown params: nope/)
     await assert.rejects(call('inspect', { t: 0, variant: 'nope' }), /no variant "nope"/)
+    await assert.rejects(call('inspect', { t: 0, params: [1] }), /params is an object/)
+    await assert.rejects(call('export', {}), /Unknown tool export/)
 
     const sheet = await call('still', { times: [0, 0.5], variant: 'lighter' })
     assert.deepEqual(JSON.parse(sheet.content[0].text), { times: [0, 0.5] })
@@ -253,6 +255,7 @@ test('variant and params reach render_frame, inspect, compare and still; --varia
   const lighter = await connect(params, { variant: 'lighter' })
   try {
     assert.equal(await lighter.call('inspect', { t: 0, path: 'grey' }), 100)
+    assert.equal((await lighter.call('job', {})).variant, 'lighter')
   } finally {
     await lighter.close()
   }

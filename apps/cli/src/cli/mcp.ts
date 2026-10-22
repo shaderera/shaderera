@@ -249,6 +249,7 @@ export const createServer = (
   ): Promise<unknown> => {
     // A variant or params get their own child, closed with the call; the session's child is the
     // server's own variant (`--variant`), with the defaults.
+    if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
     const params = a.params && typeof a.params === 'object' ? (a.params as Obj) : undefined
     const variant = typeof a.variant === 'string' ? a.variant : flags.variant
     const own =
@@ -391,7 +392,13 @@ export const createServer = (
         case 'versions':
           return { head: head(root), log: log(root), jobs: listJobs(root) }
         case 'job':
-          return await createJob(root, { by: 'agent', host: flags.host, ...a, replace: false })
+          return await createJob(root, {
+            by: 'agent',
+            host: flags.host,
+            variant: flags.variant,
+            ...a,
+            replace: false,
+          })
         case 'review': {
           // A variant gets its own child; the session's child is the server's own variant.
           const mine =
@@ -441,6 +448,7 @@ export const createServer = (
     let session: NodeSession | undefined
     try {
       const r = await serial(async () => {
+        if (!tools.some(([n]) => n === params.name)) throw new Error(`Unknown tool ${params.name}.`)
         const { root } = await projectOf(dir, a.root)
         session = sessionOf(root)
         return call(root, session, params.name, a)
