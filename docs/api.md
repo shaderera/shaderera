@@ -18,8 +18,9 @@ surface is labelled:
 - **experimental:** usable, may change in any release;
 - **internal:** for Shaderera's own packages only; no promise.
 
-Pinned by tests: `packages/core/src/api.test.ts` lists every export of each entry (and
-`apps/cli/src/stamp/plugin.it.ts` those of `shaderera/stamp`), and
+Pinned by tests: `packages/core/src/api.test.ts` lists every export of each entry,
+`apps/cli/src/exports.test.ts` the `shaderera` package's (none but its package.json),
+`apps/cli/src/project/schema.test.ts` holds `shaderera.schema.json` to what the CLI reads, and
 `packages/create-shaderera/src/create.test.ts` fails when the empty project imports anything but a
 stable entry. Adding or removing an export is therefore a visible change.
 
@@ -27,7 +28,7 @@ stable entry. Adding or removing an export is therefore a visible change.
 
 | Export | Kind | What it is |
 |---|---|---|
-| every type in `protocol.ts` | types | `Open`, `Host`, `Io`, `Source`, `RenderOptions`, `Frame`, `Layer`, `LayerInfo`, `Depth`, `Json`, `Manifest`, `Variant`, `Preroll`, `CameraCapability`, `Matrices`, `Mat4`, `Vec3`, `Pick`, `AudioClip`, `Pcm`, `Caption`, `CheckpointCapability`, `MountDom`, `DomView`, `DecodedImage`, `Footage`, `Bake`, `Baked`, … |
+| every type in `protocol.ts` | types | `Open`, `Host`, `Io`, `Source`, `RenderOptions`, `Frame`, `Layer`, `LayerInfo`, `Depth`, `Json`, `Manifest`, `Requires`, `Variant`, `Preroll`, `CameraCapability`, `Matrices`, `Mat4`, `Vec3`, `Pick`, `AudioClip`, `Pcm`, `Caption`, `CheckpointCapability`, `MountDom`, `DomView`, `DecodedImage`, `Footage`, `Bake`, `Baked`, … |
 | `flattenFrame(frame)` | function | a composition flattens what its children return |
 | `frameTimes(fps, from, to)`, `frameAt(t, fps)` | functions | one definition of a range's frames (t = i / fps) and of the frame index at t |
 | `parseFps(value)` | function | a rate as shaderera.json writes it (`30`, `29.97`, `"24000/1001"`) as an exact fraction `{ fps, num, den }`, or null |
@@ -45,31 +46,25 @@ failure, cancellation, pixels) is part of the stable surface, not only the types
 readback with the row padding and staging done right. Optional; a source keeps its own device,
 resources and passes. Stable only when consumers outside this repository need it.
 
-## `@shaderera/core/host`: internal
+## `@shaderera/core/host`: experimental
 
-What both hosts share (`checkManifest`, `withVariant`, `openSource`, `seekable`, `over`,
-`straight`, `matte`, `gpuCompositor`, `yuvFits`, `finalOnly`, `layerInfo`, `paramDefaults`,
-`fullDevice`, `timecodeOf`, `toSrt`, `toVtt`, …). A participant never imports it.
+What a host needs and both of Shaderera's share (`checkManifest`, `withVariant`, `openSource`,
+`seekable`, `over`, `straight`, `matte`, `gpuCompositor`, `yuvFits`, `finalOnly`, `layerInfo`,
+`paramDefaults`, `fullDevice`, `timecodeOf`, `toSrt`, `toVtt`, …), for another host that opens
+a source the way the CLI does. Usable, and may change in any release. A participant never
+imports it: a film builds on `@shaderera/core`.
 
 ## `shaderera`: the commands are stable; the modules are internal
 
 - **Stable:** the commands and flags in [cli.md](cli.md) but the plugin ones (below), the MCP
-  tool names ([mcp.md](mcp.md)), the files they read (`shaderera.json`, `requirements.json`,
-  `shaderera.item.json`) and the files they write: `versions/` (revisions; jobs `job/3`), `out/`
+  tool names ([mcp.md](mcp.md)), the files they read (`shaderera.json`, format `manifest/1`,
+  described by the `shaderera.schema.json` the package ships; `requirements.json`) and the files
+  they write: `versions/` (revisions; jobs `job/3`), `out/`
   (`delivery/1`, `deliveries/1`), and the `--json` envelope (`result/1`). A format change refuses
   the old file with a message to recreate it; there are no readers for old formats.
-- **Internal:** every module under `apps/cli/src` but the stamp (below). No other JavaScript API
-  is exported.
-
-## `shaderera/stamp`: experimental
-
-The [source stamp](protocol.md#the-stamp) as a Vite plugin, for another build of a project (a
-player, a site) that should stamp as the CLI does:
-
-| Export | Kind | What it is |
-|---|---|---|
-| `stamp({ root })` | function | the Vite plugin (`shaderera:stamp`, `enforce: 'pre'`); `root` is the project folder |
-| `stampCode(code, file, mapSource?)` | function | stamps one file's code: `{ code, map }`, or `null` when nothing has an `id` |
+- **Internal:** every module under `apps/cli/src`. The package exports no JavaScript: its only
+  export is `shaderera/package.json`. Its other files (`bin/`, `dist/`, `docs/`, `guides/`,
+  `shaderera.schema.json`) are on disk in `node_modules/shaderera/` to read, not to import.
 
 ## Plugins: experimental
 

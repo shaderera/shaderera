@@ -22,6 +22,13 @@ export type Json =
  * without running code. It is not a creative representation; nothing about what is drawn goes here.
  */
 export type Manifest = {
+  /** The JSON Schema an editor checks the file against: the `shaderera` package's. */
+  readonly $schema?: string
+  /**
+   * The file's format, `"manifest/1"`; a file without it is that format too. A host refuses any
+   * other: a format change says so instead of reading the file wrongly.
+   */
+  readonly shaderera?: 'manifest/1'
   /** The module whose default export is an `Open` or a `Source`, relative to the project root. */
   readonly entry: string
   /**
@@ -95,6 +102,18 @@ export type Manifest = {
    * The source reads them through `io.bake` (decision 0016).
    */
   readonly bakes?: { readonly [name: string]: Bake }
+  /**
+   * What the project needs installed (decision 0008): a range of the `shaderera` package, and
+   * package plugins by name with a range. `shaderera add` and `remove` keep `extensions`; every
+   * command refuses a project whose requirements are not met. Nothing in it changes a frame.
+   */
+  readonly requires?: Requires
+}
+
+/** What a project needs installed: the `shaderera` range and package plugins with their ranges. */
+export type Requires = {
+  readonly shaderera?: string
+  readonly extensions?: { readonly [name: string]: string }
 }
 
 /** Frames made outside the host: how they are made, from what, and where they are. */

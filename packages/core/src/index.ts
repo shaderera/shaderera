@@ -1,4 +1,4 @@
-// The public API of @shaderera/core (semver-covered). Host helpers live in ./host.ts, internal.
+// The stable API of @shaderera/core (docs/api.md). Host helpers live in ./host.ts, experimental.
 export { checkDeterminism, type DeterminismFailure, type DeterminismReport } from './determinism.ts'
 export { diffJson, type JsonChange } from './diff-json.ts'
 export { diffPixels, type PixelDiff } from './diff-pixels.ts'

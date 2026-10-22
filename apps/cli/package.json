@@ -15,19 +15,15 @@
     "shaderera": "./bin/shaderera.js"
   },
   "exports": {
-    "./stamp": {
-      "types": "./dist/stamp/plugin.d.ts",
-      "default": "./dist/stamp/plugin.js"
-    },
-    "./package.json": "./package.json",
-    "./*": "./*"
+    "./package.json": "./package.json"
   },
   "files": [
     "bin",
     "dist",
     "!dist/**/fixtures",
     "docs",
-    "guides"
+    "guides",
+    "shaderera.schema.json"
   ],
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node scripts/docs.ts",

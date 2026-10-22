@@ -22,7 +22,8 @@ const open: Open = async ({ manifest, io }) => {
 export default open
 ```
 
-Public API: the protocol types, `frameAt`, `frameTimes`, `flattenFrame`, `diffJson`,
-`diffPixels`, `checkDeterminism`, `exportFrames`. `@shaderera/core/gpu` (GPU helpers such as
-`readTexture`) is experimental; `@shaderera/core/host` is internal to the `shaderera` CLI.
+Stable API: the protocol types, `flattenFrame`, `frameTimes`, `frameAt`, `parseFps`, `sha256`,
+`checkDeterminism`, `diffJson`, `diffPixels`, `exportFrames`. Experimental: `@shaderera/core/gpu`
+(WebGPU readback such as `readTexture`) and `@shaderera/core/host` (what a host needs to open a
+source as the `shaderera` CLI does).
 The protocol and its reasons are in the repository's `docs/protocol.md`. MIT.

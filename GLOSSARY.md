@@ -103,8 +103,9 @@ A copy of a sequential source's state after a frame, so a jump back restores it 
 replaying from frame 0.
 
 **Manifest**:
-`shaderera.json`: the project's entry, size, fps, duration, params, seed and variants. Plain
-data the tools read without running code; nothing in it says what a frame shows.
+`shaderera.json` (format `manifest/1`): the project's entry, size, fps, duration, params, seed,
+variants and what it requires. Plain data the tools read without running code; nothing in it says
+what a frame shows.
 _Avoid_: config, scene file
 
 **Params**:

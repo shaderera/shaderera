@@ -18,7 +18,7 @@ export const findProject = async (cwd: string): Promise<Project> => {
   }
   const text = await readFile(join(dir, 'shaderera.json'), 'utf8')
   const manifest = checkManifest(JSON.parse(text))
-  // Decision 0008: a project whose shaderera.item.json requires what is not installed is refused
+  // Decision 0008: a project whose shaderera.json requires what is not installed is refused
   // here, before anything renders, with the ways out (add, remove) in the message.
   assertRequirements(dir, shadereraVersion())
   return { root: dir, manifest }

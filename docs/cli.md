@@ -55,13 +55,13 @@ The project's own console output goes to stderr, so stdout carries only the comm
 
 ## Required plugins
 
-Every command that finds a project reads its `shaderera.item.json`, if it has one. When the
+Every command that finds a project reads the `requires` in its `shaderera.json`. When the
 project requires a `shaderera` range this is not in, or a package plugin that is not installed or
 installed in the wrong version, the command refuses the project before anything renders and names
 the two ways out:
 
 ```
-shaderera: This project needs what is not installed (shaderera.item.json):
+shaderera: This project needs what is not installed (shaderera.json requires):
   - @shaderera/music ^0.1 (not installed)
 Fix it one of two ways:
   npx shaderera add @shaderera/music@^0.1   install it
@@ -423,7 +423,7 @@ Plugins come from the site's `/r`: `--site <origin>`, else `SHADERERA_SITE`, els
 |---|---|
 | `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
-| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not, or a version outside a range another requires, stops them all |
+| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.json` `requires`. All of them resolve first: one that does not, or a version outside a range another requires, stops them all |
 | `remove <name>...` | uninstalls package plugins and stops requiring them; each must be a package plugin the project uses, never a plain npm dependency, or none is removed |
 | `publish [dir]... --site <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
 

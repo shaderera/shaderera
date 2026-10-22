@@ -118,13 +118,12 @@ reads its size, fps and frame count from the file itself, and waits up to 10 s f
 
 ## The runner's host hook
 
-Experimental: it may change in any release. The web player is the runner worker with two things
-changed through `configureRunner`, which the runner worker module exports. Another host that builds the runner into a worker of its own can
-do the same, once, before the page connects:
+Internal: the `shaderera` package exports no JavaScript ([api.md](api.md)), so this is how the
+player is made, not an API. The web player is the runner worker with two things changed through
+`configureRunner`, which the runner worker module exports; the player's worker calls it once,
+before the page connects:
 
 ```ts
-import { configureRunner } from 'shaderera/dist/runner/worker.js'
-
 configureRunner({
   // Where io.read finds the film's files: an absolute URL ending in /.
   files: new URL('../files/', import.meta.url).href,

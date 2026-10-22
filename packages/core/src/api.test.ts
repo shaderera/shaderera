@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 // docs/api.md: adding or removing an export is a visible change, made here on purpose.
-test('the stable, experimental and internal entries export exactly what docs/api.md lists', async () => {
+test('the stable and experimental entries export exactly what docs/api.md lists', async () => {
   const keys = async (entry: string) => Object.keys(await import(entry)).sort()
   assert.deepEqual(await keys('./index.ts'), [
     'checkDeterminism',
