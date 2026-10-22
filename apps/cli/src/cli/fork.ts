@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validPath } from '../project/revisions.ts'
 import { EXIT } from './findings.ts'
+import { pool } from './share.ts'
 import { apiOf, bytesText, call, siteOf, writeShareNote } from './site.ts'
 
 type Film = {
@@ -12,6 +13,54 @@ type Film = {
   owner: string
   latestVersion: string | null
   versions: { id: string; licence: string }[]
+}
+
+/** Files downloaded at once. */
+const DOWNLOADS = 8
+
+/** Where a fork came from: package.json's `forkedFrom`, and a line in its README. */
+export type ForkedFrom = {
+  film: string
+  title: string
+  owner: string
+  version: string
+  licence: string
+  page: string
+}
+
+/** A licence that keeps every right: the API's "All rights reserved", or npm's UNLICENSED. */
+export const reserved = (licence: string): boolean =>
+  /^(all rights reserved|unlicensed)$/i.test(licence.trim())
+
+/** The README's line, as share's summary names a film and its licence. */
+export const attribution = (f: ForkedFrom): string =>
+  `Forked from "${f.title}" by ${f.owner} (${f.page}), version ${f.version}, licence ${f.licence}.`
+
+/** What a fork of a film under `licence` warns, if anything. */
+export const licenceNote = (f: ForkedFrom): string | undefined =>
+  reserved(f.licence)
+    ? `licence ${f.licence}: ${f.owner} keeps every right to "${f.title}". Study it here, but ask them before you share, publish or reuse any of it.`
+    : undefined
+
+/**
+ * Records the fork in the new project: `forkedFrom` in package.json (when there is one that
+ * parses) and a line at the end of README.md (made when there is none). Both are source, so a
+ * share sends them and a fork of the fork keeps the line.
+ */
+const recordFork = (dir: string, f: ForkedFrom): void => {
+  const pkg = join(dir, 'package.json')
+  if (existsSync(pkg)) {
+    try {
+      const json = JSON.parse(readFileSync(pkg, 'utf8')) as unknown
+      if (json && typeof json === 'object' && !Array.isArray(json))
+        writeFileSync(pkg, `${JSON.stringify({ ...json, forkedFrom: f }, null, 2)}\n`)
+    } catch {
+      // Not JSON: left as the version has it; the README still names the film.
+    }
+  }
+  const readme = join(dir, 'README.md')
+  const was = existsSync(readme) ? readFileSync(readme, 'utf8') : `# ${f.title}\n`
+  writeFileSync(readme, `${was.trimEnd()}\n\n${attribution(f)}\n`)
 }
 
 /**
@@ -39,8 +88,10 @@ export const parseTarget = (
 /**
  * `shaderera fork <film|url>[@version] [dir] [--site <origin>] [--api <origin>] [--json]`: copies a
  * published version from the films API into a new folder (`./<film>` by default) as an ordinary
- * project. Every path is checked as a revision's is, and every file against its sha256. The new
- * project's first `share` makes a new film, marked as forked from this version.
+ * project. Every path is checked as a revision's is, and every file against its sha256, a few
+ * downloads at a time. The new project records where it came from (`recordFork`), and a film whose
+ * licence keeps every right is forked with a warning. Its first `share` makes a new film, marked
+ * as forked from this version.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values: v, positionals } = parseArgs({
@@ -54,7 +105,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       'Usage: shaderera fork <film|url>[@version] [dir] [--site <origin>] [--api <origin>]',
     )
   const api = apiOf(v.api)
-  const { film: id, version: wanted } = parseTarget(given, { site: siteOf(v.site), api })
+  const site = siteOf(v.site)
+  const { film: id, version: wanted } = parseTarget(given, { site, api })
 
   const film = (await (await call(api, 'GET', `/films/${id}`)).json()) as Film
   const matches = wanted
@@ -85,12 +137,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
 
   // Everything is fetched and checked before anything is written.
   const bytes = new Map<string, Buffer>()
-  for (const sha of new Set(entries.map(([, sha]) => sha))) {
+  await pool([...new Set(entries.map(([, sha]) => sha))], DOWNLOADS, async (sha) => {
     const b = Buffer.from(await (await call(api, 'GET', `/obj/${sha}`)).arrayBuffer())
     if (createHash('sha256').update(b).digest('hex') !== sha)
       throw new Error(`A file from ${api} did not match its sha256 (${sha}); nothing was written.`)
     bytes.set(sha, b)
-  }
+  })
   let size = 0
   for (const [path, sha] of entries) {
     const to = join(dir, ...path.split('/'))
@@ -99,7 +151,17 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     writeFileSync(to, b)
     size += b.length
   }
+  const forkedFrom: ForkedFrom = {
+    film: film.id,
+    title: film.title,
+    owner: film.owner,
+    version: version.id,
+    licence: version.licence,
+    page: `${site}/film/${film.id}`,
+  }
+  recordFork(dir, forkedFrom)
   writeShareNote(dir, api, { forkedFrom: version.id })
+  const note = licenceNote(forkedFrom)
 
   const result = {
     api,
@@ -111,7 +173,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     licence: version.licence,
     files: entries.length,
     bytes: size,
+    forkedFrom,
+    warnings: note ? [note] : [],
   }
+  if (note) console.warn(`! ${note}`)
   if (v.json) console.log(JSON.stringify(result, null, 2))
   else {
     console.log(

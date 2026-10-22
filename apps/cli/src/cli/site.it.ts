@@ -413,7 +413,15 @@ test('fork copies a version into a new folder as a project, and its share is a n
   assert.equal(result.version, shared.id)
   assert.equal(result.licence, 'MIT')
   const dir = join(work, 'mine')
-  assert.deepEqual(scan(dir), shared.files, 'the version, exactly')
+  // The version, exactly, but for where it came from: package.json's forkedFrom and a README line.
+  const { 'package.json': _p, 'README.md': _r, ...rest } = shared.files
+  const { 'package.json': _fp, 'README.md': _fr, ...forked } = scan(dir)
+  assert.deepEqual(forked, rest)
+  assert.equal(result.forkedFrom.version, shared.id)
+  assert.equal(
+    JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).forkedFrom.version,
+    shared.id,
+  )
   assert.ok(!existsSync(join(dir, '.env')))
   for (const q of s.requests.slice(before)) assert.equal(q.auth, undefined, 'a fork sends no token')
   const note = JSON.parse(readFileSync(join(dir, '.shaderera', 'share.json'), 'utf8'))
