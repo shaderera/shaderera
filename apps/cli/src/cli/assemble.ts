@@ -1,5 +1,5 @@
 import { join, resolve } from 'node:path'
-import { checkChunks, chunkFrames, mostLight, readPlan } from '../deliver/chunks.ts'
+import { checkChunks, chunkFrames, isHdr, mostLight, readPlan } from '../deliver/chunks.ts'
 import { findProject } from '../node/project.ts'
 import { openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
@@ -51,7 +51,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         input: plan.input,
         count: plan.chunks.reduce((n, c) => n + c.frames, 0),
         read: () => chunkFrames(plan, dir),
-        ...(plan.input === 'p010'
+        ...(isHdr(plan.input)
           ? { light: mostLight(records.flatMap((r) => (r.light ? [r.light] : []))) }
           : {}),
       },

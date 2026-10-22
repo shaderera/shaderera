@@ -17,6 +17,15 @@
     "minBitrate": 8000000,
     "sampleRates": [48000, 96000]
   },
+  "youtube-hdr": {
+    "name": "YouTube upload, HDR",
+    "source": "https://support.google.com/youtube/answer/7126552 (read 2026-10-22): PQ or HLG (Rec. 2100), 10 or 12 bits, Rec. 2020 primaries and non-constant-luminance matrix, tagged; MOV, MP4 or MKV; HEVC, VP9 Profile 2 or AV1 recommended, ProRes, DNxHR HQX and 10-bit H.264 at very high bitrates; PQ should carry SMPTE ST 2086 and MaxCLL/MaxFALL (a Sony BVM-X300 is assumed without)",
+    "containers": ["mp4", "mov", "mkv"],
+    "videoCodecs": ["hevc", "vp9", "av1", "prores", "dnxhd", "h264"],
+    "transfer": ["smpte2084", "arib-std-b67"],
+    "bitDepth": [10, 12],
+    "hdrMetadata": "required"
+  },
   "amazon-streaming-tv": {
     "name": "Amazon Streaming TV and Prime Video ads",
     "source": "https://advertising.amazon.com/resources/ad-specs/dsp/video/streaming-tv-prime-video-ads (read 2026-10-12): 15 Mb/s minimum, 50 recommended; no loudness requirement found",

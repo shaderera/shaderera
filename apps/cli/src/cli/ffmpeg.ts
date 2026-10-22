@@ -328,9 +328,10 @@ export type LightLevels = { maxCLL: number; maxFALL: number }
 
 /**
  * An HDR10 encode's frames on stdin: 10-bit 4:2:0 Y'CbCr of PQ codes as P010 (the GPU's) or
- * `yuv420p10le` (an FFV1 chunk decoded) for HEVC; 16-bit straight PQ R'G'B'A for ProRes.
+ * `yuv420p10le` (an FFV1 chunk decoded) for HEVC; the hosts' 10-bit PQ R'G'B' codes (`rgb10`,
+ * ffmpeg's `x2bgr10le`) for ProRes.
  */
-export type HdrInput = 'p010' | 'yuv420p10le' | 'rgba64'
+export type HdrInput = 'p010' | 'yuv420p10le' | 'rgb10'
 
 /**
  * `x265`: libx265, for a master always (decision 0023, as 0007 keeps x264 for SDR). `nvenc`:
@@ -437,8 +438,9 @@ export const requireHdr10Ffmpeg = () => {
  * ProRes 422 HQ / 4444 in a mov, tagged HDR10, with the mastering display and the light levels set
  * on the input (ffmpeg 9.0's `-mastering_display` and `-content_light`), so they reach the SEI
  * (libx265, hevc_nvenc) and the container's `mdcv` and `clli` boxes. The frames come on stdin as
- * `input`; they go to ffmpegSink unmatted (`matted` false), except 16-bit R'G'B'A for ProRes 422
- * HQ, matted over black (`ffmpegSink(args, 'rgba64')`). The caller has checked the ffmpeg
+ * `input`, matted over black already (ffmpegSink passes them as they are). ProRes is made by
+ * ffmpeg from the `rgb10` codes with the BT.2020 matrix, so the exactness test does not cover it;
+ * an HDR10 ProRes 4444 has no alpha plane (the frame is matted). The caller has checked the ffmpeg
  * (requireHdr10Ffmpeg) and, for nvenc, the GPU (hasHevcNvenc).
  */
 export const hdr10Args = (o: {
@@ -471,10 +473,10 @@ export const hdr10Args = (o: {
   const codec = o.codec ?? 'hevc'
   const encoder = o.encoder ?? 'x265'
   const prores = codec !== 'hevc'
-  if (prores !== (o.input === 'rgba64'))
+  if (prores !== (o.input === 'rgb10'))
     throw new Error(
       prores
-        ? 'HDR10 ProRes takes 16-bit PQ R’G’B’A frames (rgba64).'
+        ? 'HDR10 ProRes takes the 10-bit PQ R’G’B’ codes (rgb10).'
         : 'HDR10 HEVC takes 10-bit 4:2:0 frames (p010 or yuv420p10le).',
     )
   if (prores && encoder !== 'x265')
@@ -483,7 +485,7 @@ export const hdr10Args = (o: {
     throw new Error(
       `An HDR10 master is encoded with x265: ${encoder} is for a review${encoder === 'videotoolbox' ? ' (it writes no HDR10 metadata into the stream)' : ''}.`,
     )
-  const pixFmt = { p010: 'p010le', yuv420p10le: 'yuv420p10le', rgba64: 'rgba64le' }[o.input]
+  const pixFmt = { p010: 'p010le', yuv420p10le: 'yuv420p10le', rgb10: 'x2bgr10le' }[o.input]
   const args = ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', pixFmt]
   args.push('-s', `${o.width}x${o.height}`, '-r', fpsFraction(o.fps))
   args.push('-mastering_display', masteringDisplayArg(o.display))
@@ -491,8 +493,8 @@ export const hdr10Args = (o: {
   if (o.audio)
     args.push(...o.audio.inputs, '-filter_complex', o.audio.graph, '-map', '0:v', '-map', '[aout]')
   if (prores) {
-    const alpha = codec === 'prores-4444'
-    const format = alpha ? 'yuva444p10le' : 'yuv422p10le'
+    const full = codec === 'prores-4444'
+    const format = full ? 'yuv444p10le' : 'yuv422p10le'
     // No chroma site: ProRes is 4:2:2 or 4:4:4 and has no field for it.
     args.push(
       '-vf',
@@ -501,8 +503,7 @@ export const hdr10Args = (o: {
       '-c:v',
       'prores_ks',
       '-profile:v',
-      alpha ? '4' : '3',
-      ...(alpha ? ['-alpha_bits', '16'] : []),
+      full ? '4' : '3',
     )
     if (o.audio) args.push('-c:a', 'pcm_s24le', '-ar', '48000', '-ac', '2')
     if (o.timecode) args.push('-timecode', o.timecode)
@@ -585,7 +586,11 @@ export const ffmpegSink = (
     write: (pixels) =>
       new Promise<void>((done, fail) => {
         const bytes =
-          !matted || input === 'yuv420p' || input === 'p010' || input === 'yuv420p10le'
+          !matted ||
+          input === 'yuv420p' ||
+          input === 'p010' ||
+          input === 'yuv420p10le' ||
+          input === 'rgb10'
             ? pixels
             : input === 'rgba'
               ? matte(pixels)
@@ -815,17 +820,26 @@ export const requireFrames = (file: string, p: Probe, written: number) => {
     )
 }
 
+/** What an HDR10 file of each codec probes as: profile, pixel format (ProRes 4444 decodes at 12 bits) and codec tag. */
+const HDR10_FILES = {
+  hevc: { profile: 'Main 10', pixFmt: 'yuv420p10le', tag: 'hvc1' },
+  'prores-hq': { profile: 'HQ', pixFmt: 'yuv422p10le', tag: 'apch' },
+  'prores-4444': { profile: '4444', pixFmt: 'yuv444p12le', tag: 'ap4h' },
+} as const
+
 /**
- * Throws unless an HDR10 file says what its encode declared (decision 0023): HEVC Main 10 as `hvc1`,
- * 10-bit narrow range, the four colour tags and the top-left chroma site, and the mastering display
- * and light levels both in the mp4's `mdcv`/`clli` boxes and in the first frame's SEI, each equal to
- * `display` and `levels` (rounded up, as `-content_light` takes them) in the units of its field.
+ * Throws unless an HDR10 file says what its encode declared (decision 0023): HEVC Main 10 as `hvc1`
+ * (or ProRes 422 HQ / 4444), 10-bit narrow range, the four colour tags, and the mastering display
+ * and light levels in the container's `mdcv`/`clli` boxes equal to `display` and `levels` (rounded
+ * up, as `-content_light` takes them) in the units of its field. HEVC also needs the top-left
+ * chroma site and the same metadata in the first frame's SEI; ProRes has neither.
  */
 export const requireHdr10 = (
   file: string,
   p: Probe,
   display: MasteringDisplay,
   levels: LightLevels,
+  codec: keyof typeof HDR10_FILES = 'hevc',
 ) => {
   const v = p.video
   const h = v?.hdr10
@@ -841,21 +855,25 @@ export const requireHdr10 = (
       : 'none'
   const light = (l?: LightLevels) => (l ? `${l.maxCLL},${l.maxFALL}` : 'none')
   const want = { display: units(display), light: contentLightArg(levels) }
+  const f = HDR10_FILES[codec]
+  const hevc = codec === 'hevc'
   const wrong = [
-    ...(v?.profile === 'Main 10' ? [] : [`profile ${v?.profile ?? 'none'}, not Main 10`]),
-    ...(v?.pixFmt === 'yuv420p10le' ? [] : [`${v?.pixFmt ?? 'no video'}, not yuv420p10le`]),
+    ...(v?.profile === f.profile ? [] : [`profile ${v?.profile ?? 'none'}, not ${f.profile}`]),
+    ...(v?.pixFmt === f.pixFmt ? [] : [`${v?.pixFmt ?? 'no video'}, not ${f.pixFmt}`]),
     ...(['bt2020nc', 'bt2020', 'smpte2084', 'tv'].join() ===
     [v?.color?.matrix, v?.color?.primaries, v?.color?.transfer, v?.color?.range].join()
       ? []
       : [`colour ${JSON.stringify(v?.color ?? {})}, not bt2020nc/bt2020/smpte2084/tv`]),
-    ...(h?.codecTag === 'hvc1' ? [] : [`codec tag ${h?.codecTag ?? 'none'}, not hvc1`]),
-    ...(h?.chroma === 'topleft' ? [] : [`chroma site ${h?.chroma ?? 'none'}, not topleft`]),
+    ...(h?.codecTag === f.tag ? [] : [`codec tag ${h?.codecTag ?? 'none'}, not ${f.tag}`]),
+    ...(!hevc || h?.chroma === 'topleft'
+      ? []
+      : [`chroma site ${h?.chroma ?? 'none'}, not topleft`]),
     ...(units(h?.mastering) === want.display ? [] : [`mdcv ${units(h?.mastering)}`]),
     ...(light(h?.light) === want.light ? [] : [`clli ${light(h?.light)}`]),
-    ...(units(h?.sei?.mastering) === want.display
+    ...(!hevc || units(h?.sei?.mastering) === want.display
       ? []
       : [`SEI display ${units(h?.sei?.mastering)}`]),
-    ...(light(h?.sei?.light) === want.light ? [] : [`SEI light ${light(h?.sei?.light)}`]),
+    ...(!hevc || light(h?.sei?.light) === want.light ? [] : [`SEI light ${light(h?.sei?.light)}`]),
   ]
   if (wrong.length > 0)
     throw new Error(

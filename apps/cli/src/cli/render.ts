@@ -6,6 +6,7 @@ import { type LightLevels, toSrt, toVtt, windowCaptions } from '@shaderera/core/
 import {
   chunkFrames,
   type FrameInput,
+  isHdr,
   makePlan,
   mostLight,
   readPlan,
@@ -111,8 +112,9 @@ export const checkVideoOptions = (o: VideoOptions) => {
  * host that composites on the GPU hands ffmpeg yuv420p for H.264 and 16-bit RGBA for ProRes.
  * A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file.
  *
- * Hosts that render `hdr10` (`has.p010`, decision 0023) make an HDR10 mp4: HEVC Main 10 with the
- * manifest's mastering display and the light levels measured from every frame. The levels are known
+ * Hosts that render `hdr10` (`has.p010`, decision 0023) make an HDR10 mp4 (HEVC Main 10 from P010)
+ * or mov (ProRes from the R'G'B' codes) with the manifest's mastering display and the light levels
+ * measured from every frame. The levels are known
  * only after the last frame, so the frames go first into one lossless chunk beside the file
  * (`<out>.<pid>.chunks/`, removed after) and are encoded once from it, as `assemble` encodes a plan.
  */
@@ -189,7 +191,7 @@ export const exportVideo = async (
   const codec = o.codec ?? 'h264'
   const prores = codec !== 'h264'
   // The hosts render hdr10, or the frames rendered already are an hdr10 render's.
-  const hdr = o.frames ? o.frames.input === 'p010' : child.has.p010 === true
+  const hdr = o.frames ? isHdr(o.frames.input) : child.has.p010 === true
   const review = (o.quality ?? 'review') === 'review'
   const { width, height } = manifest
   let encoder: Encoder | HdrEncoder | 'prores'
@@ -199,7 +201,9 @@ export const exportVideo = async (
     if (!manifest.hdr10) throw new Error('An hdr10 render needs the hdr10 block in shaderera.json.')
     if (o.encoder === 'x264')
       throw new Error('x264 encodes H.264: an HDR10 mp4 is HEVC, encoded with x265 or nvenc.')
-    encoder = o.encoder ?? (review && hasHevcNvenc(width, height) ? 'nvenc' : 'x265')
+    encoder = prores
+      ? 'prores'
+      : (o.encoder ?? (review && hasHevcNvenc(width, height) ? 'nvenc' : 'x265'))
     if (encoder === 'nvenc' && !hasHevcNvenc(width, height))
       throw new Error(
         'This ffmpeg cannot encode 10-bit HEVC with NVENC here (no NVIDIA GPU, or no driver for it).',
@@ -263,6 +267,8 @@ export const exportVideo = async (
     if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1, workers)
     const hosts = [child, ...(o.hosts ?? opened)] as [Child, ...Child[]]
     let rendered = o.frames
+    // An hdr10 render's frames: P010 for HEVC, the R'G'B' codes for ProRes.
+    const hdrInput = prores ? 'rgb10' : 'p010'
     if (hdr && !rendered) {
       // What renders of this out that died left of their chunks.
       removePartials(out, '.chunks')
@@ -272,12 +278,12 @@ export const exportVideo = async (
           id: o.revision,
           output: { width, height, fps: manifest.fps, from, to },
         },
-        'p010',
+        hdrInput,
         1,
       )
       const record = await renderChunk(hosts, plan, 0, chunks, o.onFrame, o.signal)
       rendered = {
-        input: 'p010',
+        input: hdrInput,
         count: record.frames,
         read: () => chunkFrames(plan, chunks),
         ...(record.light ? { light: record.light } : {}),
@@ -307,7 +313,12 @@ export const exportVideo = async (
           display: masteringOf((manifest.hdr10 as NonNullable<Manifest['hdr10']>).mastering),
           light: mostLight([
             ...(rendered?.light ? [rendered.light] : []),
-            ...(await prerollLight(child, { ...preroll, from, fps: manifest.fps })),
+            ...(await prerollLight(child, {
+              ...preroll,
+              from,
+              fps: manifest.fps,
+              input: hdrInput,
+            })),
           ]),
         }
       : undefined
@@ -324,10 +335,10 @@ export const exportVideo = async (
           quality: o.quality,
           crf: o.crf,
           audio,
-          input: 'p010',
+          input: hdrInput,
+          ...(prores ? { codec } : { encoder: encoder as HdrEncoder }),
           display: hdr10.display,
           levels: { maxCLL: hdr10.light.maxCll, maxFALL: hdr10.light.maxFall },
-          encoder: encoder as HdrEncoder,
           ...(o.editList === false ? { editList: false } : {}),
           revision: o.revision,
         })
@@ -383,10 +394,13 @@ export const exportVideo = async (
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
     if (hdr10)
-      requireHdr10(out, probed, hdr10.display, {
-        maxCLL: hdr10.light.maxCll,
-        maxFALL: hdr10.light.maxFall,
-      })
+      requireHdr10(
+        out,
+        probed,
+        hdr10.display,
+        { maxCLL: hdr10.light.maxCll, maxFALL: hdr10.light.maxFall },
+        prores ? codec : 'hevc',
+      )
     const loudness = mix.clips.length > 0 ? measureLoudness(partial) : null
     try {
       renameSync(partial, out)
@@ -414,7 +428,7 @@ export const exportVideo = async (
       seconds: (performance.now() - start) / 1000,
       workers: hosts.length,
       encoder,
-      bits: input === 'rgba64' ? 16 : input === 'p010' ? 10 : 8,
+      bits: input === 'rgba64' ? 16 : isHdr(input) ? 10 : 8,
       ...(hdr10 ? { light: hdr10.light } : {}),
       loudness,
       ...(mix.level ? { gainDb: mix.level.gainDb } : {}),
@@ -442,12 +456,18 @@ export const exportVideo = async (
  */
 const prerollLight = async (
   child: Child,
-  o: { frames: number; fill: 'black' | 'source'; from: number; fps: number },
+  o: {
+    frames: number
+    fill: 'black' | 'source'
+    from: number
+    fps: number
+    input: 'p010' | 'rgb10'
+  },
 ): Promise<LightLevels[]> => {
   if (o.fill !== 'source') return []
   const light: LightLevels[] = []
   for (const t of prerollTimes(o)) {
-    const r = await child.render(t, 'final', 'p010')
+    const r = await child.render(t, 'final', o.input)
     if (r.light) light.push(r.light)
   }
   return light
@@ -457,8 +477,9 @@ const prerollLight = async (
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
  * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc|x265] [--no-audio] [--loudness LUFS]
- * [--hdr10]`. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023) of a film whose shaderera.json
- * has `hdr10`, rendered on the GPU through one lossless chunk; a job asks for it when it is made
+ * [--hdr10]`. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023), or a ProRes mov with --format,
+ * of a film whose shaderera.json has `hdr10`, rendered on the GPU through one lossless chunk; a job
+ * asks for it when it is made
  * (`shaderera job --hdr10`).
  * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
  * mix to that integrated loudness by one constant gain; the true peak is reported, never limited. --workers: how many hosts
