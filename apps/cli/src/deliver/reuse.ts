@@ -13,6 +13,7 @@ import {
   makePlan,
   type Plan,
   readPlan,
+  refuseOtherPlan,
   renderChunk,
 } from './chunks.ts'
 
@@ -189,6 +190,7 @@ export const renderReusing = async (
     throw new Error(
       `${oldDir} is the plan this render writes: give the new one its own folder with --plan <dir>.`,
     )
+  refuseOtherPlan(o.dir, job)
   const old = readPlan(oldDir)
   const plan = makePlan(job, inputOf(job, child), 1)
   const looks = (p: Plan) =>

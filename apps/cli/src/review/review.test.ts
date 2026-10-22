@@ -1,13 +1,63 @@
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { createCanvas } from '@napi-rs/canvas'
 import { toSrt, windowCaptions } from '@shaderera/core/host'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import type { Requirements } from '../project/requirements.ts'
 import { shotsOf } from './measure.ts'
-import { readingShort, review, reviewTimes } from './review.ts'
+import { pngWriter, readingShort, review, reviewTimes, toPng } from './review.ts'
+
+test('a film with hdr10 is reviewed in SDR, its HDR10 render reported as numbers', async () => {
+  const hdr10 = {
+    graphicsWhite: 203,
+    mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' as const },
+    dither: 'none' as const,
+  }
+  const project = memoryProject({ hdr10 })
+  const size = { width: 64, height: 36 }
+  // An opaque white frame: every pixel at Graphics White, none above it.
+  const white = () => new Uint8Array(64 * 36 * 4).fill(255)
+  const child = memoryChild({ size, frame: white })
+  const outDir = join(tempDir('review-hdr'), 'review')
+  const r = await review({
+    project,
+    child,
+    outDir,
+    quick: true,
+    hdr: async () => memoryChild({ size, frame: white, hdr: { hdr10, fps: 10 } }),
+  })
+  const check = r.checks.find((c) => c.id === 'hdr10')
+  assert.equal(check?.status, 'info')
+  assert.match(
+    check?.measured ?? '',
+    /MaxCLL 20\d(\.\d+)? cd\/m², .* 0 % of pixels above Graphics White \(203 cd\/m²\)/,
+  )
+  assert.equal(r.diagnostics.hdr10?.length, r.frames.length)
+  assert.ok(r.diagnostics.hdr10?.every((f) => Math.abs(f.maxCll - 203) < 2 && f.aboveWhite === 0))
+  // Without an hdr10 host the light is not known; past the peak it fails.
+  const unknown = await review({ project, child, outDir, quick: true })
+  assert.equal(unknown.checks.find((c) => c.id === 'hdr10')?.status, 'unknown')
+  const dim = { ...hdr10, mastering: { ...hdr10.mastering, peak: 100 } }
+  const over = await review({
+    project,
+    child,
+    outDir,
+    quick: true,
+    hdr: async () => memoryChild({ size, frame: white, hdr: { hdr10: dim, fps: 10 } }),
+  })
+  const failed = over.checks.find((c) => c.id === 'hdr10')
+  assert.equal(failed?.status, 'fail')
+  assert.match(failed?.detail ?? '', /above the mastering display's peak of 100/)
+  // An SDR film has no such check.
+  const sdr = await review({ project: memoryProject(), child, outDir, quick: true })
+  assert.equal(
+    sdr.checks.some((c) => c.id === 'hdr10'),
+    false,
+  )
+})
 
 /** fixtures/mcp's film in memory: a red box that the camera slides left, inspected and pickable. */
 const film = () => {
@@ -185,6 +235,39 @@ test('reading time at 30 fps: samples snapped to frames still make one stretch',
     t,
   }))
   assert.deepEqual(readingShort(runs, sampleT, { min: 1.5, charsPerSecond: 15 }), [])
+})
+
+test('toPng encodes off the main thread to the bytes the synchronous encode made, full and scaled', async () => {
+  const width = 64
+  const height = 36
+  const px = boxFrame(width, height)(0.5).pixels
+  // The encode toPng replaced: toBuffer on the main thread.
+  const before = (max: number) => {
+    const ctx = createCanvas(width, height).getContext('2d')
+    const image = ctx.createImageData(width, height)
+    image.data.set(px)
+    ctx.putImageData(image, 0, 0)
+    if (max >= width) return ctx.canvas.toBuffer('image/png')
+    const small = createCanvas(max, Math.round((height * max) / width)).getContext('2d')
+    small.drawImage(ctx.canvas, 0, 0, small.canvas.width, small.canvas.height)
+    return small.canvas.toBuffer('image/png')
+  }
+  assert.deepEqual(await toPng(px, width, height), before(Infinity))
+  assert.deepEqual(await toPng(px, width, height, 32), before(32))
+})
+
+test("review writes a frame that fits the thumb as its own thumb, and pngWriter throws an encode's error", async () => {
+  const { project, child } = film()
+  const outDir = tempDir('review')
+  try {
+    const r = await review({ project, child, outDir, quick: true })
+    for (const f of r.frames) assert.deepEqual(readFileSync(f.thumb), readFileSync(f.file))
+  } finally {
+    await child.close()
+  }
+  const pngs = pngWriter()
+  await pngs.write(join(outDir, 'x.png'), Promise.reject(new Error('no encode')))
+  await assert.rejects(pngs.done(), /no encode/)
 })
 
 test('captions: measured as info; a declared maxCps fails exactly the caption over it', async () => {

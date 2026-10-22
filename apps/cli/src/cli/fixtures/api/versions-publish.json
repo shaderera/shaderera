@@ -1,0 +1,39 @@
+{
+  "route": "POST /films/{film}/versions",
+  "about": "share: publishes a version once its objects are uploaded: the source in files, the built player in player, the poster and loop by sha256.",
+  "request": {
+    "method": "POST",
+    "path": "/films/2phicdywpg/versions",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "files": {
+        "shaderera.json": "9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf"
+      },
+      "player": {
+        "runner.html": "9db1f12534149477320a8d179546cb00b8d5a7c4c5f81433c5f04387747496d0",
+        "files/shaderera.json": "9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf"
+      },
+      "licence": "MIT",
+      "shaderera": "0.1.5",
+      "poster": "293b9207228b7854bc3ccb2959ebea1583e066d41983124a5b381d6fdf6575f8",
+      "loop": "254637f72efcddb6a545bccbd0c3bb84e6393647deb5fd344de6584ccc1e743c"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "version": "5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+      "film": "2phicdywpg",
+      "page": "https://shaderera.com/film/2phicdywpg",
+      "url": "https://shadererausercontent.com/v/5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188/runner.html"
+    }
+  },
+  "records": ["request.body.files", "request.body.player"],
+  "optional": ["request.body.poster", "request.body.loop", "response.body.url"]
+}

@@ -1,0 +1,24 @@
+{
+  "route": "GET /versions/{version}/revision",
+  "about": "fork: the version's source, path to sha256, without the files/ prefix; each file is fetched with GET /obj/{sha}.",
+  "request": {
+    "method": "GET",
+    "path": "/versions/5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188/revision",
+    "headers": {
+      "Authorization": null
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "version": "5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+      "files": {
+        "shaderera.json": "9dc26888305bf3603f40b574959d7612d3b76e58e6d82c250368521fed599caf"
+      }
+    }
+  },
+  "records": ["response.body.files"]
+}

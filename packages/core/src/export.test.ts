@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { exportFrames } from './export.ts'
+import { exportFrames, NotDeterministic } from './export.ts'
 
 const recorder = () => {
   const log: string[] = []
@@ -63,7 +63,13 @@ test('exportFrames refuses a source whose frames depend on what came before, and
       },
       sink: { ...sink, abort: async () => void log.push('abort') },
     }),
-    /not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
+    (error: unknown) => {
+      // A typed error, so a caller never has to read the message to know what failed.
+      assert.ok(error instanceof NotDeterministic)
+      assert.ok(error.failures.length > 0)
+      assert.match(error.message, /not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/)
+      return true
+    },
   )
   assert.equal(log.length, 11)
   assert.equal(log.at(-1), 'abort')
@@ -109,4 +115,28 @@ test('exportFrames with frames ahead asks in order and writes in order, however 
   assert.deepEqual(asked.slice(0, 6), [0, 1, 2, 3, 4, 5])
   assert.deepEqual(log.slice(0, 6), ['w0', 'w1', 'w2', 'w3', 'w4', 'w5'])
   assert.equal(most, 3)
+})
+
+test('exportFrames with skip writes from the first frame the sink lacks, and re-checks the skipped ones', async () => {
+  const { log, sink } = recorder()
+  const rendered: number[] = []
+  const seen: number[] = []
+  await exportFrames({
+    fps: 10,
+    from: 0,
+    to: 2,
+    render: async (t) => {
+      rendered.push(Math.round(t * 10))
+      return new Uint8Array([Math.round(t * 10)])
+    },
+    sink,
+    skip: 12,
+    onFrame: (i) => seen.push(i),
+  })
+  assert.deepEqual(log, [...Array.from({ length: 8 }, (_, i) => `w${12 + i}`), 'end'])
+  assert.deepEqual(seen, [12, 13, 14, 15, 16, 17, 18, 19])
+  // Frame 0 is always re-checked: rendered once on the way and once more in the re-check.
+  assert.equal(rendered.filter((i) => i === 0).length, 2)
+  // Only the re-checked skipped frames were rendered: at most 8, twice each.
+  assert.ok(rendered.filter((i) => i < 12).length <= 16)
 })

@@ -1,0 +1,25 @@
+{
+  "route": "POST /films",
+  "about": "The first share of a fork: a new film, marked as forked from a version.",
+  "request": {
+    "method": "POST",
+    "path": "/films",
+    "headers": {
+      "Authorization": "Bearer sha_9f2c0e7b4d1a46c8b3e5f7a9c1d3e5f7",
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "title": "neon-rain",
+      "forkedFrom": "835c9d188100815f56b1e51811e07dc8b21a31798474f894b82e391cdffa68b1"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "id": "7kq2mxw9za"
+    }
+  }
+}
