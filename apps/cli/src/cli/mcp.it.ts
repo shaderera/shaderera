@@ -94,6 +94,42 @@ test('the MCP tools render, inspect, compare, pick and read the camera of a fixt
   }
 })
 
+test('render refuses a host on a software adapter unless softwareGpu: true', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = copy('./fixtures/mcp/')
+  // A webgpu whose adapter is Chrome's SwiftShader, as it answers (node/adapter.test.ts), and
+  // gives no device: the Node host then composites on the CPU, as without webgpu.
+  const webgpu = join(root, 'node_modules', 'webgpu')
+  mkdirSync(webgpu, { recursive: true })
+  writeFileSync(join(webgpu, 'package.json'), JSON.stringify({ name: 'webgpu', version: '0.0.0' }))
+  writeFileSync(
+    join(webgpu, 'index.js'),
+    `exports.globals = {}
+exports.create = () => ({
+  requestAdapter: async () => ({
+    info: { vendor: 'google', architecture: 'swiftshader', device: '', description: '', isFallbackAdapter: true },
+    features: new Set(),
+    limits: {},
+    requestDevice: async () => undefined,
+  }),
+})
+`,
+  )
+  const { call, close } = await connect(root)
+  try {
+    await assert.rejects(
+      call('render', { out: 'out/soft.mp4' }),
+      /node host's WebGPU adapter is software, SwiftShader \(google swiftshader\).*Pass softwareGpu: true/,
+    )
+    assert.equal(existsSync(join(root, 'versions')), false)
+    const r = await call('render', { out: 'out/soft.mp4', softwareGpu: true })
+    assert.equal(r.frames, 10)
+  } finally {
+    await close()
+  }
+})
+
 test("one call's camera override never reaches a call made at the same time", async () => {
   const { call, close } = await connect(fixture)
   try {

@@ -83,6 +83,12 @@ ends, per-pixel work on the GPU, a CPU profile before guessing, fewer `check --t
 `render --progress` in the background, `shaderera bake`, and `still --compare` against the
 approved variant before a final.
 
+To share the film on shaderera.com, run `npx shaderera share --dry-run` first: it sends nothing
+and says what a share would send and any limit it would hit. A share sends package.json's
+`license`. A new project has `"license": "UNLICENSED"` (all rights reserved). Ask the person
+which licence they want before changing it, for example to `MIT` so that others may fork the
+film and reuse it.
+
 ## 5. Plugins
 
 Write the film's own code. You may add a **plumbing** plugin that `AUTHORING.md` lists (music

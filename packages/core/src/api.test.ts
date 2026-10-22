@@ -5,6 +5,7 @@ import { test } from 'node:test'
 test('the stable, experimental and internal entries export exactly what docs/api.md lists', async () => {
   const keys = async (entry: string) => Object.keys(await import(entry)).sort()
   assert.deepEqual(await keys('./index.ts'), [
+    'NotDeterministic',
     'checkDeterminism',
     'diffJson',
     'diffPixels',

@@ -7,6 +7,7 @@ import { diffJson, diffPixels, type Json, type Matrices, sha256 } from '@shadere
 import { describeCamera } from '../camera/describe.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { encodePng } from '../deliver/png.ts'
+import { refuseSoftware } from '../node/adapter.ts'
 import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
@@ -159,8 +160,8 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'render',
-    'Like `shaderera render`: writes an mp4 (out: inside the project) with ffmpeg, refusing a source that is not deterministic; returns the file, frame count and seconds. With job (a name from the job tool), renders that frozen job instead of the working tree.',
-    { from: num, to: num, out: str, job: str },
+    'Like `shaderera render`: writes an mp4 (out: inside the project) with ffmpeg, refusing a source that is not deterministic; returns the file, frame count and seconds. With job (a name from the job tool), renders that frozen job instead of the working tree. A host on a software GPU (SwiftShader, llvmpipe, WARP: 10–100× slower) is refused unless softwareGpu: true.',
+    { from: num, to: num, out: str, job: str, softwareGpu: { type: 'boolean' } },
     [],
   ],
   [
@@ -457,13 +458,15 @@ export const createServer = (
           return checkChild(c, manifest, { times: a.times ?? 20, seed: a.seed })
         case 'render': {
           const out = typeof a.out === 'string' ? inside(root, a.out) : undefined
-          if (typeof a.job !== 'string')
+          if (typeof a.job !== 'string') {
+            await refuseSoftware(c, a.softwareGpu === true, 'softwareGpu: true')
             return exportVideo(opened.project, c, {
               from: a.from,
               to: a.to,
               out,
               revision: save(root, { by: 'agent' }).id,
             })
+          }
           const job = readJob(root, a.job)
           if (job.delivery.format === 'png')
             throw new Error(
@@ -473,6 +476,7 @@ export const createServer = (
           const video = videoOptionsOf(job.delivery)
           const frozen = await openJob(root, job)
           try {
+            await refuseSoftware(frozen.child, a.softwareGpu === true, 'softwareGpu: true')
             return await exportVideo(frozen.project, frozen.child, {
               ...video,
               from: job.output.from,
