@@ -494,8 +494,10 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 ## `doctor`
 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
-ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
-amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
+ffprobe, the encoders and filters deliveries use (libx264, aac, libx265, prores_ks, pcm_s24le,
+ebur128, amultiply), NVENC at 1920×1080, Chrome. Its `ffmpeg` item is ffmpeg's version line, and
+`ffmpeg:hdr10` says whether this ffmpeg can make an HDR10 film: that needs ffmpeg 9.0 or later
+(SDR is tested on 8.1.1), and NVIDIA's HEVC encoder, when it works here, makes its reviews. Inside a project: its host, `webgpu`'s version, the
 adapter with every feature and its limits (asked in a child process; for the browser host, the
 adapter Chrome's WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,

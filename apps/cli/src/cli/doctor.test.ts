@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { gpuItem, limitsLine, shareItem, signInItem } from './doctor.ts'
+import { gpuItem, hdr10Item, limitsLine, shareItem, signInItem } from './doctor.ts'
 import { saveToken } from './site.ts'
 
 test('limitsLine names the limits films run into, in MB and pixels', () => {
@@ -111,4 +111,17 @@ test('doctor says whether this machine is signed in, as whom, and whether the pr
   writeFileSync(join(root, 'package.json'), JSON.stringify({}))
   assert.equal(shareItem(root).status, 'warn')
   assert.match(shareItem(root).detail, /no licence/)
+})
+
+test('doctor says whether ffmpeg can make HDR10: 9.0 or later, SDR on older', () => {
+  const old = hdr10Item(
+    'HDR10 needs ffmpeg 9.0 or later (for -mastering_display and -content_light); this is ffmpeg version 8.1.1. SDR renders work on it.',
+    false,
+  )
+  assert.equal(old.status, 'warn')
+  assert.equal(old.needed, false)
+  assert.match(old.fix ?? '', /ffmpeg 9\.0/)
+  const ok = hdr10Item(undefined, true)
+  assert.equal(ok.status, 'ok')
+  assert.match(ok.detail, /ffmpeg 9\.0 or later.*NVIDIA HEVC/)
 })

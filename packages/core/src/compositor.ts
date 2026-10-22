@@ -2,6 +2,7 @@
  * The host's compositor on the GPU (docs/adr/0007): `over` and the depth test as compute
  * passes, then one output pass, read back once. The same rules as `over` (over.ts), in floats.
  */
+import type { Light } from './protocol.ts'
 
 /** A layer as the compositor takes it: on the GPU already, or what it uploads. */
 export type GpuLayer = {
@@ -13,6 +14,8 @@ export type GpuLayer = {
   /** Ignored for a bitmap, canvas or video frame: those are copied premultiplied. */
   alpha: 'premultiplied' | 'straight' | 'opaque'
   depth?: { data: Float32Array; soft?: number }
+  /** The light a float texture carries: read by the HDR compositor (hdr-compositor.ts) only. */
+  light?: Light
 }
 
 /**
@@ -178,45 +181,15 @@ const PARAMS = 32
 const ALPHA = { premultiplied: 0, straight: 1, opaque: 2 } as const
 
 /**
- * A compositor for frames of one size on `device` (the device the host gives the source, so a
- * source's own texture needs no copy). One frame at a time.
+ * What the SDR and HDR compositors share on `device` for frames of one size: buffers, bind groups
+ * and passes, and each layer's texture and depth, kept per layer index across frames.
  */
-export const gpuCompositor = (device: GPUDevice, width: number, height: number) => {
+export const gpuStage = (device: GPUDevice, width: number, height: number) => {
   const pixels = width * height
-  const module = device.createShaderModule({ code: WGSL })
-  const pipeline = (entryPoint: string) =>
-    device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint } })
-  const pipelines = {
-    init: pipeline('init'),
-    layer: pipeline('layer'),
-    rgba: pipeline('rgba'),
-    rgba64: pipeline('rgba64'),
-    yuv: pipeline('yuv'),
-  }
   const buffer = (size: number, usage: number) =>
     device.createBuffer({ size: Math.max(4, Math.ceil(size / 4) * 4), usage })
   const STORAGE = GPUBufferUsage.STORAGE
-  const acc = buffer(pixels * 8, STORAGE)
-  const nearest = buffer(pixels * 4, STORAGE)
   const none = buffer(4, STORAGE)
-  const SIZE = { rgba: pixels * 4, rgba64: pixels * 8, yuv420p: (pixels * 3) / 2 }
-  // The 16-bit pair is made the first time a frame asks for it.
-  const lazy = (make: () => GPUBuffer) => {
-    let b: GPUBuffer | undefined
-    return { get: () => (b ??= make()), destroy: () => b?.destroy() }
-  }
-  const deep = {
-    out: lazy(() => buffer(SIZE.rgba64, STORAGE | GPUBufferUsage.COPY_SRC)),
-    read: lazy(() => buffer(SIZE.rgba64, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)),
-  }
-  const out = {
-    rgba: buffer(pixels * 4, STORAGE | GPUBufferUsage.COPY_SRC),
-    yuv420p: buffer((pixels * 3) / 2, STORAGE | GPUBufferUsage.COPY_SRC),
-  }
-  const read = {
-    rgba: buffer(pixels * 4, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
-    yuv420p: buffer((pixels * 3) / 2, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
-  }
   // Per layer index, kept across frames: its params, an upload texture, a depth buffer.
   const params: GPUBuffer[] = []
   const uploads: GPUTexture[] = []
@@ -225,17 +198,11 @@ export const gpuCompositor = (device: GPUDevice, width: number, height: number) 
     list[i] ??= make()
     return list[i] as T
   }
-  const paramsOf = (i: number, o: { alpha: number; srgb: boolean; depth?: number }) => {
-    const b = at(params, i, () => buffer(PARAMS, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST))
-    const data = new ArrayBuffer(PARAMS)
-    new Uint32Array(data, 0, 5).set([
-      width,
-      height,
-      o.alpha,
-      o.srgb ? 1 : 0,
-      o.depth === undefined ? 0 : 1,
-    ])
-    new Float32Array(data, 20, 1)[0] = o.depth ?? 0
+  /** Params slot `i`: a uniform buffer holding `data`. */
+  const paramsAt = (i: number, data: ArrayBuffer) => {
+    const b = at(params, i, () =>
+      buffer(data.byteLength, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
+    )
     device.queue.writeBuffer(b, 0, data)
     return b
   }
@@ -250,11 +217,12 @@ export const gpuCompositor = (device: GPUDevice, width: number, height: number) 
     group: GPUBindGroup,
     x: number,
     y: number,
+    size = 8,
   ) => {
     const c = e.beginComputePass()
     c.setPipeline(p)
     c.setBindGroup(0, group)
-    c.dispatchWorkgroups(Math.ceil(x / 8), Math.ceil(y / 8))
+    c.dispatchWorkgroups(Math.ceil(x / size), Math.ceil(y / size))
     c.end()
   }
   const upload = (i: number) =>
@@ -306,6 +274,91 @@ export const gpuCompositor = (device: GPUDevice, width: number, height: number) 
       throw new Error('A GPUTexture layer needs TEXTURE_BINDING in its usage.')
     return [color, layer.alpha]
   }
+  /** The layer's depth on the GPU, or an empty buffer when it has none. */
+  const depthOf = (layer: GpuLayer, i: number) => {
+    if (!layer.depth) return none
+    if (layer.depth.data.length !== pixels)
+      throw new Error(
+        `A layer's depth has ${layer.depth.data.length} values; ${width}x${height} needs ${pixels}.`,
+      )
+    const depth = at(depths, i, () => buffer(pixels * 4, STORAGE | GPUBufferUsage.COPY_DST))
+    device.queue.writeBuffer(depth, 0, layer.depth.data as Float32Array<ArrayBuffer>)
+    return depth
+  }
+  /** Copies `target` to `staging`, submits the encoder, and reads back the first `size` bytes. */
+  const readBack = async (
+    e: GPUCommandEncoder,
+    target: GPUBuffer,
+    staging: GPUBuffer,
+    size: number,
+  ) => {
+    e.copyBufferToBuffer(target, 0, staging, 0, target.size)
+    device.queue.submit([e.finish()])
+    await staging.mapAsync(GPUMapMode.READ)
+    try {
+      return new Uint8Array(staging.getMappedRange(), 0, size).slice()
+    } finally {
+      staging.unmap()
+    }
+  }
+  const destroy = () => {
+    // Sparse: a layer index has an upload or a depth buffer only if a layer there needed one.
+    for (const b of [none, ...params, ...depths]) b?.destroy()
+    for (const t of uploads) t?.destroy()
+  }
+  return { pixels, buffer, paramsAt, bind, pass, textureOf, depthOf, readBack, destroy }
+}
+
+/**
+ * A compositor for frames of one size on `device` (the device the host gives the source, so a
+ * source's own texture needs no copy). One frame at a time.
+ */
+export const gpuCompositor = (device: GPUDevice, width: number, height: number) => {
+  const stage = gpuStage(device, width, height)
+  const { pixels, buffer, bind, pass } = stage
+  const module = device.createShaderModule({ code: WGSL })
+  const pipeline = (entryPoint: string) =>
+    device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint } })
+  const pipelines = {
+    init: pipeline('init'),
+    layer: pipeline('layer'),
+    rgba: pipeline('rgba'),
+    rgba64: pipeline('rgba64'),
+    yuv: pipeline('yuv'),
+  }
+  const STORAGE = GPUBufferUsage.STORAGE
+  const acc = buffer(pixels * 8, STORAGE)
+  const nearest = buffer(pixels * 4, STORAGE)
+  const SIZE = { rgba: pixels * 4, rgba64: pixels * 8, yuv420p: (pixels * 3) / 2 }
+  // The 16-bit pair is made the first time a frame asks for it.
+  const lazy = (make: () => GPUBuffer) => {
+    let b: GPUBuffer | undefined
+    return { get: () => (b ??= make()), destroy: () => b?.destroy() }
+  }
+  const deep = {
+    out: lazy(() => buffer(SIZE.rgba64, STORAGE | GPUBufferUsage.COPY_SRC)),
+    read: lazy(() => buffer(SIZE.rgba64, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ)),
+  }
+  const out = {
+    rgba: buffer(pixels * 4, STORAGE | GPUBufferUsage.COPY_SRC),
+    yuv420p: buffer((pixels * 3) / 2, STORAGE | GPUBufferUsage.COPY_SRC),
+  }
+  const read = {
+    rgba: buffer(pixels * 4, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
+    yuv420p: buffer((pixels * 3) / 2, GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ),
+  }
+  const paramsOf = (i: number, o: { alpha: number; srgb: boolean; depth?: number }) => {
+    const data = new ArrayBuffer(PARAMS)
+    new Uint32Array(data, 0, 5).set([
+      width,
+      height,
+      o.alpha,
+      o.srgb ? 1 : 0,
+      o.depth === undefined ? 0 : 1,
+    ])
+    new Float32Array(data, 20, 1)[0] = o.depth ?? 0
+    return stage.paramsAt(i, data)
+  }
 
   /** Composites `layers` bottom to top and reads the output back. */
   const composite = async (layers: readonly GpuLayer[], output: GpuOutput): Promise<Uint8Array> => {
@@ -327,16 +380,8 @@ export const gpuCompositor = (device: GPUDevice, width: number, height: number) 
       height,
     )
     for (const [i, layer] of layers.entries()) {
-      const [texture, alpha] = textureOf(layer, i)
-      let depth = none
-      if (layer.depth) {
-        if (layer.depth.data.length !== pixels)
-          throw new Error(
-            `A layer's depth has ${layer.depth.data.length} values; ${width}x${height} needs ${pixels}.`,
-          )
-        depth = at(depths, i, () => buffer(pixels * 4, STORAGE | GPUBufferUsage.COPY_DST))
-        device.queue.writeBuffer(depth, 0, layer.depth.data as Float32Array<ArrayBuffer>)
-      }
+      const [texture, alpha] = stage.textureOf(layer, i)
+      const depth = stage.depthOf(layer, i)
       const p = paramsOf(i + 1, {
         alpha: ALPHA[alpha],
         srgb: texture.format.endsWith('-srgb'),
@@ -366,33 +411,14 @@ export const gpuCompositor = (device: GPUDevice, width: number, height: number) 
     ])
     if (output === 'yuv420p') pass(e, pipe, group, width / 8, height / 2)
     else pass(e, pipe, group, width, height)
-    const size = SIZE[output]
-    e.copyBufferToBuffer(target, 0, staging, 0, staging.size)
-    device.queue.submit([e.finish()])
-    await staging.mapAsync(GPUMapMode.READ)
-    try {
-      return new Uint8Array(staging.getMappedRange(), 0, size).slice()
-    } finally {
-      staging.unmap()
-    }
+    return stage.readBack(e, target, staging, SIZE[output])
   }
 
   const destroy = () => {
-    for (const b of [
-      acc,
-      nearest,
-      none,
-      out.rgba,
-      out.yuv420p,
-      read.rgba,
-      read.yuv420p,
-      ...params,
-      ...depths,
-    ])
-      b.destroy()
+    for (const b of [acc, nearest, out.rgba, out.yuv420p, read.rgba, read.yuv420p]) b.destroy()
     deep.out.destroy()
     deep.read.destroy()
-    for (const t of uploads) t.destroy()
+    stage.destroy()
   }
   return { width, height, composite, destroy }
 }

@@ -475,7 +475,19 @@ no scene-linear light in it to put in an EXR.
 - ffmpeg 9.0 is needed only for an HDR10 film (SDR stays tested on 8.1.1);
 - films that do not opt in do not change.
 
-Until it is built, what follows holds.
+So far the manifest's `hdr10` block, `host.range` and a layer's `light` exist
+([protocol.md](protocol.md#hdr10)): they are checked, and an SDR render refuses a layer with
+light. An `hdr10` range composites in HDR in both hosts:
+- `over` in linear BT.2020 light in 32-bit floats, then PQ and 10-bit R'G'B' codes, dithered
+  (TPDF, seeded by the frame index, never on black) when `dither` is `tpdf`;
+- P010 from those codes, held to a float64 reference: on this repository's test fixture no sample
+  differs;
+- MaxCLL and MaxFALL measured on the GPU from the codes, each pixel's brightest channel in
+  cd/m²;
+- a frame whose light passes the mastering display's peak fails, naming the frame and its cd/m²:
+  it is never clipped.
+
+No command renders or encodes HDR10 yet; until one does, what follows holds.
 
 What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
 channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance
