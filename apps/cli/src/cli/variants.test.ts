@@ -88,16 +88,17 @@ test('eachVariant: one variant runs as given; several run at once, grouped, tagg
   const json = await eachVariant(
     { root, variant: '16:9,9:16' },
     async (flags, out) => {
-      out.result({ size: flags.variant === '9:16' ? [1080, 1920] : [1920, 1080] })
+      if (flags.variant === '9:16') throw new Error('it broke')
+      out.result({ size: [1920, 1080] })
       return EXIT.ok
     },
     { json: true },
   )
-  assert.equal(json, EXIT.ok)
+  assert.equal(json, EXIT.error)
   assert.deepEqual(JSON.parse(lines.join('\n')), {
     variants: [
       { variant: '16:9', size: [1920, 1080] },
-      { variant: '9:16', size: [1080, 1920] },
+      { variant: '9:16', error: 'it broke' },
     ],
   })
   await assert.rejects(
