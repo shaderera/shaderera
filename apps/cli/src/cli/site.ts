@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { shadereraVersion } from '../deliver/environment.ts'
 import { isOrigin } from '../player/parents.ts'
 
 /**
@@ -126,9 +127,29 @@ export const firstLine = (text: string): string => {
 }
 
 /**
+ * The User-Agent of every request to the films API: `shaderera/<version>`, which the API reads to
+ * answer 426 to a CLI older than it serves. GitHub's device flow keeps its own.
+ */
+export const userAgent = (): string => `shaderera/${shadereraVersion()}`
+
+/**
+ * What a 426 (`{ error, minimum }`) says, in one line: this CLI is too old for `api`, and the
+ * version to update to (the latest when it names no `minimum`).
+ */
+const tooOld = (api: string, text: string): string => {
+  let body: { error?: unknown; minimum?: unknown } = {}
+  try {
+    body = JSON.parse(text) ?? {}
+  } catch {}
+  const at = typeof body.minimum === 'string' ? `${body.minimum} or later` : 'the latest'
+  return `shaderera ${shadereraVersion()} is too old for ${api}: update to ${at} (npx shaderera@latest …)`
+}
+
+/**
  * One call to the films API (`/api/v1/...`): JSON in and out, or bytes. The token, when given,
  * goes in the Authorization header and nowhere else; an error names the call, the status and the
- * API's own message (an answer that is not JSON: its first line).
+ * API's own message (an answer that is not JSON: its first line). A 426 says only that this CLI
+ * is too old, and what to update to.
  */
 export const call = async (
   api: string,
@@ -136,7 +157,7 @@ export const call = async (
   path: string,
   o: { token?: string; json?: unknown; bytes?: Uint8Array } = {},
 ): Promise<Response> => {
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { 'User-Agent': userAgent() }
   if (o.token) headers.Authorization = `Bearer ${o.token}`
   if (o.json !== undefined) headers['Content-Type'] = 'application/json'
   if (o.bytes) headers['Content-Type'] = 'application/octet-stream'
@@ -153,6 +174,7 @@ export const call = async (
   }
   if (r.ok) return r
   const text = await r.text()
+  if (r.status === 426) throw new Error(tooOld(api, text))
   let message: string
   try {
     const error = (JSON.parse(text) as { error?: unknown }).error
@@ -200,7 +222,10 @@ export const healthOf = async (
   const none = (error: string) => ({ parents: [], limits: {}, error })
   let r: Response
   try {
-    r = await fetch(`${api}/api/v1/films/health`, { signal: AbortSignal.timeout(10_000) })
+    r = await fetch(`${api}/api/v1/films/health`, {
+      headers: { 'User-Agent': userAgent() },
+      signal: AbortSignal.timeout(10_000),
+    })
   } catch (e) {
     const name = (e as Error).name
     return none(
@@ -208,6 +233,7 @@ export const healthOf = async (
     )
   }
   const text = await r.text().catch(() => '')
+  if (r.status === 426) return none(tooOld(api, text))
   if (!r.ok) return none(`it answered ${r.status} ${firstLine(text)}`.trim())
   let body: { parents?: unknown; limits?: unknown }
   try {

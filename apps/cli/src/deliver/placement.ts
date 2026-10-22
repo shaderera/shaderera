@@ -44,11 +44,32 @@ export type Placement = {
   loudness?: { integrated?: number; tolerance?: number; maxTruePeak?: number }
   /** `false`: the file must have no edit list (render with --no-edit-list). */
   editList?: false
+  /**
+   * ffprobe's transfer names accepted: `smpte2084` (PQ), `arib-std-b67` (HLG), `bt709`. An HDR
+   * placement takes an HDR10 render (`--hdr10`, decision 0023).
+   */
+  transfer?: string[]
+  /** Bits a sample accepted, from the decoded pixel format: 8, 10, 12. */
+  bitDepth?: number[]
+  /**
+   * `required`: the HDR10 metadata, the mastering display (SMPTE ST 2086) and MaxCLL/MaxFALL
+   * (CTA-861.3), in the container's `mdcv`/`clli` boxes and, for HEVC, the first frame's SEI.
+   */
+  hdrMetadata?: 'required'
   /** Text margins, as fractions: review's text-fit judges against them for this output. */
   safeArea?: Margins
 }
 
 const mb = (bits: number) => `${(bits / 1e6).toFixed(2)} Mb/s`
+
+/** Bits a sample of a decoded pixel format: `yuv420p10le` 10, `p010le` 10, `yuv444p12le` 12, else 8. */
+export const bitDepthOf = (pixFmt: string): number => {
+  const m = /p(\d\d?)(?:le|be)$/.exec(pixFmt) ?? /^p0(\d\d)/.exec(pixFmt)
+  return m ? Number(m[1]) : 8
+}
+
+/** The transfers an HDR10 render makes: what `--hdr10` fixes. */
+const HDR_TRANSFERS = new Set(['smpte2084', 'arib-std-b67'])
 
 /**
  * The file against a placement: one line per declared rule it breaks, and one line of what was
@@ -123,6 +144,22 @@ export const checkPlacement = (
     }
   }
   if (p.editList === false && probe.editList) f.push('an edit list (--no-edit-list)')
+  const transfer = v?.color?.transfer ?? 'untagged'
+  const hdr = p.transfer?.some((t) => HDR_TRANSFERS.has(t)) ? ' (--hdr10)' : ''
+  if (p.transfer && !p.transfer.includes(transfer))
+    f.push(`transfer ${transfer}, not ${p.transfer.join(' or ')}${hdr}`)
+  const depth = v ? bitDepthOf(v.pixFmt) : undefined
+  if (p.bitDepth && !(depth && p.bitDepth.includes(depth)))
+    f.push(`${depth ?? 'no'}-bit video, not ${p.bitDepth.join(' or ')}${depth === 8 ? hdr : ''}`)
+  if (p.hdrMetadata === 'required') {
+    const h = v?.hdr10
+    const missing = [
+      ...(h?.mastering ? [] : ['mastering display (mdcv)']),
+      ...(h?.light ? [] : ['MaxCLL/MaxFALL (clli)']),
+      ...(v?.codec === 'hevc' && !(h?.sei?.mastering && h.sei.light) ? ['the stream’s SEI'] : []),
+    ]
+    if (missing.length) f.push(`no HDR10 metadata: ${missing.join(', ')}${h ? '' : hdr}`)
+  }
   const measured = [
     container,
     v ? `${v.codec} ${v.width}×${v.height} ${Number(v.fps.toFixed(3))} fps` : 'no video',
@@ -132,6 +169,14 @@ export const checkPlacement = (
     a ? `${a.codec} ${a.sampleRate} Hz ${a.channels} ch` : 'no audio',
     ...(loudness && a ? [`${loudness.integrated.toFixed(1)} LUFS`] : []),
     probe.editList ? 'edit list' : 'no edit list',
+    ...(v?.color?.transfer && HDR_TRANSFERS.has(v.color.transfer)
+      ? [
+          `${bitDepthOf(v.pixFmt)}-bit ${v.color.transfer}` +
+            (v.hdr10?.light
+              ? `, MaxCLL ${v.hdr10.light.maxCLL} / MaxFALL ${v.hdr10.light.maxFALL} cd/m²`
+              : ''),
+        ]
+      : []),
   ].join(', ')
   return { failures: f, measured }
 }
