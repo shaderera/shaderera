@@ -53,6 +53,11 @@ The commands that render the source (`check`, `inspect`, `still`, `render`, `rev
 The project's own console output goes to stderr, so stdout carries only the command's result. Set
 `SHADERERA_DEBUG=1` to print a full error with its stack.
 
+While `render`, `render --chunk` or `assemble` hands frames to ffmpeg, an ffmpeg that exits
+before the last frame (even with 0, as it does when it runs out of memory reading its input) fails
+the command with its last lines, and one that reads nothing for 300 seconds while a frame waits
+fails it as stalled. `SHADERERA_FFMPEG_STALL` sets those seconds.
+
 ## Required plugins
 
 Every command that finds a project reads its `shaderera.item.json`, if it has one. When the

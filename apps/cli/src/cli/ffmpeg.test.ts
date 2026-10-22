@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   bitsPerSecond,
+  FfmpegError,
   ffmpegArgs,
   ffmpegSink,
   hasEditList,
@@ -102,6 +103,65 @@ test('an ffmpeg that exits early fails the write, and the process stays up', {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// A fake ffmpeg: node running `script`, which never reads its stdin, so a 8 MB frame waits for drain.
+const fake = (script: string, stall?: number) =>
+  ffmpegSink([], 'rgba', false, {
+    command: [process.execPath, '-e', script],
+    ...(stall ? { stall } : {}),
+  })
+const frame = new Uint8Array(8 << 20)
+
+test('an ffmpeg that exits 0 while a write waits for drain fails it at once, quoting its stderr', async () => {
+  const sink = fake(
+    "process.stderr.write('[in#0/rawvideo] Error during demuxing: Cannot allocate memory\\n'); setTimeout(() => process.exit(0), 100)",
+  )
+  const start = performance.now()
+  await assert.rejects(
+    async () => {
+      for (;;) await sink.write(frame)
+    },
+    (e: unknown) =>
+      e instanceof FfmpegError &&
+      e.reason === 'exit' &&
+      e.code === 0 &&
+      /exited with 0 while frames were still coming/.test(e.message) &&
+      /Cannot allocate memory/.test(e.message),
+  )
+  assert.ok(performance.now() - start < 1000)
+  // A later write fails too, never waits.
+  await assert.rejects(sink.write(frame), FfmpegError)
+  await sink.abort?.()
+})
+
+test('an ffmpeg that stops reading fails the write after the watchdog, naming the stall', async () => {
+  const sink = fake('setInterval(() => {}, 1000)', 0.5)
+  const start = performance.now()
+  await assert.rejects(
+    async () => {
+      for (;;) await sink.write(frame)
+    },
+    (e: unknown) =>
+      e instanceof FfmpegError &&
+      e.reason === 'stall' &&
+      /read nothing for 0.5 s .* stalled/.test(e.message),
+  )
+  assert.ok(performance.now() - start < 1000)
+  await sink.abort?.()
+})
+
+test('an exit code is printed signed', async () => {
+  const sink = fake('process.exit(-1)')
+  await assert.rejects(
+    async () => {
+      for (;;) await sink.write(frame)
+    },
+    (e: unknown) =>
+      e instanceof FfmpegError &&
+      e.code === (process.platform === 'win32' ? -1 : 255) &&
+      !/4294967295/.test(e.message),
+  )
 })
 
 test('a file that ffmpeg finished short, exiting 0, is told from the film', {
