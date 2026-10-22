@@ -79,3 +79,21 @@ test('the child renders deterministically and cannot write or spawn', async () =
   }
   assert.ok(!existsSync(join(tiny, 'x.txt')))
 })
+
+test('the child opens an hdr10 range only for a film with hdr10, and never on Skia', async () => {
+  const project = await findProject(tiny)
+  const entryFile = await buildForNode(project)
+  await assert.rejects(
+    openChild(project, { entryFile, range: 'hdr10' }),
+    /An hdr10 render needs the hdr10 block in shaderera\.json/,
+  )
+  // tiny installs no `webgpu`: the Node host composites with Skia, in SDR only.
+  const hdr10 = { mastering: { peak: 1000, min: 0.005, primaries: 'p3-d65' }, dither: 'none' }
+  await assert.rejects(
+    openChild(
+      { ...project, manifest: { ...project.manifest, hdr10 } as typeof project.manifest },
+      { entryFile, range: 'hdr10' },
+    ),
+    /needs a GPUDevice in every host, and this one has none: .*Skia path is SDR only/,
+  )
+})

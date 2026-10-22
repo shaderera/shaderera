@@ -68,6 +68,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       requirements,
       quick: v.quick === true,
       reopen: async (size) => (await open(v, size)).child,
+      // A film with hdr10: its HDR10 render's light, as numbers.
+      ...(project.manifest.hdr10
+        ? { hdr: async () => (await open({ ...v, hdr10: true })).child }
+        : {}),
     })
     if (v.json) console.log(JSON.stringify(r, null, 2))
     else {

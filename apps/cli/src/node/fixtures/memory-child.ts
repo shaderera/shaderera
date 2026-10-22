@@ -1,8 +1,29 @@
 // A third Child adapter, for tests: it runs in this process, with no build, host process or
 // browser. The contract suite (node/contract.it.ts) holds it to what the Node and browser hosts
 // do; tests of logic that only needs a Child (export, finishing, check, review, delivery) use it.
-import type { Caption, Json, Layer, Manifest, Matrices, Pick, SampledClip } from '@shaderera/core'
-import { finalOnly, type GpuOutput, yuvFits } from '@shaderera/core/host'
+import {
+  type Caption,
+  frameAt,
+  type Hdr10,
+  type Json,
+  type Layer,
+  type Manifest,
+  type Matrices,
+  type Pick,
+  type SampledClip,
+} from '@shaderera/core'
+import {
+  CODE_LIGHT,
+  finalOnly,
+  type GpuOutput,
+  type HdrOutput,
+  lightReference,
+  p010Fits,
+  p010Reference,
+  peakCode,
+  rgb10Reference,
+  yuvFits,
+} from '@shaderera/core/host'
 import { tempDir } from '../../fixtures/temp.ts'
 import type { TextRun } from '../../review/measure.ts'
 import type { Child, ClockReads, HostIdentity, Rendered } from '../child.ts'
@@ -37,6 +58,12 @@ export type MemoryChildOptions = {
    * without `webgpu`, which gives RGBA only.
    */
   gpu?: boolean
+  /**
+   * The source opened in an hdr10 range (decision 0023), with the manifest's `hdr10` and rate:
+   * each frame is an SDR layer of the HDR compositor's float64 reference, out as `rgb10` or `p010`
+   * with its light levels (`has.p010`); an SDR format is refused, and so is a frame past the peak.
+   */
+  hdr?: { hdr10: Hdr10; fps: number }
   identity?: HostIdentity
 }
 
@@ -44,6 +71,7 @@ export type MemoryChildOptions = {
 export const memoryChild = (o: MemoryChildOptions): Child => {
   const { width, height } = o.size
   const gpu = o.gpu ?? true
+  const hdr = o.hdr
   let closed = false
   let override: Matrices | null = null
   const open = () => {
@@ -61,26 +89,61 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
       pick: o.pick !== undefined,
       camera: o.camera !== undefined,
       sequential: false,
-      yuv: gpu && yuvFits(width, height),
-      deep: gpu,
+      yuv: !hdr && gpu && yuvFits(width, height),
+      deep: !hdr && gpu,
+      p010: !!hdr,
     },
-    render: call((t: number, intent: 'preview' | 'final', format: GpuOutput = 'rgba') => {
-      const made = o.frame?.(t, intent) ?? new Uint8Array(width * height * 4)
-      const { pixels, layers } =
-        made instanceof Uint8Array ? { pixels: made, layers: [{ name: 'frame' }] } : made
-      finalOnly(layers as unknown as Layer[], intent, t)
-      if (pixels.length !== width * height * 4)
-        throw new Error(`The frame at t=${t} is ${pixels.length} bytes, not ${width}×${height}×4.`)
-      if (format !== 'rgba' && !gpu)
-        throw new Error(`${format} is made on the GPU: this project has no \`webgpu\` (Dawn).`)
-      const out =
-        format === 'yuv420p'
-          ? toYuv420p(pixels, width, height)
-          : format === 'rgba64'
-            ? toRgba64(pixels)
-            : new Uint8Array(pixels)
-      return { pixels: out, layers: layers.map((l) => ({ ...l })) }
-    }),
+    render: call(
+      (t: number, intent: 'preview' | 'final', format: GpuOutput | HdrOutput = 'rgba') => {
+        const made = o.frame?.(t, intent) ?? new Uint8Array(width * height * 4)
+        const { pixels, layers } =
+          made instanceof Uint8Array ? { pixels: made, layers: [{ name: 'frame' }] } : made
+        finalOnly(layers as unknown as Layer[], intent, t)
+        if (pixels.length !== width * height * 4)
+          throw new Error(
+            `The frame at t=${t} is ${pixels.length} bytes, not ${width}×${height}×4.`,
+          )
+        if (hdr) {
+          if (format !== 'rgb10' && format !== 'p010')
+            throw new Error(
+              `An hdr10 render comes out as rgb10 or p010, not ${format}: nothing of it is composited in SDR.`,
+            )
+          if (format === 'p010' && !p010Fits(width, height))
+            throw new Error(`p010 needs an even width and height, not ${width}x${height}.`)
+          const frame = frameAt(t, hdr.fps)
+          const codes = rgb10Reference(
+            [{ data: new Uint8Array(pixels), alpha: 'straight' }],
+            width,
+            height,
+            hdr.hdr10,
+            frame,
+          )
+          const light = lightReference(codes)
+          const { peak } = hdr.hdr10.mastering
+          if (light.maxCll > (CODE_LIGHT[peakCode(peak)] as number))
+            throw new Error(
+              `Frame ${frame} reaches ${Math.round(light.maxCll)} cd/m², above the mastering display's peak of ${peak} cd/m² (hdr10.mastering.peak).`,
+            )
+          const out = format === 'p010' ? p010Reference(codes, width, height) : codes
+          return {
+            pixels: new Uint8Array(out.buffer),
+            layers: layers.map((l) => ({ ...l })),
+            light,
+          }
+        }
+        if (format === 'rgb10' || format === 'p010')
+          throw new Error(`${format} comes from an hdr10 render; this one is SDR.`)
+        if (format !== 'rgba' && !gpu)
+          throw new Error(`${format} is made on the GPU: this project has no \`webgpu\` (Dawn).`)
+        const out =
+          format === 'yuv420p'
+            ? toYuv420p(pixels, width, height)
+            : format === 'rgba64'
+              ? toRgba64(pixels)
+              : new Uint8Array(pixels)
+        return { pixels: out, layers: layers.map((l) => ({ ...l })) }
+      },
+    ),
     inspect: call((t: number) => o.inspect?.(t) ?? null),
     pick: call((t: number, x: number, y: number) => o.pick?.(t, x, y) ?? null),
     camera: call((t: number) => override ?? o.camera?.(t) ?? null),

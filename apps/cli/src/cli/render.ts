@@ -2,8 +2,16 @@ import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes, type Manifest, type Sink } from '@shaderera/core'
-import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
-import { readPlan, renderChunk } from '../deliver/chunks.ts'
+import { type LightLevels, toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
+import {
+  chunkFrames,
+  type FrameInput,
+  isHdr,
+  makePlan,
+  mostLight,
+  readPlan,
+  renderChunk,
+} from '../deliver/chunks.ts'
 import { removePartials } from '../deliver/claim.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
@@ -15,6 +23,7 @@ import type { Project } from '../node/project.ts'
 import { findProject } from '../node/project.ts'
 import { retriesOf, withRetries } from '../node/retry.ts'
 import {
+  checkHdr10Delivery,
   DELIVERY_FLAGS,
   deliveryOf,
   openJob,
@@ -36,10 +45,14 @@ import {
   ffmpegArgs,
   ffmpegSink,
   forgetNvenc,
+  type HdrEncoder,
+  hasHevcNvenc,
   hasNvenc,
+  hdr10Args,
   type Input,
   type Loudness,
   loudnessLine,
+  masteringOf,
   measureLoudness,
   type Probe,
   probe,
@@ -47,10 +60,12 @@ import {
   type Quality,
   requireFfmpeg,
   requireFrames,
+  requireHdr10,
+  requireHdr10Ffmpeg,
 } from './ffmpeg.ts'
 import { found } from './findings.ts'
 import { openMix } from './mix.ts'
-import { blackFrame, fileTimecode, prerollOf, writePreroll } from './preroll.ts'
+import { blackFrame, fileTimecode, prerollOf, prerollTimes, writePreroll } from './preroll.ts'
 
 /**
  * How many hosts an export uses by default (decision 0007): up to 4, two cores left free, at
@@ -99,6 +114,12 @@ export const checkVideoOptions = (o: VideoOptions) => {
  * (`child` and ones `more` opens) and written in order; the hosts `more` opened are closed here. A
  * host that composites on the GPU hands ffmpeg yuv420p for H.264 and 16-bit RGBA for ProRes.
  * A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file.
+ *
+ * Hosts that render `hdr10` (`has.p010`, decision 0023) make an HDR10 mp4 (HEVC Main 10 from P010)
+ * or mov (ProRes from the R'G'B' codes) with the manifest's mastering display and the light levels
+ * measured from every frame. The levels are known
+ * only after the last frame, so the frames go first into one lossless chunk beside the file
+ * (`<out>.<pid>.chunks/`, removed after) and are encoded once from it, as `assemble` encodes a plan.
  */
 const exportOnce = async (
   { root, manifest }: Project,
@@ -117,17 +138,26 @@ const exportOnce = async (
      * round them instead of `workers` from `more`, and the caller closes them.
      */
     hosts?: readonly Child[]
-    /** By default NVENC for a review where this machine has it, x264 for a master or without. */
-    encoder?: Encoder
+    /**
+     * By default NVENC for a review where this machine has it, x264 for a master or without; for
+     * HDR10, NVIDIA's HEVC for a review where it works here, x265 for a master or without.
+     */
+    encoder?: Encoder | HdrEncoder
     /** `false`: no audio stream, whatever the source's clips (a silent DOOH placement, say). */
     audio?: boolean
     /** A loudness to bring the mix to, in LUFS integrated, by one constant gain (openMix). */
     loudness?: number
     /**
      * Frames rendered already (a plan's chunks), in order and in this input format: encoded as
-     * they are instead of rendered here. `child` still gives the sound and the captions.
+     * they are instead of rendered here. `child` still gives the sound and the captions. P010
+     * frames come with their chunks' light levels, the most of each.
      */
-    frames?: { input: Input; count: number; read: () => AsyncIterable<Uint8Array> }
+    frames?: {
+      input: FrameInput
+      count: number
+      read: () => AsyncIterable<Uint8Array>
+      light?: LightLevels
+    }
     /** Stops the render between frames (Ctrl-C): it fails as any other error does. */
     signal?: AbortSignal
     /** The revision that made the film, tagged on the file (`shaderera_revision`). */
@@ -138,10 +168,15 @@ const exportOnce = async (
   frames: number
   seconds: number
   workers: number
-  /** `x264`, `nvenc`, or `prores` for a mov. */
-  encoder: Encoder | 'prores'
-  /** Bits a channel the frames reached the encoder with: 16 from the GPU compositor for ProRes. */
-  bits: 8 | 16
+  /** `x264`, `nvenc`, or `prores` for a mov; `x265` or `nvenc` (HEVC) for HDR10. */
+  encoder: Encoder | HdrEncoder | 'prores'
+  /**
+   * Bits a channel the frames reached the encoder with: 16 from the GPU compositor for ProRes, 10
+   * for HDR10.
+   */
+  bits: 8 | 10 | 16
+  /** An HDR10 file's light levels as measured (cd/m²), before `-content_light` rounds them up. */
+  light?: LightLevels
   /** The file's audio, measured (EBU R128); null without audio. */
   loudness: Loudness | null
   /** The constant gain a requested loudness applied, in dB. */
@@ -158,16 +193,35 @@ const exportOnce = async (
   checkVideoOptions(o)
   const codec = o.codec ?? 'h264'
   const prores = codec !== 'h264'
-  const encoder = prores
-    ? 'prores'
-    : (o.encoder ??
-      ((o.quality ?? 'review') === 'review' && (await hasNvenc(manifest.width, manifest.height))
-        ? 'nvenc'
-        : 'x264'))
-  if (encoder === 'nvenc' && !(await hasNvenc(manifest.width, manifest.height)))
-    throw new Error(
-      'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
-    )
+  // The hosts render hdr10, or the frames rendered already are an hdr10 render's.
+  const hdr = o.frames ? isHdr(o.frames.input) : child.has.p010 === true
+  const review = (o.quality ?? 'review') === 'review'
+  const { width, height } = manifest
+  let encoder: Encoder | HdrEncoder | 'prores'
+  if (hdr) {
+    checkHdr10Delivery({ format: prores ? codec : 'mp4', bitrate: o.bitrate, maxrate: o.maxrate })
+    requireHdr10Ffmpeg()
+    if (!manifest.hdr10) throw new Error('An hdr10 render needs the hdr10 block in shaderera.json.')
+    if (o.encoder === 'x264')
+      throw new Error('x264 encodes H.264: an HDR10 mp4 is HEVC, encoded with x265 or nvenc.')
+    encoder = prores
+      ? 'prores'
+      : (o.encoder ?? (review && hasHevcNvenc(width, height) ? 'nvenc' : 'x265'))
+    if (encoder === 'nvenc' && !hasHevcNvenc(width, height))
+      throw new Error(
+        'This ffmpeg cannot encode 10-bit HEVC with NVENC here (no NVIDIA GPU, or no driver for it).',
+      )
+  } else {
+    if (o.encoder === 'x265' || o.encoder === 'videotoolbox')
+      throw new Error(`${o.encoder} encodes HEVC for HDR10 (--hdr10); an SDR mp4 is H.264.`)
+    encoder = prores
+      ? 'prores'
+      : (o.encoder ?? (review && (await hasNvenc(width, height)) ? 'nvenc' : 'x264'))
+    if (encoder === 'nvenc' && !(await hasNvenc(width, height)))
+      throw new Error(
+        'This ffmpeg cannot encode with NVENC here (no NVIDIA GPU, or no driver for it).',
+      )
+  }
   requireFfmpeg()
   const from = o.from ?? 0
   const to = o.to ?? manifest.duration
@@ -210,12 +264,37 @@ const exportOnce = async (
   // The finished film when only its rename failed; stems this render began to write.
   let finished = false
   let stemsWritten = false
+  // A plain HDR10 render's one chunk, measured before the encode.
+  const chunks = `${out}.${process.pid}.chunks`
   try {
     if (!o.hosts) opened = await openHosts(o.more as () => Promise<Child>, workers - 1, workers)
-    const hosts = [child, ...(o.hosts ?? opened)]
+    const hosts = [child, ...(o.hosts ?? opened)] as [Child, ...Child[]]
+    let rendered = o.frames
+    // An hdr10 render's frames: P010 for HEVC, the R'G'B' codes for ProRes.
+    const hdrInput = prores ? 'rgb10' : 'p010'
+    if (hdr && !rendered) {
+      // What renders of this out that died left of their chunks.
+      removePartials(out, '.chunks')
+      const plan = makePlan(
+        {
+          name: basename(base),
+          id: o.revision,
+          output: { width, height, fps: manifest.fps, from, to },
+        },
+        hdrInput,
+        1,
+      )
+      const record = await renderChunk(hosts, plan, 0, chunks, o.onFrame, o.signal)
+      rendered = {
+        input: hdrInput,
+        count: record.frames,
+        read: () => chunkFrames(plan, chunks),
+        ...(record.light ? { light: record.light } : {}),
+      }
+    }
     // Every host must give the same bytes in the same format.
-    const input: Input = o.frames
-      ? o.frames.input
+    const input: FrameInput = rendered
+      ? rendered.input
       : prores
         ? hosts.every((h) => h.has.deep)
           ? 'rgba64'
@@ -223,38 +302,79 @@ const exportOnce = async (
         : hosts.every((h) => h.has.yuv)
           ? 'yuv420p'
           : 'rgba'
-    const args = ffmpegArgs({
-      ...manifest,
-      from: head,
-      to,
-      ...(manifest.timecode || preroll.frames
+    const timecode =
+      manifest.timecode || preroll.frames
         ? { timecode: fileTimecode(manifest, from, preroll.frames) }
-        : {}),
-      out: partial,
-      container: containerOf(out, codec),
-      quality: o.quality,
-      crf: o.crf,
-      // AAC's priming (1024 samples), cut from the mix when the mp4 has no edit list to skip it.
-      audio: mix.encode(!prores && o.editList === false),
-      input,
-      codec,
-      ...(prores ? {} : { encoder: encoder as Encoder }),
-      ...(o.bitrate ? { bitrate: o.bitrate } : {}),
-      ...(o.maxrate ? { maxrate: o.maxrate } : {}),
-      ...(o.editList === false ? { editList: false } : {}),
-      revision: o.revision,
-    })
+        : {}
+    // AAC's priming (1024 samples), cut from the mix when the mp4 has no edit list to skip it.
+    const audio = mix.encode(!prores && o.editList === false)
+    if (hdr && !rendered?.light)
+      throw new Error('HDR10 frames came without their light levels: render them again.')
+    // HDR10: the mastering display declared, and the light of every frame the file holds.
+    const hdr10 = hdr
+      ? {
+          display: masteringOf((manifest.hdr10 as NonNullable<Manifest['hdr10']>).mastering),
+          light: mostLight([
+            ...(rendered?.light ? [rendered.light] : []),
+            ...(await prerollLight(child, {
+              ...preroll,
+              from,
+              fps: manifest.fps,
+              input: hdrInput,
+            })),
+          ]),
+        }
+      : undefined
+    const args = hdr10
+      ? hdr10Args({
+          width,
+          height,
+          fps: manifest.fps,
+          from: head,
+          to,
+          ...timecode,
+          out: partial,
+          container: containerOf(out, codec),
+          quality: o.quality,
+          crf: o.crf,
+          audio,
+          input: hdrInput,
+          ...(prores ? { codec } : { encoder: encoder as HdrEncoder }),
+          display: hdr10.display,
+          levels: { maxCLL: hdr10.light.maxCll, maxFALL: hdr10.light.maxFall },
+          ...(o.editList === false ? { editList: false } : {}),
+          revision: o.revision,
+        })
+      : ffmpegArgs({
+          ...manifest,
+          from: head,
+          to,
+          ...timecode,
+          out: partial,
+          container: containerOf(out, codec),
+          quality: o.quality,
+          crf: o.crf,
+          audio,
+          input: input as Input,
+          codec,
+          ...(prores ? {} : { encoder: encoder as Encoder }),
+          ...(o.bitrate ? { bitrate: o.bitrate } : {}),
+          ...(o.maxrate ? { maxrate: o.maxrate } : {}),
+          ...(o.editList === false ? { editList: false } : {}),
+          revision: o.revision,
+        })
     let next = 0
     const sink = ffmpegSink(args, input, codec !== 'prores-4444')
     await writePreroll(sink, {
       ...preroll,
       from,
       fps: manifest.fps,
-      black: () => blackFrame(input, manifest.width, manifest.height),
+      black: () => blackFrame(input, width, height),
       render: async (t) => (await child.render(t, 'final', input)).pixels,
     })
-    const { frames } = o.frames
-      ? await encodeFrames(sink, o.frames, o.onFrame, o.signal)
+    const { frames } = rendered
+      ? // A plain HDR10 render counted its frames as it rendered them into its chunk.
+        await encodeFrames(sink, rendered, o.frames ? o.onFrame : undefined, o.signal)
       : await exportFrames({
           fps: manifest.fps,
           from,
@@ -276,6 +396,14 @@ const exportOnce = async (
         })
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
+    if (hdr10)
+      requireHdr10(
+        out,
+        probed,
+        hdr10.display,
+        { maxCLL: hdr10.light.maxCll, maxFALL: hdr10.light.maxFall },
+        prores ? codec : 'hevc',
+      )
     const loudness = mix.clips.length > 0 ? measureLoudness(partial) : null
     try {
       renameSync(partial, out)
@@ -303,7 +431,8 @@ const exportOnce = async (
       seconds: (performance.now() - start) / 1000,
       workers: hosts.length,
       encoder,
-      bits: input === 'rgba64' ? 16 : 8,
+      bits: input === 'rgba64' ? 16 : isHdr(input) ? 10 : 8,
+      ...(hdr10 ? { light: hdr10.light } : {}),
       loudness,
       ...(mix.level ? { gainDb: mix.level.gainDb } : {}),
       probe: probed,
@@ -320,12 +449,14 @@ const exportOnce = async (
   } finally {
     await Promise.all(opened.map((h) => h.close()))
     mix.close()
+    rmSync(chunks, { recursive: true, force: true })
   }
 }
 
 /**
- * When NVENC was picked from a kept yes (hasNvenc) and its ffmpeg fails, the yes is dropped and
- * the film is rendered again once, with x264, saying so on stderr.
+ * When H.264 NVENC was picked from a kept yes (hasNvenc) and its ffmpeg fails, the yes is dropped
+ * and the film is rendered again once, with x264, saying so on stderr. Never for HDR10, whose HEVC
+ * NVENC is asked apart (hasHevcNvenc) and never kept.
  */
 const exportFallingBack: typeof exportOnce = async (project, child, o) => {
   try {
@@ -335,6 +466,7 @@ const exportFallingBack: typeof exportOnce = async (project, child, o) => {
     const picked =
       o.encoder === undefined &&
       (o.codec ?? 'h264') === 'h264' &&
+      !(o.frames ? o.frames.input === 'p010' : child.has.p010 === true) &&
       (o.quality ?? 'review') === 'review' &&
       /^ffmpeg exited/.test((error as Error).message)
     if (!picked || !forgetNvenc(width, height)) throw error
@@ -385,10 +517,36 @@ export const exportVideo = async (
 }
 
 /**
+ * The light of a preroll the source fills (an hdr10 render's), rendered once to be measured before
+ * the encode starts; none for black.
+ */
+const prerollLight = async (
+  child: Child,
+  o: {
+    frames: number
+    fill: 'black' | 'source'
+    from: number
+    fps: number
+    input: 'p010' | 'rgb10'
+  },
+): Promise<LightLevels[]> => {
+  if (o.fill !== 'source') return []
+  const light: LightLevels[] = []
+  for (const t of prerollTimes(o)) {
+    const r = await child.render(t, 'final', o.input)
+    if (r.light) light.push(r.light)
+  }
+  return light
+}
+
+/**
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
- * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc] [--no-audio] [--loudness LUFS]
- * [--retries n]`. --retries: a frame a host failed transiently (crashed, timed out, lost its
+ * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc|x265] [--no-audio] [--loudness LUFS]
+ * [--hdr10] [--retries n]`. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023), or a ProRes mov with --format,
+ * of a film whose shaderera.json has `hdr10`, rendered on the GPU through one lossless chunk; a job
+ * asks for it when it is made
+ * (`shaderera job --hdr10`). --retries: a frame a host failed transiently (crashed, timed out, lost its
  * device) is rendered again on a reopened host, and a transient encoder failure encodes again,
  * up to n times each, with backoff (none by default).
  * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
@@ -401,9 +559,9 @@ export const exportVideo = async (
  * writes a plan that renders only the changed spans and reuses the earlier plan's other frames
  * (renderReusing).
  */
-const encoderOf = (value: unknown): Encoder => {
-  if (value === 'x264' || value === 'nvenc') return value
-  throw new Error(`--encoder is x264 or nvenc, not ${String(value)}.`)
+const encoderOf = (value: unknown): Encoder | 'x265' => {
+  if (value === 'x264' || value === 'nvenc' || value === 'x265') return value
+  throw new Error(`--encoder is x264 or nvenc (x265 or nvenc for --hdr10), not ${String(value)}.`)
 }
 
 export const run = async (argv: readonly string[]): Promise<number> => {
@@ -426,6 +584,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       fix: { type: 'boolean' },
       loudness: { type: 'string' },
       'software-gpu': { type: 'boolean' },
+      hdr10: { type: 'boolean' },
       retries: { type: 'string' },
       ...DELIVERY_FLAGS,
     },
@@ -452,6 +611,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     )
   const video = videoOptionsOf(delivery)
   checkVideoOptions(video)
+  if (job && v.hdr10 !== undefined)
+    throw new Error(
+      `Job ${job.name} froze its range (${job.range ?? 'sdr'}); make a new job with shaderera job${v.hdr10 ? ' --hdr10' : ''}.`,
+    )
+  if (v.hdr10) checkHdr10Delivery(delivery)
   if (job && v.param !== undefined)
     throw new Error(`Job ${job.name} froze its params; make a new job with shaderera job --params.`)
   if (job && v.host !== undefined && v.host !== job.host)
@@ -629,6 +793,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}`,
     )
     console.log(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
+    if (sound.light) console.log(`light: ${lightLine(sound.light)}`)
     console.log(`revision: ${revision}`)
     for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) console.log(f)
     if (sound.loudness)
@@ -650,6 +815,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     await child.close()
   }
 }
+
+/** An HDR10 file's measured light levels as one line, as `-content_light` writes them. */
+export const lightLine = (l: LightLevels) =>
+  `MaxCLL ${Number(l.maxCll.toFixed(2))} cd/m², MaxFALL ${Number(l.maxFall.toFixed(2))} cd/m² measured (the file says ${Math.ceil(l.maxCll)} / ${Math.ceil(l.maxFall)})`
 
 /** Writes frames rendered elsewhere into the encoder, counting them against what was planned. */
 const encodeFrames = async (

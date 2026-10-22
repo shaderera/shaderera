@@ -1,4 +1,4 @@
-import type { Json } from '@shaderera/core'
+import type { Json, Range } from '@shaderera/core'
 import { openBrowserChild } from './browser.ts'
 import { type Child, openChild } from './child.ts'
 import type { HostName } from './host-of.ts'
@@ -11,6 +11,8 @@ export type HostOptions = {
   params: { [key: string]: Json }
   /** The source's `host.seed`: a job's own; by default the manifest's, or 0. */
   seed?: number
+  /** The source's `host.range`: a job's own; `sdr` when absent. */
+  range?: Range
   variant?: string
   /** A saved revision, which the browser host opens from its frozen entry and DOM. */
   revision?: string
@@ -38,6 +40,7 @@ export const hostOpener = async (
   const common = {
     params: o.params,
     ...(o.seed !== undefined ? { seed: o.seed } : {}),
+    ...(o.range ? { range: o.range } : {}),
     ...(o.bakes ? { bakes: o.bakes } : {}),
     ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}),
   }

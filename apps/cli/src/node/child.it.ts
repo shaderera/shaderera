@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
 import { buildForNode } from './build.ts'
-import { openChild } from './child.ts'
+import { openChild, TIMEOUT } from './child.ts'
 import { findProject } from './project.ts'
 
 const tiny = fileURLToPath(new URL('./fixtures/tiny/', import.meta.url))
@@ -20,9 +20,11 @@ test('a hung source fails the call after timeoutMs and closes without a crash', 
   const project = await findProject(root)
   const child = await openChild(project, {
     entryFile: await buildForNode(project),
-    timeoutMs: 5000,
+    // Only the hung call is timed: opening has the default allowance, as in dom.it.ts.
+    timeoutMs: 500,
+    openTimeoutMs: TIMEOUT,
   })
-  await assert.rejects(child.render(0, 'final'), /took longer than 5000 ms/)
+  await assert.rejects(child.render(0, 'final'), /took longer than 500 ms/)
   await child.close()
   await assert.rejects(child.render(0, 'final'), /has exited/)
 })

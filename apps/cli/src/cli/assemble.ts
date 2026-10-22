@@ -1,18 +1,22 @@
 import { join, resolve } from 'node:path'
-import { checkChunks, chunkFrames, readPlan } from '../deliver/chunks.ts'
+import { checkChunks, chunkFrames, isHdr, mostLight, readPlan } from '../deliver/chunks.ts'
+import { assembledInput, assembledJob } from '../deliver/reexport.ts'
 import { findProject } from '../node/project.ts'
 import { retriesOf } from '../node/retry.ts'
-import { openJob, readJob, videoOptionsOf } from '../project/jobs.ts'
+import { openJob, videoOptionsOf } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 import { loudnessLine, probeLine } from './ffmpeg.ts'
-import { exportVideo, extensionOf } from './render.ts'
+import { exportVideo, extensionOf, lightLine } from './render.ts'
 
 /**
  * `shaderera assemble --plan <dir> [--out file] [--mixed-hosts] [--no-audio] [--loudness=LUFS]
- * [--retries n]`: encodes a plan's rendered chunks once, in order, with the whole window's sound, captions and
- * preroll, as `render --job` would on one machine. Refuses a chunk that is missing or changed, and
- * chunks from different kinds of host unless --mixed-hosts. --retries: an encode that fails
- * transiently (a stall, out of memory, a crash) is done again from the first chunk, up to n times.
+ * [--job name] [--crf n] [--retries n]`: encodes a plan's rendered chunks once, in order, with the
+ * whole window's sound, captions and preroll, as `render --job` would on one machine. Refuses a
+ * chunk that is missing or changed, and chunks from different kinds of host unless --mixed-hosts.
+ * --job: another delivery of the plan's job from the same chunks (assembledJob). An hdr10 plan's
+ * file declares the most light any of its chunks measured (decision 0023). --retries: an encode
+ * that fails transiently (a stall, out of memory, a crash) is done again from the first chunk, up
+ * to n times.
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {
@@ -21,6 +25,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     'mixed-hosts': { type: 'boolean' },
     'no-audio': { type: 'boolean' },
     loudness: { type: 'string' },
+    job: { type: 'string' },
+    crf: { type: 'string' },
     retries: { type: 'string' },
   })
   const retries = retriesOf(v.retries)
@@ -28,14 +34,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const dir = resolve(v.plan)
   const plan = readPlan(dir)
   const { root } = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
-  const job = readJob(root, plan.job)
-  if (job.id !== plan.jobId)
-    throw new Error(
-      `Job ${job.name} is not the one this plan was made from (${plan.jobId.slice(0, 8)}).`,
-    )
+  const job = assembledJob(root, plan, typeof v.job === 'string' ? v.job : undefined)
   const records = checkChunks(plan, dir, v['mixed-hosts'] === true)
   const { project, child } = await openJob(root, job, childOptions(v))
   try {
+    if (job.id !== plan.jobId) assembledInput(plan, job, child)
     const video = videoOptionsOf(job.delivery)
     const loudness = v.loudness === undefined ? undefined : Number(v.loudness)
     const done = await exportVideo(project, child, {
@@ -47,6 +50,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           ? resolve(v.out)
           : join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
       quality: job.delivery.quality,
+      ...(v.crf === undefined ? {} : { crf: Number(v.crf) }),
       revision: job.revision,
       retries,
       audio: v['no-audio'] !== true,
@@ -55,10 +59,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         input: plan.input,
         count: plan.chunks.reduce((n, c) => n + c.frames, 0),
         read: () => chunkFrames(plan, dir),
+        ...(isHdr(plan.input)
+          ? { light: mostLight(records.flatMap((r) => (r.light ? [r.light] : []))) }
+          : {}),
       },
     })
     console.log(`${done.out}\n${done.frames} frames from ${records.length} chunks`)
     console.log(`file: ${probeLine(done.probe)}`)
+    if (done.light) console.log(`light: ${lightLine(done.light)}`)
     if (done.loudness) console.log(`audio: ${loudnessLine(done.loudness)}`)
     return 0
   } finally {
