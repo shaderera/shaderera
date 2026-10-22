@@ -43,13 +43,21 @@ it only in a Chrome with HTML-in-Canvas (`--enable-features=CanvasDrawElement`).
 
 ## Serving it
 
+- **On an origin of its own**, one per version, framed with `sandbox="allow-scripts
+  allow-same-origin"`. Chrome keeps the WebGPU shaders a frame compiles only for a real origin:
+  in a frame sandboxed with `allow-scripts` alone (an opaque origin) every pipeline compiles cold
+  on every visit, which is seconds for a film with many. The origin must be the version's alone
+  and on another site than the framing page's, so the film's code reaches neither the page nor
+  another version's storage. shaderera.com
+  serves each version on `https://<label>.shadererausercontent.com`, where `<label>` is the
+  version's sha256 in lowercase base32, 52 characters
+  ([decision 0024](https://github.com/shaderera/shaderera/blob/main/docs/adr/0024-a-player-origin-per-version.md)).
 - **Every file** with `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy:
-  cross-origin`. A frame sandboxed without `allow-same-origin` has an opaque origin, so its
-  module scripts, its worker and their fetches are all cross-origin; without the header nothing
-  loads.
+  cross-origin`. The worker starts from a `data:` URL, which has an opaque origin, so its module
+  scripts and fetches are cross-origin (and so is everything, in a frame sandboxed without
+  `allow-same-origin`); without the header nothing loads.
 - **The page**, `runner.html`, with a Content-Security-Policy like the runner server's. `'self'`
-  means nothing to an opaque origin, so the player's own origin is spelled out, and the worker
-  starts from a `data:` URL:
+  means nothing to the `data:` worker's opaque origin, so the player's own origin is spelled out:
 
   ```
   default-src 'self';
@@ -70,7 +78,7 @@ Every file but `runner.html` can be cached for good: a new version is a new set 
 ## Framing it
 
 ```html
-<iframe sandbox="allow-scripts" src="https://player.example/v/<version>/runner.html?parent=https://site.example"></iframe>
+<iframe sandbox="allow-scripts allow-same-origin" src="https://<label>.player.example/runner.html?parent=https://site.example"></iframe>
 ```
 
 The frame draws nothing. The site takes the bridge's port and calls the runner over it with
@@ -101,9 +109,9 @@ of that origin. A page of any other origin that frames the player gets nothing (
 | `{ shaderera: 'error', message }` | the worker failed to load (a missing file, a CSP refusal) |
 | `{ shaderera: 'reloading' }` | the page is about to unload; a new port follows if it comes back |
 
-All three go to the chosen parent origin only. The frame's own origin is opaque, so these
-arrive with `event.origin` `"null"`: the site checks `event.source` is its frame's
-`contentWindow`.
+All three go to the chosen parent origin only. The site checks `event.source` is its frame's
+`contentWindow`, and `event.origin` is the player's origin (`"null"` in a frame sandboxed
+without `allow-same-origin`).
 
 **From the site to the player:**
 

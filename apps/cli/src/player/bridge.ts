@@ -4,7 +4,9 @@
 // - the framing page's origin is one of those runner.html allows (`shaderera-parents`);
 // - the worker starts from a data: URL that imports it by its full URL. A frame sandboxed with
 //   "allow-scripts" alone has an opaque origin, and `new Worker(url)` refuses a URL of any other
-//   origin (a blob: URL failed too in Chrome); the imported worker keeps its own import.meta.url;
+//   origin (a blob: URL failed too in Chrome); the imported worker keeps its own import.meta.url.
+//   On a version's own origin ("allow-same-origin", decision 0024) Chrome still keeps the
+//   shaders this worker compiles: measured with MATTER, 16 s cold, then 0.1 s;
 // - a worker that fails to load is reported to the framing page, which would otherwise wait;
 // - a viewer's file for a clip param goes on to the worker, from the framing page only.
 import { connectPage } from '../runner/page.ts'

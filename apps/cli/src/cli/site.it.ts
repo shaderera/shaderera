@@ -15,6 +15,13 @@ import { LOOP, mediaDir, POSTER } from './media.ts'
 import { playerDir, playerFiles } from './share.ts'
 
 const sha256 = (b: Buffer | string) => createHash('sha256').update(b).digest('hex')
+/** A version's host label, as the films API spells it (ADR 0024): its sha256 in base32. */
+const label = (hex: string) =>
+  [...Buffer.from(hex, 'hex')]
+    .map((b) => b.toString(2).padStart(8, '0'))
+    .join('')
+    .padEnd(260, '0')
+    .replace(/.{5}/g, (c) => 'abcdefghijklmnopqrstuvwxyz234567'[Number.parseInt(c, 2)] ?? '')
 
 /**
  * A fake of the films API (`/api/v1`, the routes the films app serves) in memory: films, versions
@@ -148,7 +155,7 @@ const fakeSite = async () => {
       // As the films API answers: `url` is the version's runner, `page` the canvas with the film.
       return json(res, 201, {
         version: id,
-        url: `${site}/v/${id}/runner.html`,
+        url: `http://${label(id)}.localhost:${(server.address() as AddressInfo).port}/runner.html`,
         ...(options.page ? { page: `${site}/film/${film.id}` } : {}),
       })
     }
