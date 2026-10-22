@@ -13,12 +13,13 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`save`, `versions`, `undo`, `restore`, `diff`, `job`](#versions-and-jobs) | revisions and frozen render jobs |
 | [`deliver`](#deliver) | a batch of every variant × locale into `out/deliveries/<batch>/` |
 | [`plan`, `assemble`](#plan-render---chunk-assemble) | render a job's chunks on several machines |
+| [`reexport`](#reexport) | a job's sound on a delivered file's own picture, or its caption sidecars, with no frame rendered |
 | [`handoff`](#handoff) | a frozen project, its job and `REPRODUCE.md` in `out/handoff/<job>/` |
 | [`review`](#review) | principal frames, a contact sheet and technical checks |
 | [`bake`](#bake) | run a bake's command and stamp the frames it made outside the host |
 | [`doctor`](#doctor) | what this machine and project have and lack |
 | [`search`, `info`, `add`, `remove`, `publish`](#plugins) | find, copy in, remove and publish plugins |
-| [`login`, `share`, `fork`](#shadereracom-login-share-fork) | send a film to shaderera.com, and fork one from there |
+| [`login`, `whoami`, `logout`, `share`, `fork`](#shadereracom-login-whoami-logout-share-fork) | send a film to shaderera.com, and fork one from there |
 | [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
@@ -198,9 +199,17 @@ The file is written as `<out>.<pid>.partial` (the render's process id, so two re
 `<out>` is the previous film or nothing, never half a film. A render that fails or is
 stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
-kept as `<out>.<pid>.partial` and the error says so. A host error fails the render with
-its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
-memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
+kept as `<out>.<pid>.partial` and the error says so. A render killed outright (the process ended,
+the power cut) cannot clean up: the next render of the same `<out>` removes the `.partial` files
+of processes of this machine that no longer run and that ffprobe cannot read (half written); a
+finished film kept that way stays, and the render names it. A host error fails the render with
+its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
+removed, out of memory) or a host process that crashed in native code, at a frame or while the
+hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
+memory. This holds for `render`, `render --chunk` and `deliver`; nothing is retried.
+A png job is the exception: a run that fails keeps its finished frames in `<dir>.partial`, and
+`render --job` again continues from the first missing one
+([the finishing handoff](delivery.md#the-finishing-handoff-png--wav)).
 The file must hold every frame rendered; one ffmpeg finished short is refused.
 
 Every file says which revision made it. `render` saves the project first, as `job` does (the same
@@ -230,6 +239,7 @@ of footage it takes a moment, not the time to read all of it.
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
+| `--software-gpu` | off: a host on a software GPU is refused ([below](#a-software-gpu)). On: it renders, and says so on stderr |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:
@@ -252,13 +262,32 @@ the PATH:
 shaderera: render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html
 ```
 
+### A software GPU
+
+Without a GPU its WebGPU can reach (a container or a cloud machine the driver is not passed to, a
+Linux machine without the GPU's Vulkan driver, Chrome with its GPU turned off), Dawn or Chrome
+hands the film a software renderer: SwiftShader, llvmpipe or lavapipe (Mesa), or WARP (Microsoft
+Basic Render Driver). It draws the same film 10–100× slower. `render` and `deliver` ask the host's
+adapter before the first frame and refuse it, before saving anything:
+
+```
+shaderera: The browser host's WebGPU adapter is software, SwiftShader (google swiftshader): a render runs 10–100× slower than on a GPU. Pass --software-gpu to render on it anyway, or give the host a GPU: npx shaderera doctor says what to check.
+```
+
+`--software-gpu` renders on it all the same, with that line on stderr. The MCP `render` tool
+refuses it the same way, unless `softwareGpu: true` ([mcp.md](mcp.md)). `render --job`, `--chunk`
+and `--reuse` are checked as `render` is; `handoff --verify` (a few frames to compare) and
+`assemble` (it encodes frames already rendered) are not. The adapter is software
+when its vendor, architecture, device or description names one of those renderers, or when it
+says it is the fallback adapter (`isFallbackAdapter`). `doctor` warns on it as its `gpu` item.
+
 ## Versions and jobs
 
 A project's saved revisions and render jobs live in `versions/` (keep it with the project):
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `.mcp.json`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, at any depth |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and any `.mcp.json` other than a new project's, at any depth. A `.mcp.json` is stored only when it parses and every server in it is exactly `npx -y shaderera mcp` (or `shaderera@<version>`), with no other fields but an empty `env` or `headers` |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
@@ -283,19 +312,54 @@ A job holds execution inputs and references, never the film.
 
 `shaderera deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master]
 [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS]
-[--name batch] [--job a --job b] [--replace]` saves the project once, makes one job per variant ×
+[--name batch] [--job a --job b] [--replace] [--software-gpu]` saves the project once, makes one job per variant ×
 locale (named `<batch>-<variant>[-<locale>]`), renders and reviews each, and writes
 `out/deliveries/<batch>/`. A batch name that holds other inputs is refused unless `--replace`.
 Exit 1 when any output fails, after rendering the rest. See [delivery.md](delivery.md#batch).
+An output whose host is on a software GPU fails unless `--software-gpu`, as in
+[`render`](#a-software-gpu).
 
 ## `plan`, `render --chunk`, `assemble`
 
 `shaderera plan --job <name> [--chunks 4] [--out dir]`, then `shaderera render --job <name>
 --chunk <i> [--plan dir]` on any machine, then `shaderera assemble --plan <dir> [--out file]
-[--mixed-hosts] [--no-audio] [--loudness=LUFS]`: the same file as one `render --job`. See
-[delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's frames go round
-`--workers` hosts on its machine (the same default as `render`), and its file holds the same
-frames however many.
+[--mixed-hosts] [--no-audio] [--loudness=LUFS] [--crf n] [--job name]`: the same file as one
+`render --job`. See [delivery.md](delivery.md#rendering-a-job-on-several-machines). A chunk's
+frames go round `--workers` hosts on its machine (the same default as `render`), and its file
+holds the same frames however many. `--crf` is `render`'s. `--job` encodes another job's delivery
+(another format, quality, rate or edit list) from the same chunks: a job of the same revision,
+host, variant, params, seed, window and packages whose frames are handed over in the plan's format
+([another delivery](delivery.md#another-delivery-from-the-same-chunks)). `plan` refuses a
+folder that holds another job's plan or chunks, naming that job and a fresh `--out`; planning the
+same job again in its folder replaces its plan.
+
+`shaderera plan --status --plan <dir> [--verify] [--json]` (or `--job <name>` for its default
+folder) lists each chunk as `done` (its record and file are there), `verified` (with `--verify`,
+the file's sha256 checked again), `changed` (with `--verify`, the file differs from its record),
+`stale` (rendered for another job or plan), `partial` (a render of it stopped part way),
+`claimed` (a live render holds it, named) or `missing`, with the `render --chunk` command for each that is not done, then the frames done of
+the total and the time left at the pace the rendered chunks recorded (on one machine). `--json`
+gives the same as `result`: `frames` {done, total}, `eta` in seconds (null before any chunk is
+rendered) and `chunks`. `assemble` lists every problem it finds before it starts, each with the
+command that fixes it.
+
+`render --chunk` claims the chunk first with `<chunk>.claim` in the plan folder (host, pid and
+time; touched every minute while it renders) and removes it when done, failed or stopped (Ctrl-C,
+which also removes its partial). A chunk another live render holds is refused, naming its host
+and pid. A claim is stale, and taken over, when its pid no longer runs on this machine, or when
+nobody has touched it for 10 minutes (a render on another machine that died); taking it over
+removes the partials earlier renders of the chunk left. The chunk's record is written to a temp
+file and renamed, after the old record is removed, so a chunk file is never paired with another
+render's record: a file without its record is not rendered.
+
+```
+$ shaderera plan --status --plan out/spot.plan
+/path/to/project/out/spot.plan/plan.json: job spot, 3 chunks
+  chunk   0  done      4 frames in 12.0 s
+  chunk   1  missing   3 frames  → shaderera render --job spot --chunk 1 --plan /path/to/project/out/spot.plan
+  chunk   2  partial   3 frames  → shaderera render --job spot --chunk 2 --plan /path/to/project/out/spot.plan
+4/10 frames done, about 18 s of rendering left at the recorded pace
+```
 
 After a small edit, `shaderera render --job <new> --reuse <earlier plan> --changed <from>-<to>[,…]
 [--fix] [--plan dir]` writes a plan of the new job (by default `out/<new>.plan`) that renders only
@@ -310,6 +374,26 @@ $ shaderera render --job b5 --reuse out/a5.plan --changed 330-331
 chunk 1: 25 frames from 330 s in 3.2 s on 1 host(s)
 /path/to/project/out/b5.plan/plan.json: 25 frames rendered, 7475 reused from /path/to/project/out/a5.plan; 34 reused frames rendered again matched
 then: npx shaderera assemble --plan /path/to/project/out/b5.plan
+```
+
+## `reexport`
+
+`shaderera reexport audio --job <name> [--onto file] [--out file] [--no-audio] [--loudness=LUFS]`
+writes the job's mix again onto a delivered file's own video packets (`ffmpeg -c:v copy`): no
+frame is rendered or encoded. `--onto` is the file whose picture is kept (by default
+`out/<job>.mp4`, or `.mov`), `--out` the file written (by default `out/<job>.mp4`; the same file
+is replaced only once the new one is whole). The stems are written again for a job with
+`--stems`. A png job is refused. `shaderera reexport captions --job <name> [--out file]` writes the
+job's `<name>.srt` and `<name>.vtt` beside `--out`, as `render` does, without rendering. See
+[delivery.md](delivery.md#changing-only-the-sound-or-the-captions).
+
+```
+$ shaderera reexport audio --job spot-v2 --onto out/spot.mp4
+/path/to/project/out/spot-v2.mp4
+the video of /path/to/project/out/spot.mp4 (job spot), no frames rendered or encoded
+file: h264 High yuv420p 1920×1080 25 fps, 8.12 Mb/s, aac 48 kHz 2 ch, edit list
+revision: 5d1f0c2a9b7e4f13
+audio: -22.1 LUFS, true peak -3.4 dBTP, range 4.8 LU
 ```
 
 ## `handoff`
@@ -413,9 +497,18 @@ shaderera: Bake beauty is stale: scene/sofa.json changed since it was made. Run 
 `shaderera doctor [--json]` lists what this machine has and lacks: Node, Shaderera, ffmpeg and
 ffprobe, the encoders and filters deliveries use (libx264, aac, prores_ks, pcm_s24le, ebur128,
 amultiply), NVENC at 1920×1080, Chrome. Inside a project: its host, `webgpu`'s version, the
-adapter with every feature and its limits (asked in a child process), and more than one `webgpu`
+adapter with every feature and its limits (asked in a child process; for the browser host, the
+adapter Chrome's WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
-[above](#required-plugins)). Each lack says how to fix it.
+[above](#required-plugins)). Each lack says how to fix it. It also says whether this machine is
+signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERERA_API` names
+another) and whether the project can be shared (`share`: the licence it declares). Neither is
+needed, so neither fails `doctor`.
+
+A software adapter (SwiftShader, llvmpipe, lavapipe, WARP, or the fallback adapter) is a `gpu`
+warning, not `ok`: the fix says what to check, the GPU driver, that a container is given the GPU
+(`--gpus all`, `/dev/dri`), a Vulkan ICD on Linux, and nothing turning off Chrome's GPU.
+`render` and `deliver` refuse it without `--software-gpu` ([a software GPU](#a-software-gpu)).
 
 The limits are the ones films run into, as the Node host's device gets them (it asks for the
 adapter's maximum). They come from the GPU and its backend, not from Shaderera: Dawn on D3D12 caps
@@ -430,38 +523,76 @@ a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
 
 ## Plugins
 
-Plugins come from a folder or the URL of one: `--from <dir|url>`, else `SHADERERA_PLUGINS`, else
-Shaderera's own at `https://shaderera.com/r`. All of it is in [plugins.md](plugins.md).
+Plugins come from the site's `/r`: `--site <origin>`, else `SHADERERA_SITE`, else
+`https://shaderera.com/r`; or from a folder of plugins, `--site <dir>`. All of it is in
+[plugins.md](plugins.md).
 
 | Command | What it does |
 |---|---|
 | `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
-| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not stops them all |
-| `remove <name>...` | uninstalls package plugins and stops requiring them; each must be one the project uses, or none is removed |
-| `publish [dir]... --from <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
+| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.item.json`. All of them resolve first: one that does not, or a version outside a range another requires, stops them all |
+| `remove <name>...` | uninstalls package plugins and stops requiring them; each must be a package plugin the project uses, never a plain npm dependency, or none is removed |
+| `publish [dir]... --site <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
 
 `add` never replaces a file the project already has; `--force` replaces only the plugin named. A
 copied plugin's files are the project's own code: to stop using one, delete them. `info` takes one
-name. `--from` wants a folder of published plugins: a folder of plugin sources is refused, with
-the publish step to run first.
+name. `--site <dir>` wants a folder of published plugins: a folder of plugin sources is refused,
+with the publish step to run first.
 
-## shaderera.com: `login`, `share`, `fork`
+## shaderera.com: `login`, `whoami`, `logout`, `share`, `fork`
 
 A film can be shared on shaderera.com, where it plays in the viewer's browser, and anyone can fork
 a shared film into a project of their own. These three commands and [`studio`](#studio-telemetry)
 are the only ones that talk to the site. They run only when called: nothing runs in the
 background, and the CLI sends no telemetry.
 
-The site is `--to <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Another site
-serves the same API (`/api/v1`). It is reached over https; plain http only on this machine
-(`localhost`, `127.0.0.1`).
+They talk to two origins, each reached over https (plain http only on this machine: `localhost`,
+`127.0.0.1`):
+
+- **The films API**, `--api <origin>`, else `SHADERERA_API`, else `https://api.shaderera.com`:
+  where films are shared to and forked from, and what `login` signs in to (`/api/v1`). Another
+  films API serves the same routes.
+- **The site**, `--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`: the pages
+  people see, a film's page and the studio page, and the plugins at `<site>/r`.
 
 | Command | What it does |
 |---|---|
-| `login --token <token> [--to origin]` | keeps the token for that site in `~/.shaderera/tokens.json` (readable by you only). It never prints the token |
-| `share [--film id] [--title t] [--no-media] [--yes] [--to origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
-| `fork <film\|url>[@version] [dir] [--to origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
+| `login [--api origin] [--no-open]` | signs in with GitHub and keeps this machine's token for that API in `~/.shaderera/tokens.json` (readable by you only). It never prints a token |
+| `login --token <token> [--api origin]` | keeps a token given by hand, in the same file |
+| `whoami [--api origin] [--json]` | who this machine is signed in as, the name the API knows it by, and until when; exits 1 when it is not signed in |
+| `logout [--api origin] [--all]` | signs this machine out (`--all`: every machine of yours) and forgets its token |
+| `share [--film id] [--title t] [--no-media] [--dry-run] [--host h] [--trusted] [--timeout s] [--yes] [--api origin] [--site origin] [--json]` | builds the project's web player, and sends the project, the player, a poster and a loop as a new film, or as a new version of the film it shared to before |
+| `fork <film\|url>[@version] [dir] [--api origin] [--site origin] [--json]` | copies a shared version into a new folder (`./<film>` by default), as an ordinary project |
+
+**`login`** signs in with GitHub's device flow:
+
+1. It prints a code and opens `https://github.com/login/device` in your browser (`--no-open`
+   only prints the address).
+2. You enter the code and approve. GitHub asks for no permissions: the API sees your public
+   profile only.
+3. `login` sends GitHub's token once to the API (`POST /api/v1/auth/github`) with this machine's
+   name (its host name). The API answers with a token for this machine, your handle (your GitHub
+   login) and when the token stops working (90 days). `login` keeps that token, and never keeps
+   GitHub's.
+
+```
+$ npx shaderera login
+Enter the code WDJB-MJHT at https://github.com/login/device
+opening https://github.com/login/device
+Signed in as ana: this machine as "studio-mac", until 2027-01-19
+```
+
+Each machine has its own token: signing in on a second one keeps the first signed in, and
+signing in again on the same one replaces its token. `logout` signs this machine out at the API
+(`--all` signs out every machine, say for a lost laptop) and then forgets the token; a token the
+API no longer takes is forgotten too, and one the API cannot be reached for is kept, to sign out
+later. `whoami` asks the API whose the token is (`GET /api/v1/auth/me`).
+
+The sign-in uses the client id of Shaderera's GitHub OAuth App, built into `shaderera`, or
+`SHADERERA_GITHUB_CLIENT_ID` when it is set. Until that App exists, `login` without `--token`
+says so and stops, and `--token` is the way in; an API without its GitHub App set up answers
+`503`, and `login` says the same.
 
 **What `share` sends** is the project's files as a revision holds them (`save`,
 [above](#versions-and-jobs)), and nothing else:
@@ -476,35 +607,63 @@ serves the same API (`/api/v1`). It is reached over https; plain http only on th
 `.shaderera/player/` and sends beside the source as `player` ([player.md](player.md)): the
 runner page and worker with the film bundled, the film's files, an H.264 proxy of each video in
 them (made with ffmpeg) and the bakes' frames. The site stores and serves it and builds nothing.
-Only the site's own pages may frame the player and get its port. A player that does not build (a
-bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the share before
-anything is sent.
+Only the pages the player lists as its parents may frame it and get its port: the origins the
+API names (`parents` in its `GET /api/v1/films/health`, read without the token before the build:
+its films app and the site that shows its films), else the site alone. A player that does not
+build (a bake not made or stale, a video ffmpeg cannot read, a bundling error) stops the share
+before anything is sent.
 
 **A poster and a loop** go with each version, for the site to show the film by: the main
 variant's frame at the film's middle, a webp at most 1280 px wide and 500 KB; and its first
 min(4 s, duration), a silent H.264 mp4 480 px wide and at most 4 MB. `share` renders them with
-the CLI's own host and ffmpeg into `.shaderera/media/`, after you confirm. One that does not
+the CLI's own host and ffmpeg into `.shaderera/media/`, after you confirm; `--host`, `--trusted`
+and `--timeout` apply to that render, as to a `render`'s. One that does not
 render (no ffmpeg, a frame that fails, too large) is left out with a warning, and the film is
 shared without it. `--no-media` renders and sends neither.
 
-Before sending, it prints how many files and bytes it will send, the player's, to which site and
-film, the secrets it leaves out, and asks.
+Before sending, it prints how many files and bytes it will send, the player's, to which API and
+film, the pages the player plays on, the secrets it leaves out, and asks.
 Off a terminal, or with `--json`, it needs `--yes`, or it sends nothing and exits 2. Declining
-sends nothing and exits 1. Only the files the site does not already have are uploaded, each one
+sends nothing and exits 1. Only the files the API does not already have are uploaded, each one
 checked against its sha256 as it is read.
 
+**The API's limits** come with its health (`limits`: bytes a file and a version, files a
+version, hashes an ask, a poster's and a loop's bytes). After the poster and loop, and before
+anything is uploaded, `share` checks the version against them: one over a limit is refused with
+each limit it breaks, and nothing is sent. An API that names none is not checked here; its
+routes still refuse what is over. An API whose health does not answer in 10 s, answers an error,
+or answers something other than JSON (a proxy's page) stops the share before the build, with
+`couldn't read the films API's limits at <api>: <why>`.
+
+**`--dry-run`** does everything a share does on this machine and sends nothing: it needs no
+token (it says whether you are signed in), builds the player, renders the poster and loop
+(unless `--no-media`), and names each limit the version would break. When it cannot read the
+limits it warns with the same line and goes on, unchecked (`limitsChecked: false`). It exits 0
+when a share would go through, 1 when it is over a limit. With `--json` its result is `dryRun`,
+`api`, `signedIn`, `film` (null for a new one), `title`, `licence`, `files`, `bytes`, `player`,
+`parents`, `notSent`, `poster`, `loop`, `warnings`, `limits`, `limitsChecked` and `over`.
+
+`--to`, `--from` and `--parent` are gone from these commands and the plugin commands: each
+says what to use instead (`--api <origin>`, `--site <origin|folder>`). `render`'s and `job`'s
+`--from` and `--to` are times, as before.
+
 - **The licence** is package.json's `license`: an SPDX id such as `MIT`, or `UNLICENSED` for all
-  rights reserved. A project without one is refused before anything is sent.
-- **The film** a project shares to is noted per site in `.shaderera/share.json`, which is never
+  rights reserved, which a new project starts with. A project without one is refused before
+  anything is sent, and before the token is looked for.
+- **The film** a project shares to is noted per API in `.shaderera/share.json`, which is never
   sent or forked. The first share makes a new film titled `--title`, else package.json's `name`,
   else the folder's name; later shares make new versions of it. `--film <id>` shares to a film
   you own, and is noted for next time.
-- **The token** is the one `login` kept for that site. It goes only in the request's
-  `Authorization` header.
+- **The token** is the one `login` kept for that API. It goes only in the request's
+  `Authorization` header. Without one, or when the API refuses it, the error ends
+  `Sign in: npx shaderera login`.
+- **An error** names the call, the API, the status and the API's own sentence. An answer that is
+  not the API's JSON (a proxy's or a site's page) shows only its first line.
 
 ```
 $ npx shaderera share
-share: 14 files, 2.1 MB, and a player of 31 files, 3.4 MB, to https://shaderera.com as a new film "neon-rain" (licence MIT)
+share: 14 files, 2.1 MB, and a player of 31 files, 3.4 MB, to https://api.shaderera.com as a new film "neon-rain" (licence MIT)
+  the player plays on https://api.shaderera.com, https://shaderera.com
   not sent: .env
 Send? [y/N] y
   with a poster of 48 KB and a loop of 612 KB
@@ -512,39 +671,47 @@ shared film k3x9q2mfa7 version 3ff052ac4865: 33 of 33 files were new
   https://shaderera.com/film/k3x9q2mfa7
 ```
 
-The address it prints is the film's page, the canvas with the film open, as the site answers it
-(else `https://shaderera.com/film/<film>`).
+The address it prints is the film's page, the canvas with the film open, as the API answers it
+(else `<site>/film/<film>`).
 
 **`fork`** takes a film's id, `<id>@<version>` (a version may be the start of one) or the address
-of its page, whose origin is then the site; without a version it takes the latest. It needs no
-token and sends none. Every path is checked as a revision's is, every file against its sha256,
-and nothing is written until all of them match; the folder must be new or empty. The new
-project's first `share` makes a new film, marked as forked from that version.
+of its page on the site (`https://shaderera.com/film/<id>`), which it looks up on the API (a page
+of any other origin is refused); without a version it takes the latest. It needs no
+token and sends none. It downloads 8 files at a time. Every path is checked as a revision's is,
+every file against its sha256, and nothing is written until all of them match; the folder must be
+new or empty. The new project's first `share` makes a new film, marked as forked from that version.
+
+- **Where it came from** is written into the new project's source, so a share sends it on:
+  package.json gets `forkedFrom` (`film`, `title`, `owner`, `version`, `licence` and `page`, the
+  film's page on the site), and README.md (made when the film has none) ends with a line such as
+  `Forked from "neon-rain" by ana (https://shaderera.com/film/k3x9q2mfa7), version <its id>, licence MIT.`
+- **The licence** stays the film's: package.json's `license` is what the owner chose. A film that
+  is `All rights reserved` (`UNLICENSED`) is still forked, with a warning that the owner keeps
+  every right, so ask them before sharing, publishing or reusing any of it.
 
 ```
 $ npx shaderera fork https://shaderera.com/film/k3x9q2mfa7 my-rain
 forked "neon-rain" (k3x9q2mfa7) version 3ff052ac4865 into /work/my-rain: 14 files, 2.1 MB, licence MIT
 ```
 
-With `--json`, `share`'s result is `site`, `film`, `created`, `version`, `url`, `files`, `bytes`,
-`player` (`{ files, bytes }`), `uploaded`, `notSent`, `poster` and `loop` (their bytes, or null
-when not sent) and `warnings`; `fork`'s is `site`, `dir`, `film`, `title`, `owner`, `version`,
-`licence`, `files` and `bytes`.
+With `--json`, `share`'s result is `api`, `film`, `created`, `version`, `url`, `files`, `bytes`,
+`player` (`{ files, bytes }`), `parents`, `uploaded`, `notSent`, `poster` and `loop` (their bytes,
+or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`, `owner`,
+`version`, `licence`, `files`, `bytes`, `forkedFrom` and `warnings`.
 
 ## `studio`, `telemetry`
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--to origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open]` | serves the project to the studio page on the site until Ctrl-C |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
 machine. It makes a studio session id, or takes the one a studio page made with `--connect <id>`,
 and opens `<site>/studio/<id>#<nonce>` in your browser (`--no-open` prints the address instead): it
 pairs only with the page that holds that nonce. The site is
-`--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Share sends films to
-`--to <origin>`, as `share --to` and with the same default, which can be another site than the
-page's. It also takes `--root`, `--host`, `--trusted` and `--timeout`, for the renders the page
+`--site <origin>`, else `SHADERERA_SITE`, else `https://shaderera.com`. Share sends films to the
+films API, `--api <origin>`, as `share --api` and with the same default. It also takes `--root`, `--host`, `--trusted` and `--timeout`, for the renders the page
 asks for.
 
 - **The bridge.** It listens on 127.0.0.1 only and answers only the site's origin (and
@@ -563,14 +730,17 @@ first time it runs.
 $ npx shaderera studio
 project  /work/neon-rain
 bridge   http://127.0.0.1:52144 (for https://shaderera.com only)
+share to https://api.shaderera.com
 opening  https://shaderera.com/studio/k3x9q2
 paired: the studio page drives this project. Ctrl-C stops.
 ```
 
 ## `mcp`
 
-Serves the operations above as MCP tools over stdio. Accepts `--root`, `--trusted` and
-`--timeout`. See [mcp.md](mcp.md). The CLI hosts no agent: the person's own agent drives these
+Serves the operations above as MCP tools over stdio. It starts in any folder: each tool call
+finds its project from its `root`, or from `--root` (default: the current folder) and above.
+Accepts `--variant` and `--host` (every call's defaults), `--trusted` and `--timeout`. See
+[mcp.md](mcp.md). The CLI hosts no agent: the person's own agent drives these
 commands and the MCP server.
 
 ## Exit codes
@@ -578,7 +748,7 @@ commands and the MCP server.
 | Code | When |
 |---|---|
 | 0 | the command ran and nothing failed; or it printed the usage |
-| 1 | it ran and found a failure: `check` found a difference; `review` or `deliver` has a failing check; `still --diff` found a frame that depends on history; `handoff --verify` found a different frame; `doctor` is missing something needed; `share` was declined |
+| 1 | it ran and found a failure: `check` found a difference; `review` or `deliver` has a failing check; `still --diff` found a frame that depends on history; `handoff --verify` found a different frame; `doctor` is missing something needed; `share` was declined; `share --dry-run` is over a limit; `whoami` is not signed in |
 | 2 | it could not run: an unknown command or flag, a missing tool, a project that does not build or open, a shader that does not compile, a render that threw; printed as `shaderera: <message>` |
 
 ## `--json`: one envelope

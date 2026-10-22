@@ -1,0 +1,35 @@
+{
+  "route": "GET /films/health",
+  "about": "The service, the origins a shared film's player may be framed by, and the limits a client checks before it uploads. share reads it without a token.",
+  "request": {
+    "method": "GET",
+    "path": "/films/health",
+    "headers": {
+      "Authorization": null
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "ok": true,
+      "service": "web",
+      "parents": ["https://shaderera.com"],
+      "limits": {
+        "fileBytes": 5242880,
+        "versionBytes": 26214400,
+        "filesPerVersion": 2000,
+        "hashesPerAsk": 2000,
+        "posterBytes": 512000,
+        "loopBytes": 4194304,
+        "publishesPerHour": 20,
+        "filmsPerHour": 30,
+        "objectsPerHour": 4000,
+        "uploadBytesPerHour": 268435456,
+        "hashesPerHour": 20000
+      }
+    }
+  }
+}

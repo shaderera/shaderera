@@ -2,7 +2,8 @@ import type { Caption } from './protocol.ts'
 
 /**
  * The captions inside the window [from, to], cut to it and shifted so the window starts at 0,
- * in order of start. A caption that is not a finite span with text is refused, naming it.
+ * in order of start. A caption that is not a finite span with text is refused, naming it by its
+ * place in `captions()` from 1 (it has no SRT number), as review does.
  */
 export const windowCaptions = (
   captions: readonly Caption[],
@@ -17,7 +18,7 @@ export const windowCaptions = (
       typeof c.text !== 'string'
     )
       throw new Error(
-        `Caption ${i} needs a start before its end, in seconds, and text: ${JSON.stringify(c)}.`,
+        `Item ${i + 1} of captions() needs a start before its end, in seconds, and text: ${JSON.stringify(c)}.`,
       )
   return captions
     .filter((c) => c.end > from && c.start < to && c.text.trim() !== '')

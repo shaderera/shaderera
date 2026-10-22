@@ -24,6 +24,7 @@ const { contain, cover, crop, drawFrom, pyramid, toCanvas } = (await import(
 )) as typeof import('../image-fit/src/image/fit.ts')
 type Rect = import('../image-fit/src/image/fit.ts').Rect
 type Pyramid = import('../image-fit/src/image/fit.ts').Pyramid
+type Fit = import('../image-fit/src/image/fit.ts').Fit
 
 const io = { canvas: (w: number, h: number) => new Canvas(w, h) as unknown as OffscreenCanvas }
 const e = 1e-9
@@ -198,4 +199,42 @@ test('image-fit: the pyramid draws the same bytes in either draw order', () => {
   const backward = hashes(draws.map((_, i) => draws.length - 1 - i))
   assert.deepEqual(backward, forward)
   assert.ok(new Set(forward).size > draws.length / 2, 'the draws differ from each other')
+})
+
+test('image-fit: drawFrom a plain canvas or a pyramid is the drawImage written by hand', () => {
+  const W = 640
+  const H = 360
+  const frame = still(1280, 720, 4)
+  const photo = pyramid(io, still(3000, 2000, 5))
+  const box = { x: 0, y: 0, width: W, height: H }
+  const bytes = (draw: (ctx: OffscreenCanvasRenderingContext2D) => void) => {
+    const ctx = io.canvas(W, H).getContext('2d') as OffscreenCanvasRenderingContext2D
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, W, H)
+    draw(ctx)
+    return ctx.getImageData(0, 0, W, H).data
+  }
+  const byHand = (from: OffscreenCanvas, k: number, { source: s, target: t }: Fit) =>
+    bytes((ctx) => {
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = 'low'
+      ctx.drawImage(from, s.x * k, s.y * k, s.width * k, s.height * k, t.x, t.y, t.width, t.height)
+    })
+  for (const f of [
+    cover(frame, box),
+    cover(frame, box, [1200, 50]),
+    contain(frame, { x: 30, y: 20, width: 200, height: 300 }),
+  ])
+    assert.deepEqual(
+      bytes((ctx) => drawFrom(ctx, frame, f.source, f.target)),
+      byHand(frame, 1, f),
+      'a canvas: drawn once',
+    )
+  // 3000 wide into 640: no more than twice the size drawn is level 2, a quarter
+  const f = cover(photo, box)
+  assert.deepEqual(
+    bytes((ctx) => drawFrom(ctx, photo, f.source, f.target)),
+    byHand(photo.levels[2] as OffscreenCanvas, 0.25, f),
+    'a pyramid: from its level',
+  )
 })

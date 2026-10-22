@@ -23,6 +23,15 @@ const describe = (failures: readonly DeterminismFailure[]): string =>
     })
     .join('; ')
 
+/** An export refused because frames rendered again came out different: its frames cannot be trusted. */
+export class NotDeterministic extends Error {
+  readonly failures: readonly DeterminismFailure[]
+  constructor(failures: readonly DeterminismFailure[]) {
+    super(`Not exported: the source is not deterministic (${describe(failures)}).`)
+    this.failures = failures
+  }
+}
+
 /**
  * Renders every frame in [from, to) in order into a sink, waiting on each write. The export is also
  * the first pass of a determinism check: before the sink ends, up to 8 of its frames (the first, the
@@ -45,15 +54,24 @@ export const exportFrames = async (o: {
    * several hosts; a frame's `inspect` then runs after later frames were asked for.
    */
   ahead?: number
+  /**
+   * How many of the first frames the sink already holds (a resumed export): they are neither
+   * rendered nor written, except the ones the determinism re-check samples, which are rendered so
+   * the check still covers the whole window.
+   */
+  skip?: number
 }): Promise<{ readonly frames: number }> => {
   const times = frameTimes(o.fps, o.from, o.to)
   const checked = new Set(samples(times, RECHECKED))
   const first = new Map<number, Visit>()
   const ahead = Math.max(1, Math.floor(o.ahead ?? 1))
+  const skip = Math.max(0, Math.floor(o.skip ?? 0))
+  // A skipped frame is rendered only for the re-check.
+  const needed = (index: number) => index >= skip || checked.has(times[index] as number)
   const asked = new Map<number, Promise<Uint8Array | Uint8ClampedArray>>()
   const ask = (index: number) => {
     const t = times[index]
-    if (t === undefined || asked.has(index)) return
+    if (t === undefined || asked.has(index) || !needed(index)) return
     const pixels = o.render(t)
     // Awaited in order below; a later one that fails before then must not go unhandled.
     pixels.catch(() => {})
@@ -63,6 +81,7 @@ export const exportFrames = async (o: {
     for (let i = 0; i < ahead; i++) ask(i)
     for (const [index, t] of times.entries()) {
       o.signal?.throwIfAborted()
+      if (!needed(index)) continue
       ask(index)
       const pixels = await (asked.get(index) as Promise<Uint8Array | Uint8ClampedArray>)
       asked.delete(index)
@@ -72,13 +91,14 @@ export const exportFrames = async (o: {
       }
       // After the frame's inspect: with one frame at a time, the source has not moved on.
       ask(index + ahead)
+      if (index < skip) continue
       await o.sink.write(pixels)
       o.onFrame?.(index, times.length, t)
     }
     o.signal?.throwIfAborted()
     const failures = await revisit(first, o, times.at(-1) ?? null)
     if (failures.length > 0) {
-      throw new Error(`Not exported: the source is not deterministic (${describe(failures)}).`)
+      throw new NotDeterministic(failures)
     }
     await o.sink.end()
   } catch (error) {
