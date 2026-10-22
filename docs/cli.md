@@ -238,7 +238,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and a `.mcp.json` that gives a server `env` or `headers` (where keys go) or does not parse, at any depth. A `.mcp.json` that only names commands, as a new project's does, is stored like any file |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and any `.mcp.json` other than a new project's, at any depth. A `.mcp.json` is stored only when it parses and every server in it is exactly `npx -y shaderera mcp` (or `shaderera@<version>`), with no other fields but an empty `env` or `headers` |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
