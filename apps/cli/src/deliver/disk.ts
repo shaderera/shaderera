@@ -6,7 +6,7 @@ import { bitsPerSecond, type Input } from '../cli/ffmpeg.ts'
 import { found } from '../cli/findings.ts'
 import type { Child } from '../node/child.ts'
 import type { Delivery, Job } from '../project/jobs.ts'
-import type { Plan } from './chunks.ts'
+import { FFV1, type FrameInput, frameBytes, type Plan, RAW } from './chunks.ts'
 import { encodePng } from './png.ts'
 
 /**
@@ -86,10 +86,6 @@ export const checkDisk = (
   return { dir: o.dir, need: o.need, free, basis: o.basis, status }
 }
 
-/** Bytes of one frame as handed over, uncompressed: the ceiling of any lossless file of it. */
-export const rawFrameBytes = (input: Input, width: number, height: number) =>
-  input === 'yuv420p' ? (width * height * 3) / 2 : width * height * (input === 'rgba64' ? 8 : 4)
-
 /** `n` frame times spread over `times`, the middle of each nth part (fewer when there are fewer). */
 export const sampleTimes = (times: readonly number[], n = 3): number[] => {
   const k = Math.min(n, times.length)
@@ -100,10 +96,13 @@ export const sampleTimes = (times: readonly number[], n = 3): number[] => {
 }
 
 /** Bytes FFV1 (as a plan's chunks store it) takes for these frames. */
-const ffv1Bytes = (frames: readonly Uint8Array[], input: Input, width: number, height: number) =>
+const ffv1Bytes = (
+  frames: readonly Uint8Array[],
+  input: FrameInput,
+  width: number,
+  height: number,
+) =>
   new Promise<number>((done, fail) => {
-    const raw = { yuv420p: 'yuv420p', rgba: 'rgba', rgba64: 'rgba64le' }[input]
-    const stored = { yuv420p: 'yuv420p', rgba: 'bgra', rgba64: 'rgba64le' }[input]
     const ff = spawn(
       'ffmpeg',
       [
@@ -112,7 +111,7 @@ const ffv1Bytes = (frames: readonly Uint8Array[], input: Input, width: number, h
         '-f',
         'rawvideo',
         '-pix_fmt',
-        raw,
+        RAW[input],
         '-s',
         `${width}x${height}`,
         '-i',
@@ -122,7 +121,7 @@ const ffv1Bytes = (frames: readonly Uint8Array[], input: Input, width: number, h
         '-level',
         '3',
         '-pix_fmt',
-        stored,
+        FFV1[input],
         '-f',
         'matroska',
         '-',
@@ -142,21 +141,22 @@ const ffv1Bytes = (frames: readonly Uint8Array[], input: Input, width: number, h
 
 /**
  * Bytes a frame takes as a lossless intermediate (`ffv1`, a plan's chunk; `png`, a png job's
- * frame): the mean of a few frames rendered with `render` and encoded, or the raw ceiling when
+ * frame): the mean of a few frames rendered with `render` and encoded, or the raw ceiling (the
+ * bytes handed over, frameBytes: an hdr10 render's P010 twice yuv420p's, its rgb10 rgba's) when
  * there is no `render` (a sequential source, whose frames mid-film replay from its start) or a
  * sample fails (the render itself will say why).
  */
 export const frameEstimate = async (
   kind: 'ffv1' | 'png',
   o: {
-    input: Input
+    input: FrameInput
     width: number
     height: number
     times: readonly number[]
     render?: (t: number) => Promise<Uint8Array>
   },
 ): Promise<{ bytes: number; basis: 'sampled' | 'ceiling' }> => {
-  const ceiling = { bytes: rawFrameBytes(o.input, o.width, o.height), basis: 'ceiling' as const }
+  const ceiling = { bytes: frameBytes(o.input, o.width, o.height), basis: 'ceiling' as const }
   const at = sampleTimes(o.times)
   if (!o.render || at.length === 0) return ceiling
   try {
@@ -209,7 +209,7 @@ export const handoffAudioBytes = (seconds: number, stems = false) =>
   Math.ceil(PCM * seconds * (stems ? 2 : 1))
 
 /** A host's frames at `t` as `input`, for samples; none for a sequential source (the ceiling). */
-const sampler = (child: Child, input: Input, sequential: unknown) =>
+const sampler = (child: Child, input: FrameInput, sequential: unknown) =>
   sequential ? undefined : async (t: number) => (await child.render(t, 'final', input)).pixels
 
 /** `plan`: every chunk it will render as FFV1, and the file `assemble` writes, in the plan folder. */
@@ -282,27 +282,34 @@ export const preflightPng = async (
 
 /**
  * `deliver`: every output before the first renders, with no host open yet: a video by its rate
- * (finalFileBytes), a png job's frames at the raw ceiling.
+ * (finalFileBytes), a png job's frames at the raw ceiling. An hdr10 output also renders through
+ * one lossless chunk beside its file (P010 for an mp4, rgb10 for ProRes), removed once encoded:
+ * the outputs go one at a time, so the largest such chunk counts once, at the raw ceiling.
  */
 export const preflightBatch = (jobs: readonly Job[], dir: string, o: { force?: boolean }) => {
   let need = 0
-  let png = false
+  let chunk = 0
   for (const {
     output: { width, height, fps, from, to },
     delivery,
+    range,
   } of jobs) {
+    const frames = frameTimes(fps, from, to).length
     if (delivery.format === 'png') {
-      png = true
       const input: Input = delivery.bits === 16 ? 'rgba64' : 'rgba'
       need +=
-        frameTimes(fps, from, to).length * rawFrameBytes(input, width, height) +
-        handoffAudioBytes(to - from, delivery.stems)
+        frames * frameBytes(input, width, height) + handoffAudioBytes(to - from, delivery.stems)
     } else need += finalFileBytes(delivery, { width, height, fps, seconds: to - from })
+    if (range === 'hdr10') {
+      const input = delivery.format === 'mp4' ? 'p010' : 'rgb10'
+      chunk = Math.max(chunk, frames * frameBytes(input, width, height))
+    }
   }
+  const ceiling = chunk > 0 || jobs.some((j) => j.delivery.format === 'png')
   return checkDisk(`deliver (${jobs.length} outputs)`, {
     dir,
-    need,
-    basis: png ? 'ceiling' : 'bitrate',
+    need: need + chunk,
+    basis: ceiling ? 'ceiling' : 'bitrate',
     force: o.force,
   })
 }

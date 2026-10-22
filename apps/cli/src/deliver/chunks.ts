@@ -10,12 +10,24 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes } from '@shaderera/core'
+import type { LightLevels } from '@shaderera/core/host'
 import { ffmpegSink, type Input, requireFfmpeg } from '../cli/ffmpeg.ts'
 import type { Child, HostIdentity } from '../node/child.ts'
 import { frameError } from '../node/open-host.ts'
 import { type Job, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { hashFile } from '../project/revisions.ts'
 import { claim, holder, readClaim, removePartials } from './claim.ts'
+
+/**
+ * The frames a host hands over and a chunk stores: an SDR encoder's input, or an hdr10 render's
+ * P010 (10-bit Y'CbCr 4:2:0 of PQ codes, for HEVC) or `rgb10` (its 10-bit PQ R'G'B' codes, for
+ * ProRes), decision 0023.
+ */
+export type FrameInput = Input | 'p010' | 'rgb10'
+
+/** Whether frames are an hdr10 render's: they come with their light levels. */
+export const isHdr = (input: FrameInput): input is 'p010' | 'rgb10' =>
+  input === 'p010' || input === 'rgb10'
 
 /**
  * A job split into chunks of whole frames: each chunk can render on any machine that has the
@@ -27,7 +39,7 @@ export type Plan = {
   job: string
   jobId: string
   /** The frames as every host must hand them over: what the final encoder reads. */
-  input: Input
+  input: FrameInput
   fps: number
   width: number
   height: number
@@ -56,35 +68,71 @@ export const chunkFile = (dir: string, c: Plan['chunks'][number]) =>
 export type ChunkRecord = {
   index: number
   jobId: string
-  input: Input
+  input: FrameInput
   from: number
   to: number
   frames: number
   sha256: string
   seconds: number
   host: HostIdentity
+  /**
+   * An hdr10 chunk's light levels in cd/m², the most of its frames' (MaxCLL, MaxFALL): `assemble`
+   * takes the most over the chunks and writes them into the file once.
+   */
+  light?: LightLevels
 }
 
-/** FFV1 in Matroska: lossless for every input, the bytes in are the bytes out. */
-const FFV1 = { yuv420p: 'yuv420p', rgba: 'bgra', rgba64: 'rgba64le' } as const
-const RAW = { yuv420p: 'yuv420p', rgba: 'rgba', rgba64: 'rgba64le' } as const
+/**
+ * FFV1 in Matroska: lossless for every input, the bytes in are the bytes out. P010 is stored as
+ * `yuv420p10le` (FFV1 has no P010), the same 10-bit samples unpacked: decoded back to P010, every
+ * byte is the host's again. `rgb10` is stored as `gbrp10le`: decoded back, every 10-bit code is the
+ * host's again, and ffmpeg sets the word's two unused top bits.
+ */
+export const FFV1 = {
+  yuv420p: 'yuv420p',
+  rgba: 'bgra',
+  rgba64: 'rgba64le',
+  p010: 'yuv420p10le',
+  rgb10: 'gbrp10le',
+} as const
+export const RAW = {
+  yuv420p: 'yuv420p',
+  rgba: 'rgba',
+  rgba64: 'rgba64le',
+  p010: 'p010le',
+  rgb10: 'x2bgr10le',
+} as const
 
 /** Bytes of one frame in an input format. */
-const frameBytes = (input: Input, width: number, height: number) =>
-  input === 'yuv420p' ? (width * height * 3) / 2 : width * height * (input === 'rgba64' ? 8 : 4)
+export const frameBytes = (input: FrameInput, width: number, height: number) =>
+  input === 'yuv420p'
+    ? (width * height * 3) / 2
+    : input === 'p010'
+      ? width * height * 3
+      : width * height * (input === 'rgba64' ? 8 : 4)
+
+/** The most of each light level over frames or chunks: what an HDR10 file declares. */
+export const mostLight = (levels: readonly LightLevels[]): LightLevels => ({
+  maxCll: Math.max(0, ...levels.map((l) => l.maxCll)),
+  maxFall: Math.max(0, ...levels.map((l) => l.maxFall)),
+})
 
 /**
- * The frames a job's hosts hand over: what the final encoder reads (yuv420p or 16-bit RGBA from
- * the GPU compositor, else RGBA).
+ * The frames a job's hosts hand over: what the final encoder reads (an hdr10 job's P010 for HEVC,
+ * its R'G'B' codes for ProRes; yuv420p or 16-bit RGBA from the GPU compositor, else RGBA).
  */
-export const inputOf = (job: Job, child: Child): Input =>
-  videoOptionsOf(job.delivery).codec === 'h264'
-    ? child.has.yuv
-      ? 'yuv420p'
-      : 'rgba'
-    : child.has.deep
-      ? 'rgba64'
-      : 'rgba'
+export const inputOf = (job: Job, child: Child): FrameInput =>
+  child.has.p010
+    ? videoOptionsOf(job.delivery).codec === 'h264'
+      ? 'p010'
+      : 'rgb10'
+    : videoOptionsOf(job.delivery).codec === 'h264'
+      ? child.has.yuv
+        ? 'yuv420p'
+        : 'rgba'
+      : child.has.deep
+        ? 'rgba64'
+        : 'rgba'
 
 /**
  * Chunk `index` of a window's frames: frames a to b (not b) of `times`, with frame times, so the
@@ -105,7 +153,11 @@ export const chunkOf = (
 })
 
 /** Splits the job's window into `count` chunks of whole frames, as even as frames allow. */
-export const makePlan = (job: Job, input: Input, count: number): Plan => {
+export const makePlan = (
+  job: Pick<Job, 'name' | 'id' | 'output'>,
+  input: FrameInput,
+  count: number,
+): Plan => {
   const { fps, width, height, from, to } = job.output
   const times = frameTimes(fps, from, to)
   const n = Math.max(1, Math.min(Math.floor(count), times.length))
@@ -207,6 +259,10 @@ export const renderChunk = async (
     throw new Error('This plan hands frames over as yuv420p, made on the GPU: this host has none.')
   if (plan.input === 'rgba64' && !hosts.every((h) => h.has.deep))
     throw new Error('This plan hands frames over at 16 bits, made on the GPU: this host has none.')
+  if (isHdr(plan.input) && !hosts.every((h) => h.has.p010))
+    throw new Error(
+      `This plan hands frames over as HDR10 ${plan.input}: this host does not render the job in hdr10.`,
+    )
   mkdirSync(dir, { recursive: true })
   const out = join(dir, chunk.file)
   const claimed = claim(dir, chunk.file)
@@ -254,11 +310,19 @@ const renderClaimed = async (
     '3',
     '-pix_fmt',
     FFV1[plan.input],
+    // No random segment UID, date or version string: the same frames give the same file, so a
+    // chunk rendered again is still the one a reuse plan recorded by its sha256.
+    '-fflags',
+    '+bitexact',
+    '-flags:v',
+    '+bitexact',
     partial,
   ]
   // Not matted: the bytes the host hands over are the bytes stored.
   const sink = ffmpegSink(args, plan.input, false)
   let next = 0
+  // An hdr10 chunk's light: every frame's, the determinism re-check's renders too (the same).
+  const light: LightLevels[] = []
   try {
     const { frames } = await exportFrames({
       fps: plan.fps,
@@ -268,7 +332,9 @@ const renderClaimed = async (
       render: async (t) => {
         const host = hosts[next++ % hosts.length] as Child
         try {
-          return (await host.render(t, 'final', plan.input)).pixels
+          const r = await host.render(t, 'final', plan.input)
+          if (r.light) light.push(r.light)
+          return r.pixels
         } catch (error) {
           throw frameError(error, t, plan.fps, hosts.length)
         }
@@ -279,6 +345,8 @@ const renderClaimed = async (
       signal,
       ahead: hosts.length * 2,
     })
+    if (isHdr(plan.input) && light.length < frames)
+      throw new Error(`Chunk ${index}'s host gave no light levels with its ${plan.input} frames.`)
     if (frames !== chunk.frames)
       throw new Error(`Chunk ${index} rendered ${frames} frames; the plan has ${chunk.frames}.`)
     const record: ChunkRecord = {
@@ -291,6 +359,7 @@ const renderClaimed = async (
       sha256: hashFile(partial),
       seconds: (performance.now() - start) / 1000,
       host: await child.identity(),
+      ...(isHdr(plan.input) ? { light: mostLight(light) } : {}),
     }
     writeFileSync(temp, `${JSON.stringify(record, null, 1)}\n`)
     if (!ours())
@@ -469,6 +538,13 @@ export const checkChunks = (plan: Plan, dir: string, mixedHosts = false): ChunkR
   const states = chunkStates(plan, dir, true)
   const problems = states.flatMap((s) => (s.problem ? [problemLine(s)] : []))
   const records = states.flatMap((s) => (s.record ? [s.record] : []))
+  // An HDR10 file declares the light its chunks measured: a chunk without it cannot be assembled.
+  if (isHdr(plan.input))
+    for (const s of states)
+      if (s.record && !s.record.light)
+        problems.push(
+          `Chunk ${s.index} records no light levels${s.fix ? `: ${s.fix}` : ', render it again'}`,
+        )
   const hosts = new Set(records.map((r) => JSON.stringify(r.host)))
   const reused = plan.chunks.some((c) => c.reused)
   if (hosts.size > 1 && (!mixedHosts || reused))

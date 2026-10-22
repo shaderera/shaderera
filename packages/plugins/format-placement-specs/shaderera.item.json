@@ -2,7 +2,7 @@
   "name": "format-placement-specs",
   "type": "preset",
   "title": "Placement specs",
-  "description": "What Reels ads, YouTube, Amazon CTV, US and EU broadcast and a DOOH screen accept, as requirements.json placements that deliver checks the file against, each with its source and the date it was read",
+  "description": "What Reels ads, YouTube (SDR and HDR), Amazon CTV, US and EU broadcast and a DOOH screen accept, as requirements.json placements that deliver checks the file against, each with its source and the date it was read",
   "category": "Layout & Formats",
   "tags": [
     "placement",
@@ -15,7 +15,8 @@
     "dooh",
     "loudness",
     "bitrate",
-    "spec"
+    "spec",
+    "hdr"
   ],
   "version": "0.1.0",
   "licence": "MIT",

@@ -135,3 +135,44 @@ test('deliver counts a video by its bitrate and a png job at the ceiling', () =>
   const r = preflightBatch([mp4, job('png')], '/d', {})
   assert.equal(r.need, (1e6 + 40_000) * 4 + 100 * W * H * 4 + 48000 * 6 * 4)
 })
+
+test('an hdr10 plan counts its P010 or rgb10 frames, not the SDR bytes', async () => {
+  setFreeSpace(() => 1e12)
+  const { child } = flat()
+  const p010 = await preflightChunk(child, { ...plan, input: 'p010' }, 0, '/d', { sequential: 1 })
+  assert.equal(p010?.need, 100 * W * H * 3)
+  const rgb10 = await preflightChunk(child, { ...plan, input: 'rgb10' }, 0, '/d', {
+    sequential: 1,
+  })
+  assert.equal(rgb10?.need, 100 * W * H * 4)
+})
+
+test('deliver counts an hdr10 output its lossless chunk, the largest one once', () => {
+  setFreeSpace(() => 1e12)
+  const hdr = (format: 'mp4' | 'prores-hq') =>
+    ({
+      ...job(format),
+      range: 'hdr10',
+      delivery: { ...job(format).delivery, bitrate: '8M' },
+    }) as Job
+  const file = (1e6 + 40_000) * 4
+  const mov = (1e6 + 48000 * 6) * 4
+  const mp4 = preflightBatch([hdr('mp4')], '/d', {})
+  assert.equal(mp4.need, file + 100 * W * H * 3)
+  assert.equal(mp4.basis, 'ceiling')
+  // Encoded one at a time, each chunk removed after: only the larger (rgb10) counts.
+  const both = preflightBatch([hdr('mp4'), hdr('prores-hq')], '/d', {})
+  assert.equal(both.need, file + mov + 100 * W * H * 4)
+})
+
+test('an hdr10 chunk is sampled as FFV1 from its P010 frames', {
+  skip: spawnSync('ffmpeg', ['-version']).status !== 0 && 'no ffmpeg',
+}, async () => {
+  const child = {
+    render: async () => ({ pixels: new Uint8Array(W * H * 3).fill(64) }),
+  } as unknown as Child
+  setFreeSpace(() => 1e12)
+  const r = await preflightChunk(child, { ...plan, input: 'p010' }, 0, '/d', {})
+  assert.equal(r?.basis, 'sampled')
+  assert.ok((r?.need ?? 0) > 0 && (r?.need ?? 0) < 100 * W * H * 3)
+})

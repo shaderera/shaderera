@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import type { Json, SampledClip } from '@shaderera/core'
+import type { Json, Range, SampledClip } from '@shaderera/core'
 import type { TextRun } from '../review/measure.ts'
 import { type AdapterInfo, adapterLine, softwareAdapter } from './adapter.ts'
 import { alive } from './build.ts'
@@ -255,6 +255,8 @@ export const openBrowserChild = async (
     params?: { [key: string]: Json }
     /** The source's `host.seed`; by default the manifest's, or 0. */
     seed?: number
+    /** The source's `host.range`: `sdr` when absent. */
+    range?: Range
     variant?: string
     /** A saved revision: its frozen entry and DOM (materialized under .shaderera/revisions/). */
     revision?: string
@@ -383,7 +385,7 @@ export const openBrowserChild = async (
       try {
         // Raced against the worker failing to load (runner/bridge.ts), which answers no call.
         opened = await evaluate<NonNullable<typeof opened>>(
-          `Promise.race([window.__shaderera.open(${JSON.stringify({ params: o.params, seed: o.seed, variant: o.variant, revision: o.revision, size: o.size })}), window.__shadereraFailed.then((m) => { throw new Error(m) })])`,
+          `Promise.race([window.__shaderera.open(${JSON.stringify({ params: o.params, seed: o.seed, range: o.range, variant: o.variant, revision: o.revision, size: o.size })}), window.__shadereraFailed.then((m) => { throw new Error(m) })])`,
         )
       } catch (error) {
         if (
@@ -406,6 +408,7 @@ export const openBrowserChild = async (
       sequential: capabilities.sequential,
       yuv: capabilities.yuv,
       deep: capabilities.deep,
+      p010: capabilities.p010,
     }
     const call = <T>(method: string, ...args: unknown[]) =>
       evaluate<T>(`window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`)
@@ -415,14 +418,20 @@ export const openBrowserChild = async (
         // one HTTP body, not base64 over the DevTools protocol.
         const key = randomUUID()
         const arrived = new Promise<Buffer>((done) => frameUploads.set(key, done))
-        let layers: Rendered['layers']
+        let sent: Omit<Rendered, 'pixels'>
         try {
-          layers = await call<Rendered['layers']>('send', t, intent, format, `${FRAME_PATH}${key}`)
+          sent = await call<Omit<Rendered, 'pixels'>>(
+            'send',
+            t,
+            intent,
+            format,
+            `${FRAME_PATH}${key}`,
+          )
         } finally {
           frameUploads.delete(key)
         }
         const bytes = await arrived
-        return { pixels: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), layers }
+        return { pixels: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), ...sent }
       },
       inspect: (t) => call('inspect', t),
       pick: (t, x, y) => call('pick', t, x, y),
