@@ -91,11 +91,22 @@ export const straight = ({ data, alpha }: RgbaLayer): Uint8ClampedArray<ArrayBuf
  * path matte its frames with this, once, at the sink; the bytes before it stay straight.
  */
 export const matte = (data: Uint8Array | Uint8ClampedArray): Uint8Array => {
-  const out = new Uint8Array(data.length)
-  for (let i = 0; i < data.length; i += 4) {
-    const a = data[i + 3] as number
-    for (let c = i; c < i + 3; c++) out[c] = Math.round(((data[c] as number) * a) / 255)
-    out[i + 3] = 255
+  const out = new Uint8Array(data)
+  for (let i = 3; i < data.length; i += 4) {
+    const a = data[i] as number
+    // Opaque pixels (most of a frame) are already what the matte gives.
+    if (a === 255) continue
+    const row = a << 8
+    for (let c = i - 3; c < i; c++) out[c] = MATTED[row | (data[c] as number)] as number
+    out[i] = 255
   }
   return out
 }
+
+/** `round(c × a / 255)` for every alpha `a` and channel `c`, at `a << 8 | c`: matte's arithmetic. */
+const MATTED = (() => {
+  const t = new Uint8Array(65536)
+  for (let a = 0; a < 256; a++)
+    for (let c = 0; c < 256; c++) t[(a << 8) | c] = Math.round((c * a) / 255)
+  return t
+})()
