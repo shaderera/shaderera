@@ -426,7 +426,7 @@ layer never had**. None of it is HDR: an "HDR" tag on an SDR composite would be 
 no scene-linear light in it to put in an EXR.
 
 **HDR10 is decided, not built.** [Decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)
-(proposed 2026-10-22, waiting for the owner) sets out how it will work:
+(decided 2026-10-22) sets out how it will work:
 - a film opts in, and its GPU layers declare linear or PQ light in BT.2020;
 - 8-bit layers are decoded as sRGB and placed at a graphics white (203 nits by default, after
   ITU-R BT.2408);
