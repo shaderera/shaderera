@@ -27,16 +27,18 @@ delivers it.
 
 ## 2. Give yourself eyes
 
-Look at frames, not only numbers. The MCP server renders frames, returns them as images,
-inspects state and traces a pixel back to the line that drew it. From the project directory in
-Claude Code:
+Look at frames, not only numbers. The `shaderera` MCP server renders frames, returns them as
+images, inspects state and traces a pixel back to the line that drew it. The Claude Code plugin
+declares it, and a new project's `.mcp.json` names it. If its tools are missing, add a stdio MCP
+server whose command is `npx -y shaderera mcp` (Claude Code:
+`claude mcp add shaderera -- npx -y shaderera mcp`).
 
-```bash
-claude mcp add shaderera -- npx shaderera mcp
-```
-
-In another agent, add a stdio MCP server whose command is `npx shaderera mcp`, run in the
-project directory. Without MCP, the CLI shows the same things (step 3).
+The server starts in any folder and finds the project on each call, from the folder it runs in
+and above. When the project is somewhere else (one you just made, say), pass its folder as
+`root` on every call. A call with no project says so. The tools have the CLI's names (`render`,
+`check`, `still`, `save`, `versions`, `job`, `review`); `compare` compares two times, and
+`render_frame`, `still`, `inspect` and `compare` take `variant` and `params`. Without MCP, the
+CLI shows the same things (step 3).
 
 ## 3. The loop
 
@@ -49,7 +51,8 @@ project directory. Without MCP, the CLI shows the same things (step 3).
    no warning (`node_modules/shaderera/docs/protocol.md`, "Text runs").
 3. Check after every edit: `npx shaderera check`. `render(t)` must stay a function of `t`.
 4. Look: `npx shaderera still <t>... --sheet`, a detail with `--region x,y,w,h --scale 8`, or
-   `render_frame` with `image: true`. Read motion as a curve: `npx shaderera inspect --track <path>`.
+   MCP `still` (a contact sheet) or `render_frame` with `image: true` (scaled to 1024 px; `full`
+   or a `region` for detail). Read motion as a curve: `npx shaderera inspect --track <path>`.
    Compare the frames a change should affect with the ones it should not.
 5. Make the smallest change that does what was asked. Keep edits made by hand.
 6. Save a revision the person can return to: `npx shaderera save --label "<what changed>"`.

@@ -44,6 +44,8 @@ test('create copies the empty project as an ordinary project', () => {
   assert.ok(existsSync(join(target, 'src', 'composition.ts')))
   assert.ok(!existsSync(join(target, 'node_modules')))
   assert.match(readFileSync(join(target, '.gitignore'), 'utf8'), /^node_modules\/$/m)
+  const mcp = JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8'))
+  assert.deepEqual(mcp.mcpServers.shaderera, { command: 'npx', args: ['-y', 'shaderera', 'mcp'] })
   assert.throws(() => create({ from, target, version: '0.1.0' }), /not empty/)
 })
 
@@ -86,4 +88,14 @@ test('the Claude Code plugin has no version, so every change reaches users', () 
   const read = (...p: string[]) => JSON.parse(readFileSync(join(repo, ...p), 'utf8'))
   assert.equal(read('plugins', 'shaderera', '.claude-plugin', 'plugin.json').version, undefined)
   assert.equal(read('.claude-plugin', 'marketplace.json').plugins[0].version, undefined)
+})
+
+test('the Claude Code plugin declares the MCP server', () => {
+  const plugin = JSON.parse(
+    readFileSync(join(repo, 'plugins', 'shaderera', '.claude-plugin', 'plugin.json'), 'utf8'),
+  )
+  assert.deepEqual(plugin.mcpServers.shaderera, {
+    command: 'npx',
+    args: ['-y', 'shaderera', 'mcp'],
+  })
 })
