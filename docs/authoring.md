@@ -111,6 +111,10 @@ The CLI and MCP can only show and change what the source exposes.
   at closely, so `still --object` can find it.
 - **Params** are a JSON Schema in `shaderera.json` with titles and good defaults, for the few
   controls a non-programmer wants. If a param overrides a literal, say so in the README.
+- **Variants** (`16:9`, `9:16`, a cutdown) are outputs the film lays itself out for. The source
+  is opened with the variant's size in `host.manifest` and its name in `host.variant`
+  (`undefined` for the manifest's own output): lay out by the name, not by guessing from the
+  width and height.
 - **`pick(t, x, y)`** returns `{ id, point? }` through the camera in effect, so a click selects.
 
 ## Keep it deterministic

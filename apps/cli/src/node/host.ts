@@ -75,6 +75,8 @@ export type Open = {
   manifest: Manifest
   params: { [key: string]: Json }
   seed: number
+  /** The variant the source is opened as (`host.variant`); none for the manifest's own output. */
+  variant?: string
   /** The job's range: `sdr` when absent; `hdr10` needs the manifest's hdr10 and a GPU. */
   range?: Range
   /** A sequential source's checkpoint spacing in rendering ms (the host's default otherwise). */
@@ -339,6 +341,7 @@ const handle = async (m: Request): Promise<unknown> => {
       manifest: m.manifest,
       params: m.params,
       seed: m.seed,
+      ...(m.variant !== undefined ? { variant: m.variant } : {}),
       range,
       gpu: device,
       io: {

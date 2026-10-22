@@ -169,6 +169,8 @@ export const openChild = async (
     trusted?: boolean
     params?: { [key: string]: Json }
     seed?: number
+    /** The variant `project.manifest` is already sized for: the source's `host.variant`. */
+    variant?: string
     /** The source's `host.range`: `sdr` when absent. */
     range?: Range
     timeoutMs?: number
@@ -246,6 +248,7 @@ export const openChild = async (
       manifest: project.manifest,
       params: o.params ?? paramDefaults(project.manifest),
       seed: o.seed ?? project.manifest.seed ?? 0,
+      ...(o.variant !== undefined ? { variant: o.variant } : {}),
       ...(o.range ? { range: o.range } : {}),
       checkpointMs: o.checkpointMs,
     },

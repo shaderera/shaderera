@@ -40,6 +40,7 @@ export const hostOpener = async (
   const common = {
     params: o.params,
     ...(o.seed !== undefined ? { seed: o.seed } : {}),
+    ...(o.variant ? { variant: o.variant } : {}),
     ...(o.range ? { range: o.range } : {}),
     ...(o.bakes ? { bakes: o.bakes } : {}),
     ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}),
@@ -48,7 +49,6 @@ export const hostOpener = async (
     return () =>
       openBrowserChild(project, {
         ...common,
-        ...(o.variant ? { variant: o.variant } : {}),
         ...(o.revision ? { revision: o.revision } : {}),
         ...(o.size ? { size: o.size } : {}),
       })

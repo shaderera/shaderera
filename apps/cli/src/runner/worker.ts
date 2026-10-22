@@ -474,6 +474,7 @@ const api = {
         manifest,
         params: o.params ?? { ...paramDefaults(manifest), ...variant.params },
         seed: o.seed ?? manifest.seed ?? 0,
+        ...(o.variant !== undefined ? { variant: o.variant } : {}),
         range,
         io,
         gpu,
@@ -484,6 +485,7 @@ const api = {
           mount: {
             manifest,
             params: host.params,
+            ...(o.variant !== undefined ? { variant: o.variant } : {}),
             ...(o.revision ? { module: url(manifest.dom) } : {}),
           },
         })
