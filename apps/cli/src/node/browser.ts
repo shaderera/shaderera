@@ -408,6 +408,7 @@ export const openBrowserChild = async (
       sequential: capabilities.sequential,
       yuv: capabilities.yuv,
       deep: capabilities.deep,
+      p010: capabilities.p010,
     }
     const call = <T>(method: string, ...args: unknown[]) =>
       evaluate<T>(`window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`)
