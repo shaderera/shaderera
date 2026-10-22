@@ -88,14 +88,14 @@ export type ChunkRecord = {
  * byte is the host's again. `rgb10` is stored as `gbrp10le`: decoded back, every 10-bit code is the
  * host's again, and ffmpeg sets the word's two unused top bits.
  */
-const FFV1 = {
+export const FFV1 = {
   yuv420p: 'yuv420p',
   rgba: 'bgra',
   rgba64: 'rgba64le',
   p010: 'yuv420p10le',
   rgb10: 'gbrp10le',
 } as const
-const RAW = {
+export const RAW = {
   yuv420p: 'yuv420p',
   rgba: 'rgba',
   rgba64: 'rgba64le',
@@ -104,7 +104,7 @@ const RAW = {
 } as const
 
 /** Bytes of one frame in an input format. */
-const frameBytes = (input: FrameInput, width: number, height: number) =>
+export const frameBytes = (input: FrameInput, width: number, height: number) =>
   input === 'yuv420p'
     ? (width * height * 3) / 2
     : input === 'p010'
