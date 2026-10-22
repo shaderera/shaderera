@@ -131,46 +131,56 @@ const main = async (argv: readonly string[]): Promise<number> => {
   return module.run(rest)
 }
 
-const argv = process.argv.slice(2)
-const command = argv[0] ?? ''
 /**
- * `--json` on any command but mcp: stdout is one envelope (`result/1`), what the command
- * printed goes into it (`result` when the command printed JSON, `log` otherwise), and the exit
- * code is the same as without it.
+ * Runs the CLI on `argv` (what follows `shaderera`) and gives its exit code. `--json` on any
+ * command but mcp and studio: stdout is one envelope (`result/1`), what the command printed goes
+ * into it (`result` when the command printed JSON, `log` otherwise), and the exit code is the same
+ * as without it. bin/shaderera.js runs it on the process's arguments, as `node main.ts` does; a
+ * test runs it in its own process (fixtures/cli.ts).
  */
-const envelope = argv.includes('--json') && !STREAMS.has(command)
-const log: string[] = []
-if (envelope) console.log = (...parts: unknown[]) => log.push(parts.map(String).join(' '))
-const given = envelope && !OWN_JSON.has(command) ? argv.filter((a) => a !== '--json') : argv
-try {
-  process.exitCode = await main(given)
-} catch (e) {
-  if (!envelope)
-    console.error(process.env.SHADERERA_DEBUG ? e : `shaderera: ${(e as Error).message ?? e}`)
-  found(errorFinding(e))
-  process.exitCode = EXIT.error
+export const run = async (argv: readonly string[]): Promise<number> => {
+  const command = argv[0] ?? ''
+  const envelope = argv.includes('--json') && !STREAMS.has(command)
+  const log: string[] = []
+  const print = console.log
+  findings.length = 0
+  if (envelope) console.log = (...parts: unknown[]) => log.push(parts.map(String).join(' '))
+  const given = envelope && !OWN_JSON.has(command) ? argv.filter((a) => a !== '--json') : argv
+  let exitCode: number
+  try {
+    exitCode = await main(given)
+  } catch (e) {
+    if (!envelope)
+      console.error(process.env.SHADERERA_DEBUG ? e : `shaderera: ${(e as Error).message ?? e}`)
+    found(errorFinding(e))
+    exitCode = EXIT.error
+  } finally {
+    console.log = print
+  }
+  if (envelope) {
+    let result: unknown
+    if (OWN_JSON.has(command) && log.length > 0)
+      try {
+        result = JSON.parse(log.join('\n'))
+      } catch {
+        // Prose after all (an error before the JSON): it stays in log.
+      }
+    console.log(
+      JSON.stringify(
+        {
+          shaderera: 'result/1',
+          command,
+          ok: exitCode === EXIT.ok,
+          exitCode,
+          findings,
+          ...(result === undefined ? { log } : { result }),
+        },
+        null,
+        2,
+      ),
+    )
+  }
+  return exitCode
 }
-if (envelope) {
-  let result: unknown
-  if (OWN_JSON.has(command) && log.length > 0)
-    try {
-      result = JSON.parse(log.join('\n'))
-    } catch {
-      // Prose after all (an error before the JSON): it stays in log.
-    }
-  const exitCode = Number(process.exitCode ?? 0)
-  process.stdout.write(
-    `${JSON.stringify(
-      {
-        shaderera: 'result/1',
-        command,
-        ok: exitCode === EXIT.ok,
-        exitCode,
-        findings,
-        ...(result === undefined ? { log } : { result }),
-      },
-      null,
-      2,
-    )}\n`,
-  )
-}
+
+if (import.meta.main) process.exitCode = await run(process.argv.slice(2))
