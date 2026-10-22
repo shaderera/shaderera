@@ -179,8 +179,10 @@ The file is written as `<out>.<pid>.partial` (the render's process id, so two re
 stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
 kept as `<out>.<pid>.partial` and the error says so. A host error fails the render with
-its frame (`Frame 214 (t 7.133 s) failed: …`), and a GPU device error (lost, removed, out of
-memory) with several hosts says to render with fewer `--workers`: each holds its own GPU memory.
+its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU device error (lost,
+removed, out of memory) or a host process that crashed in native code, at a frame or while the
+hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
+memory. This holds for `render`, `render --chunk` and `deliver`; nothing is retried.
 The file must hold every frame rendered; one ffmpeg finished short is refused.
 
 Every file says which revision made it. `render` saves the project first, as `job` does (the same
