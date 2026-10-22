@@ -18,6 +18,7 @@ test('the stable, experimental and internal entries export exactly what docs/api
   ])
   assert.deepEqual(await keys('./gpu.ts'), ['readBuffer', 'readTexture'])
   assert.deepEqual(await keys('./host.ts'), [
+    'CODE_LIGHT',
     'GRAPHICS_WHITE',
     'checkManifest',
     'dropFrame',
@@ -39,6 +40,7 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'p010Fits',
     'p010Reference',
     'paramDefaults',
+    'peakCode',
     'rangeOf',
     'rgb10Reference',
     'sampleClips',
@@ -49,6 +51,7 @@ test('the stable, experimental and internal entries export exactly what docs/api
     'toSrt',
     'toVtt',
     'watchShaders',
+    'whiteOf',
     'windowCaptions',
     'withVariant',
     'yuvFits',

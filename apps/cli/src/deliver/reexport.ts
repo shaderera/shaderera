@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process'
 import { isDeepStrictEqual } from 'node:util'
 import { frameTimes } from '@shaderera/core'
-import type { Codec } from '../cli/ffmpeg.ts'
+import type { Codec, Probe } from '../cli/ffmpeg.ts'
 import type { EncodeAudio } from '../cli/mix.ts'
 import type { Child } from '../node/child.ts'
 import { type Job, readJob } from '../project/jobs.ts'
@@ -13,8 +13,8 @@ import { inputOf } from './chunks.ts'
 
 const json = (v: unknown) => JSON.stringify(v ?? null)
 
-/** What two jobs say differently about `keys`, one phrase each. */
-const differences = (a: Job, b: Job, keys: readonly (keyof Job)[]): string[] =>
+/** What two jobs (or probes) say differently about `keys`, one phrase each. */
+const differences = <T>(a: T, b: T, keys: readonly (keyof T & string)[]): string[] =>
   keys.flatMap((k) =>
     isDeepStrictEqual(a[k] ?? null, b[k] ?? null) ? [] : [`${k} ${json(a[k])}, not ${json(b[k])}`],
   )
@@ -122,6 +122,28 @@ export const remuxArgs = (o: {
   return args
 }
 
+/**
+ * What a remux changed of an HDR10 file's signalling (decision 0023): its colour tags, codec tag,
+ * chroma site, `mdcv`/`clli` boxes and first-frame SEI, which `-c:v copy` must carry as they are.
+ * The light levels are the ones its encode measured over every frame (for a plan's file, the most
+ * over its chunks): a file that lost or changed them would declare other light than its frames'.
+ * Empty for an SDR file, and when nothing changed.
+ */
+export const hdr10Changes = (was: Probe, now: Probe): string[] => {
+  const a = was.video
+  if (!a?.hdr10) return []
+  const b = now.video
+  const signalling = (v: typeof a | undefined) => ({ color: v?.color, ...v?.hdr10 })
+  return differences(signalling(a), signalling(b), [
+    'color',
+    'codecTag',
+    'chroma',
+    'mastering',
+    'light',
+    'sei',
+  ])
+}
+
 /** Runs ffmpeg with `args`, throwing its own error. */
 export const remux = (args: readonly string[]) => {
   const r = spawnSync('ffmpeg', args, { encoding: 'utf8' })
@@ -146,7 +168,7 @@ export const assembledJob = (root: string, plan: Plan, name?: string): Job => {
   if (job.delivery.format === 'png')
     throw new Error(`Job ${job.name} is a png handoff: render it with render --job ${job.name}.`)
   const keys = ['revision', 'host', 'variant', 'params', 'seed', 'camera', 'output', 'inputs']
-  const differ = differences(own, job, keys as (keyof Job)[])
+  const differ = differences(own, job, keys as (keyof Job & string)[])
   if (differ.length > 0)
     throw new Error(
       `Job ${job.name} is not another delivery of job ${own.name}, whose chunks these are: its ${differ.join('; ')}. Render job ${job.name} instead.`,
