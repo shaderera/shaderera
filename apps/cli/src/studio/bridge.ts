@@ -205,7 +205,7 @@ export const startBridge = async (o: {
       if (job.format === 'png') {
         insideFilm([r.t], manifest.duration)
         const { pixels } = await child.render(r.t, 'final')
-        writeFileSync(job.file, toPng(pixels, manifest.width, manifest.height))
+        writeFileSync(job.file, await toPng(pixels, manifest.width, manifest.height))
         return
       }
       let last = 0

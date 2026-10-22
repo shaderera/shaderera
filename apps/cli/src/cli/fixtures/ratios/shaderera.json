@@ -1,0 +1,11 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 10,
+  "duration": 2,
+  "width": 1920,
+  "height": 1080,
+  "variants": {
+    "16:9": { "label": "landscape", "width": 1920, "height": 1080 },
+    "9:16": { "label": "portrait", "width": 1080, "height": 1920 }
+  }
+}

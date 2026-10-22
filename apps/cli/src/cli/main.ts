@@ -36,6 +36,7 @@ shaderera.com (or --to/--site <origin>, else SHADERERA_SITE):
 ${pluginUsage}
 
 check, inspect, still, render and review take --param k=v (repeatable): a param over the defaults.
+check, still and review take several variants (--variant a,b or --variants all): one host each, at once.
 
 Stills: still (out/stills/). A review with technical checks: review (out/review/).`
 

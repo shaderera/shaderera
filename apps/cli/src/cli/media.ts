@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scanProject, treeId } from '../project/revisions.ts'
-import { toPng } from '../review/review.ts'
 import { open } from './args.ts'
 import { requireFfmpeg } from './ffmpeg.ts'
 import { exportVideo } from './render.ts'
@@ -19,17 +18,23 @@ export const mediaDir = (root: string): string => join(root, '.shaderera', 'medi
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-/** Runs ffmpeg; throws its last line of error. */
-const ffmpeg = (args: readonly string[]) => {
-  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', ...args], { encoding: 'utf8' })
+/** Runs ffmpeg, `input` on its stdin; throws its last line of error. */
+const ffmpeg = (args: readonly string[], input?: Uint8Array) => {
+  const r = spawnSync('ffmpeg', ['-y', '-v', 'error', ...args], { encoding: 'utf8', input })
   if (r.status !== 0)
     throw new Error(`ffmpeg failed: ${r.stderr.trim().split('\n').at(-1) ?? r.status}`)
 }
 
 /** Encodes at each setting in turn until the file fits `max` bytes; throws when none does. */
-const fit = (out: string, max: number, settings: readonly string[][], what: string) => {
+const fit = (
+  out: string,
+  max: number,
+  settings: readonly string[][],
+  what: string,
+  input?: Uint8Array,
+) => {
   for (const s of settings) {
-    ffmpeg([...s, out])
+    ffmpeg([...s, out], input)
     if (statSync(out).size <= max) return out
   }
   rmSync(out, { force: true })
@@ -63,14 +68,18 @@ export const renderMedia = async (
   const temp = mkdtempSync(join(tmpdir(), 'shaderera-media-'))
   try {
     try {
-      const png = join(temp, 'poster.png')
-      writeFileSync(png, toPng((await child.render(duration / 2, 'final')).pixels, width, height))
-      const scale = ['-i', png, '-vf', `scale=${Math.min(POSTER.width, width)}:-1`]
+      // Its RGBA straight to ffmpeg, which scales it: no PNG between.
+      const { pixels } = await child.render(duration / 2, 'final')
+      const raw = [
+        ...['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${width}x${height}`, '-i', '-'],
+        ...['-vf', `scale=${Math.min(POSTER.width, width)}:-1`],
+      ]
       made.poster = fit(
         join(dir, 'poster.webp'),
         POSTER.bytes,
-        [80, 60, 40, 20].map((q) => [...scale, '-c:v', 'libwebp', '-quality', String(q)]),
+        [80, 60, 40, 20].map((q) => [...raw, '-c:v', 'libwebp', '-quality', String(q)]),
         'the poster',
+        pixels,
       )
     } catch (e) {
       warnings.push(`no poster: ${message(e)}`)

@@ -104,6 +104,7 @@ type Host = {
   manifest: Manifest
   params: { [key: string]: Json }
   seed: number                 // manifest.seed, or 0
+  variant?: string             // the variant opened (`9:16`); undefined for the manifest's own output
   io: Io
   gpu?: GPUDevice              // offered when the host has WebGPU; never required
 }
@@ -202,8 +203,19 @@ timecode is drop-frame at 29.97 and 59.94.
 
 Each may override `width`, `height`, `duration` and `fps`, set params, and declare `preroll`,
 `timecode` and `textless`. A host opens the source with the variant applied to `host.manifest`
-and its params over the defaults (`withVariant` in `@shaderera/core/host`); the source lays
-itself out from that manifest, so a variant is a designed output, never a crop of another.
+and its params over the defaults (`withVariant` in `@shaderera/core/host`), and gives its name as
+`host.variant` (`undefined` for the manifest's own output; a `dom` module gets it too). Every
+host does, in every command: the Node host, the browser host and the web player. The source lays
+itself out from that manifest and that name, so a variant is a designed output, never a crop of
+another:
+
+```ts
+const open: Open = ({ io, manifest, variant }) => {
+  const stacked = variant === '9:16' // the word over the picture; side by side otherwise
+  const canvas = io.canvas(manifest.width, manifest.height)
+  // ...
+}
+```
 Revisions and jobs, which freeze a variant, params and a source for export, live above the
 protocol, in the CLI ([cli.md](cli.md#versions-and-jobs)).
 
