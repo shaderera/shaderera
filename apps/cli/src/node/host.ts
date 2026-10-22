@@ -372,6 +372,7 @@ const handle = async (m: Request): Promise<unknown> => {
         : false,
       yuv: !!compositor && yuvFits(m.manifest.width, m.manifest.height),
       deep: !!compositor,
+      p010: !!hdr,
     }
   }
   const s = source as Source

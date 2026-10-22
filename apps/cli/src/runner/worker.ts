@@ -55,6 +55,8 @@ export type Capabilities = {
   yuv: boolean
   /** The worker composites on the GPU and can return rgba64 (16 bits a channel). */
   deep: boolean
+  /** An hdr10 render: frames come as p010 (or rgb10), with their light levels; none in SDR. */
+  p010: boolean
 }
 export type RenderedLayer = { bitmap: ImageBitmap; name?: string; final?: boolean }
 
@@ -504,6 +506,7 @@ const api = {
         // An hdr10 render has neither: it comes out as rgb10 or p010 only.
         yuv: !!host.gpu && range === 'sdr' && yuvFits(manifest.width, manifest.height),
         deep: !!host.gpu && range === 'sdr',
+        p010: range === 'hdr10',
       }
       if (explore) s.camera?.override?.(explore)
       return { manifest, capabilities }
@@ -617,13 +620,17 @@ const api = {
         return { layers, ...(light ? { light } : {}) }
       }),
     ),
-  /** checkDeterminism in the browser host, through the authored camera: two orders, same output. */
+  /**
+   * checkDeterminism in the browser host, through the authored camera: two orders, same output (an
+   * hdr10 render's P010 bytes, whose every frame also passes the peak check).
+   */
   check: (times: readonly number[]) =>
     enqueue(false, () =>
       authored(() =>
         checkDeterminism({
           times,
-          render: async (t) => (await composite(t, 'final')).bytes,
+          render: async (t) =>
+            (await composite(t, 'final', range === 'hdr10' ? 'p010' : 'rgba')).bytes,
           inspect: opened().inspect
             ? async (t) => (await opened().inspect?.(t)) ?? null
             : undefined,
