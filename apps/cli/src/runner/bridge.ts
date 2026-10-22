@@ -32,9 +32,15 @@ const worker = files
       { type: 'module' },
     )
   : new Worker(at, { type: 'module' })
+const failure = (e: ErrorEvent) => e.message || 'The runner worker failed to load.'
 worker.addEventListener('error', (e) => {
-  const message = e.message || 'The runner worker failed to load.'
+  const message = failure(e)
   if (origin !== undefined) parent.postMessage({ shaderera: 'error', message }, origin)
   else console.error(message)
 })
+// A worker that failed to load (its module did not parse, an import did not resolve) answers no
+// call: the browser host races its open against this, so it fails at once, not at its timeout.
+;(window as unknown as { __shadereraFailed: Promise<string> }).__shadereraFailed = new Promise(
+  (done) => worker.addEventListener('error', (e) => done(failure(e))),
+)
 connectPage(worker, origin)

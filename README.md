@@ -284,7 +284,8 @@ download flag).
 The fast tests are the `*.test.ts` files. The slow ones, `*.it.ts` (`pnpm test:slow`, which builds
 the CLI first), launch Chrome, Dawn, ffmpeg or the CLI as a child. They need ffmpeg, a GPU and
 Chrome: the ffmpeg tests skip without ffmpeg, but the GPU and browser-host tests fail without a
-GPU and Chrome (`CHROME` names another Chrome). A test that needs none of them goes in a
+GPU and Chrome (`CHROME` names another Chrome). `apps/cli/src/node/packed.it.ts` also packs the
+CLI and installs it with npm, so it needs npm's registry. A test that needs none of them goes in a
 `*.test.ts` file.
 
 The root `pnpm test`, `test:slow` and `test:all` point the temp folder at one of the run's own and
