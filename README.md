@@ -290,7 +290,9 @@ CLI and installs it with npm, so it needs npm's registry. A test that needs none
 
 The root `pnpm test`, `test:slow` and `test:all` point the temp folder at one of the run's own and
 fail if a test left a `shaderera-*` folder in it. A CLI test makes its temp folder with `tempDir`
-(`apps/cli/src/fixtures/temp.ts`), which removes it after the test.
+(`apps/cli/src/fixtures/temp.ts`), which removes it after the test, and runs a command with `cli`
+(`apps/cli/src/fixtures/cli.ts`), in its own process: one test starts `bin/shaderera.js` as a
+child.
 
 [CLAUDE.md](CLAUDE.md) is the short guide for agents working on this repository.
 `.claude/skills/` holds third-party engineering skills copied for contributors' agents (ponytail
