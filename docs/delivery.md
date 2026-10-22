@@ -311,7 +311,9 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
   (`--out`) that holds another job's plan or chunks, so that plan can still be assembled; the same
   job is planned again in its own folder.
 - Each chunk renders, with its own determinism re-check, into a lossless FFV1 file (the bytes the
-  host made), recorded with its sha256 and host. Its frames go round `--workers` hosts on that
+  host made), recorded with its sha256 and host. The file is written bit-exactly (no random
+  Matroska UID, date or version string), so a chunk rendered again with the same frames and the
+  same ffmpeg is the same file, and a plan that reuses it still takes it. Its frames go round `--workers` hosts on that
   machine, as `render`'s do (up to 4 by default; each holds its own memory, so give fewer for a
   heavy film). Where it runs is the person's: machines in the
   team, a cloud with GPUs, a handoff copied anywhere; Shaderera needs no service for it.
@@ -476,7 +478,19 @@ no scene-linear light in it to put in an EXR.
 - ffmpeg 9.0 is needed only for an HDR10 film (SDR stays tested on 8.1.1);
 - films that do not opt in do not change.
 
-Until it is built, what follows holds.
+So far the manifest's `hdr10` block, `host.range` and a layer's `light` exist
+([protocol.md](protocol.md#hdr10)): they are checked, and an SDR render refuses a layer with
+light. An `hdr10` range composites in HDR in both hosts:
+- `over` in linear BT.2020 light in 32-bit floats, then PQ and 10-bit R'G'B' codes, dithered
+  (TPDF, seeded by the frame index, never on black) when `dither` is `tpdf`;
+- P010 from those codes, held to a float64 reference: on this repository's test fixture no sample
+  differs;
+- MaxCLL and MaxFALL measured on the GPU from the codes, each pixel's brightest channel in
+  cd/m²;
+- a frame whose light passes the mastering display's peak fails, naming the frame and its cd/m²:
+  it is never clipped.
+
+No command renders or encodes HDR10 yet; until one does, what follows holds.
 
 What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
 channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance

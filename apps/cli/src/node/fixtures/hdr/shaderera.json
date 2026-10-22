@@ -1,0 +1,11 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 10,
+  "duration": 1,
+  "width": 1024,
+  "height": 64,
+  "hdr10": {
+    "mastering": { "peak": 10000, "min": 0.0001, "primaries": "bt2020" },
+    "dither": "tpdf"
+  }
+}
