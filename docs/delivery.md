@@ -198,8 +198,17 @@ A job with `delivery.format: 'png'` renders to `out/<job>/` (`deliver`:
   (`clock`), and the Shaderera and ffmpeg versions.
 - `review/`: the review's frames and contact sheet.
 
-The delivery is built in `<dir>.<pid>.partial` (the process id) and moved into place only after the
-determinism re-check passes; any failure (re-check, audio, review) removes it.
+The delivery is built in `<dir>.partial` and moved into place only after the determinism re-check
+passes. Each frame is written under a temporary name and renamed, so a frame file there is always
+whole. A run that fails (a host error, audio, review, Ctrl-C) keeps the frames it finished in
+`<dir>.partial`, and the error says how many; `render --job` (or the same `deliver`) again
+continues from the first frame missing or cut short there, and prints how many frames it rendered
+and how many were already there (`--json`: in the envelope's `log`; `deliver`: `framesKept` in
+index.json). The frames come out byte for byte as an uninterrupted run's, and the re-check still
+renders its samples from the whole window, kept frames included. `<dir>.partial/partial.json`
+names the job (its id and bit depth): a `<dir>.partial` of another job, or another revision, is
+refused, never continued. A source that fails the re-check loses its frames: they cannot be
+trusted to continue from.
 
 ## Batch
 
@@ -213,7 +222,7 @@ requirements.json (`safeArea`, or a placement's), from that platform's current s
 A locale sets the `locale` param; `shaderera.json` must declare one (and, if it has an `enum`,
 list the locale), or the batch is refused before anything renders. The batch writes
 `out/deliveries/<batch>/index.json` (`deliveries/1`: per output its file, bytes, size, length,
-frames, render time, checks, contact sheet, status, error) and `index.md` (a table, then every
+frames (a png job: and `framesKept`, the frames an earlier failed run left), render time, checks, contact sheet, status, error) and `index.md` (a table, then every
 failing check).
 
 A measured run: a Thai type film laid out for 4:5, given two variants it was not designed for

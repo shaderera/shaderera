@@ -1,7 +1,15 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { exportFrames, type Json } from '@shaderera/core'
+import { exportFrames, frameTimes, type Json } from '@shaderera/core'
 import { fpsFraction, toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { type Loudness, requireFfmpeg } from '../cli/ffmpeg.ts'
 import { mixWav } from '../cli/mix.ts'
@@ -68,13 +76,56 @@ export type DeliveryRecord = {
   clock: ClockReads
 }
 
+/** What `<dir>.partial/partial.json` says: whose frames the unfinished folder holds. */
+type PartialRecord = { shaderera: 'partial/1'; job: string; jobId: string; bits: 8 | 16 }
+
+/** A PNG ends with its IEND chunk: a file cut short does not. */
+const IEND = Buffer.from([0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82])
+
+const frameFile = (i: number) => `frames/${String(i).padStart(6, '0')}.png`
+
+/**
+ * The frames an earlier run of the same job left in `partial`, from 000000.png up to the first
+ * missing or incomplete one, with their hashes. Null when there is no such folder; a folder of
+ * another job (or of none) is refused, so a frame is never reused across jobs or revisions.
+ */
+const keptFrames = (partial: string, record: PartialRecord): DeliveryRecord['frames'] | null => {
+  if (!existsSync(partial)) return null
+  const file = join(partial, 'partial.json')
+  const was = existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as PartialRecord) : null
+  if (was?.shaderera !== 'partial/1' || was.jobId !== record.jobId || was.bits !== record.bits)
+    throw new Error(
+      `${partial} holds frames ${was ? `of job ${was.job} (${String(was.jobId).slice(0, 8)}, ${was.bits}-bit)` : 'of no known job'}, not of ${record.job} (${record.jobId.slice(0, 8)}, ${record.bits}-bit): delete it or choose another --out.`,
+    )
+  // A frame cut off while it was written is a temporary file: never a frame.
+  for (const f of existsSync(join(partial, 'frames')) ? readdirSync(join(partial, 'frames')) : [])
+    if (f.endsWith('.tmp')) rmSync(join(partial, 'frames', f), { force: true })
+  const frames: DeliveryRecord['frames'] = []
+  for (;;) {
+    const path = join(partial, frameFile(frames.length))
+    if (!existsSync(path)) break
+    const png = readFileSync(path)
+    if (png.length < IEND.length || !png.subarray(-IEND.length).equals(IEND)) break
+    frames.push({
+      file: frameFile(frames.length),
+      sha256: createHash('sha256').update(png).digest('hex'),
+    })
+  }
+  return frames
+}
+
 /**
  * The finishing handoff of a job: `<dir>/frames/000000.png …` (8-bit RGBA, straight alpha),
  * `<dir>/audio.wav` (48 kHz PCM, the mp4's mix; only when the source has audio) and
- * `<dir>/delivery.json`, plus the review in `<dir>/review/`. It is written beside `<dir>` and
- * moved into place once exportFrames's determinism re-check passes; any failure removes it, so
- * a source that fails leaves no partial delivery. It replaces `<dir>` only when that is empty or a
- * previous delivery (it holds a delivery.json), and refuses before rendering otherwise.
+ * `<dir>/delivery.json`, plus the review in `<dir>/review/`. It is written in `<dir>.partial` and
+ * moved into place once exportFrames's determinism re-check passes. It replaces `<dir>` only when
+ * that is empty or a previous delivery (it holds a delivery.json), and refuses before rendering
+ * otherwise.
+ *
+ * Each frame is written to a temporary name and renamed, so a frame file is always whole. A run
+ * that fails keeps the frames it finished in `<dir>.partial` (except a source that fails the
+ * determinism re-check: its frames go); running the same job again continues from the first frame
+ * missing there (`kept`). A `<dir>.partial` of another job is refused.
  */
 export const exportFinishing = async (
   project: Project,
@@ -94,7 +145,15 @@ export const exportFinishing = async (
     /** Write `stems/<group>.wav` beside audio.wav. */
     stems?: boolean
   },
-): Promise<{ dir: string; record: DeliveryRecord; review: ReviewReport; seconds: number }> => {
+): Promise<{
+  dir: string
+  record: DeliveryRecord
+  review: ReviewReport
+  seconds: number
+  /** Frames this run rendered, and frames an earlier run of the job had left. */
+  rendered: number
+  kept: number
+}> => {
   const dir = resolve(o.dir)
   if (existsSync(dir) && readdirSync(dir).length > 0 && !existsSync(join(dir, 'delivery.json')))
     throw new Error(
@@ -102,7 +161,7 @@ export const exportFinishing = async (
     )
   requireFfmpeg()
   const start = performance.now()
-  const partial = `${dir}.${process.pid}.partial`
+  const partial = `${dir}.partial`
   const { width, height, fps } = project.manifest
   const { from, to } = job.output
   // A declared preroll comes first: frames, sound and captions start at `head`.
@@ -113,27 +172,42 @@ export const exportFinishing = async (
     throw new Error(
       '16-bit frames come from the GPU compositor: this host has none (a Node project needs webgpu).',
     )
-  rmSync(partial, { recursive: true, force: true })
+  const partialRecord: PartialRecord = {
+    shaderera: 'partial/1',
+    job: job.name,
+    jobId: job.id,
+    bits,
+  }
+  const total = preroll.frames + frameTimes(fps, from, to).length
+  const frames = (keptFrames(partial, partialRecord) ?? []).slice(0, total)
+  const kept = frames.length
   mkdirSync(join(partial, 'frames'), { recursive: true })
-  const frames: DeliveryRecord['frames'] = []
+  writeFileSync(join(partial, 'partial.json'), `${JSON.stringify(partialRecord, null, 1)}\n`)
   let placed = false
   try {
+    // The first `kept` frames are there: the preroll's are passed over, exportFrames skips the rest.
+    let at = kept < preroll.frames ? 0 : kept
     const sink = {
       write: async (pixels: Uint8Array | Uint8ClampedArray) => {
+        if (at++ < kept) return
         const png = encodePng(pixels, width, height, bits)
-        const file = `frames/${String(frames.length).padStart(6, '0')}.png`
-        writeFileSync(join(partial, file), png)
+        const file = frameFile(frames.length)
+        const tmp = join(partial, `${file}.tmp`)
+        writeFileSync(tmp, png)
+        renameSync(tmp, join(partial, file))
         frames.push({ file, sha256: createHash('sha256').update(png).digest('hex') })
       },
       end: async () => {},
     }
-    await writePreroll(sink, {
-      ...preroll,
-      from,
-      fps,
-      black: () => blackFrame(bits === 16 ? 'rgba64' : 'rgba', width, height),
-      render: async (t) => (await child.render(t, 'final', bits === 16 ? 'rgba64' : 'rgba')).pixels,
-    })
+    if (kept < preroll.frames)
+      await writePreroll(sink, {
+        ...preroll,
+        from,
+        fps,
+        black: () => blackFrame(bits === 16 ? 'rgba64' : 'rgba', width, height),
+        render: async (t) =>
+          (await child.render(t, 'final', bits === 16 ? 'rgba64' : 'rgba')).pixels,
+      })
     await exportFrames({
       fps,
       from,
@@ -141,6 +215,7 @@ export const exportFinishing = async (
       render: async (t) => (await child.render(t, 'final', bits === 16 ? 'rgba64' : 'rgba')).pixels,
       inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
       sink,
+      skip: Math.max(0, kept - preroll.frames),
       onFrame: o.onFrame,
     })
     // The mix's temporary files go even on a throw; a source with nothing heard has no audio.wav.
@@ -175,6 +250,7 @@ export const exportFinishing = async (
       writeFileSync(join(partial, 'captions.srt'), toSrt(inWindow))
       writeFileSync(join(partial, 'captions.vtt'), toVtt(inWindow))
     }
+    rmSync(join(partial, 'review'), { recursive: true, force: true })
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true })
     renameSync(partial, dir)
     placed = true
@@ -223,11 +299,21 @@ export const exportFinishing = async (
       },
       clock: await child.clock(),
     }
+    rmSync(join(dir, 'partial.json'), { force: true })
     writeFileSync(join(dir, 'delivery.json'), `${JSON.stringify(record, null, 1)}\n`)
-    return { dir, record, review: report, seconds: (performance.now() - start) / 1000 }
+    const seconds = (performance.now() - start) / 1000
+    return { dir, record, review: report, seconds, rendered: frames.length - kept, kept }
   } catch (error) {
-    rmSync(partial, { recursive: true, force: true })
-    if (placed) rmSync(dir, { recursive: true, force: true })
+    // Frames that differ when rendered again cannot be continued from: they go.
+    if (error instanceof Error && /not deterministic/.test(error.message)) {
+      rmSync(partial, { recursive: true, force: true })
+      if (placed) rmSync(dir, { recursive: true, force: true })
+      throw error
+    }
+    // The frames stay for the next run of the job (moved back if they were already in place).
+    if (placed) renameSync(dir, partial)
+    if (error instanceof Error && frames.length > 0)
+      error.message += ` (${frames.length} frames kept in ${partial}: render the job again to continue)`
     throw error
   }
 }

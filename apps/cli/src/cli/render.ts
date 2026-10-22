@@ -485,7 +485,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         ...(job.delivery.bits ? { bits: job.delivery.bits } : {}),
         ...(job.delivery.stems ? { stems: true } : {}),
       }).finally(() => progress && process.stderr.write('\n'))
-      console.log(`${done.dir}\n${done.record.frameCount} frames in ${done.seconds.toFixed(1)} s`)
+      console.log(
+        `${done.dir}\n${done.record.frameCount} frames in ${done.seconds.toFixed(1)} s: ${done.rendered} rendered, ${done.kept} already there`,
+      )
       if (done.record.audio?.loudness)
         console.log(`audio: ${loudnessLine(done.record.audio.loudness)}`)
       return 0

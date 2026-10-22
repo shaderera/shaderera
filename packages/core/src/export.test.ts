@@ -110,3 +110,27 @@ test('exportFrames with frames ahead asks in order and writes in order, however 
   assert.deepEqual(log.slice(0, 6), ['w0', 'w1', 'w2', 'w3', 'w4', 'w5'])
   assert.equal(most, 3)
 })
+
+test('exportFrames with skip writes from the first frame the sink lacks, and re-checks the skipped ones', async () => {
+  const { log, sink } = recorder()
+  const rendered: number[] = []
+  const seen: number[] = []
+  await exportFrames({
+    fps: 10,
+    from: 0,
+    to: 2,
+    render: async (t) => {
+      rendered.push(Math.round(t * 10))
+      return new Uint8Array([Math.round(t * 10)])
+    },
+    sink,
+    skip: 12,
+    onFrame: (i) => seen.push(i),
+  })
+  assert.deepEqual(log, [...Array.from({ length: 8 }, (_, i) => `w${12 + i}`), 'end'])
+  assert.deepEqual(seen, [12, 13, 14, 15, 16, 17, 18, 19])
+  // Frame 0 is always re-checked: rendered once on the way and once more in the re-check.
+  assert.equal(rendered.filter((i) => i === 0).length, 2)
+  // Only the re-checked skipped frames were rendered: at most 8, twice each.
+  assert.ok(rendered.filter((i) => i < 12).length <= 16)
+})

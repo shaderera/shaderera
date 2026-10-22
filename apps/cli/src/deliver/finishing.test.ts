@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -52,6 +60,7 @@ const square = () => {
   })
   const job = {
     name: 'sq',
+    id: 'sq',
     revision: '0123456789abcdef',
     variant: 'square',
     params: { locale: 'en' },
@@ -113,12 +122,148 @@ test('a non-deterministic source leaves no partial delivery', {
     size: { width: 64, height: 36 },
     frame: () => new Uint8Array(64 * 36 * 4).fill(n++),
   })
-  const job = { name: 'bad', output: { width: 64, height: 36, fps: 10, from: 0, to: 1 } } as Job
+  const job = {
+    name: 'bad',
+    id: 'bad',
+    output: { width: 64, height: 36, fps: 10, from: 0, to: 1 },
+  } as Job
   const dir = join(project.root, 'out', 'bad')
   await assert.rejects(
     exportFinishing(project, child, job, { dir, quick: true }),
     /not deterministic/,
   )
   assert.equal(existsSync(dir), false)
-  assert.equal(existsSync(`${dir}.${process.pid}.partial`), false)
+  assert.equal(existsSync(`${dir}.partial`), false)
+})
+
+/** A job of 20 frames (2 s at 10 fps) whose render fails once, at `failAt` s, while `failing`. */
+const resumable = (o: {
+  failAt?: number
+  preroll?: { seconds: number; fill: 'black' | 'source' }
+}) => {
+  const project = memoryProject({
+    width: 16,
+    height: 16,
+    duration: 3,
+    ...(o.preroll ? { preroll: o.preroll } : {}),
+  })
+  const state = { failing: o.failAt !== undefined }
+  const child = memoryChild({
+    size: { width: 16, height: 16 },
+    frame: (t) => {
+      const i = Math.round(t * 10)
+      if (state.failing && t === o.failAt) throw new Error(`host lost at frame ${i}`)
+      const pixels = new Uint8Array(16 * 16 * 4)
+      for (let p = 0; p < pixels.length; p += 4) pixels.set([i * 7, p % 251, 255 - i, 200], p)
+      return pixels
+    },
+  })
+  const job = {
+    name: 'long',
+    id: 'job-long',
+    revision: '0123456789abcdef',
+    params: {},
+    seed: 0,
+    output: { width: 16, height: 16, fps: 10, from: 0.5, to: 2.5 },
+  } as unknown as Job
+  return { project, child, job, state }
+}
+
+const framesOf = (dir: string) =>
+  readdirSync(join(dir, 'frames'))
+    .sort()
+    .map((f) => [f, readFileSync(join(dir, 'frames', f)).toString('base64')])
+
+for (const [name, setup] of [
+  [
+    'a png job that fails keeps its whole frames and continues from the first missing one',
+    {
+      failAt: 2.3,
+    },
+  ],
+  [
+    'a png job that fails in its preroll continues there',
+    {
+      failAt: 0.3,
+      preroll: { seconds: 0.3, fill: 'source' as const },
+    },
+  ],
+] as const)
+  test(name, { skip: !ffmpeg && 'no ffmpeg' }, async () => {
+    const whole = resumable({ preroll: 'preroll' in setup ? setup.preroll : undefined })
+    const wholeDir = join(whole.project.root, 'out', 'long')
+    await exportFinishing(whole.project, whole.child, whole.job, { dir: wholeDir, quick: true })
+
+    const { project, child, job, state } = resumable(setup)
+    const dir = join(project.root, 'out', 'long')
+    const partial = `${dir}.partial`
+    // The frame before the failure: preroll frames come first, the programme from 0.5 s.
+    const firstFrame = 'preroll' in setup ? 2 : 5
+    const n = Math.round(setup.failAt * 10) - firstFrame
+    await assert.rejects(
+      exportFinishing(project, child, job, { dir, quick: true }),
+      new RegExp(`host lost at frame .*[(]${n} frames kept in .*long[.]partial`),
+    )
+    assert.equal(existsSync(dir), false)
+    assert.deepEqual(
+      readdirSync(join(partial, 'frames')),
+      Array.from({ length: n }, (_, i) => `${String(i).padStart(6, '0')}.png`),
+    )
+    // A frame cut off by a crash is a temporary file: never taken for a frame.
+    writeFileSync(join(partial, 'frames', `${String(n).padStart(6, '0')}.png.tmp`), 'cut')
+
+    const stamps = () =>
+      Array.from(
+        { length: n },
+        (_, i) =>
+          statSync(
+            join(existsSync(dir) ? dir : partial, 'frames', `${String(i).padStart(6, '0')}.png`),
+          ).mtimeMs,
+      )
+    const before = stamps()
+    state.failing = false
+    const done = await exportFinishing(project, child, job, { dir, quick: true })
+    assert.equal(done.kept, n)
+    assert.equal(done.rendered, done.record.frameCount - n)
+    assert.equal(existsSync(partial), false)
+    assert.equal(existsSync(join(dir, 'partial.json')), false)
+    // The kept frames were not written again.
+    assert.deepEqual(stamps(), before)
+    // Byte-identical to a job that never stopped, and so is delivery.json's list of frames.
+    assert.deepEqual(framesOf(dir), framesOf(wholeDir))
+    const record = JSON.parse(readFileSync(join(dir, 'delivery.json'), 'utf8'))
+    const wholeRecord = JSON.parse(readFileSync(join(wholeDir, 'delivery.json'), 'utf8'))
+    assert.deepEqual(record.frames, wholeRecord.frames)
+  })
+
+test('a png job renders again a frame that was cut short', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const { project, child, job, state } = resumable({ failAt: 1.2 })
+  const dir = join(project.root, 'out', 'long')
+  await assert.rejects(exportFinishing(project, child, job, { dir, quick: true }), /7 frames kept/)
+  const last = join(`${dir}.partial`, 'frames', '000006.png')
+  writeFileSync(last, readFileSync(last).subarray(0, 40))
+  state.failing = false
+  const done = await exportFinishing(project, child, job, { dir, quick: true })
+  assert.equal(done.kept, 6)
+  assert.equal(done.rendered, 14)
+})
+
+test('a png job refuses the unfinished frames of another job', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const { project, child, job } = resumable({ failAt: 1.2 })
+  const dir = join(project.root, 'out', 'long')
+  await assert.rejects(exportFinishing(project, child, job, { dir, quick: true }), /host lost/)
+  const other = { ...job, id: 'job-other', name: 'other' } as Job
+  await assert.rejects(
+    exportFinishing(project, child, other, { dir, quick: true }),
+    /long\.partial holds frames of job long \(job-long, 8-bit\), not of other .*delete it or choose another --out/,
+  )
+  // Nothing of the other job's was written into it.
+  assert.equal(
+    JSON.parse(readFileSync(join(`${dir}.partial`, 'partial.json'), 'utf8')).jobId,
+    'job-long',
+  )
 })
