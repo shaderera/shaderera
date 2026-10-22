@@ -52,9 +52,10 @@ a line, `{event, ...}`:
 | `paired` | | the page the CLI opened paired |
 | `page-closed` | | the page closed and did not come back within 10 s |
 | `resumed` | | the page came back within 10 s (a reload) |
+| `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
 | `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events |
-| `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired (`2`, with why) |
+| `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
 
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,
 with exit code 2, before any event.
@@ -87,14 +88,23 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
 
 1. **The page connects** with `role=page`.
 2. **The CLI connects** with `role=cli`. The relay forwards `{type:"cli-joined"}` to the page.
-3. **The page sends `{type:"page-hello", pub}`**: an ECDH P-256 public key, raw (uncompressed, 65
-   bytes), base64url. It sends it when it connects and again on every `cli-joined`. A page with no
-   nonce sends nothing and waits.
-4. **The CLI replies `{type:"cli-hello", pub, version, os, telemetry}`** to every `page-hello`.
+3. **The page sends `{type:"page-hello", pub, protocol}`**: an ECDH P-256 public key, raw
+   (uncompressed, 65 bytes), base64url, and the protocol it speaks, `1`. It sends it when it
+   connects and again on every `cli-joined`. A page with no nonce sends nothing and waits.
+4. **The CLI replies `{type:"cli-hello", pub, protocol, version, os, telemetry}`** to every
+   `page-hello`.
+   - `protocol` is the protocol it speaks, `1`. A hello without one is v0.
    - `pub` is its own key, the same for the life of the command.
    - `version` is the CLI's version.
    - `os` is Node's `process.platform`: `win32`, `darwin`, `linux`.
    - `telemetry` is false when telemetry is turned off.
+   - **Another protocol on either side** never pairs (the keys differ by `info`, below), so each
+     side says in one line which side is older and what to update, instead of waiting:
+     - The CLI still replies `cli-hello`, with its `protocol`, and takes no proof from that page.
+       For an older page it says to reload the page, and waits for the reload; for a newer page
+       it says to update the CLI (`npm i shaderera@latest`) and ends, exit code 2.
+     - The page, hearing a `cli-hello` of another protocol, says to update the CLI or to reload
+       the page, and stops.
 5. **Both sides derive one key.** ECDH gives 256 bits, which go through HKDF-SHA-256 with:
    - `salt` = the id's UTF-8 bytes;
    - `info` = `"shaderera-studio-v1"`.
