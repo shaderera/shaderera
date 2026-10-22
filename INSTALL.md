@@ -69,7 +69,8 @@ Ask the person where the project should go and what to call it. The default is a
   npx shaderera doctor
   npx shaderera check
 `doctor` must not report anything an mp4 render needs as missing, and `check` must pass.
-The project has a `.mcp.json` with the same MCP server, for agents that read one.
+The project has a `.mcp.json` with the same MCP server, for agents that read one, and no copy
+of the skills: the ones installed above are the only copy.
 
 Success message:
 Tell the person they are set up, where the project is, and what to do next:
@@ -78,6 +79,10 @@ for, its format and length, the words on screen, the music, and any brand files.
 "Make a 15-second 9:16 teaser for our running shoe: the shoe turns once on a dark set, the line
 'Built for the last mile' lands on the beat, and the logo holds for the last 2 seconds. Run
 check, show me a contact sheet, then render."
+Later they can ask you to open the studio (a page on shaderera.com that previews and renders the
+project on this machine) or to share the film on shaderera.com. Sharing signs in with GitHub
+(`npx shaderera login`) and needs a licence: a new project is "UNLICENSED" (all rights
+reserved) until they choose one.
 ```
 
 The prompt never installs a package manager, never changes a Node.js or ffmpeg that already

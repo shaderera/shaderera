@@ -41,7 +41,7 @@ export const create = (o: {
   version: string
   /**
    * Files and folders every project gets at its root (the authoring guide, the agent notes, the
-   * focused guides, the skill), by name; the project's own wins.
+   * focused guides), by name; the project's own wins.
    */
   guides?: { [name: string]: string }
 }): void => {

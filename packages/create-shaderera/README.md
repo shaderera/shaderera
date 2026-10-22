@@ -13,8 +13,12 @@ Makes an empty Shaderera project that is set up correctly:
 - `guides/`, focused references for type, 3D products, photos, logos, sound, formats, revisions,
   review and delivery;
 - `AGENTS.md` / `CLAUDE.md`, which point agents to them;
-- the agent skills in `.claude/skills/`: `shaderera` (making a film) and
-  `shaderera-plugins` (plugins), the same as the Claude Code plugin's.
+- `.mcp.json`, Shaderera's MCP server for agents that read one;
+- `package.json` with `"license": "UNLICENSED"` (all rights reserved) until you choose a licence,
+  which `shaderera share` needs.
+
+The agent skills are not copied in: the Claude Code plugin installs them in Claude Code, and
+`npx skills add shaderera/shaderera` in other agents, so there is one copy to update.
 
 There is no starter film and no house style (decision 0011): how the film looks is your code, in
 WGSL, three.js, Canvas2D or any library.
