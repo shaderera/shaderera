@@ -30,7 +30,7 @@ delete its files.
 before it copies anything: if one is missing, nothing is copied. A range named on the command
 line wins over the one a plugin requires, but a version outside a range another plugin requires
 is refused, naming both: name a version in that range, or add them one at a time. `remove`
-checks that each is a package plugin the project uses (required in `shaderera.item.json`, or
+checks that each is a package plugin the project uses (required in its `shaderera.json`, or
 installed with a `shaderera` field) before it uninstalls any; it never uninstalls a plain npm
 dependency. `publish` takes several folders (a bare name such as `my-plugin` is a folder here,
 never an npm package) and publishes each in turn. A folder that fails does not stop the rest: the end names each one that
@@ -72,7 +72,7 @@ against the sha256 recorded at publish.
 Components, presets and media carry `shaderera.item.json`. A package plugin carries the same
 fields under `"shaderera"` in its package.json. `requires` names four things:
 - a `shaderera` range;
-- `extensions`: package plugins, installed and recorded in the project's label;
+- `extensions`: package plugins, installed and recorded in the project's `shaderera.json`;
 - `items`: components, presets or media copied in with it, once, never over a file the project
   already has;
 - `packages`: npm packages the copied code imports, such as `three`, installed unless the project
@@ -84,7 +84,11 @@ it to render, so nothing in it may change a frame.
 
 ## The one hard rule
 
-When a project's `shaderera.item.json` requires a package plugin that is not installed, or the
+A project's own `requires` lives in its `shaderera.json` ([protocol.md](protocol.md#shadererajson)):
+a `shaderera` range and `extensions`, which `add` and `remove` keep. Before 0.1.5 it was in the
+project's `shaderera.item.json`; one still there is refused with a message to move it.
+
+When a project requires a package plugin that is not installed, or the
 wrong version, every `shaderera` command refuses the project and names the two ways out:
 `npx shaderera add <name>@<range>` or `npx shaderera remove <name>`. `npx shaderera doctor` lists
 it as `requires` without opening the film. A package plugin never stands in the way: remove it

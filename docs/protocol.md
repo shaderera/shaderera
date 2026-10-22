@@ -166,6 +166,8 @@ it, before any frame.
 
 ```json
 {
+  "$schema": "./node_modules/shaderera/shaderera.schema.json",
+  "shaderera": "manifest/1",
   "entry": "./src/composition.ts",
   "fps": 30,
   "duration": 6,
@@ -189,14 +191,20 @@ it, before any frame.
 | `variants` | no | named outputs (below) |
 | `preroll`, `timecode`, `textless` | no | for a broadcast delivery ([delivery.md](delivery.md#broadcast-preroll-timecode-textless)) |
 | `bakes` | no | frames made outside the host, by name ([below](#bakes)) |
+| `requires` | no | what the project needs installed: a `shaderera` range and `extensions`, package plugins by name with a range ([plugins.md](plugins.md#the-one-hard-rule)) |
 | `hdr10` | no | the film opts into HDR10 ([below](#hdr10)) |
-| `$schema` | no | editor help |
+| `shaderera` | no | the format, `"manifest/1"`; a file without it is that format too |
+| `$schema` | no | editor help: `./node_modules/shaderera/shaderera.schema.json`, the JSON Schema the `shaderera` package ships |
 
 Any other key is an error:
 
 ```
 shaderera.json: unknown key "scenes"
 ```
+
+So is another format: when the format changes, the old file is refused with a message, never read
+wrongly. A new project writes `shaderera` and `$schema`; the schema is editor help, and the host's
+own check (every problem, listed) is what decides.
 
 The manifest is metadata that the CLI and MCP read without running code. Nothing about what is
 drawn goes in it. An NTSC rate tags the mp4 with its fraction (ffprobe: `30000/1001`), and its
@@ -393,15 +401,6 @@ have `source`, are untouched. The Vite plugin returns a hires source map, so sta
 at the original lines. The stamp is opt-in because the extra enumerable key reaches code that
 enumerates or hashes those objects. The CLI does not edit code: an agent follows the stamp to the
 file and edits it.
-
-Another build of the project (a player, a site) runs the same plugin from the package, under its
-public name. Add it only when the manifest sets `stamp`:
-
-```ts
-import { stamp } from 'shaderera/stamp'
-
-const plugins = manifest.stamp === true ? [stamp({ root })] : [] // root: the project folder
-```
 
 ### pick
 

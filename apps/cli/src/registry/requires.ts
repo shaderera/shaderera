@@ -22,31 +22,39 @@ export const installedPackage = (
 export const installedVersion = (root: string, name: string): string | null =>
   installedPackage(root, name)?.version ?? null
 
-type Label = {
-  [key: string]: unknown
-  requires?: { shaderera?: string; extensions?: { [name: string]: string } }
+type Requires = { shaderera?: string; extensions?: { [name: string]: string } }
+
+const MANIFEST = 'shaderera.json'
+
+/**
+ * A project's `requires`, from its shaderera.json. A project's requires lived in
+ * shaderera.item.json before 0.1.5 (plugins keep theirs there): one still there is refused.
+ */
+export const readRequires = (root: string): Requires | undefined => {
+  const old = join(root, ITEM_FILE)
+  if (existsSync(old) && JSON.parse(readFileSync(old, 'utf8')).requires !== undefined)
+    throw new Error(
+      `${ITEM_FILE}: a project's requires moved into ${MANIFEST} in 0.1.5. Move "requires" there and delete ${ITEM_FILE}.`,
+    )
+  return JSON.parse(readFileSync(join(root, MANIFEST), 'utf8')).requires
 }
 
-/** A project's label: its `shaderera.item.json`, which may hold nothing but `requires`. */
-export const readLabel = (root: string): Label | null => {
-  const file = join(root, ITEM_FILE)
-  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null
-}
-
-export const writeLabel = (root: string, label: Label): void =>
-  writeFileSync(join(root, ITEM_FILE), `${JSON.stringify(label, null, 2)}\n`)
-
-/** Sets (a range) or removes (null) one extension the project requires. */
+/** Sets (a range) or removes (null) one extension the project requires, in its shaderera.json. */
 export const setRequirement = (root: string, name: string, range: string | null): void => {
-  const label = readLabel(root) ?? {}
-  const extensions = { ...(label.requires?.extensions ?? {}) }
-  if (range === null) delete extensions[name]
-  else extensions[name] = range
-  writeLabel(root, { ...label, requires: { ...label.requires, extensions } })
+  const { extensions = {}, ...rest } = readRequires(root) ?? {}
+  const file = join(root, MANIFEST)
+  const manifest = JSON.parse(readFileSync(file, 'utf8'))
+  const next = { ...extensions }
+  if (range === null) delete next[name]
+  else next[name] = range
+  const requires = Object.keys(next).length > 0 ? { ...rest, extensions: next } : rest
+  if (Object.keys(requires).length > 0) manifest.requires = requires
+  else delete manifest.requires
+  writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 /**
- * What the project at `root` needs and does not have, by its `shaderera.item.json`: the
+ * What the project at `root` needs and does not have, by its shaderera.json `requires`: the
  * shaderera range, and every extension installed in a version its range allows. Empty when
  * nothing is missing or the project declares nothing.
  */
@@ -54,15 +62,15 @@ export const requirementProblems = (
   root: string,
   shadereraVersion: string,
 ): { name: string; range: string; problem: string }[] => {
-  const label = readLabel(root)
-  if (!label?.requires) return []
+  const requires = readRequires(root)
+  if (!requires) return []
   const problems: { name: string; range: string; problem: string }[] = []
-  const core = label.requires.shaderera
+  const core = requires.shaderera
   if (core !== undefined && (typeof core !== 'string' || !validRange(core)))
     problems.push({ name: 'shaderera', range: String(core), problem: 'not a version range' })
   else if (core !== undefined && !satisfies(shadereraVersion, core))
     problems.push({ name: 'shaderera', range: core, problem: `this is ${shadereraVersion}` })
-  for (const [name, range] of Object.entries(label.requires.extensions ?? {})) {
+  for (const [name, range] of Object.entries(requires.extensions ?? {})) {
     if (typeof range !== 'string' || !validRange(range)) {
       problems.push({ name, range: String(range), problem: 'not a version range' })
       continue
@@ -92,6 +100,8 @@ export const assertRequirements = (root: string, shadereraVersion: string): void
       ]
     : ['Install a shaderera in that range, or change requires.shaderera.']
   throw new Error(
-    [`This project needs what is not installed (${ITEM_FILE}):`, ...lines, ...fix].join('\n'),
+    [`This project needs what is not installed (${MANIFEST} requires):`, ...lines, ...fix].join(
+      '\n',
+    ),
   )
 }

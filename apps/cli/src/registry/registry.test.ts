@@ -99,11 +99,12 @@ const component = () =>
       '/** Draws the source as a scrolling wall. */\nexport const drawCodeWall = () => 1\n',
   })
 
-const project = () =>
+const project = (requires?: unknown) =>
   write(temp('project'), {
-    'shaderera.json': { entry: 'src/composition.ts' },
+    'shaderera.json': { entry: 'src/composition.ts', ...(requires ? { requires } : {}) },
     'package.json': { name: 'film', type: 'module' },
   })
+const manifest = (root: string) => JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
 
 test('publish, search by label and by code, resolve by range, and refuse a republish', () => {
   const registry = temp('reg')
@@ -158,8 +159,8 @@ test('add copies a component, installs and requires what it needs; a missing one
   assert.ok(existsSync(join(root, 'src', 'code-wall.ts')))
   assert.equal(installed.length, 1)
   assert.ok(done.some((d) => /installed @shaderera\/kinetic-type@0\.1\.2/.test(d)))
-  const label = JSON.parse(readFileSync(join(root, 'shaderera.item.json'), 'utf8'))
-  assert.equal(label.requires.extensions['@shaderera/kinetic-type'], '^0.1.2')
+  assert.equal(manifest(root).requires.extensions['@shaderera/kinetic-type'], '^0.1.2')
+  assert.equal(manifest(root).entry, 'src/composition.ts')
   assert.deepEqual(requirementProblems(root, '0.4.0'), [])
 
   // Removed: uninstalled and no longer required. A copied plugin is the project's to delete.
@@ -167,16 +168,14 @@ test('add copies a component, installs and requires what it needs; a missing one
   remove(root, '@shaderera/kinetic-type', { uninstall: (_r, name) => uninstalled.push(name) })
   assert.deepEqual(uninstalled, ['@shaderera/kinetic-type'])
   assert.throws(() => remove(root, 'text-code-wall'), /files are this project's code/)
-  assert.equal(
-    JSON.parse(readFileSync(join(root, 'shaderera.item.json'), 'utf8')).requires.extensions[
-      '@shaderera/kinetic-type'
-    ],
-    undefined,
-  )
+  assert.equal(manifest(root).requires, undefined)
 
   // Required and missing: refused, naming it and the two ways out.
   write(root, {
-    'shaderera.item.json': { requires: { extensions: { '@shaderera/music': '^1.0.0' } } },
+    'shaderera.json': {
+      entry: 'src/composition.ts',
+      requires: { extensions: { '@shaderera/music': '^1.0.0' } },
+    },
   })
   assert.throws(
     () => assertRequirements(root, '0.4.0'),
@@ -189,8 +188,19 @@ test('add copies a component, installs and requires what it needs; a missing one
   assert.doesNotThrow(() => assertRequirements(root, '0.4.0'))
 })
 
+test("a project's requires in shaderera.item.json, the old place, is refused with the way out", () => {
+  const root = write(project(), {
+    'shaderera.item.json': { requires: { extensions: { '@x/one': '^1.0.0' } } },
+  })
+  assert.throws(
+    () => assertRequirements(root, '0.4.0'),
+    /shaderera\.item\.json: a project's requires moved into shaderera\.json in 0\.1\.5\. Move "requires" there/,
+  )
+  assert.throws(() => remove(root, '@x/one', { uninstall: () => {} }), /moved into shaderera\.json/)
+})
+
 test('the shaderera range is checked too', () => {
-  const root = write(project(), { 'shaderera.item.json': { requires: { shaderera: '^0.5.0' } } })
+  const root = project({ shaderera: '^0.5.0' })
   assert.throws(
     () => assertRequirements(root, '0.4.0-dev.0'),
     /shaderera \^0\.5\.0 \(this is 0\.4\.0-dev\.0\)/,
@@ -417,7 +427,7 @@ test('search --tag matches a tag with a space', async () => {
 })
 
 test('a shaderera range that cannot be read is a problem, not ignored', () => {
-  const root = write(project(), { 'shaderera.item.json': { requires: { shaderera: 'banana' } } })
+  const root = project({ shaderera: 'banana' })
   assert.deepEqual(requirementProblems(root, '0.4.0'), [
     { name: 'shaderera', range: 'banana', problem: 'not a version range' },
   ])
@@ -537,9 +547,7 @@ test('add takes several names: all of them are copied, or none when one does not
 })
 
 test('remove takes several names, and refuses them all when one is not a package plugin', () => {
-  const root = write(project(), {
-    'shaderera.item.json': { requires: { extensions: { '@x/one': '^1.0.0', '@x/two': '^1.0.0' } } },
-  })
+  const root = project({ extensions: { '@x/one': '^1.0.0', '@x/two': '^1.0.0' } })
   const uninstalled: string[] = []
   const uninstall = (_r: string, name: string) => void uninstalled.push(name)
   assert.throws(() => remove(root, ['@x/one', 'copied'], { uninstall }), /copied is not a package/)

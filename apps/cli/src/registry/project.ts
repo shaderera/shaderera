@@ -1,7 +1,7 @@
 import { cpSync, existsSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { npm } from './npm.ts'
-import { installedPackage, installedVersion, readLabel, setRequirement } from './requires.ts'
+import { installedPackage, installedVersion, readRequires, setRequirement } from './requires.ts'
 import { parseVersion, satisfies as satisfiesRange } from './semver.ts'
 import { parseSpec, resolve } from './store.ts'
 
@@ -127,7 +127,7 @@ export const add = (
 
 /**
  * Uninstalls package plugins and stops requiring them. Each must be one the project uses (required
- * in its label, or installed with a "shaderera" field), checked before any is uninstalled: a plain
+ * in its shaderera.json, or installed with a "shaderera" field), checked before any is uninstalled: a plain
  * npm dependency is never touched. A component's, preset's or media item's files were copied in and are
  * the project's own code, so only the person deletes them.
  */
@@ -137,7 +137,7 @@ export const remove = (
   o: { uninstall?: Installer } = {},
 ): string[] => {
   const all = [...new Set(typeof names === 'string' ? [names] : names)]
-  const extensions = readLabel(root)?.requires?.extensions ?? {}
+  const extensions = readRequires(root)?.extensions ?? {}
   const not = all.filter(
     (n) => extensions[n] === undefined && installedPackage(root, n)?.shaderera === undefined,
   )

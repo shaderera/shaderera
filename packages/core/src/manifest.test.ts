@@ -119,3 +119,24 @@ test('bakes: a command, its inputs, a folder and frame names with one run of #s'
   )
   assert.throws(() => checkManifest({ ...good, bakes: { 'a b': bake } }), /bakes\.a b: a name is/)
 })
+
+test('the format is manifest/1, with or without the key; another one is refused alone', () => {
+  assert.equal(checkManifest({ ...good, shaderera: 'manifest/1' }).shaderera, 'manifest/1')
+  assert.throws(() => checkManifest({ ...good, shaderera: 'manifest/2', width: 0 }), {
+    message:
+      'shaderera.json: "shaderera": "manifest/2" is a format this version cannot read (it reads "manifest/1")',
+  })
+})
+
+test('requires names a shaderera range and package plugins, nothing else', () => {
+  const requires = { shaderera: '^0.1.5', extensions: { '@x/one': '^1.0.0' } }
+  assert.deepEqual(checkManifest({ ...good, requires }).requires, requires)
+  assert.throws(
+    () => checkManifest({ ...good, requires: { shaderera: 1, extensions: { a: 2 }, items: {} } }),
+    {
+      message:
+        'shaderera.json: requires.shaderera must be a version range; requires.extensions.a must be a version range; requires: unknown key "items"',
+    },
+  )
+  assert.throws(() => checkManifest({ ...good, requires: [] }), /requires must be an object/)
+})

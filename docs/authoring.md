@@ -47,7 +47,7 @@ A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture`
 
 Plugins are code that earlier films proved. What you add is copied into the project and is its
 own code from then on. The `shaderera-plugins` skill says how to search and add, and how to
-recover when a `shaderera` command refuses a project whose `shaderera.item.json` requires a
+recover when a `shaderera` command refuses a project whose `shaderera.json` requires a
 package plugin that is not installed. A new project has it in `.claude/skills/shaderera-plugins/`;
 `npx skills add` puts it in `.agents/skills/` for other agents. The commands are in
 `docs/plugins.md`.
