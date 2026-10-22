@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -24,13 +24,14 @@ const copy = (dir: string) => {
 const fixture = copy('./fixtures/mcp/')
 const cameraDebug = fileURLToPath(new URL('./fixtures/camera-debug/', import.meta.url))
 const stateful = copy('./fixtures/stateful/')
+const params = copy('./fixtures/params/')
 const bin = fileURLToPath(new URL('../../bin/shaderera.js', import.meta.url))
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const moved = { view: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1], projection: [] }
 
 /** A client connected in-process to the MCP server on `root`. */
-const connect = async (root: string) => {
-  const server = createServer(root)
+const connect = async (root: string, flags: { variant?: string } = {}) => {
+  const server = createServer(root, flags)
   const [a, b] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'test', version: '0' })
   await Promise.all([server.connect(a), client.connect(b)])
@@ -41,12 +42,14 @@ const connect = async (root: string) => {
       isError?: boolean
     }
     if (r.isError) throw new Error(r.content[0]?.text)
-    return name === 'render_frame' ? r : JSON.parse(r.content[0]?.text as string)
+    return name === 'render_frame' || name === 'still'
+      ? r
+      : JSON.parse(r.content[0]?.text as string)
   }
   return { call, close: () => client.close() }
 }
 
-test('the MCP tools render, inspect, diff, pick and read the camera of a fixture', async () => {
+test('the MCP tools render, inspect, compare, pick and read the camera of a fixture', async () => {
   const { call, close } = await connect(fixture)
   try {
     const frame = await call('render_frame', { t: 0.5 })
@@ -56,14 +59,15 @@ test('the MCP tools render, inspect, diff, pick and read the camera of a fixture
     assert.deepEqual(stats.layers, [{ name: 'box' }])
     const through = await call('render_frame', { t: 0.5, image: true, camera: moved })
     assert.equal(JSON.parse(through.content[0].text).alphaBox.x, 20)
-    assert.equal(through.content[1].mimeType, 'image/png')
+    assert.deepEqual(JSON.parse(through.content[1].text), { width: 64, height: 36 })
+    assert.equal(through.content[2].mimeType, 'image/png')
     assert.equal(
       JSON.parse((await call('render_frame', { t: 0.5 })).content[0].text).alphaBox.x,
       15,
     )
 
     assert.deepEqual(await call('inspect', { t: 0.5, path: 'box.x' }), 15)
-    const diff = await call('diff', { a: 0, b: 1, path: 'camera' })
+    const diff = await call('compare', { a: 0, b: 1, path: 'camera' })
     assert.deepEqual(diff.changes, [{ path: 'x', a: 0, b: 10 }])
     assert.ok(diff.pixels.differing > 0)
 
@@ -80,10 +84,10 @@ test('the MCP tools render, inspect, diff, pick and read the camera of a fixture
     assert.equal(source.path, 'box')
     assert.match(source.around, /id: 'box'/)
 
-    const check = await call('check_determinism', { times: 4 })
+    const check = await call('check', { times: 4 })
     assert.equal(check.failures.length, 0)
     await assert.rejects(call('get_source', { id: 'nope' }), /No object with id nope/)
-    await assert.rejects(call('export', { out: '../escaped.mp4' }), /outside the project/)
+    await assert.rejects(call('render', { out: '../escaped.mp4' }), /outside the project/)
   } finally {
     await close()
   }
@@ -103,7 +107,7 @@ test("one call's camera override never reaches a call made at the same time", as
   }
 })
 
-test('over real stdio, a source that logs keeps the stream clean, and export refuses it', {
+test('over real stdio, a source that logs keeps the stream clean, and render refuses it', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
   const transport = new StdioClientTransport({
@@ -121,7 +125,7 @@ test('over real stdio, a source that logs keeps the stream clean, and export ref
     }
     assert.equal(JSON.parse(frame.content[0]?.text as string).meanRgba[3], 255)
     const out = 'out/refused-mcp.mp4'
-    const r = (await client.callTool({ name: 'export', arguments: { out } })) as {
+    const r = (await client.callTool({ name: 'render', arguments: { out } })) as {
       content: { text: string }[]
       isError?: boolean
     }
@@ -174,7 +178,7 @@ test('MCP tools alone find the planted camera jump in fixtures/camera-debug', as
       .map((e, i) => Math.hypot(...e.map((v, j) => v - (eyes[i]?.[j] ?? 0))))
     const at = steps.indexOf(Math.max(...steps))
     const [a, b] = [ts[at] as number, ts[at + 1] as number]
-    const diff = await call('diff', { a, b, path: 'camera' })
+    const diff = await call('compare', { a, b, path: 'camera' })
     const between = await call('inspect', { t: b, path: 'camera.between' })
     const source = await call('get_source', { id: between[0] })
     console.log(
@@ -219,14 +223,92 @@ test('the review tool returns the report, the contact sheet and the frames as im
   }
 })
 
-test("export of a job renders the job's frozen delivery, not a default mp4", {
+test('variant and params reach render_frame, inspect, compare and still; --variant is the default', async () => {
+  const { call, close } = await connect(params)
+  try {
+    assert.equal(await call('inspect', { t: 0, path: 'grey' }), 0)
+    assert.equal(await call('inspect', { t: 0, path: 'grey', variant: 'lighter' }), 100)
+    assert.equal(await call('inspect', { t: 0, path: 'grey', params: { grey: 42 } }), 42)
+    const both = { t: 0, path: 'grey', variant: 'lighter', params: { grey: 7 } }
+    assert.equal(await call('inspect', both), 7)
+    const frame = await call('render_frame', { t: 0, params: { grey: 42 } })
+    assert.equal(JSON.parse(frame.content[0].text).meanRgba[0], 42)
+    const diff = await call('compare', { a: 0, b: 0.5, variant: 'lighter' })
+    assert.deepEqual(diff.changes, [{ path: 't', a: 0, b: 0.5 }])
+    await assert.rejects(call('inspect', { t: 0, params: { nope: 1 } }), /Unknown params: nope/)
+    await assert.rejects(call('inspect', { t: 0, variant: 'nope' }), /no variant "nope"/)
+    await assert.rejects(call('inspect', { t: 0, params: [1] }), /params is an object/)
+    await assert.rejects(call('export', {}), /Unknown tool export/)
+
+    const sheet = await call('still', { times: [0, 0.5], variant: 'lighter' })
+    assert.deepEqual(JSON.parse(sheet.content[0].text), { times: [0, 0.5] })
+    assert.equal(sheet.content[1].mimeType, 'image/png')
+    assert.deepEqual(
+      JSON.parse((await call('still', { every: 0.25 })).content[0].text).times,
+      [0, 0.25, 0.5, 0.75],
+    )
+    await assert.rejects(call('still', { every: 0.01 }), /at most 64/)
+    await assert.rejects(call('still', {}), /times or every/)
+  } finally {
+    await close()
+  }
+  const lighter = await connect(params, { variant: 'lighter' })
+  try {
+    assert.equal(await lighter.call('inspect', { t: 0, path: 'grey' }), 100)
+    assert.equal((await lighter.call('job', {})).variant, 'lighter')
+  } finally {
+    await lighter.close()
+  }
+})
+
+test('render_frame downscales a big frame to 1024 px on its long side unless full', async () => {
+  const root = tempDir('mcp-big')
+  mkdirSync(join(root, 'src'))
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({
+      entry: './src/composition.ts',
+      fps: 10,
+      duration: 1,
+      width: 2000,
+      height: 1000,
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io }) => {
+  const canvas = io.canvas(2000, 1000)
+  return {
+    render: async () => {
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = 'rgb(0, 128, 255)'
+      ctx.fillRect(0, 0, 2000, 1000)
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const { call, close } = await connect(root)
+  try {
+    const small = await call('render_frame', { t: 0, image: true })
+    assert.deepEqual(JSON.parse(small.content[1].text), { width: 1024, height: 512 })
+    const full = await call('render_frame', { t: 0, image: true, full: true })
+    assert.deepEqual(JSON.parse(full.content[1].text), { width: 2000, height: 1000 })
+    assert.ok(small.content[2].data.length < full.content[2].data.length)
+  } finally {
+    await close()
+  }
+})
+
+test("render of a job renders the job's frozen delivery, not a default mp4", {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
   const root = copy('./fixtures/mcp/')
   await createJob(root, { by: 'agent', name: 'master', delivery: { format: 'prores-hq' } })
   const { call, close } = await connect(root)
   try {
-    const r = await call('export', { job: 'master' })
+    const r = await call('render', { job: 'master' })
     assert.match(r.out, /master\.mov$/)
     assert.equal(r.probe.video.codec, 'prores')
   } finally {

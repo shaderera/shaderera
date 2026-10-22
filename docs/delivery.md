@@ -16,7 +16,7 @@ quality and colour and what was asked of the file (`bitrate`, `maxrate`, `editLi
 
 ## The mp4: tested SDR BT.709
 
-Every mp4 (CLI `render`, MCP `export`, `deliver`) is encoded with:
+Every mp4 (CLI `render`, MCP `render`, `deliver`) is encoded with:
 
 ```
 -f rawvideo -pix_fmt rgba -s WxH -r FPS -i -
