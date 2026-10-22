@@ -42,6 +42,7 @@ the site (film pages, the studio page, plugins) is --site <origin>, else SHADERE
 ${pluginUsage}
 
 check, inspect, still, render and review take --param k=v (repeatable): a param over the defaults.
+check, still and review take several variants (--variant a,b or --variants all): one host each, at once.
 
 Stills: still (out/stills/). A review with technical checks: review (out/review/).`
 

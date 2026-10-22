@@ -5,7 +5,8 @@ import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { EXIT, found } from './findings.ts'
+import { EXIT } from './findings.ts'
+import { eachVariant, type Output } from './variants.ts'
 
 export type CheckResult = DeterminismReport & {
   times: number[]
@@ -111,15 +112,28 @@ export const checkChild = async (
 }
 
 /**
- * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10]`. --hdr10: checks the hdr10
- * render (decision 0023): its P010 bytes, the peak and the layers' light.
+ * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10] [--variant a,b | --variants all]`.
+ * --hdr10: checks the hdr10 render (decision 0023): its P010 bytes, the peak and the layers' light.
+ * Several variants: each in its own host, at once (eachVariant).
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const { values: v } = parseRendering(
+  const { values } = parseRendering(
     argv,
-    { times: { type: 'string' }, seed: { type: 'string' }, hdr10: { type: 'boolean' } },
+    {
+      times: { type: 'string' },
+      seed: { type: 'string' },
+      hdr10: { type: 'boolean' },
+      variants: { type: 'string' },
+    },
     { command: 'check', times: false },
   )
+  return eachVariant(values, checkOne)
+}
+
+const checkOne = async (
+  v: Parameters<typeof open>[0] & { times?: string; seed?: string },
+  out: Output,
+): Promise<number> => {
   const { project, child } = await open(v)
   try {
     const r = await checkChild(child, project.manifest, {
@@ -133,21 +147,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       ? `  HDR10: P010 hashed; at most ${Number(r.light.maxCll.toFixed(2))} cd/m² (MaxCLL) and a frame average of ${Number(r.light.maxFall.toFixed(2))} cd/m² (MaxFALL), within the mastering display's ${peak} cd/m²`
       : undefined
     if (r.failures.length === 0) {
-      console.log(
+      out.log(
         `✓ deterministic: ${r.times.length} timestamps, two orders, ${r.what} (${r.msPerFrame.toFixed(1)} ms/frame)`,
       )
-      console.log(compare)
-      if (hdr) console.log(hdr)
+      out.log(compare)
+      if (hdr) out.log(hdr)
       const seeks = describeSeeks(r.seeks, project.manifest.sequential)
-      if (seeks) console.log(seeks)
+      if (seeks) out.log(seeks)
       const warning = clockWarning(r.clock)
       if (warning) {
-        console.log(`! ${warning}`)
-        found({ code: 'clock', severity: 'warning', message: warning })
+        out.log(`! ${warning}`)
+        out.found({ code: 'clock', severity: 'warning', message: warning })
       }
       return EXIT.ok
     }
-    console.log(`✗ not deterministic: ${r.failures.length} of ${r.times.length} timestamps differ`)
+    out.log(`✗ not deterministic: ${r.failures.length} of ${r.times.length} timestamps differ`)
     for (const f of r.failures) {
       const detail =
         f.kind === 'inspect'
@@ -156,21 +170,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
               .map((c) => c.path)
               .join(', ')
           : `${f.first.slice(0, 12)} != ${f.second.slice(0, 12)}`
-      console.log(`  ✗ t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`)
-      found({
+      out.log(`  ✗ t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`)
+      out.found({
         code: 'determinism',
         severity: 'error',
         message: `t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`,
         t: [f.t],
       })
     }
-    console.log(compare)
+    out.log(compare)
     const seeks = describeSeeks(r.seeks, project.manifest.sequential)
-    if (seeks) console.log(seeks)
+    if (seeks) out.log(seeks)
     const warning = clockWarning(r.clock)
     if (warning) {
-      console.log(`! ${warning}`)
-      found({ code: 'clock', severity: 'warning', message: warning })
+      out.log(`! ${warning}`)
+      out.found({ code: 'clock', severity: 'warning', message: warning })
     }
     return EXIT.failed
   } finally {
