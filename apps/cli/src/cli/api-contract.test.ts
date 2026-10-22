@@ -18,7 +18,7 @@ import {
 import { run as fork } from './fork.ts'
 import { run as login } from './login.ts'
 import { run as logout } from './logout.ts'
-import { send } from './share.ts'
+import { overLimits, send } from './share.ts'
 import { call, healthOf, readToken, saveToken } from './site.ts'
 import { run as whoami, whoIs } from './whoami.ts'
 
@@ -163,11 +163,33 @@ test('a shape check finds a missing field, a wrong type and a bad record value, 
   )
 })
 
-test("the health's parents are what share builds the player for; it is read without a token", async () => {
+test("the health's parents and upload limits are what share builds for and checks; read without a token", async () => {
   const s = await fakeApi('health')
-  const { parents } = fixture('health').response.body as { parents: string[] }
-  assert.deepEqual(await healthOf(s.api), { parents })
+  const { parents, limits } = fixture('health').response.body as {
+    parents: string[]
+    limits: Record<string, number>
+  }
+  const read = await healthOf(s.api)
+  assert.deepEqual(read.parents, parents)
+  assert.equal(read.error, undefined)
+  // Every upload limit share checks before it uploads, as the API names it (the hourly ones are
+  // the API's to enforce).
+  const upload = ['fileBytes', 'versionBytes', 'filesPerVersion', 'hashesPerAsk']
+  for (const k of [...upload, 'posterBytes', 'loopBytes'])
+    assert.equal(read.limits[k as keyof typeof read.limits], limits[k], k)
   assert.deepEqual(s.check(), ['health'])
+
+  // A version over them is refused before anything is sent.
+  const file = (bytes: number) => ({ path: 'a.bin', sha: 'a'.repeat(64), bytes })
+  const fits = { objects: [file(limits.fileBytes as number)], files: 1, poster: null, loop: null }
+  assert.deepEqual(overLimits(read.limits, fits), [])
+  const over = overLimits(read.limits, {
+    objects: [file((limits.fileBytes as number) + 1)],
+    files: (limits.filesPerVersion as number) + 1,
+    poster: { path: 'poster.webp', sha: 'b'.repeat(64), bytes: (limits.posterBytes as number) + 1 },
+    loop: { path: 'loop.mp4', sha: 'c'.repeat(64), bytes: (limits.loopBytes as number) + 1 },
+  })
+  assert.equal(over.length, 4, over.join('\n'))
 })
 
 test('login swaps the GitHub token at /auth/github and keeps the token the API answers', async () => {
