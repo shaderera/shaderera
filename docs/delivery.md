@@ -407,6 +407,17 @@ canvas or byte layer is 8-bit to begin with, and **changing the encoder cannot r
 layer never had**. None of it is HDR: an "HDR" tag on an SDR composite would be a lie, and there is
 no scene-linear light in it to put in an EXR.
 
+**HDR10 is decided, not built.** [Decision 0023](https://github.com/shaderera/shaderera/blob/main/docs/adr/0023-hdr10-delivery.md)
+(proposed 2026-10-22, waiting for the owner) sets out how it will work:
+- a film opts in, and its GPU layers declare linear or PQ light in BT.2020;
+- 8-bit layers are placed at a graphics white the film declares;
+- the film keeps its own tone mapping and its own SDR render;
+- the master is HEVC Main 10 in an mp4, with the mastering display and MaxCLL/MaxFALL measured
+  on the GPU;
+- films that do not opt in do not change.
+
+Until it is built, what follows holds.
+
 What does not exist: scene-linear compositing, an EXR or HDR writer, AOV (depth, normals, mattes)
 channels, PQ/HLG transfer. Nor broadcast playout formats (MXF, XDCAM, AVC-Intra, IMF): clearance
 houses and post facilities transcode a ProRes master to them (The Post Flow, 2026-08-24); nor HEVC,
