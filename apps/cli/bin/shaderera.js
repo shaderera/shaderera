@@ -3,6 +3,7 @@
 import { existsSync } from 'node:fs'
 
 const source = new URL('../src/cli/main.ts', import.meta.url)
-await import(
+const { run } = await import(
   existsSync(source) ? source.href : new URL('../dist/cli/main.js', import.meta.url).href
 )
+process.exitCode = await run(process.argv.slice(2))
