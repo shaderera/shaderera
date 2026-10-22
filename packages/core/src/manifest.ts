@@ -1,8 +1,12 @@
 import type { Json, Manifest } from './protocol.ts'
 import { parseFps } from './time.ts'
 
+/** The format this version reads. A file without `shaderera` is this format too. */
+const MANIFEST_FORMAT = 'manifest/1'
+
 const known = new Set([
   '$schema',
+  'shaderera',
   'entry',
   'dom',
   'host',
@@ -20,8 +24,26 @@ const known = new Set([
   'timecode',
   'textless',
   'bakes',
+  'requires',
   'hdr10',
 ])
+
+/** Problems with `requires`: a `shaderera` range and package plugins by name, each with a range. */
+const requiresProblems = (r: unknown): string[] => {
+  if (!isObject(r)) return ['requires must be an object']
+  const p: string[] = []
+  if (r.shaderera !== undefined && typeof r.shaderera !== 'string')
+    p.push('requires.shaderera must be a version range')
+  if (r.extensions !== undefined) {
+    if (!isObject(r.extensions)) p.push('requires.extensions must be an object')
+    else
+      for (const [name, range] of Object.entries(r.extensions))
+        if (typeof range !== 'string') p.push(`requires.extensions.${name} must be a version range`)
+  }
+  for (const key of Object.keys(r))
+    if (key !== 'shaderera' && key !== 'extensions') p.push(`requires: unknown key "${key}"`)
+  return p
+}
 
 /** Problems with `bakes`: each a command, its inputs, a folder, and frame names with `#`s. */
 const bakeProblems = (bakes: unknown): string[] => {
@@ -169,6 +191,11 @@ export const checkManifest = (value: unknown): Manifest => {
     throw new Error('shaderera.json: must be a JSON object')
   }
   const m = value as Record<string, unknown>
+  // Another format is refused alone: its other problems would only mislead.
+  if (m.shaderera !== undefined && m.shaderera !== MANIFEST_FORMAT)
+    throw new Error(
+      `shaderera.json: "shaderera": ${JSON.stringify(m.shaderera)} is a format this version cannot read (it reads "${MANIFEST_FORMAT}")`,
+    )
   const problems: string[] = []
   if (typeof m.entry !== 'string' || m.entry === '')
     problems.push('entry must be a non-empty string')
@@ -212,6 +239,7 @@ export const checkManifest = (value: unknown): Manifest => {
     problems.push('$schema must be a string')
   if (m.variants !== undefined) problems.push(...variantProblems(m.variants))
   if (m.bakes !== undefined) problems.push(...bakeProblems(m.bakes))
+  if (m.requires !== undefined) problems.push(...requiresProblems(m.requires))
   if (m.hdr10 !== undefined) problems.push(...hdr10Problems(m.hdr10))
   problems.push(...deliveryProblems(m, ''))
   for (const key of Object.keys(m)) if (!known.has(key)) problems.push(`unknown key "${key}"`)

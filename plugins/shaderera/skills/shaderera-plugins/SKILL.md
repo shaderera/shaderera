@@ -51,7 +51,7 @@ npx shaderera add camera-keyframes look-vignette   # several at once: all of the
   file the project already has; `--force` replaces only the plugin named. Once copied, the
   files are the project's code: to stop using one, delete its files.
 - **A package plugin** (type `extension`) is an npm package. `add` installs it and records it
-  in `shaderera.item.json` under `requires`; `npx shaderera remove <name>...` uninstalls it.
+  in `shaderera.json` under `requires`; `npx shaderera remove <name>...` uninstalls it.
   `remove` refuses a plain npm dependency: it only uninstalls package plugins.
 - **A range on the command line** (`name@0.1.0`) wins over what a plugin requires, but if
   another plugin needs a version outside it, `add` refuses and names both. Name a version in
@@ -66,7 +66,7 @@ edited, not worked around.
 
 ## 3. When a command refuses the project
 
-`shaderera render`, `check` and every other command refuse a project whose `shaderera.item.json`
+`shaderera render`, `check` and every other command refuse a project whose `shaderera.json`
 requires a missing package plugin or the wrong version. The message names it, and
 `npx shaderera doctor` lists it without opening the film. Never work around the refusal
 silently. Pick one of the two ways out, by what the person wants:

@@ -1,0 +1,188 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "shaderera.json",
+  "description": "A Shaderera project's manifest, format manifest/1: plain data the tools read without running code. Nothing in it says what a frame shows. The CLI checks the file itself and lists every problem; this schema is editor help.",
+  "type": "object",
+  "required": ["entry", "fps", "duration", "width", "height"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "description": "The JSON Schema an editor checks this file against: the shaderera package's, ./node_modules/shaderera/shaderera.schema.json.",
+      "type": "string"
+    },
+    "shaderera": {
+      "description": "The file's format. A file without it is manifest/1 too; any other format is refused.",
+      "const": "manifest/1"
+    },
+    "entry": {
+      "description": "The module that default-exports the Open or Source, relative to the project root.",
+      "type": "string",
+      "minLength": 1
+    },
+    "fps": { "$ref": "#/definitions/fps" },
+    "duration": {
+      "description": "In seconds.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "width": { "description": "In pixels.", "type": "integer", "minimum": 1 },
+    "height": { "description": "In pixels.", "type": "integer", "minimum": 1 },
+    "params": {
+      "description": "A JSON Schema (type: object) of what the host passes to open.",
+      "type": "object"
+    },
+    "seed": {
+      "description": "The only randomness a source may use.",
+      "type": "number"
+    },
+    "sequential": {
+      "description": "true: state carries from frame to frame; or a whole number, the lookback in frames.",
+      "oneOf": [{ "const": true }, { "type": "integer", "minimum": 1 }]
+    },
+    "host": {
+      "description": "The host every tool opens: node (the default) or browser.",
+      "enum": ["node", "browser"]
+    },
+    "dom": {
+      "description": "A module that default-exports a MountDom. Needs \"host\": \"browser\".",
+      "type": "string",
+      "minLength": 1
+    },
+    "domScale": {
+      "description": "Pixels per CSS pixel the browser host draws dom with. Needs dom.",
+      "enum": [1, 2, 3, 4]
+    },
+    "stamp": {
+      "description": "Source stamps: every object literal with an id gets source: \"file:line:col\".",
+      "const": true
+    },
+    "variants": {
+      "description": "Named outputs the film is designed for: sizes, lengths, params. Never a crop.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/variant" }
+    },
+    "preroll": { "$ref": "#/definitions/preroll" },
+    "timecode": { "$ref": "#/definitions/timecode" },
+    "textless": { "$ref": "#/definitions/textless" },
+    "bakes": {
+      "description": "Frames made outside the host, by name (letters, digits, . _ -).",
+      "type": "object",
+      "propertyNames": { "pattern": "^[\\w.-]+$" },
+      "additionalProperties": { "$ref": "#/definitions/bake" }
+    },
+    "requires": {
+      "description": "What the project needs installed. shaderera add and remove keep extensions; every command refuses a project whose requirements are not met.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shaderera": {
+          "description": "A range of the shaderera package, such as ^0.1.5.",
+          "type": "string"
+        },
+        "extensions": {
+          "description": "Package plugins by npm name, each with a range.",
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "hdr10": {
+      "description": "The film opts into HDR10 (decision 0023): a job may then ask for range hdr10, and layers may declare their light. Without it every render is SDR.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mastering", "dither"],
+      "properties": {
+        "graphicsWhite": {
+          "description": "Where an SDR layer's white goes, in cd/m². BT.2408's Graphics White, 203, when absent.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "mastering": {
+          "description": "The display the film was graded on (SMPTE ST 2086). P3-D65 at 1000 cd/m² is common.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["peak", "min", "primaries"],
+          "properties": {
+            "peak": { "type": "number", "exclusiveMinimum": 0, "maximum": 10000 },
+            "min": { "type": "number", "minimum": 0 },
+            "primaries": { "enum": ["p3-d65", "bt2020", "bt709"] }
+          }
+        },
+        "dither": {
+          "description": "Before the 10-bit quantisation; no standard names one.",
+          "enum": ["tpdf", "none"]
+        }
+      }
+    }
+  },
+  "definitions": {
+    "fps": {
+      "description": "Frames a second: a number or a fraction such as \"24000/1001\". 23.976, 29.97 and 59.94 mean their fractions.",
+      "oneOf": [
+        { "type": "number", "exclusiveMinimum": 0 },
+        { "type": "string", "pattern": "^\\s*\\d+\\s*/\\s*\\d+\\s*$" }
+      ]
+    },
+    "preroll": {
+      "description": "Time before the programme in the delivered file: seconds of black, or of the source at negative t.",
+      "type": "object",
+      "required": ["seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "fill": { "enum": ["black", "source"] }
+      }
+    },
+    "timecode": {
+      "description": "The programme's start timecode, HH:MM:SS:FF (HH:MM:SS;FF drop-frame).",
+      "type": "string",
+      "pattern": "^\\d\\d:[0-5]\\d:[0-5]\\d[:;]\\d\\d$"
+    },
+    "textless": {
+      "description": "A textless version: review fails it when inspect or the DOM shows text.",
+      "const": true
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "duration": { "type": "number", "exclusiveMinimum": 0 },
+        "fps": { "$ref": "#/definitions/fps" },
+        "params": { "type": "object" },
+        "preroll": { "$ref": "#/definitions/preroll" },
+        "timecode": { "$ref": "#/definitions/timecode" },
+        "textless": { "$ref": "#/definitions/textless" }
+      }
+    },
+    "bake": {
+      "type": "object",
+      "required": ["command", "inputs", "dir", "frames"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "What makes the frames, run by shaderera bake in the project folder; a render never runs it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "description": "The project files and folders the frames derive from.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "dir": {
+          "description": "Where the command writes the frames.",
+          "type": "string",
+          "minLength": 1
+        },
+        "frames": {
+          "description": "Their names, one run of # for the frame number: beauty.####.jpg.",
+          "type": "string",
+          "pattern": "^[^#/\\\\]*#+[^#/\\\\]*$"
+        }
+      }
+    }
+  }
+}

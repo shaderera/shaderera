@@ -1,4 +1,5 @@
-// Internal: helpers for the shaderera CLI and Studio. Not part of the public API, not covered by semver.
+// Experimental (docs/api.md): what a host needs to open a source as the shaderera CLI does. Usable,
+// and may change in any release; a film never imports it.
 
 export { toSrt, toVtt, windowCaptions } from './captions.ts'
 export {
