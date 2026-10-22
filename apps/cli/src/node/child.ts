@@ -167,6 +167,8 @@ export const openChild = async (
     /** The source's `host.range`: `sdr` when absent. */
     range?: Range
     timeoutMs?: number
+    /** How long the source's open may take; timeoutMs by default (a test of a hung call raises it). */
+    openTimeoutMs?: number
     /** A sequential source's checkpoint spacing in rendering ms; tests force it small. */
     checkpointMs?: number
     /** The bakes' frames, checked against their stamps (project/bakes.ts): what io.bake reads. */
@@ -200,7 +202,7 @@ export const openChild = async (
   child.on('error', () => {})
   let next = 0
   let queue: Promise<unknown> = Promise.resolve()
-  const call = <T>(request: Request): Promise<T> => {
+  const call = <T>(request: Request, ms = o.timeoutMs ?? TIMEOUT): Promise<T> => {
     const run = () =>
       new Promise<T>((done, fail) => {
         if (child.killed || !child.connected)
@@ -208,12 +210,8 @@ export const openChild = async (
         const id = next++
         const timer = setTimeout(() => {
           child.kill()
-          fail(
-            new Error(
-              `The source took longer than ${o.timeoutMs ?? TIMEOUT} ms on ${request.type}.`,
-            ),
-          )
-        }, o.timeoutMs ?? TIMEOUT)
+          fail(new Error(`The source took longer than ${ms} ms on ${request.type}.`))
+        }, ms)
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           clearTimeout(timer)
           child.off('message', onMessage)
@@ -235,16 +233,19 @@ export const openChild = async (
     queue = result.catch(() => {})
     return result
   }
-  const has = await call<Child['has']>({
-    type: 'open',
-    root: project.root,
-    entryFile: o.entryFile,
-    manifest: project.manifest,
-    params: o.params ?? paramDefaults(project.manifest),
-    seed: o.seed ?? project.manifest.seed ?? 0,
-    ...(o.range ? { range: o.range } : {}),
-    checkpointMs: o.checkpointMs,
-  }).catch((error: unknown) => {
+  const has = await call<Child['has']>(
+    {
+      type: 'open',
+      root: project.root,
+      entryFile: o.entryFile,
+      manifest: project.manifest,
+      params: o.params ?? paramDefaults(project.manifest),
+      seed: o.seed ?? project.manifest.seed ?? 0,
+      ...(o.range ? { range: o.range } : {}),
+      checkpointMs: o.checkpointMs,
+    },
+    o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT,
+  ).catch((error: unknown) => {
     // A source that cannot open must not keep the process alive.
     child.kill()
     throw error
