@@ -1,4 +1,5 @@
-import type { Manifest } from '@shaderera/core'
+import { type Manifest, parseFps } from '@shaderera/core'
+import { paramDefaults } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
 import { EXIT, errorFinding, type Finding, found } from './findings.ts'
 
@@ -24,9 +25,32 @@ export const direct: Output = {
 }
 
 /**
+ * The declared variant that renders what main does: main's width, height, fps and duration, and
+ * no param other than main's defaults. `--variants all` leaves main out for it, so one output is
+ * not rendered twice.
+ */
+export const sameAsMain = (manifest: Manifest): string | undefined => {
+  const fps = (v: unknown) => {
+    const f = parseFps(v)
+    return f ? f.num / f.den : v
+  }
+  const defaults = paramDefaults(manifest)
+  return Object.entries(manifest.variants ?? {}).find(
+    ([, v]) =>
+      (v.width ?? manifest.width) === manifest.width &&
+      (v.height ?? manifest.height) === manifest.height &&
+      (v.duration ?? manifest.duration) === manifest.duration &&
+      fps(v.fps ?? manifest.fps) === fps(manifest.fps) &&
+      Object.entries(v.params ?? {}).every(
+        ([k, value]) => JSON.stringify(value) === JSON.stringify(defaults[k]),
+      ),
+  )?.[0]
+}
+
+/**
  * The outputs a command runs for, from `--variant a,b` or `--variants a,b|all`: `undefined` is the
  * manifest's own output (`main`), as `deliver` names it. `all` is `main` and every variant the
- * manifest declares. A name the manifest declares is taken whole, even with a comma in it. An
+ * manifest declares, without main when a variant renders the same (`sameAsMain`). A name the manifest declares is taken whole, even with a comma in it. An
  * unknown name is refused before anything opens.
  */
 export const variantNames = (
@@ -40,7 +64,9 @@ export const variantNames = (
   if (typeof given !== 'string') return [undefined]
   const names =
     given === 'all' && typeof flags.variants === 'string'
-      ? ['main', ...declared]
+      ? sameAsMain(manifest)
+        ? declared
+        : ['main', ...declared]
       : declared.includes(given)
         ? [given]
         : given
@@ -89,6 +115,8 @@ export const eachVariant = async <
   }
   if (names.length === 1) return run(flagsOf(names[0]), direct)
   if (o.one) throw new Error(o.one)
+  /** `all` left main out: said once, before the variants. */
+  const main = flags.variants === 'all' ? sameAsMain(manifest) : undefined
   const runs = await Promise.all(
     names.map(async (variant) => {
       const lines: string[] = []
@@ -124,6 +152,7 @@ export const eachVariant = async <
     console.log(
       JSON.stringify(
         {
+          ...(main ? { main } : {}),
           variants: runs.map((r) => ({
             variant: nameOf(r.variant),
             ...(r.error !== undefined ? { error: r.error } : r.result),
@@ -133,10 +162,12 @@ export const eachVariant = async <
         2,
       ),
     )
-  else
+  else {
+    if (main) console.log(`main = ${main}`)
     for (const r of runs) {
       console.log(`${nameOf(r.variant)}:`)
       for (const line of r.lines) console.log(line.replace(/^/gm, '  '))
     }
+  }
   return Math.max(...runs.map((r) => r.exit))
 }
