@@ -285,7 +285,7 @@ export const createServer = (
               const data =
                 k === 1
                   ? png(r.pixels, width, height)
-                  : toPng(r.pixels, width, height, IMAGE).toString('base64')
+                  : (await toPng(r.pixels, width, height, IMAGE)).toString('base64')
               return [text, { type: 'text', text: JSON.stringify(size) }, image(data)]
             }
             const part = crop(r.pixels, manifest, region, a.scale ?? 1)
@@ -316,7 +316,7 @@ export const createServer = (
           const frames = []
           for (const t of times)
             frames.push({ t, label: variant ?? 'main', pixels: await final(c, t) })
-          const sheet = contactSheet(frames, manifest.width, manifest.height)
+          const sheet = await contactSheet(frames, manifest.width, manifest.height)
           return [
             { type: 'text', text: JSON.stringify({ times }) },
             image(sheet.toString('base64')),
