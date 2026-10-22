@@ -5,6 +5,7 @@ import { exportFrames, frameTimes, type Manifest, type Sink } from '@shaderera/c
 import { toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import { readPlan, renderChunk } from '../deliver/chunks.ts'
 import { removePartials } from '../deliver/claim.ts'
+import { preflightChunk, preflightPng } from '../deliver/disk.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
 import { refuseSoftware } from '../node/adapter.ts'
@@ -344,7 +345,8 @@ export const exportVideo: typeof exportOnce = async (project, child, o) => {
 /**
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
- * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc] [--no-audio] [--loudness LUFS]`.
+ * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc] [--no-audio] [--loudness LUFS]
+ * [--force]`. --force: a chunk or png job that the disk-space preflight (deliver/disk.ts) refuses goes ahead.
  * --no-audio: no audio stream (or audio.wav), whatever the source's clips. --loudness: bring the
  * mix to that integrated loudness by one constant gain; the true peak is reported, never limited. --workers: how many hosts
  * render frames at once (defaultWorkers; 1 for a sequential source). --encoder: by default NVENC
@@ -380,6 +382,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       fix: { type: 'boolean' },
       loudness: { type: 'string' },
       'software-gpu': { type: 'boolean' },
+      force: { type: 'boolean' },
       ...DELIVERY_FLAGS,
     },
     { command: 'render', times: false },
@@ -507,6 +510,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       const plan = readPlan(dir)
       if (plan.jobId !== job.id)
         throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
+      const force = v.force === true
+      await preflightChunk(child, plan, Number(v.chunk), dir, {
+        sequential: project.manifest.sequential,
+        force,
+      })
       process.once('SIGINT', interrupt)
       process.once('SIGTERM', interrupt)
       const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame, stop.signal).finally(
@@ -518,8 +526,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       return 0
     }
     if (job?.delivery.format === 'png') {
+      const dir = typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', job.name)
+      const force = v.force === true
+      await preflightPng(child, job, dir, { sequential: project.manifest.sequential, force })
       const done = await exportFinishing(project, child, job, {
-        dir: typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', job.name),
+        dir,
         requirements: outputRequirements(readRequirements(root), {
           variant: job.variant,
           ...job.output,
