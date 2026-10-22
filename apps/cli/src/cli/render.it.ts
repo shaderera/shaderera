@@ -183,35 +183,44 @@ test('render reaches the mix: a src without sound is no error, an unreadable one
   assert.equal(existsSync(broken.out), false)
 })
 
-test("a render's hosts open at once: a second worker costs about no more than one open", {
+test("a render's hosts open at once: each host's open overlaps the others'", {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
   const main = fileURLToPath(new URL('./main.ts', import.meta.url))
   const root = copy('./fixtures/mcp/')
-  // An open that takes 2 s, as a film's that decodes its pictures does.
+  // An open that takes 2 s, as a film's that decodes its pictures does, and says when it ran: the
+  // host's console goes to the render's stderr.
   const entry = join(root, 'src', 'composition.ts')
   writeFileSync(
     entry,
     readFileSync(entry, 'utf8').replace(
       'const open: Open = ({ io }) => {',
-      'const open: Open = async ({ io }) => {\n  await new Promise((done) => setTimeout(done, 2000))',
+      [
+        'const open: Open = async ({ io }) => {',
+        '  const opening = Date.now()',
+        '  await new Promise((done) => setTimeout(done, 2000))',
+        "  console.error('open from ' + opening + ' to ' + Date.now())",
+      ].join('\n'),
     ),
   )
   const out = join(tempDir('render'), 'film.mp4')
-  const seconds = (workers: string) => {
-    const start = performance.now()
-    const r = spawnSync(
-      process.execPath,
-      [main, 'render', '--root', root, '--out', out, '--no-audio', '--workers', workers],
-      { encoding: 'utf8' },
-    )
-    assert.equal(r.status, 0, r.stderr)
-    assert.ok(r.stdout.includes(`on ${workers} host(s)`), r.stdout)
-    return (performance.now() - start) / 1000
-  }
-  const one = seconds('1')
-  const two = seconds('2')
-  assert.ok(two - one < 1.2, `two hosts took ${two.toFixed(1)} s, one ${one.toFixed(1)} s`)
+  const r = spawnSync(
+    process.execPath,
+    [main, 'render', '--root', root, '--out', out, '--no-audio', '--workers', '2'],
+    { encoding: 'utf8' },
+  )
+  assert.equal(r.status, 0, r.stderr)
+  assert.ok(r.stdout.includes('on 2 host(s)'), r.stdout)
+  const opens = [...r.stderr.matchAll(/open from (\d+) to (\d+)/g)].map((m) => ({
+    from: Number(m[1]),
+    to: Number(m[2]),
+  }))
+  assert.equal(opens.length, 2, r.stderr)
+  // At once: every open began before any other ended. One after the other, the later begins
+  // after the earlier ends, however fast the machine.
+  const lastFrom = Math.max(...opens.map((o) => o.from))
+  const firstTo = Math.min(...opens.map((o) => o.to))
+  assert.ok(lastFrom < firstTo, `the opens did not overlap: ${JSON.stringify(opens)}`)
 })
 
 test('A GPU encoder failing where a kept answer said yes: the answer is dropped and x264 renders the film, once', {
