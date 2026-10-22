@@ -1,0 +1,22 @@
+{
+  "name": "render-canvas-texture",
+  "type": "component",
+  "title": "Canvas to texture",
+  "description": "A Canvas2D canvas, or RGBA bytes, uploaded into a GPUTexture of host.gpu for a WGSL pass, one texture per size reused on every upload; rgba8unorm, the bytes as they are, no colour conversion",
+  "category": "Rendering",
+  "tags": [
+    "canvas",
+    "canvas2d",
+    "texture",
+    "upload",
+    "webgpu",
+    "getImageData",
+    "writeTexture",
+    "post",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/render/canvas-texture.ts"]
+}

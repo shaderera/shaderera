@@ -5,8 +5,8 @@
   "description": "The project's own source as a wall of text that scrolls and jumps on the beat, glitched and scrambled, with a claim cut out of the middle",
   "category": "Typography",
   "tags": ["code", "source", "glitch", "matrix", "tech", "launch", "ending", "claim"],
-  "version": "0.1.0",
+  "version": "0.3.0",
   "licence": "MIT",
-  "requires": { "items": { "text-kinetic": "^0.1.0" } },
+  "requires": { "items": { "text-scramble": "^0.3.0", "motion-random": "^0.1.0" } },
   "files": ["src/type/code-wall.ts"]
 }

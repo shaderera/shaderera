@@ -1,0 +1,12 @@
+{
+  "caption": "Says what is on screen at any moment of a list of shots: which shot, which frame of its footage, and how far a transition has got.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.75
+}

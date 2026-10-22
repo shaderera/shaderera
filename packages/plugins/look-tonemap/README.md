@@ -3,9 +3,10 @@ Linear light to display-referred colour through Khronos PBR Neutral or AgX, as W
 ```ts
 import { agx, pbrNeutral } from './looks/tonemap.ts'
 import { TONEMAP_WGSL } from './looks/tonemap.wgsl.ts'
+import { SRGB_WGSL } from './render/srgb.wgsl.ts'  // render-srgb, for toSrgb
 
 // in your output shader: the functions, then your own exposure, white balance, encoding, dither
-const code = `${TONEMAP_WGSL}
+const code = `${SRGB_WGSL}${TONEMAP_WGSL}
 @fragment fn outputFs(i: V) -> @location(0) vec4f {
   let light = max(textureLoad(hdr, vec2u(i.pos.xy), 0).rgb, vec3f(0.0)) * u.exposure;
   return vec4f(toSrgb(pbrNeutral(light)), 1.0);   // or agx(light)
@@ -28,9 +29,9 @@ const [r, g, b] = pbrNeutral([2, 0.5, 0.1])
 Both are functions of `vec3f` in WGSL and of `[r, g, b]` on the CPU. In: linear light, Rec.709 /
 sRGB primaries, already exposed and white balanced, from 0 up; clamp negatives first. Out: linear
 display-referred light, Rec.709 primaries, 0–1. The output is not encoded: your shader encodes it
-to sRGB (or writes an `-srgb` target). AgX's sigmoid gives values for a 2.2-power display, and
-`agx` ends with that 2.2 power, as three.js does, to give linear light like `pbrNeutral`; encoding
-it with the sRGB curve is what three.js and Blender do too.
+to sRGB (`toSrgb` from `render-srgb`, or an `-srgb` target). AgX's sigmoid gives values for a
+2.2-power display, and `agx` ends with that 2.2 power, as three.js does, to give linear light like
+`pbrNeutral`; encoding it with the sRGB curve is what three.js and Blender do too.
 
 This does one job. It does not expose, white balance, encode to sRGB or dither: multiply the light
 by your exposure and white balance before, and encode and dither after, in the same shader. The

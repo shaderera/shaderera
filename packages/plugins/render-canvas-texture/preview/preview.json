@@ -1,0 +1,7 @@
+{
+  "caption": "Hands a picture drawn in Canvas2D to your GPU shader, the same bytes, one texture kept for each size.",
+  "states": [{ "id": "default", "label": "Default" }],
+  "default": "default",
+  "audio": false,
+  "poster": 1.5
+}

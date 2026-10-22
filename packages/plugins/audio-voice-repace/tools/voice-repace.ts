@@ -16,7 +16,7 @@
 // Writes the new audio (48 kHz, 24-bit WAV) and, beside it, <out>.map.json: a
 // shaderera.analysis/1 time-map whose knots [old seconds, new seconds] src/audio/repace.ts reads.
 
-import { hex } from '../src/audio/repace.ts'
+import { sha256 } from '@shaderera/core'
 import { parseTimedText, type Word } from '../src/type/timed-text.ts'
 
 export type Repace = { maxPause: number; keep: readonly number[]; tempo: number; fade: number }
@@ -210,7 +210,7 @@ if (import.meta.main) {
     source: {
       path,
       bytes: bytes.length,
-      sha256: await hex(bytes),
+      sha256: await sha256(bytes),
       seconds: pcm.length / channels / RATE,
     },
     output: { path: out, seconds: probe(out, 'format=duration') },

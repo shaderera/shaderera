@@ -1,7 +1,7 @@
 // `io.image`, `io.video`, `io.cache` and `io.bake`, the same in both hosts: the Node host passes its IPC
 // to the CLI process as `ask`, the runner worker its requests to the runner server.
 import type { Baked, DecodedImage, Footage, Io } from '@shaderera/core'
-import { sha256 } from '@shaderera/core/host'
+import { sha256 } from '@shaderera/core'
 import { decodeImage } from './image.ts'
 
 /** What a host asks of the CLI's process (node/services.ts). */

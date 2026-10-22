@@ -1,19 +1,18 @@
-Keyframed values over time with easing: numbers, points and progress, asked for their value at t.
+Keyframed values over time: numbers and points held between keys and eased into each, asked for their value at t.
 
 ```ts
-import { glide, progress, strike, track, track3 } from './motion/keyframes.ts'
+import { glide, strike } from './motion/eases.ts'
+import { track, track3 } from './motion/keyframes.ts'
 
 const scale = track([[0, 1], [4, 1.2, glide], [6, 0.8, strike]])   // held, then eased into each key
 const pos = track3([[0, [0, 0, 0]], [10, [2, 1, -3]]])
-const fade = progress(t, 3.5, 4)                                    // 0 → 1 over half a second
 
 // in render(t)
 card.scale = scale(t)
 ```
 
-Eases: `linear`, `smooth` (default), `strike` (a hit), `accel`, `glide`, `hold` (a cut), `sine`,
-`expo`, `circ`, `back(overshoot)`, `settle(stiffness)` (a critically damped spring as a formula, the
-damped feel with no state) and `bezier(x1, y1, x2, y2)` (a curve from a motion designer's editor).
+The eases (`smooth` by default, `strike`, `glide`, `hold` for a cut, `settle` for a spring,
+`bezier` and the rest) come from `motion-eases`, which `add` copies in with it.
 
 A key is a tuple `[t, value, ease?]` or an object `{ id, at, value, ease? }`; one track can mix
 them. The object form names the key: with `"stamp": true` in `shaderera.json` the build stamps it
@@ -34,7 +33,7 @@ return { id: 'square', x: x(t), key: x.inspect(t) }
 `u` is how far the move into that key has gone, 0 to 1 and not eased (1 at rest). A tuple key
 reports `{ at, index, u }` with no id.
 
-A track comes to rest on every key. `path3(points, from, to, ease)` is one move through several
+A track comes to rest on every key. `path3(points, start, end, ease)` is one move through several
 points that never stops between them: a centripetal Catmull-Rom curve at even speed.
 
 Stateless: any t gives the same value whenever it is asked.

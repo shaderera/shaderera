@@ -11,11 +11,12 @@ import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import {
   blendShots,
   fit,
-  lens,
+  lensDeg,
   type Shot,
   viewProjection,
 } from '../../previews/src/motion/camera.ts'
-import { hits, SHAKE, type ShakeStyle, shake } from '../../previews/src/motion/shake.ts'
+import { envelope } from '../../previews/src/motion/eases.ts'
+import { SHAKE, type ShakeStyle, shake } from '../../previews/src/motion/shake.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
 const L = 48
@@ -76,9 +77,9 @@ const cameraShake: OpenPreview = async (host, stateId) => {
     return fit({
       center: SUBJECT.center,
       radius: SUBJECT.radius,
-      azimuth: 210 + 10 * Math.sin(ph * Math.PI * 2),
-      elevation: 14 + 2 * Math.sin(ph * Math.PI * 4),
-      fov: lens(MM, 1),
+      azimuthDeg: 210 + 10 * Math.sin(ph * Math.PI * 2),
+      elevationDeg: 14 + 2 * Math.sin(ph * Math.PI * 4),
+      fovDeg: lensDeg(MM, 1),
       aspect: 1,
       fill: 0.4 + 0.04 * Math.cos(ph * Math.PI * 2),
       shift: LIFT,
@@ -100,7 +101,8 @@ const cameraShake: OpenPreview = async (host, stateId) => {
     const impact = smooth((x - 4 + FADE / 2) / FADE) * (1 - smooth((x - 5.65) / 0.3))
     return { breathe: Math.max(0, 1 - handheld - impact), handheld, impact }
   }
-  const kick = (t: number) => hits(loop(t), hitTimes, 0.22)
+  const kick = (t: number) =>
+    envelope(loop(t), hitTimes, { combine: 'sum', decay: 0.22, limit: 1.5 })
 
   /** The shot shaken with the noise at t (which never repeats). */
   const shaken = (t: number): Shot => {

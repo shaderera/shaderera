@@ -184,6 +184,12 @@ _Avoid_: campaign render
 A delivery as PNG frames, a WAV and `delivery.json`, for an editor or a colourist.
 _Avoid_: image sequence export
 
+**Caption**:
+A line of text from a source's `captions`, shown from `start` to `end` and written as SRT and
+WebVTT sidecars beside an export, never drawn into the frame. Text drawn into the frame is a
+**title**.
+_Avoid_: subtitle, lower third
+
 **Mix**:
 A film's sound: the audio clips it lists inside a job's window, each trimmed, delayed into place
 and scaled by its gain, then summed without normalisation. A clip whose file has no sound is

@@ -1,0 +1,22 @@
+{
+  "name": "motion-eases",
+  "type": "component",
+  "title": "Eases",
+  "description": "Shaping a 0–1 progress: eases from strike and glide to a stateless spring settle and CSS-style bezier, clamp, lerp, the progress of t through a span, and one envelope over hit times",
+  "category": "Animation & Camera",
+  "tags": [
+    "easing",
+    "ease",
+    "tween",
+    "progress",
+    "envelope",
+    "decay",
+    "lerp",
+    "clamp",
+    "spring",
+    "bezier"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/motion/eases.ts"]
+}

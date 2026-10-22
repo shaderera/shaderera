@@ -1,6 +1,7 @@
 // The plain test card the looks previews pass through their plugin: a grey checker, a grid of
-// small lights, a ring, a grey step wedge and a box with a grey ramp turning once a loop, on black
-// (or another ground), drawn with Canvas2D. A stand-in subject, not a scene: what changes it is
+// small lights, a ring, a grey step wedge along its top and a box with a grey ramp turning once a
+// loop, on black (or another ground), drawn with Canvas2D. The wedge is at the top so its white end
+// never sits under the house's bottom-right word. A stand-in subject, not a scene: what changes it is
 // the plugin.
 
 type Ctx = OffscreenCanvasRenderingContext2D
@@ -24,10 +25,10 @@ export const drawCard = (ctx: Ctx, t: number, duration: number, ground = '#000')
       ctx.fillRect(CARD.x + x * cell, CARD.y + y * cell, cell, cell)
     }
   ctx.fillStyle = '#fff'
-  for (let y = 0; y < 7; y++)
+  for (let y = 0; y < 6; y++)
     for (let x = 0; x < 7; x++) {
       ctx.beginPath()
-      ctx.arc(CARD.x + (x + 0.5) * (CARD.size / 7), CARD.y + (y + 0.5) * 92, 4, 0, Math.PI * 2)
+      ctx.arc(CARD.x + (x + 0.5) * (CARD.size / 7), CARD.y + 90 + (y + 0.5) * 92, 4, 0, Math.PI * 2)
       ctx.fill()
     }
   ctx.strokeStyle = '#9a9a9a'
@@ -48,6 +49,6 @@ export const drawCard = (ctx: Ctx, t: number, duration: number, ground = '#000')
   for (let k = 0; k < STEPS; k++) {
     const v = Math.round((255 * k) / (STEPS - 1))
     ctx.fillStyle = `rgb(${v},${v},${v})`
-    ctx.fillRect(CARD.x + k * w, CARD.y + CARD.size - 90, w + 0.5, 90)
+    ctx.fillRect(CARD.x + k * w, CARD.y, w + 0.5, 90)
   }
 }

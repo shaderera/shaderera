@@ -3,15 +3,9 @@
 // frame). It turns the camera in its own space after it has looked at its target, so the shot's
 // target stays what was authored.
 
+import type { Vec3 } from '@shaderera/core'
 import type { Shot } from './camera.ts'
-
-type V3 = readonly [number, number, number]
-
-const hash = (v: number) => {
-  const s = (Math.imul(v >>> 0, 747796405) + 2891336453) >>> 0
-  const w = Math.imul(((s >>> ((s >>> 28) + 4)) ^ s) >>> 0, 277803737) >>> 0
-  return ((w >>> 22) ^ w) >>> 0
-}
+import { hash } from './random.ts'
 
 /** Smooth 1D gradient noise in about [-1, 1], fixed for a seed. */
 export const noise1 = (x: number, seed = 0) => {
@@ -45,33 +39,22 @@ export const SHAKE = {
   impact: { degrees: 2.8, frequency: 11, drift: 0.06 },
 } as const satisfies { [name: string]: ShakeStyle }
 
-/** 1 at `at`, decaying with time constant `decay` seconds after it; 0 before: a hit's envelope. */
-export const hit = (t: number, at: number, decay = 0.25) =>
-  t < at ? 0 : Math.exp(-(t - at) / decay)
-
-/** The sum of hits at `times`: a camera that takes every hit of the music. */
-export const hits = (t: number, times: readonly number[], decay = 0.25) =>
-  Math.min(
-    1.5,
-    times.reduce((s, at) => s + hit(t, at, decay), 0),
-  )
-
-const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-const add = (a: V3, b: V3): V3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-const scale = (a: V3, s: number): V3 => [a[0] * s, a[1] * s, a[2] * s]
-const cross = (a: V3, b: V3): V3 => [
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s]
+const cross = (a: Vec3, b: Vec3): Vec3 => [
   a[1] * b[2] - a[2] * b[1],
   a[2] * b[0] - a[0] * b[2],
   a[0] * b[1] - a[1] * b[0],
 ]
-const norm = (a: V3): V3 => {
+const norm = (a: Vec3): Vec3 => {
   const l = Math.hypot(a[0], a[1], a[2])
   return l < 1e-12 ? [0, 0, 1] : [a[0] / l, a[1] / l, a[2] / l]
 }
 
 /**
- * The shot shaken at t. `amount` scales it (an envelope such as `hit`, or 1 for a steady
- * handheld); `seed` gives each camera its own wander.
+ * The shot shaken at t. `amount` scales it (motion-eases' `envelope` of the hits, or 1 for a
+ * steady handheld); `seed` gives each camera its own wander.
  */
 export const shake = (
   s: Shot,
