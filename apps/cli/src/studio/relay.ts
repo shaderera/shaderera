@@ -4,9 +4,9 @@
 // the bridge's events through the relay, sealed the same way. Once paired, it rejoins the relay
 // with the resume token the relay gave it when the relay drops it (a site deploy, the network).
 import { timingSafeEqual } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { open } from 'node:fs/promises'
 import type { Bridge, StudioEvent } from './bridge.ts'
-import { CLOSE, keyPair, relayUrl, seal, sessionKey, unseal } from './pairing.ts'
+import { CLOSE, keyPair, relayUrl, seal, sealBytes, sessionKey, unseal } from './pairing.ts'
 
 type Message = { type?: string; [key: string]: unknown }
 
@@ -16,6 +16,17 @@ const sameNonce = (given: string, nonce: string) => {
 }
 
 export type RelayEnd = { code: number; paired: boolean }
+
+/**
+ * A file's chunk through the relay, in bytes: its frame (base64url, with the GCM tag and the JSON
+ * around it) stays under 1 MiB, far under the Worker's WebSocket message limit (32 MiB).
+ */
+export const CHUNK = 512 * 1024
+/** How much the CLI lets its socket buffer before it waits to send more of a file. */
+const BUFFERED = 8 * 1024 * 1024
+
+/** What binds a chunk's box to its request and place: `<rpc id>:<seq>`. */
+export const chunkAad = (id: string, seq: number): string => `${id}:${seq}`
 
 /**
  * How long a page that left has to come back before it counts as closed, in ms: a reload rejoins
@@ -64,6 +75,8 @@ export const connectRelay = (o: {
   delay?: (n: number) => number
   /** For tests: how long a page that left has to come back (PAGE_BACK_MS). */
   pageBackMs?: number
+  /** For tests: a file's chunk, in bytes (CHUNK). */
+  chunk?: number
 }): { closed: Promise<RelayEnd>; close: () => Promise<void> } => {
   let ws: WebSocket
   // The relay's resume token for this CLI, once paired; rejoins so far since the last open.
@@ -92,6 +105,51 @@ export const connectRelay = (o: {
   }
   // Messages are handled in the order they came: a key is derived before an rpc under it is read.
   let chain: Promise<void> = Promise.resolve()
+
+  /**
+   * A file through the relay (v1): its head in the rpc-result, `{status, type, name, size,
+   * chunks}`, then `chunks` frames `{type:"rpc-chunk", id, seq, iv, box}`, each up to CHUNK bytes
+   * sealed as they are under `<id>:<seq>`. Read and sent a chunk at a time, waiting while the
+   * socket's buffer is full, so a large file never sits in memory whole. A file that cannot be
+   * opened is a 500; one that fails after its head leaves the page waiting for chunks that do not
+   * come, and it gives up.
+   */
+  const sendFile = async (
+    k: CryptoKey,
+    id: string,
+    file: { path: string; type: string; name: string },
+  ) => {
+    const size = o.chunk ?? CHUNK
+    const handle = await open(file.path).catch(async (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      send({
+        type: 'rpc-result',
+        id,
+        ...(await seal(k, { status: 500, body: { error: message } })),
+      })
+      return null
+    })
+    if (!handle) return
+    try {
+      const { size: bytes } = await handle.stat()
+      const chunks = Math.ceil(bytes / size)
+      send({
+        type: 'rpc-result',
+        id,
+        ...(await seal(k, { status: 200, type: file.type, name: file.name, size: bytes, chunks })),
+      })
+      const buffer = Buffer.alloc(size)
+      for (let seq = 0; seq < chunks; seq++) {
+        const { bytesRead } = await handle.read(buffer, 0, size, seq * size)
+        const sealed = await sealBytes(k, buffer.subarray(0, bytesRead), chunkAad(id, seq))
+        while (ws.readyState === WebSocket.OPEN && ws.bufferedAmount > BUFFERED)
+          await new Promise((r) => setTimeout(r, 10))
+        send({ type: 'rpc-chunk', id, seq, ...sealed })
+      }
+    } finally {
+      await handle.close()
+    }
+  }
 
   const onMessage = async (m: Message) => {
     if (m.type === 'page-hello' && typeof m.pub === 'string') {
@@ -129,7 +187,7 @@ export const connectRelay = (o: {
       }, o.pageBackMs ?? PAGE_BACK_MS)
     } else if (m.type === 'rpc' && key && typeof m.iv === 'string' && typeof m.box === 'string') {
       const k = key
-      const id = m.id
+      const id = String(m.id)
       // The page uses the relay: the bridge's events follow, sealed, from now on.
       stopEvents ??= o.bridge.onEvent((event: StudioEvent) => {
         void seal(k, event).then((sealed) => send({ type: 'event', ...sealed }))
@@ -164,18 +222,8 @@ export const connectRelay = (o: {
             body: { error: 'The runner is framed from 127.0.0.1 only.' },
           })),
         })
-      // A file, in one frame (v0): `{ status, type, name, base64 }`.
-      const bytes = readFileSync(reply.file.path)
-      send({
-        type: 'rpc-result',
-        id,
-        ...(await seal(k, {
-          status: 200,
-          type: reply.file.type,
-          name: reply.file.name,
-          base64: bytes.toString('base64'),
-        })),
-      })
+      // A file, in chunks: not awaited, so the page's other requests are answered meanwhile.
+      void sendFile(k, id, reply.file).catch(() => {})
     }
   }
 

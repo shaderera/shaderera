@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { basename, join } from 'node:path'
@@ -9,7 +10,7 @@ import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
 import { call, nonce, page } from './fixtures/page.ts'
-import { startRelay } from './fixtures/relay.ts'
+import { MAX_MESSAGE, startRelay } from './fixtures/relay.ts'
 import {
   CLOSE,
   isId,
@@ -20,8 +21,9 @@ import {
   seal,
   sessionKey,
   unseal,
+  unsealBytes,
 } from './pairing.ts'
-import { connectRelay } from './relay.ts'
+import { CHUNK, chunkAad, connectRelay } from './relay.ts'
 import { NOTICE, noticeOnce, setTelemetry, telemetryStatus } from './telemetry.ts'
 
 // The user's config (telemetry) and tokens (share) live in a home of the tests' own.
@@ -697,14 +699,52 @@ test('through the relay: sealed requests, sealed events and a file', async () =>
     if (e.type === 'job' && e.id === job && e.state === 'done') break
     assert.ok(!(e.type === 'job' && e.state === 'failed'), JSON.stringify(e))
   }
-  const sent = await rpc('4', { method: 'GET', path: `/render/${job}/file` })
-  assert.equal(sent.status, 200)
-  assert.equal(sent.type, 'image/png')
-  assert.match(String(sent.name), new RegExp(`-${job}\\.png$`))
-  const bytes = Buffer.from(sent.base64 as string, 'base64')
-  assert.deepEqual([...bytes.subarray(1, 4)], [...Buffer.from('PNG')])
-  cli.close()
+  /** A file through the relay: its head, then its chunks, each opened under `<id>:<seq>`. */
+  const fetchFile = async (rid: string) => {
+    const head = await rpc(rid, { method: 'GET', path: `/render/${job}/file` })
+    assert.equal(head.status, 200)
+    const parts: Uint8Array[] = []
+    for (let seq = 0; seq < (head.chunks as number); seq++) {
+      const m = (await p.next('rpc-chunk')) as unknown as {
+        id: string
+        seq: number
+        iv: string
+        box: string
+      }
+      assert.deepEqual([m.id, m.seq], [rid, seq])
+      // Every frame stays far under the Worker's limit.
+      assert.ok(JSON.stringify(m).length < 1024 * 1024)
+      // A chunk opens in its own place only: the relay cannot reorder or move them.
+      await assert.rejects(unsealBytes(key, m, chunkAad(rid, seq + 1)))
+      parts.push(await unsealBytes(key, m, chunkAad(rid, seq)))
+    }
+    const bytes = Buffer.concat(parts)
+    assert.equal(bytes.length, head.size)
+    return { head, bytes }
+  }
+  const png = await fetchFile('4')
+  assert.equal(png.head.type, 'image/png')
+  assert.match(String(png.head.name), new RegExp(`-${job}\\.png$`))
+  assert.deepEqual([...png.bytes.subarray(1, 4)], [...Buffer.from('PNG')])
+  const out = join(root, 'out', 'studio', String(png.head.name))
+  // A file larger than the Worker's message limit (a long mp4) comes whole, in chunks.
+  const big = randomBytes(MAX_MESSAGE + CHUNK + 7)
+  writeFileSync(out, big)
+  const large = await fetchFile('5')
+  assert.equal(large.head.chunks, Math.ceil(big.length / CHUNK))
+  assert.ok(large.bytes.equals(big))
+  // The CLI is still on the relay: nothing it sent was over the limit.
+  assert.equal((await rpc('6', { method: 'GET', path: '/info' })).status, 200)
+  await cli.close()
   p.ws.close()
+})
+
+test('the relay closes a socket that sends a message over the Worker limit', async () => {
+  const id = makeId()
+  const p = page(relay.origin, id)
+  await p.opened
+  p.send({ type: 'rpc', id: '1', box: 'x'.repeat(MAX_MESSAGE) })
+  assert.equal(await p.closed, 1009)
 })
 
 test('telemetry: one notice, off by config or by SHADERERA_TELEMETRY=0', () => {
