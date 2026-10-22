@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
-import { frameTimes, type Json, type Manifest } from '@shaderera/core'
+import { frameTimes, type Json, type Manifest, type Range } from '@shaderera/core'
 import { checkManifest, paramDefaults, withVariant } from '@shaderera/core/host'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { buildNode } from '../node/build.ts'
@@ -47,6 +47,11 @@ export type Job = {
   variant?: string
   params: { [key: string]: Json }
   seed: number
+  /**
+   * The light it renders: `hdr10` for a film with `hdr10` in its manifest; absent, SDR (the
+   * film's own SDR version is the same job without it). The source reads it as `host.range`.
+   */
+  range?: Range
   /** Exports use the source's own camera; an inspection camera never reaches a job. */
   camera: 'authored'
   output: { width: number; height: number; fps: number; from: number; to: number }
@@ -175,6 +180,8 @@ export const jobId = (job: Omit<Job, 'id' | 'name' | 'label' | 'created' | 'by'>
         variant: job.variant ?? null,
         params: job.params,
         seed: job.seed,
+        // Only an HDR job hashes it: an SDR job's id is what it always was.
+        ...(job.range === 'hdr10' ? { range: job.range } : {}),
         camera: job.camera,
         output: job.output,
         delivery: job.delivery,
@@ -252,6 +259,8 @@ export const createJob = async (
     label?: string
     /** Overrides the manifest's host (`--host`). */
     host?: unknown
+    /** `hdr10` needs the manifest's hdr10 block; `sdr` is the default. */
+    range?: Range
     from?: number
     to?: number
     delivery?: Partial<Delivery>
@@ -267,6 +276,10 @@ export const createJob = async (
   const { manifest, params: variantParams } = withVariant(declared, o.variant)
   const params = effectiveParams(manifest, variantParams, o.params)
   const seed = manifest.seed ?? 0
+  if (o.range === 'hdr10' && !manifest.hdr10)
+    throw new Error(
+      'An hdr10 job needs the hdr10 block in shaderera.json: { mastering: { peak, min, primaries }, dither }.',
+    )
   const from = o.from ?? 0
   const to = o.to ?? manifest.duration
   if (!(from >= 0 && to > from && to <= manifest.duration + 1e-9))
@@ -284,6 +297,7 @@ export const createJob = async (
     ...(o.variant ? { variant: o.variant } : {}),
     params,
     seed,
+    ...(o.range === 'hdr10' ? { range: o.range } : {}),
     camera: 'authored' as const,
     output: { width: manifest.width, height: manifest.height, fps: manifest.fps, from, to },
     delivery: { ...DELIVERY, ...o.delivery },
@@ -355,6 +369,7 @@ export const readJob = (root: string, nameOrFile: string): Job => {
     job.params !== null &&
     typeof job.params === 'object' &&
     Number.isFinite(job.seed) &&
+    (job.range === undefined || job.range === 'sdr' || job.range === 'hdr10') &&
     [o?.width, o?.height].every((n) => Number.isInteger(n) && n > 0) &&
     Number.isFinite(o?.fps) &&
     o.fps > 0 &&
@@ -413,6 +428,7 @@ const frozenOpener = (
       ...(job.variant ? { variant: job.variant } : {}),
       params: job.params,
       seed: job.seed,
+      ...(job.range ? { range: job.range } : {}),
       bakes: built.bakes,
       ...o,
       build: async () => built,

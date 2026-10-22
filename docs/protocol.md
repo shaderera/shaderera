@@ -69,9 +69,11 @@ type Layer =
   | ({
       color: Uint8Array | Uint8ClampedArray | GPUTexture
       alpha: 'premultiplied' | 'straight' | 'opaque'
+      light?: Light            // an HDR layer: a GPUTexture of rgba16float or rgba32float
     } & LayerInfo)
 
 type LayerInfo = { name?: string; final?: boolean; depth?: Depth }
+type Light = { transfer: 'linear' | 'pq'; primaries: 'bt709' | 'bt2020' }
 ```
 
 A frame is one layer or a **flat** bottom-to-top array. The host composites the stack with
@@ -90,6 +92,12 @@ A Frame is one Layer or a flat array of Layers; nesting is not part of the proto
 - **A texture stays on the GPU.** `color` may be a `GPUTexture` of `host.gpu` at the frame's size
   with `TEXTURE_BINDING` in its usage. The host composites it with no copy; an `-srgb` format is
   encoded back to sRGB. It declares its alpha like bytes.
+- **A layer is SDR unless it declares `light`**: sRGB code values, whatever its format. Only in a
+  film with [`hdr10`](#hdr10) may an `rgba16float` or `rgba32float` texture declare the light it
+  carries: `linear` is BT.2100's FP16 scale (1.0 is 203 cd/m²), `pq` is PQ code values from 0 to
+  1, in BT.709 or BT.2020 primaries. A `light` on any other layer is an error, and so is one in an
+  SDR render (`host.range` is `sdr`), naming the layer: the film maps its own light down to SDR
+  there, with its own code or the `look-tonemap` plugin, and the host never clamps it.
 - **`name`** labels the layer, **`final: false`** marks a progressive preview, and **`depth`**
   places its pixels ([below](#progressive-and-depth)). None of these is creative structure.
 - In the Node host a layer is a canvas, RGBA bytes or a `GPUTexture`; `ImageBitmap` and
@@ -105,8 +113,9 @@ type Host = {
   params: { [key: string]: Json }
   seed: number                 // manifest.seed, or 0
   variant?: string             // the variant opened (`9:16`); undefined for the manifest's own output
+  range: 'sdr' | 'hdr10'       // the job's: sdr unless it asks for hdr10
   io: Io
-  gpu?: GPUDevice              // offered when the host has WebGPU; never required
+  gpu?: GPUDevice              // offered when the host has WebGPU; required for hdr10
 }
 
 type Io = {
@@ -180,6 +189,7 @@ it, before any frame.
 | `variants` | no | named outputs (below) |
 | `preroll`, `timecode`, `textless` | no | for a broadcast delivery ([delivery.md](delivery.md#broadcast-preroll-timecode-textless)) |
 | `bakes` | no | frames made outside the host, by name ([below](#bakes)) |
+| `hdr10` | no | the film opts into HDR10 ([below](#hdr10)) |
 | `$schema` | no | editor help |
 
 Any other key is an error:
@@ -218,6 +228,35 @@ const open: Open = ({ io, manifest, variant }) => {
 ```
 Revisions and jobs, which freeze a variant, params and a source for export, live above the
 protocol, in the CLI ([cli.md](cli.md#versions-and-jobs)).
+
+### HDR10
+
+```json
+"hdr10": {
+  "graphicsWhite": 203,
+  "mastering": { "peak": 1000, "min": 0.0001, "primaries": "p3-d65" },
+  "dither": "tpdf"
+}
+```
+
+A film opts into HDR10 with this block; without it every render is SDR, as before. A job may then
+ask for `range: "hdr10"`, and the source reads it as `host.range`. The film's SDR version is a
+second render with `range: "sdr"`, where the film maps its own light down. Only a value a standard
+names has a default:
+
+- `graphicsWhite`, in cd/m²: where an SDR layer's white goes in an HDR frame. 203 when absent,
+  BT.2408's Graphics White.
+- `mastering`, required: the display the film was graded on (SMPTE ST 2086): `peak` and `min` in
+  cd/m², `primaries` `p3-d65`, `bt2020` or `bt709`. The standard describes a display but names
+  none, and only the person knows which one they graded on. A common one is P3-D65 at 1000 cd/m².
+- `dither`, required: `tpdf` or `none`, before the 10-bit quantisation. No standard names one.
+
+An `hdr10` render needs a `GPUDevice` in every host: the Node host without the project's `webgpu`
+composites with Skia, in SDR only, and refuses it.
+
+```
+shaderera.json: hdr10.mastering is required: the display the film was graded on, { peak, min, primaries } (SMPTE ST 2086 describes one but names none; P3-D65 at 1000 cd/m² is common)
+```
 
 ### Bakes
 

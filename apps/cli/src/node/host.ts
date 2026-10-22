@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createCanvas, GlobalFonts, ImageData } from '@napi-rs/canvas'
-import type { Host, Json, Layer, Manifest, Matrices, Source } from '@shaderera/core'
+import type { Host, Json, Layer, Manifest, Matrices, Range, Source } from '@shaderera/core'
 import { flattenFrame, frameAt } from '@shaderera/core'
 import {
   finalOnly,
@@ -15,11 +15,16 @@ import {
   type GpuLayer,
   type GpuOutput,
   gpuCompositor,
+  type HdrCompositor,
+  type HdrOutput,
+  hdrCompositor,
   type Locate,
   layerInfo,
+  lightChecked,
   openSource,
   over,
   type RgbaLayer,
+  rangeOf,
   type Seekable,
   type ShaderWatch,
   sampleClips,
@@ -72,12 +77,14 @@ export type Open = {
   seed: number
   /** The variant the source is opened as (`host.variant`); none for the manifest's own output. */
   variant?: string
+  /** The job's range: `sdr` when absent; `hdr10` needs the manifest's hdr10 and a GPU. */
+  range?: Range
   /** A sequential source's checkpoint spacing in rendering ms (the host's default otherwise). */
   checkpointMs?: number
 }
 export type Request =
   | Open
-  | { type: 'render'; t: number; intent: 'preview' | 'final'; format?: GpuOutput }
+  | { type: 'render'; t: number; intent: 'preview' | 'final'; format?: GpuOutput | HdrOutput }
   | { type: 'inspect' | 'camera'; t: number }
   | { type: 'pick'; t: number; x: number; y: number }
   | { type: 'override'; matrices: Matrices | null }
@@ -91,6 +98,7 @@ export type Fonts = {
 
 let source: Source | undefined
 let manifest: Manifest
+let range: Range = 'sdr'
 // Dawn's GPU object is garbage-collected under a live device unless something holds it.
 let gpu: unknown
 /** The adapter the device came from, for the capture record, and the software renderer it is. */
@@ -240,6 +248,8 @@ const gpuDevice = async (root: string): Promise<GPUDevice | undefined> => {
 
 /** The frame's compositor on the source's device; none without `webgpu` (decision 0007). */
 let compositor: GpuCompositor | undefined
+/** An hdr10 render's compositor in its place (decision 0023): nothing of it composites in SDR. */
+let hdr: HdrCompositor | undefined
 
 type Canvas = { getContext(kind: '2d'): CanvasRenderingContext2D }
 const isTexture = (color: unknown): color is GPUTexture =>
@@ -251,9 +261,10 @@ const isCanvas = (color: unknown): color is Canvas =>
 const toGpuLayer = (layer: Layer, width: number, height: number): GpuLayer => {
   const color = layer.color as unknown
   const depth = layer.depth ? { depth: { data: layer.depth.data, soft: layer.depth.soft } } : {}
-  const alpha = (layer as { alpha: RgbaLayer['alpha'] }).alpha
+  const { alpha, light } = layer as Pick<GpuLayer, 'alpha' | 'light'>
+  // Only a float texture carries light (lightChecked).
   if (color instanceof Uint8Array || color instanceof Uint8ClampedArray || isTexture(color))
-    return { color, alpha, ...depth }
+    return { color, alpha, ...depth, ...(light ? { light } : {}) }
   if (isCanvas(color))
     return {
       color: color.getContext('2d').getImageData(0, 0, width, height).data,
@@ -308,12 +319,18 @@ const handle = async (m: Request): Promise<unknown> => {
     // In Node a source may find its project files from the working directory.
     process.chdir(m.root)
     const device = await gpuDevice(m.root)
+    range = rangeOf(m.manifest, m.range, device)
     try {
       compositor?.destroy()
+      hdr?.destroy()
     } catch {
       // Its device was lost: nothing to free.
     }
-    compositor = device ? gpuCompositor(device, m.manifest.width, m.manifest.height) : undefined
+    const { width, height, hdr10 } = m.manifest
+    // rangeOf gave hdr10 only for a manifest with hdr10, on a device.
+    hdr =
+      range === 'hdr10' && device && hdr10 ? hdrCompositor(device, width, height, hdr10) : undefined
+    compositor = device && !hdr ? gpuCompositor(device, width, height) : undefined
     const read = (path: string) =>
       recorded(
         'read',
@@ -325,6 +342,7 @@ const handle = async (m: Request): Promise<unknown> => {
       params: m.params,
       seed: m.seed,
       ...(m.variant !== undefined ? { variant: m.variant } : {}),
+      range,
       gpu: device,
       io: {
         read,
@@ -361,16 +379,33 @@ const handle = async (m: Request): Promise<unknown> => {
     case 'render': {
       const { width, height } = manifest
       const frame = frameAt(m.t, manifest.fps)
-      const layers = finalOnly(
-        flattenFrame(
-          await counted(() => s.render(m.t, { width, height, intent: m.intent, frame })),
+      const layers = lightChecked(
+        finalOnly(
+          flattenFrame(
+            await counted(() => s.render(m.t, { width, height, intent: m.intent, frame })),
+          ),
+          m.intent,
+          m.t,
         ),
-        m.intent,
-        m.t,
+        range,
       )
+      if (hdr) {
+        if (m.format !== 'rgb10' && m.format !== 'p010')
+          throw new Error(
+            `An hdr10 render comes out as rgb10 or p010, not ${m.format ?? 'rgba'}: nothing of it is composited in SDR.`,
+          )
+        const { bytes, light } = await hdr.composite(
+          layers.map((l) => toGpuLayer(l, width, height)),
+          m.format,
+          frame,
+        )
+        return { pixels: bytes, layers: layers.map(layerInfo), light }
+      }
       // Straight RGBA by default, as the browser host returns it (docs/determinism.md,
       // Pixels); yuv420p for an mp4 and rgba64 for a master, made on the GPU.
       const format = m.format ?? 'rgba'
+      if (format === 'rgb10' || format === 'p010')
+        throw new Error(`${format} comes from an hdr10 render; this one is SDR.`)
       if (format !== 'rgba' && !compositor)
         throw new Error(`${format} is made on the GPU: this project has no \`webgpu\` (Dawn).`)
       const pixels = compositor
