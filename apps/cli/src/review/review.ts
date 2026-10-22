@@ -636,9 +636,10 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
       const v = timed.flatMap((c) => (c[k] === null ? [] : [c[k] as number]))
       return v.length ? `${round(Math.min(...v))} s` : 'none'
     }
-    const pairs = timed.reduce((n, c) => n + c.overlaps.filter((o) => o > c.index).length, 0)
+    const pairs = timed.reduce((n, c) => n + c.overlaps.filter((o) => o > (c.index ?? 0)).length, 0)
+    // The SRT's cue number, or for a caption no SRT carries, its place in captions() as render names it.
     const say = (c: CaptionStat) =>
-      `#${c.index} ${JSON.stringify(excerpt(c.text, 30))} at ${round(c.start)} s`
+      `${c.index === null ? `item ${c.item} of captions()` : `#${c.index}`} ${JSON.stringify(excerpt(c.text, 30))} at ${round(c.start)} s`
     const measuredCaptions = `${captions.length} captions: at most ${most('cps')} cps, ${most('lines')} lines, ${most('longestLine')} characters a line (grapheme clusters); shortest ${least('duration')}, smallest gap ${least('gap')}; ${pairs} overlapping pairs${refused.length ? `; ${refused.length} refused by every export` : ''}`
     const failing = [...refused, ...over]
     checks.push({

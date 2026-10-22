@@ -158,7 +158,12 @@ viewing is muted. For each caption:
 - duration, and the gap to the next caption (negative when they overlap);
 - line count and the longest line, in grapheme clusters, so a Thai syllable with its vowel and
   tone marks counts once;
-- the other captions it overlaps, by number: review numbers captions from 1, as the SRT does.
+- the other captions it overlaps, by number.
+
+Review, render and the SRT number captions the same way. A caption's number is its cue number in
+the full-length SRT: the captions with text, in order of start (ties in `captions()` order), from
+1. A blank caption, which no sidecar carries and review does not judge, and a caption every export
+refuses are named by their place in `captions()` instead, from 1: `item 4 of captions()`.
 
 Nothing is judged unless requirements.json declares limits (decision 0011):
 

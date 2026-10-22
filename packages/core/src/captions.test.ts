@@ -15,7 +15,10 @@ test('captions are cut to the window, shifted to start at 0 and sorted; empty on
     { start: 3, end: 5.5, text: 'Second <b> & --> end' },
     { start: 8, end: 9, text: 'Past the cut' },
   ])
-  assert.throws(() => windowCaptions([{ start: 2, end: 1, text: 'x' }], 0, 5), /Caption 0/)
+  assert.throws(
+    () => windowCaptions([{ start: 2, end: 1, text: 'x' }], 0, 5),
+    /^Error: Item 1 of captions\(\) needs/,
+  )
 })
 
 test('SRT and WebVTT carry the times to the millisecond and keep cues whole', () => {
