@@ -462,9 +462,9 @@ const exportOnce = async (
 }
 
 /**
- * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg fails, the yes
- * is dropped and the film is rendered again once, with the next encoder found (x264 at the last),
- * saying so on stderr. Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never
+ * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg refuses
+ * (encoderRefused), the yes is dropped and the film is rendered again once, with the next encoder
+ * found (x264 at the last), saying so on stderr. Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never
  * kept.
  */
 const exportFallingBack: typeof exportOnce = async (project, child, o) => {
@@ -480,12 +480,20 @@ const exportFallingBack: typeof exportOnce = async (project, child, o) => {
   try {
     return await exportOnce(project, child, o)
   } catch (error) {
-    if (!picked || !/^ffmpeg exited/.test((error as Error).message)) throw error
+    if (!picked || !encoderRefused(error)) throw error
     if (!forgetEncoder(picked, width, height)) throw error
     console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
     return exportOnce(project, child, o)
   }
 }
+
+/**
+ * An encoder ffmpeg that exited with a code other than 0: the encoder itself may have refused (a
+ * GPU or driver gone). Not a stall, a signal or an exit with 0 while frames still came (ffmpeg's
+ * input ended early): those go to `--retries` only (transientEncoder).
+ */
+export const encoderRefused = (error: unknown): boolean =>
+  error instanceof FfmpegError && error.reason === 'exit' && error.code !== null && error.code !== 0
 
 /**
  * An encoder failure a second try may not repeat: ffmpeg stalled, or exited with 0 while frames
