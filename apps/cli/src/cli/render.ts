@@ -13,6 +13,7 @@ import {
   renderChunk,
 } from '../deliver/chunks.ts'
 import { removePartials } from '../deliver/claim.ts'
+import { preflightChunk, preflightPng } from '../deliver/disk.ts'
 import { exportFinishing } from '../deliver/finishing.ts'
 import { renderReusing } from '../deliver/reuse.ts'
 import { refuseSoftware } from '../node/adapter.ts'
@@ -543,7 +544,8 @@ const prerollLight = async (
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
  * [--progress] [--trusted] [--workers n] [--encoder x264|nvenc|x265] [--no-audio] [--loudness LUFS]
- * [--hdr10] [--retries n]`. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023), or a ProRes mov with --format,
+ * [--hdr10] [--force] [--retries n]`. --force: a chunk or png job that the disk-space preflight
+ * (deliver/disk.ts) refuses goes ahead. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023), or a ProRes mov with --format,
  * of a film whose shaderera.json has `hdr10`, rendered on the GPU through one lossless chunk; a job
  * asks for it when it is made
  * (`shaderera job --hdr10`). --retries: a frame a host failed transiently (crashed, timed out, lost its
@@ -584,6 +586,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       fix: { type: 'boolean' },
       loudness: { type: 'string' },
       'software-gpu': { type: 'boolean' },
+      force: { type: 'boolean' },
       hdr10: { type: 'boolean' },
       retries: { type: 'string' },
       ...DELIVERY_FLAGS,
@@ -727,6 +730,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       const plan = readPlan(dir)
       if (plan.jobId !== job.id)
         throw new Error(`${dir} is a plan of another job (${plan.job}, ${plan.jobId.slice(0, 8)}).`)
+      const force = v.force === true
+      await preflightChunk(child, plan, Number(v.chunk), dir, {
+        sequential: project.manifest.sequential,
+        force,
+      })
       process.once('SIGINT', interrupt)
       process.once('SIGTERM', interrupt)
       const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame, stop.signal).finally(
@@ -738,8 +746,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       return 0
     }
     if (job?.delivery.format === 'png') {
+      const dir = typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', job.name)
+      const force = v.force === true
+      await preflightPng(child, job, dir, { sequential: project.manifest.sequential, force })
       const done = await exportFinishing(project, child, job, {
-        dir: typeof v.out === 'string' ? resolve(v.out) : join(root, 'out', job.name),
+        dir,
         requirements: outputRequirements(readRequirements(root), {
           variant: job.variant,
           ...job.output,
