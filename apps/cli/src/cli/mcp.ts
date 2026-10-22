@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -9,8 +9,8 @@ import { shadereraVersion } from '../deliver/environment.ts'
 import { encodePng } from '../deliver/png.ts'
 import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
-import { findProject, type Project } from '../node/project.ts'
-import { createNodeSession } from '../node/session.ts'
+import { findProject } from '../node/project.ts'
+import { createNodeSession, type NodeSession } from '../node/session.ts'
 import { createJob, listJobs, openJob, readJob, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { head, log, save } from '../project/revisions.ts'
@@ -164,15 +164,38 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
 ]
 
 /**
- * An MCP server whose tools are the CLI's operations on one child, reopened (with the project read
- * again) when files change. Tool calls run one at a time, whole, so one call's camera override
- * never reaches another call's render.
+ * The project of a call: its `root` (resolved against `dir`), or else `dir` itself, and every
+ * folder above it. With none, the error says how to start one.
  */
-export const createServer = (
-  project: Project,
-  flags: { trusted?: boolean; timeout?: string } = {},
-) => {
-  const session = createNodeSession(project.root, flags)
+const projectOf = async (dir: string, root: unknown) => {
+  const from = typeof root === 'string' ? resolve(dir, root) : dir
+  try {
+    return await findProject(from)
+  } catch (e) {
+    if (!/^No shaderera\.json/.test((e as Error).message)) throw e
+    throw new Error(
+      `No Shaderera project (shaderera.json) in ${from} or above it. Pass root: the project's folder, or start a project: npx create-shaderera@latest my-film, then npm install in it.`,
+    )
+  }
+}
+
+/**
+ * An MCP server whose tools are the CLI's operations on a project's child, reopened (with the
+ * project read again) when files change. It starts anywhere: each call finds its project from its
+ * `root`, or from `dir` (the server's folder) and above, so one server serves several projects,
+ * one session each. Tool calls run one at a time, whole, so one call's camera override never
+ * reaches another call's render.
+ */
+export const createServer = (dir: string, flags: { trusted?: boolean; timeout?: string } = {}) => {
+  const sessions = new Map<string, NodeSession>()
+  const sessionOf = (root: string) => {
+    let session = sessions.get(root)
+    if (!session) {
+      session = createNodeSession(root, flags)
+      sessions.set(root, session)
+    }
+    return session
+  }
   let queue: Promise<unknown> = Promise.resolve()
   const serial = <T>(run: () => Promise<T>): Promise<T> => {
     const result = queue.then(run, run)
@@ -186,8 +209,12 @@ export const createServer = (
   }
   // The low-level Server does not check arguments against a tool's input schema: they come as
   // the client sent them, and each tool reads what it needs.
-  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
-  const call = async (name: string, a: { [k: string]: any }): Promise<unknown> => {
+  const call = async (
+    session: NodeSession,
+    name: string,
+    // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+    a: { [k: string]: any },
+  ): Promise<unknown> => {
     const opened = await session.open()
     const { root, manifest } = opened.project
     const c = opened.child
@@ -332,31 +359,40 @@ export const createServer = (
     tools: tools.map(([name, description, properties, required]) => ({
       name,
       description,
-      inputSchema: { type: 'object' as const, properties, required },
+      inputSchema: { type: 'object' as const, properties: { ...properties, root: str }, required },
     })),
   }))
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+    const a = params.arguments ?? {}
+    let session: NodeSession | undefined
     try {
-      const r = await serial(() => call(params.name, params.arguments ?? {}))
+      const r = await serial(async () => {
+        session = sessionOf((await projectOf(dir, a.root)).root)
+        return call(session, params.name, a)
+      })
       const content =
         params.name === 'render_frame' || params.name === 'review'
           ? r
           : [{ type: 'text', text: JSON.stringify(r) }]
       return { content }
     } catch (e) {
-      if (/exited|took longer/.test(String(e))) session.drop()
+      if (/exited|took longer/.test(String(e))) session?.drop()
       return { content: [{ type: 'text', text: (e as Error).message }], isError: true }
     }
   })
-  server.onclose = () => session.close()
+  server.onclose = () => {
+    for (const session of sessions.values()) session.close()
+  }
   return server
 }
 
-/** `shaderera mcp [--root dir] [--trusted]`: serves the tools over stdio until stdin closes. */
+/**
+ * `shaderera mcp [--root dir] [--trusted]`: serves the tools over stdio until stdin closes. It
+ * starts in any folder; a call finds its project (its `root`, or `--root` or the cwd and above).
+ */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const v = parse(argv, {})
-  const project = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
-  const server = createServer(project, {
+  const server = createServer(resolve(typeof v.root === 'string' ? v.root : process.cwd()), {
     trusted: v.trusted === true,
     timeout: typeof v.timeout === 'string' ? v.timeout : undefined,
   })

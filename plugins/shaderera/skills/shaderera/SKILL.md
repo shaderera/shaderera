@@ -27,16 +27,16 @@ delivers it.
 
 ## 2. Give yourself eyes
 
-Look at frames, not only numbers. The MCP server renders frames, returns them as images,
-inspects state and traces a pixel back to the line that drew it. From the project directory in
-Claude Code:
+Look at frames, not only numbers. The `shaderera` MCP server renders frames, returns them as
+images, inspects state and traces a pixel back to the line that drew it. The Claude Code plugin
+declares it, and a new project's `.mcp.json` names it. If its tools are missing, add a stdio MCP
+server whose command is `npx -y shaderera mcp` (Claude Code:
+`claude mcp add shaderera -- npx -y shaderera mcp`).
 
-```bash
-claude mcp add shaderera -- npx shaderera mcp
-```
-
-In another agent, add a stdio MCP server whose command is `npx shaderera mcp`, run in the
-project directory. Without MCP, the CLI shows the same things (step 3).
+The server starts in any folder and finds the project on each call, from the folder it runs in
+and above. When the project is somewhere else (one you just made, say), pass its folder as
+`root` on every call. A call with no project says so. Without MCP, the CLI shows the same things
+(step 3).
 
 ## 3. The loop
 
