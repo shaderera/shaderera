@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { Manifest } from '@shaderera/core'
 import { boxFrame, memoryChild } from '../node/fixtures/memory-child.ts'
-import { checkChild } from './check.ts'
+import { checkChild, diffP010 } from './check.ts'
 
 const manifest = { fps: 10, duration: 1, width: 64, height: 36 } as Manifest
 const size = { width: 64, height: 36 }
@@ -57,4 +57,16 @@ test('check passes a film that is a function of t, inspect included, and fails o
   const bad = await checkChild(stateful, manifest, { times: 5 })
   assert.ok(bad.failures.length > 0)
   assert.equal(bad.what, 'pixels')
+})
+
+test('diffP010 compares P010 bytes that start at an odd offset', () => {
+  // A Node Buffer can hand back bytes at any offset of its pool: view those, copy these.
+  const words = new Uint16Array([0, 512 << 6, 1023 << 6, 64 << 6])
+  const odd = new Uint8Array(words.byteLength + 1)
+  odd.set(new Uint8Array(words.buffer), 1)
+  const a = odd.subarray(1)
+  assert.equal(a.byteOffset % 2, 1)
+  assert.deepEqual(diffP010(a, new Uint8Array(words.buffer)), { mean: 0, max: 0 })
+  const b = new Uint16Array([1 << 6, 512 << 6, 1023 << 6, 60 << 6])
+  assert.deepEqual(diffP010(a, new Uint8Array(b.buffer)), { mean: 5 / 4, max: 4 })
 })

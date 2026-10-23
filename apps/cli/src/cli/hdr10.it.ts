@@ -393,3 +393,18 @@ test('an hdr10 job renders in chunks, each with its light, and assemble writes t
   assert.match(re.stdout, /no frames rendered or encoded/)
   assertHdr10(again, most)
 })
+
+test('check --hdr10 on the Node host compares a small film’s P010, which IPC hands over at an odd offset', {
+  skip: problem,
+}, () => {
+  const root = film()
+  // 64×36 frames put the P010 bytes at an odd offset of the message from the source process.
+  const json = join(root, 'shaderera.json')
+  writeFileSync(
+    json,
+    JSON.stringify({ ...JSON.parse(readFileSync(json, 'utf8')), width: 64, height: 36 }),
+  )
+  const check = cli(root, 'check', '--hdr10', '--times', '3')
+  assert.equal(check.status, 0, check.stderr)
+  assert.match(check.stdout, /preview vs final: mean 0\.000, max 0 10-bit codes/)
+})
