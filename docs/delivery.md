@@ -548,7 +548,9 @@ it as it is.
   non-constant luminance, chroma sited top-left (BT.2100). The mastering display and MaxCLL /
   MaxFALL are in the stream's SEI and in the mp4's `mdcv` / `clli` boxes. x265 makes a master (and
   anything without NVIDIA); NVIDIA's HEVC makes a review where it works (`--encoder x265|nvenc`).
-  It is encoded by quality: `--bitrate` and `--maxrate` are for H.264.
+  Apple's (`--encoder videotoolbox`) makes a review only: it writes no HDR10 SEI, so its file has
+  the tags and the boxes but not the stream's metadata, and the render says so. It is encoded by
+  quality: `--bitrate` and `--maxrate` are for H.264.
 - **ProRes** (`--format prores-hq` or `prores-4444`): made by ffmpeg from the 10-bit PQ R'G'B'
   codes with the BT.2020 matrix, tagged the same, the metadata in the mov's `mdcv` / `clli` boxes
   (ProRes has no SEI). An HDR10 ProRes 4444 has no alpha plane: the frame is matted. This
@@ -573,7 +575,8 @@ it as it is.
   frames, measured with the programme.
 - After the encode the file is probed: the codec, profile and pixel format, the four colour tags,
   the codec tag, the boxes and, for HEVC, the chroma site and the first frame's SEI must equal the
-  declared display and the measured levels. A file that differs is an error.
+  declared display and the measured levels (a VideoToolbox review is checked without the SEI). A
+  file that differs is an error.
 - Stills and review stay SDR: they show the film's SDR render. For a film with `hdr10`, `review`
   (and `deliver`, for an HDR10 output) also opens the HDR10 render and reports, per principal
   frame, MaxCLL, MaxFALL and the share of pixels above Graphics White, as numbers (the `hdr10`
