@@ -33,7 +33,8 @@ These ship in the `shaderera` package, so an installed project reads them in
   [three.js](participants/three.md) · [Glyph](participants/glyph.md) ·
   [WebGPU](participants/webgpu.md) · [DOM](participants/dom.md)
 - [guides/](guides/): task checklists every project gets (typography, formats and delivery,
-  revisions, review, sound, identity, photo, 3D product, footage from outside).
+  revisions, review, sound, identity, photo, 3D product, footage from outside, fast-compiling
+  shaders).
 
 ## This repository
 

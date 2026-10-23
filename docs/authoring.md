@@ -145,6 +145,9 @@ command that prints nothing looks frozen.
 - **Per-pixel work on the GPU.** A pass over every pixel in JavaScript (`getImageData`, a loop,
   `putImageData`) costs about 15 ms a 1080p frame; the same levels or grade in a WGSL pass over
   `host.gpu`, or a `look-*` plugin, costs well under one.
+- **Call a heavy WGSL function from one site.** The browser inlines every call, so a large
+  function called from several places compiles once per place and a pipeline can take seconds
+  before the first frame (`guides/shader-compile.md`).
 - **Measure before guessing.** `NODE_OPTIONS=--cpu-prof npx shaderera render --trusted --from 10
   --to 14` writes one `.cpuprofile` for the CLI and one for each host (without `--trusted` a host
   cannot write it): open them in Chrome DevTools, Performance, and see whether the time is in
