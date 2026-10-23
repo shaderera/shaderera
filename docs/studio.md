@@ -164,8 +164,19 @@ headers (EventSource, a frame), it passes `?s=<secret>` instead. A wrong or miss
 `403`.
 
 **Loopback.** The page never declares `targetAddressSpace: "local"`: a fetch declared `local`
-fails for 127.0.0.1. It declares nothing, or `"loopback"`. Chrome asks the person once for local
-network access.
+fails for 127.0.0.1. It declares nothing, or `"loopback"`.
+
+**The browser's permission.** Chrome asks before the page's first request to the bridge ("Access
+other apps and services on this device", "Apps on device" in its site settings). The page reads
+the permission first, and asks for a click (Connect) before that request when Chrome would ask.
+- **Allowed, it is kept** for the site the page is on (its top-level origin) in that browser
+  profile. It covers every port, studio and runner frame there, and Chrome does not ask again.
+  Another origin asks again: `www.shaderera.com` is not `shaderera.com`, and neither is a
+  `--site` or `--origin` value. So does each incognito or Guest session.
+- **Closing the question counts as denied.** Chrome does not ask again, and the page uses the
+  relay, where the preview does not play.
+- **To allow it again:** open the site settings from the icon left of the address, and set "Apps
+  on device" to Allow. The page moves from the relay to the bridge without a reload.
 
 **Errors** are JSON: `{error}` with `400` for a bad request, `404` for no such route or job, and
 `500` otherwise.
