@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, parse, sep } from 'node:path'
 import { after, test } from 'node:test'
 import { create, projectDir } from './create.ts'
 
@@ -117,6 +117,76 @@ test('a new project holds no copy of the skills: the plugin or `npx skills add` 
   assert.ok(existsSync(join(cwd, 'film', '.mcp.json')))
   assert.ok(!existsSync(join(cwd, 'film', '.claude')))
   assert.match(readFileSync(join(cwd, 'film', 'AGENTS.md'), 'utf8'), /npx skills add/)
+})
+
+/**
+ * A new empty folder directly under the temp folder's drive root (`C:\shaderera-create-…`), where
+ * people make projects on Windows and where Node's `fs.cpSync` crashed into it (#349). Undefined
+ * when the root is not writable (a Linux `/`).
+ */
+const rootFolder = (name = 'shaderera-create-') => {
+  const root = parse(tmpdir()).root
+  try {
+    const dir = mkdtempSync(join(root, name))
+    after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }))
+    return dir
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Runs the bin as npm's Windows shim does: `node "%dp0%\..\create-shaderera\bin\…js"`, a path
+ * that still holds its `..`.
+ */
+const run = (cwd: string, ...args: string[]) =>
+  spawnSync(
+    process.execPath,
+    [[import.meta.dirname, '..', 'bin', 'create-shaderera.js'].join(sep), ...args],
+    { cwd, encoding: 'utf8' },
+  )
+
+test('`.` in an empty folder makes the project there, named after the folder', (t) => {
+  const cwd = rootFolder('Shaderera Create ')
+  if (!cwd) return t.skip('the drive root is not writable')
+  const { status, stdout, stderr } = run(cwd, '.')
+  assert.equal(status, 0, stderr)
+  assert.match(stdout, /^Created shaderera-create-/)
+  assert.ok(existsSync(join(cwd, 'src', 'composition.ts')))
+  assert.ok(existsSync(join(cwd, 'AGENTS.md')))
+  const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'))
+  assert.match(pkg.name, /^shaderera-create-[a-z0-9]+$/)
+})
+
+test('the absolute path of an empty folder makes the project there', (t) => {
+  const cwd = rootFolder()
+  if (!cwd) return t.skip('the drive root is not writable')
+  const { status, stdout, stderr } = run(cwd, cwd)
+  assert.equal(status, 0, stderr)
+  assert.match(stdout, /^Created /)
+  assert.ok(existsSync(join(cwd, 'src', 'composition.ts')))
+})
+
+test('a folder that is not empty is refused with its path and exit 1, and nothing is written', () => {
+  const cwd = temp()
+  writeFileSync(join(cwd, 'notes.txt'), 'mine\n')
+  const { status, stdout, stderr } = run(cwd, '.')
+  assert.equal(status, 1)
+  assert.equal(stdout, '')
+  assert.match(stderr, /is not empty/)
+  assert.ok(stderr.includes(cwd), stderr)
+  assert.deepEqual(readdirSync(cwd), ['notes.txt'])
+})
+
+test('a new folder named on the command line gets the project and a cd in the next steps', () => {
+  const cwd = temp()
+  const { status, stdout, stderr } = run(cwd, 'My Film')
+  assert.equal(status, 0, stderr)
+  assert.match(stdout, /^Created My Film\. Next:\n\n {2}cd My Film\n/)
+  assert.equal(
+    JSON.parse(readFileSync(join(cwd, 'My Film', 'package.json'), 'utf8')).name,
+    'my-film',
+  )
 })
 
 test('an unknown flag prints one line pointing to --help and exits 2', () => {
