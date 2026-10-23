@@ -14,8 +14,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import type { Json, Range, SampledClip } from '@shaderera/core'
+import type { Json, Range } from '@shaderera/core'
 import type { TextRun } from '../review/measure.ts'
+import { unpackClips } from '../runner/audio.ts'
 import { type AdapterInfo, adapterLine, softwareAdapter } from './adapter.ts'
 import { alive } from './build.ts'
 import { type Child, type Rendered, TIMEOUT } from './child.ts'
@@ -441,26 +442,17 @@ export const openBrowserChild = async (
         // null without audio(), as in the Node host; the runner's own API gives [] (the web
         // player's callers expect a list).
         if (!capabilities.audio) return null
-        // Sound made in code came as base64 float32 (worker.ts toBase64Pcm).
-        const clips = await call<SampledClip[] | null>('audio')
-        return (
-          clips?.map((c) =>
-            c.pcm
-              ? {
-                  ...c,
-                  pcm: {
-                    sampleRate: c.pcm.sampleRate,
-                    channels: (c.pcm.channels as unknown as string[]).map((b64) => {
-                      const bytes = Buffer.from(b64, 'base64')
-                      return new Float32Array(
-                        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length),
-                      )
-                    }),
-                  },
-                }
-              : c,
-          ) ?? null
-        )
+        // The worker POSTs the clips to the runner server as one body, samples as bytes
+        // (runner/audio.ts): sound made in code for a long film is hundreds of MB, and a DevTools
+        // message over 4 MiB closes the connection to Chrome (#353).
+        const key = randomUUID()
+        const arrived = new Promise<Buffer>((done) => frameUploads.set(key, done))
+        try {
+          await call('sendAudio', `${FRAME_PATH}${key}`)
+        } finally {
+          frameUploads.delete(key)
+        }
+        return unpackClips(await arrived)
       },
       captions: () => call('captions'),
       clock: () => call('clock'),

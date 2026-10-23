@@ -4,7 +4,7 @@ import type { AudioClip, Caption, Open } from '@shaderera/core'
  * The contract suite's film (node/contract.it.ts): one layer of bytes whose left half changes
  * with t, opaque, and whose right half is straight (200, 120, 40) at alpha 128; inspect, sound
  * from a file and made in code, and captions; inspect reports the seed. With `silent`, it has no audio() and no
- * captions(). The render at 0.7 s throws.
+ * captions(); with `deaf`, its audio() throws. The render at 0.7 s throws.
  */
 export const paint = (t: number, width: number, height: number) => {
   const bytes = new Uint8Array(width * height * 4)
@@ -20,9 +20,11 @@ export const paint = (t: number, width: number, height: number) => {
 export const clips: AudioClip[] = [
   { src: 'audio/bed.wav', at: 0, gain: 0.5 },
   {
+    // Longer than the film, and than one DevTools message (4 MiB) as base64: the browser host
+    // must not bring it home through the DevTools connection (#353).
     pcm: {
       sampleRate: 8000,
-      channels: [Float32Array.from({ length: 800 }, (_, i) => Math.sin(i / 4) / 2)],
+      channels: [Float32Array.from({ length: 1_200_000 }, (_, i) => Math.sin(i / 4) / 2)],
     },
     at: 0.25,
   },
@@ -34,6 +36,7 @@ export const captions: Caption[] = [
 ]
 
 export const FAILS_AT = 0.7
+export const DEAF = 'The music bed ran out of memory.'
 
 const open: Open = ({ manifest, params, seed }) => {
   const { width, height } = manifest
@@ -44,6 +47,13 @@ const open: Open = ({ manifest, params, seed }) => {
     },
     inspect: async (t) => ({ card: { red: Math.round(20 + 200 * t), t }, seed }),
     ...(params.silent ? {} : { audio: async () => clips, captions: async () => captions }),
+    ...(params.deaf
+      ? {
+          audio: async () => {
+            throw new Error(DEAF)
+          },
+        }
+      : {}),
   }
 }
 export default open

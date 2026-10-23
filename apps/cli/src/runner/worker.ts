@@ -40,6 +40,7 @@ import {
   yuvFits,
 } from '@shaderera/core/host'
 import * as Comlink from 'comlink'
+import { type PcmForm, packClips, toPage } from './audio.ts'
 import { type Ask, extraIo } from './io.ts'
 
 export type Capabilities = {
@@ -571,13 +572,22 @@ const api = {
     enqueue(false, async () => {
       exporting = on
     }),
-  audio: () =>
-    // A function gain cannot cross to the page: it goes as samples (sampleClips).
-    enqueue(
-      false,
-      async (): Promise<readonly SampledClip[]> =>
-        sampleClips((await opened().audio?.()) ?? [], manifest.duration).map(toBase64Pcm),
-    ),
+  /**
+   * The source's clips, a function gain sampled (sampleClips). With 'buffers', sound made in code
+   * comes as transferred Float32Arrays; without, as base64 float32, for pages that predate it
+   * (audio.ts). A throw in the source's audio() fails the call, naming it.
+   */
+  audio: (pcm?: PcmForm) =>
+    enqueue(false, async (): Promise<readonly SampledClip[]> => toPage(await clips(), pcm)),
+  /**
+   * The clips POSTed to the runner server at `to` as one body (audio.ts packClips): the browser
+   * host's way home, as `send` is for frames.
+   */
+  sendAudio: (to: string) =>
+    enqueue(false, async () => {
+      const r = await fetch(to, { method: 'POST', body: packClips(await clips()) })
+      if (!r.ok) throw new Error(`The runner server refused the sound (${r.status}).`)
+    }),
   /** How often render read the wall clock since the worker started (counted, never blocked). */
   clock: async () => ({ date: clock.date, performance: clock.performance }),
   /** The source's captions, as it returns them; null without captions(). */
@@ -637,6 +647,19 @@ const api = {
         }),
       ),
     ),
+}
+
+/** The source's audio() as hosts pass it on, a function gain sampled; a throw names audio(). */
+const clips = async (): Promise<SampledClip[]> => {
+  let made: Awaited<ReturnType<NonNullable<Source['audio']>>>
+  try {
+    made = (await opened().audio?.()) ?? []
+  } catch (error) {
+    throw new Error(`audio() failed: ${error instanceof Error ? error.message : String(error)}`, {
+      cause: error,
+    })
+  }
+  return sampleClips(made, manifest.duration)
 }
 
 /**
@@ -735,16 +758,3 @@ self.addEventListener('message', (event: MessageEvent) => {
     }
   }
 })
-
-/** A clip's samples as base64 float32, so they reach the browser host in one string each. */
-function toBase64Pcm(c: SampledClip): SampledClip {
-  if (!c.pcm) return c
-  const channels = c.pcm.channels.map((ch) => {
-    const bytes = new Uint8Array(ch.buffer, ch.byteOffset, ch.byteLength)
-    let s = ''
-    for (let i = 0; i < bytes.length; i += 0x8000)
-      s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-    return btoa(s)
-  })
-  return { ...c, pcm: { sampleRate: c.pcm.sampleRate, channels: channels as never } }
-}
