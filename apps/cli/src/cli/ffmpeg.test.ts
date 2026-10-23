@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import type { Probe } from './ffmpeg.ts'
 import {
   bitsPerSecond,
   contentLightArg,
@@ -19,7 +20,6 @@ import {
   requireFrames,
   requireHdr10,
 } from './ffmpeg.ts'
-import type { Probe } from './ffmpeg.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
@@ -269,7 +269,9 @@ test('hdr10Args: HEVC Main 10 as hvc1, tagged HDR10, the metadata on the input',
 })
 
 /** What `hevc_videotoolbox` writes, as probed: the tags, chroma site and boxes, and no SEI. */
-const vtReview = (color = { matrix: 'bt2020nc', primaries: 'bt2020', transfer: 'smpte2084', range: 'tv' }): Probe => ({
+const vtReview = (
+  color = { matrix: 'bt2020nc', primaries: 'bt2020', transfer: 'smpte2084', range: 'tv' },
+): Probe => ({
   container: 'mov,mp4,m4a,3gp,3g2,mj2',
   bytes: 1,
   duration: 1,
@@ -323,10 +325,7 @@ test('requireHdr10: a VideoToolbox review is held to its tags and boxes, not the
   )
   const noBoxes = vtReview()
   delete noBoxes.video?.hdr10?.light
-  assert.throws(
-    () => requireHdr10('o.mp4', noBoxes, P3_1000, hdr.levels, 'hevc', vt),
-    /clli none/,
-  )
+  assert.throws(() => requireHdr10('o.mp4', noBoxes, P3_1000, hdr.levels, 'hevc', vt), /clli none/)
 })
 
 test('hdr10Args: ProRes from the 10-bit PQ R’G’B’ codes with the BT.2020 matrix; inputs checked', () => {
