@@ -46,22 +46,27 @@ const fit = (
  * own host from the main variant and sized with ffmpeg into `dir`: the frame at the film's middle
  * as a webp at most 1280 px wide and 500 KB, and the first min(4 s, duration) through render's
  * export as a silent H.264 mp4 480 px wide and at most 4 MB, on the host `hostFlags` name (`--host`,
- * `--trusted`, `--timeout`, as a render's). Either that fails is left out with a warning; nothing
- * here stops a share.
+ * `--trusted`, `--timeout`, as a render's). A render that fails (the film throws, or its host does
+ * not open or errors) stops here and is `failed`, which a share refuses. No ffmpeg, or a poster or
+ * loop ffmpeg cannot fit, is left out with a warning.
  */
 export const renderMedia = async (
   root: string,
   dir: string,
   hostFlags: { host?: unknown; trusted?: unknown; timeout?: unknown } = {},
-): Promise<{ poster?: string; loop?: string; warnings: string[] }> => {
+): Promise<{ poster?: string; loop?: string; warnings: string[]; failed?: string }> => {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   let opened: Awaited<ReturnType<typeof open>>
   try {
     requireFfmpeg()
-    opened = await open({ ...hostFlags, root })
   } catch (e) {
     return { warnings: [`no poster or loop: ${message(e)}`] }
+  }
+  try {
+    opened = await open({ ...hostFlags, root })
+  } catch (e) {
+    return { warnings: [], failed: message(e) }
   }
   const { project, child } = opened
   const { width, height, duration } = project.manifest
@@ -69,9 +74,14 @@ export const renderMedia = async (
   const warnings: string[] = []
   const temp = mkdtempSync(join(tmpdir(), 'shaderera-media-'))
   try {
+    let pixels: Uint8Array
+    try {
+      ;({ pixels } = await child.render(duration / 2, 'final'))
+    } catch (e) {
+      return { warnings, failed: `the poster: ${message(e)}` }
+    }
     try {
       // Its RGBA straight to ffmpeg, which scales it: no PNG between.
-      const { pixels } = await child.render(duration / 2, 'final')
       const raw = [
         ...['-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${width}x${height}`, '-i', '-'],
         ...['-vf', `scale=${Math.min(POSTER.width, width)}:-1`],
@@ -86,10 +96,10 @@ export const renderMedia = async (
     } catch (e) {
       warnings.push(`no poster: ${message(e)}`)
     }
+    // The film from its first frame: a declared preroll's black is no part of a loop.
+    const { preroll: _, ...manifest } = project.manifest
+    const full = join(temp, 'loop.mp4')
     try {
-      // The film from its first frame: a declared preroll's black is no part of a loop.
-      const { preroll: _, ...manifest } = project.manifest
-      const full = join(temp, 'loop.mp4')
       await exportVideo({ ...project, manifest }, child, {
         from: 0,
         to: Math.min(LOOP.seconds, duration),
@@ -97,6 +107,10 @@ export const renderMedia = async (
         audio: false,
         revision: treeId(scanProject(root)),
       })
+    } catch (e) {
+      return { ...made, warnings, failed: `the loop: ${message(e)}` }
+    }
+    try {
       const scale = ['-i', full, '-an', '-vf', `scale=${LOOP.width}:-2`, '-c:v', 'libx264']
       made.loop = fit(
         join(dir, 'loop.mp4'),

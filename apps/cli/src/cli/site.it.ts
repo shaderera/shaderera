@@ -403,8 +403,8 @@ test('share passes --host to the poster and loop render', {
   const home = temp('home')
   const root = project()
   const r = await cli(home, root, 'share', '--api', s.site, '--dry-run', '--host', 'nonsense')
-  assert.equal(r.status, 0, r.stdout + r.stderr)
-  assert.match(r.stderr, /! no poster or loop: --host is node or browser, not nonsense\./)
+  assert.equal(r.status, 2, r.stdout + r.stderr)
+  assert.match(r.stderr, /The film did not render: --host is node or browser, not nonsense\./)
 })
 
 test('fork copies a version into a new folder as a project, and its share is a new film forked from it', async () => {
@@ -569,13 +569,13 @@ test('share renders a poster and a loop, uploads them, sends their shas, and pri
   assert.doesNotMatch(again.stdout, /runner/)
 })
 
-test('a poster or loop that does not render is left out with a warning, and the film is shared', {
+test('a film whose render throws is refused before anything is sent; --dry-run fails too; --no-media still shares', {
   skip: !ffmpeg && 'needs ffmpeg',
 }, async () => {
   const s = await fakeSite()
   const home = temp('home')
   const root = project()
-  // The loop starts at 0; the poster is at 0.5 s.
+  // The loop starts at 0; the poster is at 0.5 s, which renders.
   const source = join(root, 'src', 'composition.ts')
   writeFileSync(
     source,
@@ -585,16 +585,62 @@ test('a poster or loop that does not render is left out with a warning, and the 
     ),
   )
   await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const before = s.requests.length
   const r = await cli(home, root, 'share', '--api', s.site, '--yes')
-  assert.equal(r.status, 0, r.stdout + r.stderr)
-  assert.match(r.stderr, /! no loop: .*the render broke at 0/)
-  assert.doesNotMatch(r.stderr, /no poster/)
-  assert.match(r.stdout, /\n {2}with a poster of \d+ B\n/)
-  assert.ok(r.stdout.endsWith(`\n  ${s.site}/film/film1\n`), r.stdout)
+  assert.equal(r.status, 2, r.stdout + r.stderr)
+  assert.match(
+    r.stderr,
+    /The film did not render: the loop: .*the render broke at 0.* Nothing was sent\./,
+  )
+  assert.doesNotMatch(r.stderr, /no poster|no loop/)
+  assert.deepEqual(
+    s.requests.slice(before).map((q) => q.path),
+    ['/films/health'],
+    'nothing was sent (the parents were read)',
+  )
+  assert.equal(s.films.size, 0)
+  assert.equal(s.objects.size, 0)
+
+  const dry = await cli(home, root, 'share', '--api', s.site, '--dry-run')
+  assert.equal(dry.status, 2, dry.stdout + dry.stderr)
+  assert.match(dry.stderr, /The film did not render: the loop: .*the render broke at 0/)
+  assert.doesNotMatch(dry.stdout, /Nothing was sent \(--dry-run\)\.$/m)
+
+  // --no-media skips the poster and loop on purpose: no render, so the film goes through.
+  const skipped = await cli(home, root, 'share', '--api', s.site, '--yes', '--no-media')
+  assert.equal(skipped.status, 0, skipped.stdout + skipped.stderr)
+  assert.ok(skipped.stdout.endsWith(`\n  ${s.site}/film/film1\n`), skipped.stdout)
   const version = s.films.get('film1')?.versions[0]
-  assert.equal(version?.poster, hashFile(join(mediaDir(root), 'poster.webp')))
-  assert.equal(version?.loop, undefined)
-  assert.ok(!existsSync(join(mediaDir(root), 'loop.mp4')))
+  assert.ok(version && !('poster' in version) && !('loop' in version), 'no poster or loop sent')
+})
+
+test('a film that throws as it opens is refused before anything is sent', {
+  skip: !ffmpeg && 'needs ffmpeg',
+}, async () => {
+  const s = await fakeSite()
+  const home = temp('home')
+  const root = project()
+  const source = join(root, 'src', 'composition.ts')
+  writeFileSync(
+    source,
+    readFileSync(source, 'utf8').replace(
+      'const open: Open = ({ io }) => {',
+      "const open: Open = ({ io }) => {\n  if (io) throw new Error('the film broke as it opened')",
+    ),
+  )
+  await cli(home, root, 'login', '--token', s.TOKEN, '--api', s.site)
+  const before = s.requests.length
+  const r = await cli(home, root, 'share', '--api', s.site, '--yes')
+  assert.equal(r.status, 2, r.stdout + r.stderr)
+  assert.match(
+    r.stderr,
+    /The film did not render: .*the film broke as it opened.* Nothing was sent\./,
+  )
+  assert.deepEqual(
+    s.requests.slice(before).map((q) => q.path),
+    ['/films/health'],
+  )
+  assert.equal(s.films.size, 0)
 })
 
 test("share --no-media renders and sends neither; without a page in the response the url is the site's /film/<film>", async () => {

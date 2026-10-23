@@ -671,9 +671,11 @@ before anything is sent.
 variant's frame at the film's middle, a webp at most 1280 px wide and 500 KB; and its first
 min(4 s, duration), a silent H.264 mp4 480 px wide and at most 4 MB. `share` renders them with
 the CLI's own host and ffmpeg into `.shaderera/media/`, after you confirm; `--host`, `--trusted`
-and `--timeout` apply to that render, as to a `render`'s. One that does not
-render (no ffmpeg, a frame that fails, too large) is left out with a warning, and the film is
-shared without it. `--no-media` renders and sends neither.
+and `--timeout` apply to that render, as to a `render`'s. A film that does not render (it
+throws, or its host does not open or errors) stops the share before anything is sent, with
+`The film did not render: <what failed>`, and exits 2: the site would play the error. One that
+ffmpeg cannot make (no ffmpeg, too large) is left out with a warning, and the film is shared
+without it. `--no-media` renders and sends neither, on purpose.
 
 Before sending, it prints how many files and bytes it will send, the player's, to which API and
 film, the pages the player plays on, the secrets it leaves out, and asks.
@@ -691,7 +693,8 @@ or answers something other than JSON (a proxy's page) stops the share before the
 
 **`--dry-run`** does everything a share does on this machine and sends nothing: it needs no
 token (it says whether you are signed in), builds the player, renders the poster and loop
-(unless `--no-media`), and names each limit the version would break. When it cannot read the
+(unless `--no-media`), and names each limit the version would break. A film that does not
+render fails it, as it fails a share (exit 2). When it cannot read the
 limits it warns with the same line and goes on, unchecked (`limitsChecked: false`). It exits 0
 when a share would go through, 1 when it is over a limit. With `--json` its result is `dryRun`,
 `api`, `signedIn`, `film` (null for a new one), `title`, `licence`, `files`, `bytes`, `player`,

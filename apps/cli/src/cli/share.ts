@@ -326,7 +326,8 @@ const prepare = async (o: ShareOptions, needToken: boolean) => {
 
 /**
  * Renders the poster and the loop (renderMedia with the host flags; `media: false`: none), says
- * their sizes, and checks the version against the API's limits.
+ * their sizes, and checks the version against the API's limits. A film that does not render stops
+ * a share and a dry run alike: the site would play its error.
  */
 const finish = async (o: ShareOptions, p: Awaited<ReturnType<typeof prepare>>) => {
   const say = o.say ?? (() => {})
@@ -334,6 +335,8 @@ const finish = async (o: ShareOptions, p: Awaited<ReturnType<typeof prepare>>) =
     o.media === false
       ? { warnings: [] }
       : await renderMedia(p.root, mediaDir(p.root), o.hostFlags ?? {})
+  if ('failed' in media && media.failed !== undefined)
+    throw new Error(`The film did not render: ${media.failed} Nothing was sent.`)
   for (const w of media.warnings) (o.warn ?? say)(w)
   const sized = (path: string, file?: string): Sized | null =>
     file ? { path, sha: hashFile(file), bytes: statSync(file).size } : null
@@ -359,8 +362,8 @@ const finish = async (o: ShareOptions, p: Awaited<ReturnType<typeof prepare>>) =
  * renders the poster and loop, refuses a version over the API's limits, then sends the project
  * and the player to the API as a new film, or as a new version of the film it shared to before.
  * Null when declined. A player that does not build, or a version over a limit, stops it before
- * anything is sent; a poster or loop that does not render is left out, with a warning (`warn`;
- * none: `say`).
+ * anything is sent, and so does a film that does not render (renderMedia's `failed`); a poster or
+ * loop ffmpeg cannot make is left out, with a warning (`warn`; none: `say`).
  */
 export const shareProject = async (
   o: ShareOptions & { confirm?: () => Promise<boolean> },
@@ -427,8 +430,9 @@ export const shareProject = async (
 
 /**
  * `share --dry-run`: everything a share does on this machine, and nothing it sends. It needs no
- * token (it says whether there is one), builds the player, renders the poster and loop, and names
- * each limit of the API's the version would break.
+ * token (it says whether there is one), builds the player, renders the poster and loop (a film that
+ * does not render fails it, as it fails a share), and names each limit of the API's the version
+ * would break.
  */
 export const dryRunShare = async (o: ShareOptions) => {
   const p = await prepare(o, false)
