@@ -41,9 +41,12 @@ export const runnerModules = (
           : undefined,
 })
 
-/** Where the runner worker POSTs a frame for the browser host (`/__shaderera/frame/<key>`). */
+/**
+ * Where the runner worker POSTs a frame, or the sound (runner/audio.ts), for the browser host
+ * (`/__shaderera/frame/<key>`).
+ */
 export const FRAME_PATH = '/__shaderera/frame/'
-/** The frames the browser host is waiting for, by key: one body each, then forgotten. */
+/** The frames (and sound) the browser host is waiting for, by key: one body each, then forgotten. */
 export const frameUploads = new Map<string, (bytes: Buffer) => void>()
 /**
  * Where the runner worker asks the CLI's process for the cache and video frames (services.ts),
