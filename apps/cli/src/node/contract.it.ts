@@ -7,7 +7,7 @@ import { lightReference, p010Reference, rgb10Reference, sampleClips } from '@sha
 import { tempDir } from '../fixtures/temp.ts'
 import { buildForNode } from './build.ts'
 import type { Child } from './child.ts'
-import { captions, clips, FAILS_AT, paint } from './fixtures/contract/src/composition.ts'
+import { captions, clips, DEAF, FAILS_AT, paint } from './fixtures/contract/src/composition.ts'
 import { fixture } from './fixtures/hdr/src/composition.ts'
 import { memoryChild, toYuv420p } from './fixtures/memory-child.ts'
 import type { HostName } from './host-of.ts'
@@ -33,7 +33,7 @@ const project = await findProject(root)
 const { width, height, duration } = project.manifest
 
 const SEED = 7
-type Open = (params: { silent: boolean }) => Promise<Child>
+type Open = (params: { silent: boolean; deaf?: boolean }) => Promise<Child>
 const host =
   (name: HostName): Open =>
   async (params) =>
@@ -135,6 +135,28 @@ for (const [name, open] of [
     test('after close, a call fails', async () => {
       await silent.close()
       await assert.rejects(silent.render(0, 'final'))
+    })
+  })
+}
+
+for (const name of ['node', 'browser'] as const) {
+  describe(`${name}: an audio() that throws`, () => {
+    let deaf: Child
+    before(async () => {
+      deaf = await host(name)({ silent: false, deaf: true })
+    })
+    after(async () => {
+      await deaf?.close()
+    })
+
+    // The studio page gets the same rejection over its port (runner/worker.ts audio), and the
+    // CLI prints it: the sound fails out loud, naming the call, not as a silent preview (#353).
+    test('fails the call, naming audio() and its message; the next call renders', async () => {
+      await assert.rejects(deaf.audio(), (e: Error) => {
+        assert.ok(e.message.includes(`audio() failed: ${DEAF}`), e.message)
+        return true
+      })
+      near((await deaf.render(0.5, 'final')).pixels, paint(0.5, width, height), 1)
     })
   })
 }

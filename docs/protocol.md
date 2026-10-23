@@ -481,6 +481,14 @@ const tone = new Float32Array(48000).map((_, i) => 0.3 * Math.sin((2 * Math.PI *
 audio: async () => [{ pcm: { sampleRate: 48000, channels: [tone] }, at: 1 }]
 ```
 
+pcm is uncompressed: 48000 samples × 4 bytes × 2 channels is 384 kB a second, 23 MB a minute,
+and about 295 MB for a 13-minute stereo bed. The hosts pass it on as bytes, not text, but it is
+held in memory several times on its way (the film's arrays, the copy sent to the page or the
+host, the mix), and the studio page and shaderera.com mix it on the viewer's machine. For a long
+bed, a minute or more, render it once to a compressed project file (an `.m4a` or `.mp3`) and
+return `{ src: 'audio/bed.m4a', at: 0 }` instead: a file clip is read where it is mixed and is a
+few MB. Keep `pcm` for short sounds made from the seed, such as hits and stingers.
+
 ### captions
 
 ```ts

@@ -425,9 +425,21 @@ const handle = async (m: Request): Promise<unknown> => {
       return s.camera ? s.camera.get(m.t) : null
     case 'override':
       return s.camera?.override?.(m.matrices) ?? null
-    case 'audio':
+    case 'audio': {
+      if (!s.audio) return null
+      let clips: Awaited<ReturnType<typeof s.audio>>
+      try {
+        clips = await s.audio()
+      } catch (error) {
+        // Named, as the runner worker names it: the sound fails out loud (#353).
+        throw new Error(
+          `audio() failed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        )
+      }
       // A function gain cannot cross to the parent: it goes as samples (sampleClips).
-      return s.audio ? sampleClips(await s.audio(), manifest.duration) : null
+      return sampleClips(clips, manifest.duration)
+    }
     case 'captions':
       return s.captions ? s.captions() : null
     case 'clock':
