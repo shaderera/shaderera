@@ -258,3 +258,107 @@ test('shaderera studio --json ends with an ended event when the id expired', asy
   assert.match(last.error, /expired/)
   gone.ws.close()
 })
+
+test("shaderera studio --json: the page's console comes as log events, without an extension's", async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  const cli = spawn(
+    process.execPath,
+    [
+      main,
+      'studio',
+      '--connect',
+      id,
+      '--site',
+      slow.origin,
+      '--no-open',
+      '--json',
+      '--root',
+      fixture(),
+    ],
+    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+  )
+  let out = ''
+  let err = ''
+  cli.stdout.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  cli.stderr.on('data', (d: Buffer) => {
+    err += d.toString()
+  })
+  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
+  // Every line on stdout is one JSON event: JSON.parse throws on any other.
+  const events = () =>
+    out
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
+  const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
+    for (let i = 0; i < 400; i++) {
+      const e = events().find(match)
+      if (e) return e
+      if (cli.exitCode !== null) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    throw new Error(`no such event in: ${out}${err}`)
+  }
+  let vite: WebSocket | undefined
+  try {
+    const url = await event((e) => e.event === 'url')
+    const { bridge } = await p.pair(new URL(url.url as string).hash.slice(1))
+    await event((e) => e.event === 'paired')
+    // The runner the page frames, and its Vite client's socket, as the framed page opens it.
+    const runner = await call(bridge.port, {
+      path: '/runner',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${bridge.secret}` },
+    })
+    const at = new URL(String(runner.headers.location))
+    const html = await (await fetch(at)).text()
+    const src = /src="([^"]*@vite\/client)"/.exec(html)?.[1]
+    assert.ok(src, 'the runner page loads the Vite client')
+    const client = await (await fetch(new URL(src, at))).text()
+    const token = /const wsToken = "([^"]+)"/.exec(client)?.[1]
+    assert.ok(token, 'the Vite client holds its socket token')
+    const base = src.slice(0, -'@vite/client'.length)
+    vite = new WebSocket(`ws://${at.host}${base}?token=${token}`, 'vite-hmr')
+    await new Promise((done, fail) => {
+      vite?.addEventListener('open', done)
+      vite?.addEventListener('error', fail)
+    })
+    const forward = (data: unknown) =>
+      vite?.send(JSON.stringify({ type: 'custom', event: 'vite:forward-console', data }))
+    // A browser extension's, in the page: MetaMask's warning and an uncaught error of its own.
+    forward({
+      type: 'log',
+      data: {
+        level: 'warn',
+        message:
+          'Error restoring session i: Failed to connect to MetaMask\n    at Object.connect (chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/inpage.js:1:1)',
+      },
+    })
+    forward({
+      type: 'error',
+      data: {
+        name: 'Error',
+        message: 'MetaMask: lost',
+        stack:
+          'Error: MetaMask: lost\n    at chrome-extension://nkbihfbeogaeaoehlefnkodbefgpgknn/inpage.js:1:1',
+      },
+    })
+    // The film's own.
+    forward({ type: 'log', data: { level: 'warn', message: 'the film warns' } })
+    const log = await event((e) => e.event === 'log' && /the film warns/.test(String(e.text)))
+    assert.equal(log.level, 'warn')
+    await new Promise((r) => setTimeout(r, 300))
+    assert.doesNotMatch(out + err, /MetaMask|chrome-extension/)
+    assert.equal(err, '')
+  } finally {
+    vite?.close()
+    cli.kill('SIGINT')
+    await exited
+    p.ws.close()
+    await slow.close()
+  }
+})

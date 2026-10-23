@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 import { createServer as createNetServer } from 'node:net'
 import { join, resolve } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
+import type { Logger } from 'vite'
 import { stamp } from '../stamp/plugin.ts'
 import type { Project } from './project.ts'
 import { runnerPlugin } from './runner-plugin.ts'
@@ -33,6 +35,51 @@ type RunnerOptions = {
    * a page of `studioOrigins`. That page reloads the frame when the project changes (no HMR).
    */
   base?: string
+  /**
+   * Where Vite's warnings and errors go, the page's console among them (Vite forwards its errors
+   * and warnings): the studio's log. Without it, Vite prints them and forwards no console (the
+   * browser host reads the page's console itself).
+   */
+  log?: (level: 'warn' | 'error', text: string) => void
+}
+
+/**
+ * A browser extension's URL (`chrome-extension://`, `moz-extension://`, `safari-web-extension://`),
+ * also as Vite writes it in an error's stack, as a path (`chrome-extension:/`).
+ */
+const EXTENSION = /\b[a-z-]+-extension:\//i
+
+/**
+ * Vite's logger, to `log`: its warnings and errors as plain text, but those from a browser
+ * extension in the page (MetaMask's, say), which are not the film's.
+ */
+const loggerTo = (log: NonNullable<RunnerOptions['log']>): Logger => {
+  const logged = new WeakSet<object>()
+  const warned = new Set<string>()
+  const say = (level: 'warn' | 'error', msg: string) => {
+    const text = stripVTControlCharacters(msg)
+    if (!EXTENSION.test(text)) log(level, text)
+  }
+  const logger: Logger = {
+    hasWarned: false,
+    info: () => {},
+    warn: (msg) => {
+      logger.hasWarned = true
+      say('warn', msg)
+    },
+    warnOnce: (msg) => {
+      if (warned.has(msg)) return
+      warned.add(msg)
+      logger.warn(msg)
+    },
+    error: (msg, options) => {
+      if (options?.error) logged.add(options.error)
+      say('error', msg)
+    },
+    clearScreen: () => {},
+    hasErrorLogged: (error) => logged.has(error),
+  }
+  return logger
 }
 
 /**
@@ -62,6 +109,7 @@ const listen = async (project: Project, o: RunnerOptions & { port: number }) => 
     clearScreen: false,
     ...(o.cacheDir ? { cacheDir: o.cacheDir } : {}),
     logLevel: 'warn',
+    ...(o.log ? { customLogger: loggerTo(o.log) } : {}),
     plugins: [
       ...(project.manifest.stamp ? [stamp({ root: project.root })] : []),
       runnerPlugin(
@@ -94,6 +142,8 @@ const listen = async (project: Project, o: RunnerOptions & { port: number }) => 
       // A framed runner's requests come from an opaque origin: the plugin answers them itself.
       ...(o.base ? { cors: false } : {}),
       hmr: o.base ? false : { host: HOST, port: o.port, clientPort: o.port },
+      // Set either way: Vite's default turns it on only when an agent runs the CLI.
+      forwardConsole: o.log ? { unhandledErrors: true, logLevels: ['error', 'warn'] } : false,
       // Frozen revisions, agent stages and renders are written under the root; none is the
       // project the preview shows, so none may reload it.
       watch: { ignored: ['**/.shaderera/**', '**/versions/**', '**/out/**'] },
