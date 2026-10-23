@@ -1,6 +1,6 @@
 {
   "name": "shaderera",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Shaderera CLI and MCP: DevTools for programmable media that is deterministic in time.",
   "license": "MIT",
   "homepage": "https://github.com/shaderera/shaderera",
