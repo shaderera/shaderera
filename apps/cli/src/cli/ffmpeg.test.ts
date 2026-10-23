@@ -17,7 +17,9 @@ import {
   matte64,
   probe,
   requireFrames,
+  requireHdr10,
 } from './ffmpeg.ts'
+import type { Probe } from './ffmpeg.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
@@ -264,6 +266,67 @@ test('hdr10Args: HEVC Main 10 as hvc1, tagged HDR10, the metadata on the input',
       () => hdr10Args({ ...hdr, input: 'p010', encoder, quality: 'master' }),
       /master is encoded with x265/,
     )
+})
+
+/** What `hevc_videotoolbox` writes, as probed: the tags, chroma site and boxes, and no SEI. */
+const vtReview = (color = { matrix: 'bt2020nc', primaries: 'bt2020', transfer: 'smpte2084', range: 'tv' }): Probe => ({
+  container: 'mov,mp4,m4a,3gp,3g2,mj2',
+  bytes: 1,
+  duration: 1,
+  bitrate: 1,
+  video: {
+    codec: 'hevc',
+    profile: 'Main 10',
+    pixFmt: 'yuv420p10le',
+    width: 64,
+    height: 36,
+    fps: 10,
+    color,
+    hdr10: {
+      codecTag: 'hvc1',
+      chroma: 'topleft',
+      mastering: P3_1000,
+      light: { maxCLL: 800, maxFALL: 200 },
+      sei: {},
+    },
+  },
+  editList: false,
+})
+
+test('requireHdr10: a VideoToolbox review is held to its tags and boxes, not the SEI it cannot write', () => {
+  const vt = { encoder: 'videotoolbox', quality: 'review' } as const
+  const note = requireHdr10('o.mp4', vtReview(), P3_1000, hdr.levels, 'hevc', vt)
+  assert.match(note ?? '', /no HDR10 SEI .*a review, not a master/)
+  assert.match(
+    requireHdr10('o.mp4', vtReview(), P3_1000, hdr.levels, 'hevc', { encoder: 'videotoolbox' }) ??
+      '',
+    /a review/,
+  )
+  // The same file as a master, or from another encoder, still needs the SEI.
+  for (const encode of [{ ...vt, quality: 'master' }, { encoder: 'x265' }, {}] as const)
+    assert.throws(
+      () => requireHdr10('o.mp4', vtReview(), P3_1000, hdr.levels, 'hevc', encode),
+      /SEI display none; SEI light none/,
+    )
+  // Wrong tags fail a review all the same.
+  assert.throws(
+    () =>
+      requireHdr10(
+        'o.mp4',
+        vtReview({ matrix: 'bt709', primaries: 'bt709', transfer: 'bt709', range: 'tv' }),
+        P3_1000,
+        hdr.levels,
+        'hevc',
+        vt,
+      ),
+    /colour .*not bt2020nc\/bt2020\/smpte2084\/tv/,
+  )
+  const noBoxes = vtReview()
+  delete noBoxes.video?.hdr10?.light
+  assert.throws(
+    () => requireHdr10('o.mp4', noBoxes, P3_1000, hdr.levels, 'hevc', vt),
+    /clli none/,
+  )
 })
 
 test('hdr10Args: ProRes from the 10-bit PQ R’G’B’ codes with the BT.2020 matrix; inputs checked', () => {

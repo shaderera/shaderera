@@ -404,14 +404,17 @@ const exportOnce = async (
         })
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
-    if (hdr10)
-      requireHdr10(
+    if (hdr10) {
+      const note = requireHdr10(
         out,
         probed,
         hdr10.display,
         { maxCLL: hdr10.light.maxCll, maxFALL: hdr10.light.maxFall },
         prores ? codec : 'hevc',
+        prores ? {} : { encoder: encoder as HdrEncoder, quality: o.quality },
       )
+      if (note) console.warn(`! ${note}`)
+    }
     const loudness = mix.clips.length > 0 ? measureLoudness(partial) : null
     try {
       renameSync(partial, out)

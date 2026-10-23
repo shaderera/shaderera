@@ -1063,7 +1063,10 @@ const HDR10_FILES = {
  * (or ProRes 422 HQ / 4444), 10-bit narrow range, the four colour tags, and the mastering display
  * and light levels in the container's `mdcv`/`clli` boxes equal to `display` and `levels` (rounded
  * up, as `-content_light` takes them) in the units of its field. HEVC also needs the top-left
- * chroma site and the same metadata in the first frame's SEI; ProRes has neither.
+ * chroma site and the same metadata in the first frame's SEI; ProRes has neither. A VideoToolbox
+ * review is the exception: `hevc_videotoolbox` writes no HDR10 SEI and no bitstream filter adds one
+ * (ffmpeg 9.0's `hevc_metadata` sets VUI fields only), so its stream is held to the tags, chroma
+ * site and boxes alone, and the line returned says so. A master is always held to the SEI.
  */
 export const requireHdr10 = (
   file: string,
@@ -1071,7 +1074,8 @@ export const requireHdr10 = (
   display: MasteringDisplay,
   levels: LightLevels,
   codec: keyof typeof HDR10_FILES = 'hevc',
-) => {
+  encode: { encoder?: HdrEncoder; quality?: Quality } = {},
+): string | undefined => {
   const v = p.video
   const h = v?.hdr10
   const units = (d?: MasteringDisplay) =>
@@ -1088,6 +1092,8 @@ export const requireHdr10 = (
   const want = { display: units(display), light: contentLightArg(levels) }
   const f = HDR10_FILES[codec]
   const hevc = codec === 'hevc'
+  const noSei = hevc && encode.encoder === 'videotoolbox' && encode.quality !== 'master'
+  const sei = hevc && !noSei
   const wrong = [
     ...(v?.profile === f.profile ? [] : [`profile ${v?.profile ?? 'none'}, not ${f.profile}`]),
     ...(v?.pixFmt === f.pixFmt ? [] : [`${v?.pixFmt ?? 'no video'}, not ${f.pixFmt}`]),
@@ -1101,15 +1107,18 @@ export const requireHdr10 = (
       : [`chroma site ${h?.chroma ?? 'none'}, not topleft`]),
     ...(units(h?.mastering) === want.display ? [] : [`mdcv ${units(h?.mastering)}`]),
     ...(light(h?.light) === want.light ? [] : [`clli ${light(h?.light)}`]),
-    ...(!hevc || units(h?.sei?.mastering) === want.display
+    ...(!sei || units(h?.sei?.mastering) === want.display
       ? []
       : [`SEI display ${units(h?.sei?.mastering)}`]),
-    ...(!hevc || light(h?.sei?.light) === want.light ? [] : [`SEI light ${light(h?.sei?.light)}`]),
+    ...(!sei || light(h?.sei?.light) === want.light ? [] : [`SEI light ${light(h?.sei?.light)}`]),
   ]
   if (wrong.length > 0)
     throw new Error(
       `${file} is not the HDR10 file its encode declared (display ${want.display}, light ${want.light}): ${wrong.join('; ')}.`,
     )
+  return noSei
+    ? `${file} has the HDR10 tags and the mp4's mdcv/clli boxes but no HDR10 SEI in the stream (hevc_videotoolbox writes none): a review, not a master.`
+    : undefined
 }
 
 /**
