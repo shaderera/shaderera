@@ -21,8 +21,9 @@ test('render refuses a source that is not deterministic and leaves no file', {
     frame: () => new Uint8Array(64 * 36 * 4).fill(n++ % 256),
   })
   const out = join(project.root, 'out', 'refused.mp4')
+  // An explicit encoder: no GPU probe, which would write the real ~/.shaderera/encoders.json.
   await assert.rejects(
-    exportVideo(project, child, { out, revision: 'test' }),
+    exportVideo(project, child, { out, revision: 'test', encoder: 'x264' }),
     /Not exported: the source is not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
   )
   assert.equal(existsSync(out), false)
