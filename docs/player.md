@@ -80,6 +80,14 @@ layer as an `ImageBitmap`, which the site draws itself; soloing or muting a laye
 choosing which to draw. `open({ variant: '9:16' })` opens the film as one of its variants: that
 size and params, and the name as the source's `host.variant`.
 
+`audio('buffers')` returns the film's clips with sound made in code (`pcm`) as `Float32Array`
+channels, their buffers transferred rather than copied. Plain `audio()` returns each channel as
+base64 float32 instead, for sites written before `'buffers'`; it holds a 13-minute stereo bed as
+some 400 MB of text, so ask for `'buffers'`. A player built with shaderera 0.1.5 or earlier
+ignores the argument and answers in base64, so a site that frames older players reads both. A throw in the film's
+`audio()` rejects the call with `audio() failed: <its message>`: show it, or the film plays
+silent with no reason given.
+
 ## The bridge
 
 The bridge is the only code that talks across the frame, with `postMessage`.
