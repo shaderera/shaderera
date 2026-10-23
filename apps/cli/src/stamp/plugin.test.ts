@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { join, resolve } from 'node:path'
+import { join, posix, resolve, win32 } from 'node:path'
 import { test } from 'node:test'
 import { parseSync } from 'oxc-parser'
-import { stamp as plugin, stampCode } from './plugin.ts'
+import { stamp as plugin, projectPath, stampCode } from './plugin.ts'
 
 test('oxc offsets count UTF-16 code units', () => {
   const code = "const s = 'ไทย'\nconst o = { id: 1 }"
@@ -74,4 +74,20 @@ test('a staged or frozen root under .shaderera is stamped; its own node_modules 
   assert.match(t(code, join(root, 'src', 'a.ts'))?.code ?? '', /source: "src\/a\.ts:1:11"/)
   assert.equal(t(code, join(root, 'node_modules', 'm', 'i.ts')), null)
   assert.equal(t(code, join(root, '.shaderera', 'node', 'entry.js')), null)
+})
+
+test('a file on another Windows drive is outside the project (#343)', () => {
+  const root = 'D:\\film'
+  assert.equal(projectPath(root, 'D:\\film\\src\\a.ts', win32), 'src/a.ts')
+  assert.equal(projectPath(root, 'D:/film/src/a.ts', win32), 'src/a.ts')
+  // relative() across drives returns an absolute path, not one that starts with `..`.
+  assert.equal(
+    win32.relative(root, 'C:\\shaderera\\runner\\worker.ts'),
+    'C:\\shaderera\\runner\\worker.ts',
+  )
+  assert.equal(projectPath(root, 'C:\\shaderera\\runner\\worker.ts', win32), null)
+  assert.equal(projectPath(root, 'C:/shaderera/runner/worker.ts', win32), null)
+  assert.equal(projectPath(root, 'D:\\other\\a.ts', win32), null)
+  assert.equal(projectPath('/p/film', '/p/film/src/a.ts', posix), 'src/a.ts')
+  assert.equal(projectPath('/p/film', '/q/a.ts', posix), null)
 })
