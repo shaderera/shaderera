@@ -39,7 +39,7 @@ One file per decision, in the order they were made.
 - [0023](0023-hdr10-delivery.md): HDR10 delivery, opted into by a film, with its own tone
   mapping and SDR render, HEVC Main 10 masters measured on the GPU.
 - [0024](0024-a-player-origin-per-version.md): a version's web player on its own origin,
-  `<label>.shadererausercontent.com`, so Chrome keeps its WebGPU shaders; the Public Suffix List
-  later.
+  `<label>.shadererausercontent.com`, so Chrome keeps its WebGPU shaders; the domain on the Public
+  Suffix List against a cookie bomb, and the deploy waiting on the owner.
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.

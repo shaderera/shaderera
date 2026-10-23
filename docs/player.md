@@ -67,8 +67,16 @@ it only in a Chrome with HTML-in-Canvas (`--enable-features=CanvasDrawElement`).
   img-src 'self' <player origin> data: blob:;
   font-src 'self' <player origin> data: blob:;
   style-src 'self' 'unsafe-inline';
-  frame-ancestors <the site's origins>
+  form-action 'none';
+  base-uri 'none';
+  frame-ancestors <the site's origins>;
+  sandbox allow-scripts allow-same-origin
   ```
+
+  **Never serve a player on the framing page's own origin with `allow-scripts
+  allow-same-origin`.** A frame with both, on its parent's origin, can reach into the parent and
+  remove its own sandbox: it is no sandbox at all. The player's origin must be another site than
+  the page's (shaderera.com's players are on `shadererausercontent.com`).
 
 - **Types**: `.js` as `text/javascript`, `.json` as `application/json`, `.mp4` as `video/mp4`;
   the film's own files by their extension.

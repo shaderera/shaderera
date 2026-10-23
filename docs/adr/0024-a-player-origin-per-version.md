@@ -47,16 +47,40 @@ a site with the product.
    - `GET /films/{film}`: `player` is the latest version's origin, and absent when that version has
      no player.
 
-   The CLI only prints these URLs, so 0.1.5 keeps working.
-5. **Listing `shadererausercontent.com` on the Public Suffix List is a later step.** Until it is
-   listed, every version is on one site, `shadererausercontent.com`:
-   - a cookie one version sets for `Domain=shadererausercontent.com` reaches the others (storage,
-     caches and everything else origin-scoped do not);
-   - the shader cache is keyed by site, so versions share it under one framing site; shaders are
-     the engine's and the films' public code, and the shared ones are compiled once.
+   The CLI reads neither: `share` prints the version's `page` (the film on shaderera.com), and
+   `fork` reads the film's ids, so 0.1.5 keeps working.
+5. **`shadererausercontent.com` goes on the Public Suffix List (private section), and this is
+   required, not a nicety.** Until browsers ship the listing, every version is on one site,
+   `shadererausercontent.com`, and a film can take every other film away from a viewer:
+   - **A cookie bomb (denial of service).** A film's code runs on its version's real origin, so
+     it can set cookies with `Domain=shadererausercontent.com`: about 180 of 4 KB each. The
+     browser sends them with every request to every version's host. Cloudflare answers `400
+     Request Header Or Cookie Too Large` before the Worker runs, so from then on no film plays
+     for that viewer, on shaderera.com or anywhere, until they clear the site data of
+     `shadererausercontent.com`. Anyone who can share a film can do it to anyone who opens it.
+   - **A timing leak.** The shader cache is keyed by site, so versions share it under one framing
+     site: a film can time its own compiles of another film's pipelines and learn whether the
+     viewer has played that film (a small leak of viewing history).
 
-   Once listed, each version is its own site: its cookies are its own, and so is its shader
-   cache, so the engine's shared pipelines compile once per version.
+   Once listed, `<label>.shadererausercontent.com` is itself a registrable domain: a browser
+   refuses a cookie for `Domain=shadererausercontent.com`, and each version has its own cookie
+   jar and its own shader cache (the engine's shared pipelines then compile once per version).
+   The submission is a pull request to github.com/publicsuffix/list with a `_psl` TXT record on
+   the domain; the draft is in shaderera/shaderera.com (`plans/2026-10-23-public-suffix-list.md`).
+   Browsers take the list in their releases, weeks to months after it is merged.
+
+6. **The deploy waits on the owner.** Either the player moves before the listing ships, and the
+   cookie bomb is an accepted risk until then, or it waits for the listing. What helps meanwhile
+   is partial:
+   - `Clear-Site-Data: "cookies"` on `runner.html` clears the cookies of the whole site, but only
+     while a request still fits under Cloudflare's limit: it slows a bomb, it does not undo one.
+   - Nothing at Cloudflare that we know of helps: the header limit is checked before Transform
+     Rules and before the Worker, so neither can drop the `Cookie` header in time, and the
+     Worker never sets cookies in the first place.
+   - The site can recognise a player that never answers and tell the viewer to clear the site
+     data of `shadererausercontent.com`: a way back, not a defence.
+   - Keeping `allow-same-origin` off (the opaque origin) is the only full defence before the
+     listing, and it is what this decision gives up.
 
 **Consequences.**
 - **Measured on this decision's build** (headless Chrome 156, the player Worker run locally on
@@ -73,5 +97,7 @@ a site with the product.
   on `<label>.localhost` (Chrome sends every `*.localhost` to the machine).
 - **The studio** (0021) frames the CLI's own runner on 127.0.0.1, whose origin is the CLI's
   bridge's too, so it keeps `sandbox="allow-scripts"` alone; it is not part of this decision.
-- **Later:** the Public Suffix List entry (5), with its own review of what the site and the API
-  set on `shadererausercontent.com`.
+- **The player Worker answers** only a host that is exactly `<label>.shadererausercontent.com`,
+  and refuses (403) a request with `Service-Worker: script`, so no film can register a service
+  worker that would answer its pages without the Worker's policy. The zone always uses HTTPS.
+- **Before the deploy:** the owner's choice (6), and the Public Suffix List pull request (5).
