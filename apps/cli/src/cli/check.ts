@@ -5,6 +5,7 @@ import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
+import { words16 } from './ffmpeg.ts'
 import { EXIT } from './findings.ts'
 import { eachVariant, type Output } from './variants.ts'
 
@@ -38,9 +39,9 @@ export const describeSeeks = (
 }
 
 /** The mean and largest difference of two P010 frames, in 10-bit codes. */
-const diffP010 = (a: Uint8Array, b: Uint8Array) => {
-  const x = new Uint16Array(a.buffer, a.byteOffset, a.length / 2)
-  const y = new Uint16Array(b.buffer, b.byteOffset, b.length / 2)
+export const diffP010 = (a: Uint8Array, b: Uint8Array) => {
+  const x = words16(a)
+  const y = words16(b)
   if (x.length !== y.length)
     throw new Error(`Cannot compare ${a.length} bytes of P010 with ${b.length}.`)
   let sum = 0
