@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { create, projectDir } from './create.ts'
 
@@ -41,17 +41,20 @@ const guides = {
   guides: packed ? join(files, 'guides') : join(repo, 'docs', 'guides'),
 }
 const target = args.positionals[0] ?? 'my-film'
+// `.` or the current folder's own path: the project is made here, so there is no cd.
+const inPlace = resolve(target) === process.cwd()
 
+let name: string
 try {
-  create({ from: projectDir(here), target, version, guides })
+  name = create({ from: projectDir(here), target, version, guides })
 } catch (error) {
   console.error((error as Error).message)
   process.exit(1)
 }
-console.log(`Created ${target}. Next:
+const cd = inPlace ? '' : `  cd ${target}\n`
+console.log(`Created ${inPlace ? `${name} here` : target}. Next:
 
-  cd ${target}
-  npm install
+${cd}  npm install
   npx shaderera check
   npx shaderera still 0 5 --sheet
 

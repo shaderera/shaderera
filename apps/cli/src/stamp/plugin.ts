@@ -1,4 +1,4 @@
-import { relative } from 'node:path'
+import path from 'node:path'
 import MagicString from 'magic-string'
 import { parseSync } from 'oxc-parser'
 import type { Plugin } from 'vite'
@@ -57,14 +57,24 @@ export const stampCode = (code: string, file: string, mapSource = file) => {
   }
 }
 
+/**
+ * The path of `file` relative to `root`, with `/` separators, or null when it is outside `root`.
+ * Across Windows drives `relative()` returns an absolute path, which is outside too.
+ */
+export const projectPath = (root: string, file: string, p: typeof path = path): string | null => {
+  const rel = p.relative(root, file)
+  if (rel.startsWith('..') || p.isAbsolute(rel)) return null
+  return rel.replaceAll('\\', '/')
+}
+
 /** A Vite plugin that stamps `source` on `id` literals in files under `root` (manifest `stamp`). */
 export const stamp = ({ root }: { root: string }): Plugin => ({
   name: 'shaderera:stamp',
   enforce: 'pre',
   transform(code, id) {
-    const path = id.split('?')[0] ?? id
-    const file = relative(root, path).replaceAll('\\', '/')
-    if (!FILE.test(path) || SKIP.test(file) || file.startsWith('..')) return null
-    return stampCode(code, file, path)
+    const abs = id.split('?')[0] ?? id
+    const file = projectPath(root, abs)
+    if (!FILE.test(abs) || file === null || SKIP.test(file)) return null
+    return stampCode(code, file, abs)
   },
 })

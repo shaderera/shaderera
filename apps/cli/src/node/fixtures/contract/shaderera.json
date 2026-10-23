@@ -6,6 +6,9 @@
   "height": 8,
   "params": {
     "type": "object",
-    "properties": { "silent": { "type": "boolean", "default": false } }
+    "properties": {
+      "silent": { "type": "boolean", "default": false },
+      "deaf": { "type": "boolean", "default": false }
+    }
   }
 }
