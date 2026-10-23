@@ -233,7 +233,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 |---|---|
 | `{type:"changed", revision}` | the project's files changed: the 16-hex revision id `shaderera save` would give them |
 | `{type:"job", id, state, progress, error?}` | a render was queued, started, progressed or ended |
-| `{type:"log", level, text}` | `info`, `warn` or `error`: a render's start and end, share lines, watcher problems |
+| `{type:"log", level, text}` | `info`, `warn` or `error`: a render's start and end, share lines, watcher problems, the runner's build errors, and the framed film's console warnings and errors (not a browser extension's) |
 | `{type:"share", film, version, url}` | a share sent the film: its id, the new version and its page |
 
 - **What counts as a change.** A change counts only when it touches the files a revision holds:

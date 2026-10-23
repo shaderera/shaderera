@@ -166,6 +166,7 @@ export const startBridge = async (o: {
     cacheDir: join(root, '.shaderera', 'studio-vite'),
     base,
     ...(bakes ? { bakes } : {}),
+    log,
   })
   const runnerPage = `http://${HOST}:${runner.port}${base}${RUNNER_PATH.slice(1)}`
 
