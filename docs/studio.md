@@ -289,13 +289,13 @@ A job that is not done gets `409`. An unknown one gets `404`.
 
 Runs `shaderera share` as you, with your own sign-in (`npx shaderera login`), to `--api`. Pressing
 Share in the page is the confirmation. A new film is titled `title`, else as `share` titles it.
-`url` is the film's page, as `share` prints it; a poster or loop that did not render is a `warn`
-log line.
+`url` is the film's page, as `share` prints it; a poster or loop ffmpeg could not make is a
+`warn` log line, and a film that did not render is refused, as `share` refuses it.
 
 - **Not signed in** (no token for `--api`, or it refused the token): `401` with
   `{error:"login", command:"npx shaderera login"}`. The page shows the command to run.
-- **Anything else** that stops the share (no licence, a player that does not build, a version
-  over the API's limits, the API unreachable): `500` with `{error}`.
+- **Anything else** that stops the share (no licence, a player that does not build, a film that
+  does not render, a version over the API's limits, the API unreachable): `500` with `{error}`.
 
 ## The relay fallback
 
