@@ -1,6 +1,7 @@
 // The web player in Chrome, as a site uses it: built from a film with footage, a bake and the
-// cache, served as static files on one origin, framed with sandbox="allow-scripts" by a page on
-// another, which takes the bridge's port and drives the runner. Checks the bridge's origin rule,
+// cache, served as static files on one origin, framed by a page on another: with
+// sandbox="allow-scripts" (an opaque origin), and with "allow-scripts allow-same-origin" on a site
+// of its own (decision 0024), which takes the bridge's port and drives the runner. Checks the bridge's origin rule,
 // that the runner's services are answered in the player's worker (the host hook), and the pixels.
 import assert from 'node:assert/strict'
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
@@ -42,7 +43,7 @@ const HOST_PAGE = `<!doctype html><meta charset="utf-8"><body><script type="modu
 import * as Comlink from '/comlink.mjs'
 const q = new URLSearchParams(location.search)
 const frame = document.createElement('iframe')
-frame.setAttribute('sandbox', 'allow-scripts')
+frame.setAttribute('sandbox', q.get('sandbox') ?? 'allow-scripts')
 frame.src = q.get('src')
 document.body.append(frame)
 const messages = []
@@ -149,7 +150,7 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
       res.writeHead(404, { 'Access-Control-Allow-Origin': '*' })
       return res.end()
     }
-    const self = `http://127.0.0.1:${playerPort}`
+    const self = `http://${req.headers.host}`
     res.writeHead(200, {
       'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream',
       'Access-Control-Allow-Origin': '*',
@@ -164,7 +165,10 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
               `img-src 'self' ${self} data: blob:`,
               `font-src 'self' ${self} data: blob:`,
               "style-src 'self' 'unsafe-inline'",
+              "form-action 'none'",
+              "base-uri 'none'",
               `frame-ancestors ${allowed}`,
+              'sandbox allow-scripts allow-same-origin',
             ].join('; '),
           }
         : {}),
@@ -227,10 +231,15 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
       level: { frames: number; first: number; last: number }
       cache: { bytes: number[]; made: number }
     }
-    const run = async (origin: string, wait: number): Promise<Result> => {
-      const src = `http://127.0.0.1:${playerPort}/runner.html?parent=${encodeURIComponent(origin)}`
+    const run = async (
+      origin: string,
+      wait: number,
+      at = `http://127.0.0.1:${playerPort}`,
+      sandbox = 'allow-scripts',
+    ): Promise<Result> => {
+      const src = `${at}/runner.html?parent=${encodeURIComponent(origin)}`
       await cdp.send('Page.navigate', {
-        url: `${origin}/host.html?src=${encodeURIComponent(src)}&wait=${wait}`,
+        url: `${origin}/host.html?src=${encodeURIComponent(src)}&wait=${wait}&sandbox=${encodeURIComponent(sandbox)}`,
       })
       for (;;) {
         await sleep(200)
@@ -262,6 +271,17 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
       assert.equal(q.method, 'GET')
       assert.ok(player.files.includes(q.path), `${q.path} is a player file`)
     }
+
+    // On a site of its own with "allow-same-origin" (decision 0024): the same film, and the port
+    // from the player's real origin, which a site checks besides e.source.
+    const own = `http://localhost:${playerPort}`
+    const o = await run(allowed, 120_000, own, 'allow-scripts allow-same-origin')
+    assert.equal(o.error, undefined)
+    assert.deepEqual(o.messages, [{ shaderera: 'runner', origin: own, ports: 1 }])
+    assert.equal(o.capabilities.deep, true, 'WebGPU in the player worker')
+    assert.deepEqual(o.half.inspect.clip, r.half.inspect.clip)
+    assert.equal(o.half.inspect.frame, 15)
+    assert.equal(o.back.inspect.frame, 3)
 
     // The pixels: the clip's frame, as ffmpeg decodes it, and not its neighbours.
     const clip = join(project.root, 'assets', 'clip.mp4')

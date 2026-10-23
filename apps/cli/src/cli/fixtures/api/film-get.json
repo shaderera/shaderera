@@ -28,7 +28,7 @@
       "updatedAt": 1792656000000,
       "meta": null,
       "playable": true,
-      "player": "https://shadererausercontent.com",
+      "player": "https://lssphbimzqzrvl4kev6wbbxfe2r3iktd4gglchicbbdzqwzr2gea.shadererausercontent.com",
       "versions": [
         {
           "id": "5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
@@ -45,6 +45,7 @@
     "response.body.poster",
     "response.body.loop",
     "response.body.posterUrl",
-    "response.body.loopUrl"
+    "response.body.loopUrl",
+    "response.body.player"
   ]
 }
