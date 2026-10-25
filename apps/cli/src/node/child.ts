@@ -84,18 +84,27 @@ const packageDirs = (root: string): string[] => {
 export const TIMEOUT = 600_000
 
 /**
- * How long one call after the open may take by default: about one frame (render, inspect, pick,
- * camera), so a hung frame fails in a minute, not ten. The host says when a call is not hung
- * (`alive`): a sequential source's call steps every frame on the way to t, and each step starts
- * its minute again; a call that makes a pipeline (a first frame, often: three.js compiles there)
- * has the open's allowance from then on, since Dawn's compile can take minutes. `--timeout` sets
- * both.
+ * How long a call after the open may go without a sign of work, by default: an idle timeout, not
+ * a limit on the whole call. The clock starts again at every sign the host gives (`alive`): each
+ * frame a sequential source steps through, each request it makes of this process (a video or bake
+ * frame, the cache), each pipeline it makes. 60 s of silence fails the call; a hung frame sends
+ * nothing, so it fails in a minute, not ten. A pipeline (Dawn's compile can take minutes: a path
+ * tracer's took 185 s, decision 0006), the reopen after a lost device and every call on a software
+ * adapter have the open's allowance instead, and a call has at least 10 times the host's slowest
+ * finished call (several hosts sharing one GPU slow every frame). `--timeout` sets one fixed
+ * allowance for all of it.
  */
 export const CALL_TIMEOUT = 60_000
 
 /** A call's name in a message: `render at t = 1 s`. */
 export const callName = (request: { type: string; t?: unknown }) =>
   typeof request.t === 'number' ? `${request.type} at t = ${request.t} s` : request.type
+
+/** A call that went silent too long: what it was, and the way out. */
+export const silentError = (who: string, ms: number, request: { type: string; t?: unknown }) =>
+  new Error(
+    `${who} took longer than ${ms} ms on ${callName(request)} without a sign of work: if it is working, --timeout <s> gives it longer.`,
+  )
 
 export type HostIdentity = {
   host: 'node' | 'browser'
@@ -227,16 +236,22 @@ export const openChild = async (
   let next = 0
   let queue: Promise<unknown> = Promise.resolve()
   const opening = o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT
-  const call = <T>(request: Request, ms = o.timeoutMs ?? CALL_TIMEOUT): Promise<T> => {
+  /** The slowest call that finished so far, in ms. */
+  let slowest = 0
+  const call = <T>(
+    request: Request,
+    ms = o.timeoutMs ?? Math.max(CALL_TIMEOUT, 10 * slowest),
+  ): Promise<T> => {
     const run = () =>
       new Promise<T>((done, fail) => {
         if (child.killed || !child.connected)
           return fail(new Error('The source process has exited.'))
         const id = next++
+        const start = performance.now()
         let limit = ms
         const expire = () => {
           child.kill()
-          fail(new Error(`The source took longer than ${limit} ms on ${callName(request)}.`))
+          fail(silentError('The source', limit, request))
         }
         let timer = setTimeout(expire, limit)
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
@@ -247,19 +262,22 @@ export const openChild = async (
         const onMessage = (m: {
           id: number
           alive?: number
-          compiling?: boolean
+          slow?: boolean
+          service?: unknown
           result?: T
           error?: string
           stack?: string
         }) => {
-          if (m.alive === id) {
+          // A sign of work: a step, a pipeline, a request of this process's (one call at a time).
+          if (m.alive === id || m.service) {
             clearTimeout(timer)
-            if (m.compiling) limit = Math.max(limit, opening)
+            if (m.slow) limit = Math.max(limit, opening)
             timer = setTimeout(expire, limit)
           }
           if (m.id !== id) return
           clearTimeout(timer)
           child.off('message', onMessage).off('exit', onExit)
+          if (request.type !== 'open') slowest = Math.max(slowest, performance.now() - start)
           if (m.error === undefined) return done(m.result as T)
           const error = new Error(m.error)
           error.stack = m.stack

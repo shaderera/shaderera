@@ -252,7 +252,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
   `.git/` anywhere, and not a file that holds secrets (`.env`, `.npmrc`, … as `save` lists them in
   [cli.md](cli.md#versions-and-jobs)). A change that leaves the revision the same sends nothing.
 - **Job states** are `queued`, `running`, `done` and `failed`. `done` and `failed` end a job.
-  `progress` runs from 0 to 1. A frame that never settles fails its job after a minute
+  `progress` runs from 0 to 1. A frame that never settles (no sign of work for a minute) fails its job
   (`--timeout`, [cli.md](cli.md#common-flags)), its error naming t, and the next job runs.
 
 ### `POST /render {variant? | variants?, params?, format, t?}` → `{job}` or `{jobs}`
@@ -289,7 +289,7 @@ A job that is not done gets `409`. An unknown one gets `404`.
 ### `POST /render/<job>/cancel` → `{job}`
 
 Cancels a job that is queued or running. It ends as `failed` with the error `cancelled`, and the
-next job starts. A queued job never runs; a running one's hosts are closed, a frame that never
+next job starts. A queued job never runs; a running one's hosts are closed, every one, a frame that never
 settles with them, and a video's partial file is removed, as a failed render leaves it. A job that
 has ended gets `409`. An unknown one gets `404`.
 

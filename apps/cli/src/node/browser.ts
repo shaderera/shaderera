@@ -400,9 +400,18 @@ export const openBrowserChild = async (
     }
     debug('opened')
     const { capabilities } = opened
-    // A minute a call, as in the Node host; a sequential source's call steps every frame before t
-    // inside the page, where nothing reports each step, so it keeps the open's allowance.
-    timeout.ms = o.timeoutMs ?? (capabilities.sequential ? TIMEOUT : CALL_TIMEOUT)
+    // Nothing in the page reports its work, so a call's allowance is for the whole call: the
+    // open's for the first (it may compile its pipelines), for a sequential source (a call steps
+    // every frame before t) and on a software adapter (10–100× slower); else a minute, or 10 times
+    // the slowest call so far (several hosts sharing one GPU slow every frame).
+    const software =
+      o.timeoutMs === undefined &&
+      (await evaluate<AdapterInfo | null>(ADAPTER).then((i) => !!i && !!softwareAdapter(i)))
+    const long = software || !!capabilities.sequential
+    let slowest = -1
+    const allowance = () =>
+      o.timeoutMs ?? (long || slowest < 0 ? TIMEOUT : Math.max(CALL_TIMEOUT, 10 * slowest))
+    timeout.ms = allowance()
     // The Child's capabilities, as the Node host reports them; the page's own carry more.
     const has: Child['has'] = {
       inspect: capabilities.inspect,
@@ -413,15 +422,24 @@ export const openBrowserChild = async (
       deep: capabilities.deep,
       p010: capabilities.p010,
     }
-    // A call that took too long names what it was asked: `render at t = 1 s`.
-    const call = <T>(method: string, ...args: unknown[]) =>
-      evaluate<T>(
-        `window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`,
-      ).catch((error: unknown) => {
-        if (!/took longer than/.test(String(error))) throw error
+    // A call that took too long names what it was asked (`render at t = 1 s`) and --timeout.
+    const call = async <T>(method: string, ...args: unknown[]): Promise<T> => {
+      timeout.ms = allowance()
+      const start = performance.now()
+      try {
+        const result = await evaluate<T>(
+          `window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`,
+        )
+        slowest = Math.max(slowest, performance.now() - start)
+        return result
+      } catch (error) {
+        if (!/^Error: The browser host took longer than/.test(String(error))) throw error
         const asked = callName({ type: method === 'send' ? 'render' : method, t: args[0] })
-        throw new Error(`${(error as Error).message.replace(/\.$/, '')} (${asked}).`)
-      })
+        throw new Error(
+          `The browser host took longer than ${timeout.ms} ms on ${asked}: if it is working, --timeout <s> gives it longer.`,
+        )
+      }
+    }
     return {
       render: async (t, intent, format = 'rgba') => {
         // The worker POSTs the frame to the runner server, which hands it here (decision 0007):

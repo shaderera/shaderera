@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -9,7 +11,7 @@ import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
 const SITE = 'https://shaderera.example'
 
 /** A film whose render never settles after 0.5 s when `hang` is set, as #376's repro. */
-const hanging = () => {
+const hanging = (duration = 1) => {
   const root = tempDir('studio-hang')
   mkdirSync(join(root, 'src'))
   writeFileSync(
@@ -17,7 +19,7 @@ const hanging = () => {
     JSON.stringify({
       entry: './src/composition.ts',
       fps: 10,
-      duration: 1,
+      duration,
       width: 16,
       height: 16,
       params: {
@@ -92,7 +94,10 @@ test('a hung frame fails its job within the timeout, naming t, and the next job 
     const hung = await png(bridge, { t: 0.6, params: { hang: true } })
     const next = await png(bridge, { t: 0.6 })
     const failed = await settled(hung, 'failed')
-    assert.match(failed.error ?? '', /took longer than 5000 ms on render at t = 0\.6 s/)
+    assert.match(
+      failed.error ?? '',
+      /took longer than 5000 ms on render at t = 0\.6 s without a sign of work: .*--timeout <s>/,
+    )
     await settled(next, 'done')
     assert.ok(performance.now() - start < 30_000)
   } finally {
@@ -123,6 +128,41 @@ test('POST /render/<job>/cancel ends a running or queued job as failed, and the 
     await settled(next, 'done')
     assert.equal((await cancel(next)).status, 409)
     assert.equal((await cancel('abcdef')).status, 404)
+  } finally {
+    await bridge.close()
+  }
+})
+
+test('cancelling an mp4 on several hosts closes every one of them', {
+  timeout: 90_000,
+  skip:
+    (spawnSync('ffmpeg', ['-version']).status !== 0 && 'no ffmpeg') ||
+    (availableParallelism() < 4 && 'one host only on this machine'),
+}, async () => {
+  // 60 frames: two hosts (defaultWorkers), each of which hangs on its first frame past 0.5 s.
+  const root = hanging(6)
+  const bridge = await startBridge({ root, api: SITE, site: SITE, origins: [SITE] })
+  const settled = record(bridge)
+  try {
+    const reply = await bridge.handle({
+      method: 'POST',
+      path: '/render',
+      body: { format: 'mp4', params: { hang: true } },
+    })
+    const job = (reply as { json: { job: string } }).json.job
+    const next = await png(bridge, { t: 0 })
+    await settled(job, 'running')
+    await sleep(5000)
+    assert.equal(
+      (await bridge.handle({ method: 'POST', path: `/render/${job}/cancel` })).status,
+      200,
+    )
+    assert.match((await settled(job, 'failed')).error ?? '', /cancelled/)
+    await settled(next, 'done')
+    // Every host closed, the render wound down: its partial file is gone, long before a timeout.
+    const partials = () => readdirSync(join(root, 'out', 'studio')).filter((f) => /partial/.test(f))
+    for (let i = 0; i < 50 && partials().length > 0; i++) await sleep(200)
+    assert.deepEqual(partials(), [])
   } finally {
     await bridge.close()
   }

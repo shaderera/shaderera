@@ -187,7 +187,7 @@ const reportCompiles = (device: GPUDevice) => {
   ]) {
     const create = (d[name] as (descriptor: unknown) => unknown).bind(device)
     d[name] = (descriptor) => {
-      process.send?.({ alive: calling, compiling: true })
+      process.send?.({ alive: calling, slow: true })
       return create(descriptor)
     }
   }
@@ -497,11 +497,15 @@ process.on('message', async ({ id, request }: { id: number; request: Request }) 
   // A reply to this host's own request (askParent) is not a request.
   if (request === undefined) return
   calling = id
+  // A software adapter (no GPU) renders 10–100× slower: every call has the open's allowance.
+  if (software && request.type !== 'open') process.send?.({ alive: id, slow: true })
   try {
     // A lost device fails the call it happened in; the next call reopens on a new device.
     if (lost !== undefined && opened && request.type !== 'open' && request.type !== 'close') {
       lost = undefined
       source?.dispose?.()
+      // The reopen has the open's allowance (child.ts).
+      process.send?.({ alive: id, slow: true })
       await handle(opened)
     }
     gpuErrors.length = 0

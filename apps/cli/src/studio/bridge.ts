@@ -226,9 +226,18 @@ export const startBridge = async (o: {
       ...(r.variant ? { variant: r.variant } : {}),
       param: Object.entries(r.params).map(([k, v]) => `${k}=${JSON.stringify(v)}`),
     }
-    const { project: opened, child, more } = await open(flags)
-    // A cancelled job's host is closed: a frame that never settles ends with it.
-    const closeChild = () => void child.close()
+    const { project: opened, child, more: opener } = await open(flags)
+    // A cancelled job's hosts are closed, every one: a frame that never settles ends with them.
+    const hosts = [child]
+    const more = async () => {
+      const host = await opener()
+      hosts.push(host)
+      if (signal.aborted) void host.close()
+      return host
+    }
+    const closeChild = () => {
+      for (const host of hosts) void host.close()
+    }
     signal.addEventListener('abort', closeChild, { once: true })
     try {
       signal.throwIfAborted()
