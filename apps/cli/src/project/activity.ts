@@ -30,8 +30,15 @@ export type EntryInput =
     }
   | { kind: 'tool'; tool: string; ok: boolean; ms: number; summary?: Summary }
   | { kind: 'note'; text: string; comment?: string }
-  /** The studio's: the files an edit changed (at most EDIT_FILES names each). */
-  | { kind: 'edit'; files: { added: string[]; removed: string[]; changed: string[] } }
+  /**
+   * The studio's: the files an edit changed (at most EDIT_FILES names each), and `revision`, the
+   * tree's id after it (the `changed` event's).
+   */
+  | {
+      kind: 'edit'
+      revision: string
+      files: { added: string[]; removed: string[]; changed: string[] }
+    }
   /** The studio's: a render the page asked for, done or failed. */
   | {
       kind: 'render'

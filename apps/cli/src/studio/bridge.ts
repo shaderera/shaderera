@@ -361,6 +361,7 @@ export const startBridge = async (o: {
         record(root, {
           by: 'studio',
           kind: 'edit',
+          revision,
           files: {
             added: cap(changed.added),
             removed: cap(changed.removed),

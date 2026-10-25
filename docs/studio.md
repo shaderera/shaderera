@@ -466,7 +466,7 @@ The project's activity, oldest first: the last `limit` entries (1 to 1000).
 | `command` | `cli` | `command`, `args`, `exitCode`, `ok`, `summary` |
 | `tool` | `agent` | `tool`, `ok`, `ms`, `summary?` |
 | `note` | `agent`, `cli` | `text`, `comment?`: what the agent means to do (`activity add`) |
-| `edit` | `studio` | `files: {added, removed, changed}`, at most 50 names each |
+| `edit` | `studio` | `revision`, the tree's id after the edit (the `changed` event's); `files: {added, removed, changed}`, at most 50 names each |
 | `render` | `studio` | `job`, `ok`, `format`, `variant?`, `revision?`, `file` or `error` |
 | `share` | `studio` | `ok`, and `film`, `version`, `url`, or `error` |
 

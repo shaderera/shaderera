@@ -120,6 +120,14 @@ test('changed names the files, and the edit is in the activity', async () => {
   assert.deepEqual((edit.entry as { kind: string; files: unknown; by: string }).kind, 'edit')
   assert.deepEqual((edit.entry as { files: unknown }).files, changed.files)
   assert.equal((edit.entry as { by: string }).by, 'studio')
+  // The tree after the edit, for the page's "Copy diff": in the file, as in the event.
+  assert.equal((edit.entry as { revision: string }).revision, changed.revision)
+  const line = readFileSync(join(root, '.shaderera', 'activity.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l))
+    .find((e) => e.id === (edit.entry as { id: string }).id)
+  assert.equal(line.revision, changed.revision)
   sse.close()
 })
 
