@@ -364,12 +364,12 @@ test("shaderera studio --json: the page's console comes as log events, without a
 })
 
 /** `shaderera studio --json --no-open` on a project, and its events as they come. */
-const studioJson = (site: string, args: readonly string[] = []) => {
+const studioJson = (site: string, args: readonly string[] = [], env: NodeJS.ProcessEnv = {}) => {
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
   const cli = spawn(
     process.execPath,
     [main, 'studio', '--site', site, '--no-open', '--json', '--root', fixture(), ...args],
-    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+    { env: { ...process.env, HOME: home, USERPROFILE: home, ...env } },
   )
   let out = ''
   cli.stdout.on('data', (d: Buffer) => {
@@ -425,7 +425,7 @@ test('shaderera studio ends cleanly when its stdin closes or on a stop line', as
 
 test('shaderera studio: an id no page came for gives a new id and url, and goes on', async () => {
   const short = await startRelay({ ttlMs: 1500, alarm: true })
-  const s = studioJson(short.origin)
+  const s = studioJson(short.origin, [], { SHADERERA_STUDIO_EXPIRY_MS: '1500' })
   try {
     const first = await s.event((e) => e.event === 'url')
     const second = await s.event((e) => e.event === 'url' && e.id !== first.id)
@@ -472,5 +472,20 @@ test('shaderera studio: a page that leaves before pairing is no reload', async (
     s.cli.stdin.end()
     await s.exited
     await slow.close()
+  }
+})
+
+test('shaderera studio: a relay that expires an id long before its limit ends it, once', async () => {
+  // The relay expires ids after 300 ms; the CLI expects 1.5 s.
+  const hasty = await startRelay({ ttlMs: 300, alarm: true })
+  const s = studioJson(hasty.origin, [], { SHADERERA_STUDIO_EXPIRY_MS: '1500' })
+  try {
+    assert.equal(await s.exited, 2, s.out())
+    assert.equal(s.events().filter((e) => e.event === 'url').length, 1)
+    const last = s.events().at(-1)
+    assert.equal(last?.event, 'ended')
+    assert.match(String(last?.error), /expired studio session \w+ after 0\.\d s/)
+  } finally {
+    await hasty.close()
   }
 })

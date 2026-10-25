@@ -45,7 +45,9 @@ back.
 
 An id the CLI made itself that no page pairs with in 10 minutes expires (below). The CLI then
 makes a new id and prints its address (a second `url` event, not opened), and goes on waiting. An
-id from `--connect` belongs to the page that made it: when it expires, the command ends.
+id from `--connect` belongs to the page that made it: when it expires, the command ends. So does an id
+the relay expires well before 10 minutes (an older relay, or the wrong `--site`), exit 2: the CLI
+does not make one id after another.
 
 When the page closes, the CLI says so only if no page comes back within 10 seconds. Once paired,
 a reload comes back sooner (a new `page-hello`, or a request to the bridge, directly or through

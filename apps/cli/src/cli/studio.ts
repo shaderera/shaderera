@@ -84,7 +84,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   let expired: string | undefined
   let relay: ReturnType<typeof connectRelay>
   let end: RelayEnd | null
+  // How long the relay keeps an id no CLI paired with (docs/studio.md, "Expiry"). For tests:
+  // SHADERERA_STUDIO_EXPIRY_MS.
+  const expiryMs = Number(process.env.SHADERERA_STUDIO_EXPIRY_MS) || 10 * 60_000
+  let early: string | undefined
   for (;;) {
+    const since = Date.now()
     // The page pairs only if it holds the nonce, which only the page opened here has.
     const nonce = makeNonce()
     const page = pageUrl(site, id, nonce, v.connect !== undefined)
@@ -140,9 +145,15 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     // An id this CLI made that no page came for in time: the CLI waits on a new one. An id the
     // page made (--connect) belongs to that page, and ends.
     if (end && !end.paired && end.code === CLOSE.expired && !end.error && v.connect === undefined) {
-      expired = id
-      id = makeId()
-      continue
+      // Only an id that lived out the relay's limit: a relay that expires ids at once would
+      // have the CLI make one after another.
+      const lived = Date.now() - since
+      if (lived >= expiryMs * 0.9) {
+        expired = id
+        id = makeId()
+        continue
+      }
+      early = `The relay on ${site} expired studio session ${id} after ${(lived / 1000).toFixed(1)} s, not ${expiryMs / 60_000} minutes. Update the CLI (npm i shaderera@latest), or check --site.`
     }
     break
   }
@@ -150,7 +161,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   let error: string | undefined
   if (end && !end.paired) {
     // Never paired: there is no page to serve.
-    error = end.error ?? closeText(end.code, site, id)
+    error = end.error ?? early ?? closeText(end.code, site, id)
     code = EXIT.error
   } else if (end) {
     // Paired already: the page talks to the bridge directly, which keeps serving.
