@@ -1,15 +1,32 @@
-import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { hashInputs } from './bakes.ts'
-import { type Files, head, log, type Revision, readRevision } from './revisions.ts'
+import {
+  type Files,
+  head,
+  log,
+  type Revision,
+  readRevision,
+  removeFrozen,
+  unusedFrozen,
+} from './revisions.ts'
 
 /**
  * `shaderera prune`: removes the saved revisions nobody names, and the objects only they held.
  *
  * Kept: the head; every revision with a label; every revision a job in `versions/jobs/` names;
  * every revision whose files a bake stamp was made from; every revision `versions/comments.jsonl`
- * names (ADR 0025); every revision with a frozen copy under `.shaderera/revisions/` (a render may
- * be running from it); and the last `keep` saves. Removed: the other revisions' files (their log
+ * names (ADR 0025); every revision whose frozen copy under `.shaderera/revisions/` a live process
+ * uses or used in the last `GRACE_MS` (a render may be running from it); and the last `keep` saves.
+ * Every other frozen copy is removed: a render makes it again from the revision. Removed: the other revisions' files (their log
  * lines stay, and `versions/pruned.jsonl` says they were pruned), then every object no revision
  * still there names, unless it was used in the last `GRACE_MS` (a save beside the prune may be
  * about to name it: save marks each object it finds already stored). There is no lock: a save
@@ -28,6 +45,8 @@ export type Pruned = {
   removed: string[]
   /** The objects removed (or that would be), by hash. */
   objects: string[]
+  /** The frozen copies no live process uses that were removed (or would be), by revision id. */
+  copies: string[]
   /** The revisions that could not be removed now (a file held open): the next prune removes them. */
   left: string[]
   /** The bytes those revisions and objects held. */
@@ -84,6 +103,24 @@ const readAll = (root: string): Map<string, Revision> =>
 const size = (file: string) => {
   try {
     return statSync(file).size
+  } catch {
+    return 0
+  }
+}
+
+/** The bytes of the files in a folder, links not followed. */
+const folderSize = (dir: string): number => {
+  try {
+    return readdirSync(dir, { recursive: true })
+      .map((p) => {
+        try {
+          const s = lstatSync(join(dir, String(p)))
+          return s.isFile() ? s.size : 0
+        } catch {
+          return 0
+        }
+      })
+      .reduce((a, b) => a + b, 0)
   } catch {
     return 0
   }
@@ -151,7 +188,15 @@ export const prune = (
     for (const [, id] of readFileSync(comments, 'utf8').matchAll(/"([0-9a-f]{16})"/g))
       keep(id, 'a comment')
   const frozen = join(root, '.shaderera', 'revisions')
-  if (existsSync(frozen)) for (const id of readdirSync(frozen)) keep(id, 'a frozen copy')
+  const unused = unusedFrozen(root)
+  const copies = unused.filter((c) => now() - c.used >= GRACE_MS).map((c) => c.id)
+  if (existsSync(frozen))
+    for (const id of readdirSync(frozen))
+      if (HEX16.test(id) && !copies.includes(id))
+        keep(
+          id,
+          unused.some((c) => c.id === id) ? 'a frozen copy used just now' : 'a frozen copy in use',
+        )
   const saves: string[] = []
   for (const e of [...entries].reverse()) {
     if (saves.length >= o.keep) break
@@ -187,8 +232,9 @@ export const prune = (
     const objects = unnamed([...revisions].filter(([id]) => why.has(id)).map(([, r]) => r.files))
     const bytes =
       removed.reduce((n, id) => n + size(revisionFile(id)), 0) +
-      objects.reduce((n, h) => n + size(objectFile(h)), 0)
-    return { removed, objects, bytes, kept, left: [] }
+      objects.reduce((n, h) => n + size(objectFile(h)), 0) +
+      copies.reduce((n, id) => n + folderSize(join(frozen, id)), 0)
+    return { removed, objects, copies, bytes, kept, left: [] }
   }
 
   // Anything saved, restored or undone since the prune began is kept.
@@ -199,6 +245,17 @@ export const prune = (
   )
   removed = removed.filter((id) => !since.has(id))
   let bytes = 0
+  // The unused frozen copies, checked again just before each goes: one a render took since stays.
+  const gone: string[] = []
+  for (const id of copies) {
+    const again = unusedFrozen(root).find((c) => c.id === id)
+    if (!again || now() - again.used < GRACE_MS) continue
+    const n = folderSize(join(frozen, id))
+    if (removeFrozen(root, id)) {
+      bytes += n
+      gone.push(id)
+    }
+  }
   if (removed.length > 0) {
     const at = new Date(now()).toISOString()
     appendFileSync(
@@ -226,7 +283,7 @@ export const prune = (
     left = [...readAll(root).values()].map((r) => r.files)
   } catch {
     // A revision unreadable now (being written by hand?): every object stays.
-    return { removed, objects, bytes, kept, left: busy }
+    return { removed, objects, copies: gone, bytes, kept, left: busy }
   }
   for (const hash of unnamed(left)) {
     const file = objectFile(hash)
@@ -238,5 +295,5 @@ export const prune = (
       objects.push(hash)
     } catch {}
   }
-  return { removed, objects, bytes, kept, left: busy }
+  return { removed, objects, copies: gone, bytes, kept, left: busy }
 }

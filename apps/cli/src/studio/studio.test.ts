@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { Agent, request as httpRequest } from 'node:http'
 import { basename, join } from 'node:path'
 import {
@@ -561,6 +569,12 @@ test('/render renders on this machine into out/, and /render/<job>/file streams 
   assert.deepEqual([...file.body.subarray(1, 4)], [...Buffer.from('PNG')])
   assert.match(String(file.headers['content-disposition']), new RegExp(`-lighter-${job}\\.png`))
   assert.ok(existsSync(join(root, 'out', 'studio', `${basename(root)}-lighter-${job}.png`)))
+  // A second export of the variant and format replaces the first: one file of them is left.
+  const again = await renderJob({ format: 'png', variant: 'lighter', t: 0.25 })
+  assert.deepEqual(
+    readdirSync(join(root, 'out', 'studio')).filter((f) => /-lighter-[0-9a-f]{12}\.png$/.test(f)),
+    [`${basename(root)}-lighter-${again}.png`],
+  )
 
   const bad = await call(bridge.port, {
     method: 'POST',

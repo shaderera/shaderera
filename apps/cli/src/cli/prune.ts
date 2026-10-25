@@ -17,9 +17,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const dryRun = v['dry-run'] === true
   const r = prune(root, { keep, dryRun })
   for (const k of r.kept) console.log(`keep    ${k.id}  ${k.why.join(', ')}`)
-  for (const id of r.removed) console.log(`${dryRun ? 'would remove' : 'removed'} ${id}`)
+  const verb = dryRun ? 'would remove' : 'removed'
+  for (const id of r.removed) console.log(`${verb} ${id}`)
+  for (const id of r.copies) console.log(`${verb} frozen copy ${id}`)
   console.log(
-    `${dryRun ? 'would remove' : 'removed'} ${r.removed.length} revision(s) and ${r.objects.length} object(s): ${mb(r.bytes)}${dryRun ? ' (dry run: nothing was removed)' : ''}`,
+    `${verb} ${r.removed.length} revision(s), ${r.objects.length} object(s) and ${r.copies.length} frozen copy(ies): ${mb(r.bytes)}${dryRun ? ' (dry run: nothing was removed)' : ''}`,
   )
   if (r.left.length > 0) {
     const message = `${r.left.length} revision(s) could not be removed now (${r.left.join(', ')}: a file held open?); run shaderera prune again to finish.`
