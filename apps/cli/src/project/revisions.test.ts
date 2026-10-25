@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -16,6 +17,7 @@ import {
   head,
   materialize,
   readRevision,
+  releaseFrozen,
   restore,
   save,
   scan,
@@ -105,6 +107,34 @@ test('materialize writes a frozen copy that later edits do not touch', () => {
   writeFileSync(join(root, 'src', 'a.ts'), 'changed\n')
   assert.match(readFileSync(join(dir, 'src', 'a.ts'), 'utf8'), /One/)
   assert.equal(materialize(root, one.id), dir)
+})
+
+test('a frozen copy is removed when its last use ends, unless another live process uses it', () => {
+  const root = project()
+  const one = save(root, { by: 'person' })
+  const copies = join(root, '.shaderera', 'revisions')
+  // Two uses in this process: the copy stays until both end.
+  const dir = materialize(root, one.id)
+  materialize(root, one.id)
+  releaseFrozen(root, one.id)
+  assert.ok(existsSync(dir))
+  releaseFrozen(root, one.id)
+  assert.deepEqual(readdirSync(copies), [])
+  // Another live process (this one's parent) still renders from it: it stays.
+  materialize(root, one.id)
+  const using = join(copies, `${one.id}.using`)
+  writeFileSync(join(using, String(process.ppid)), '')
+  releaseFrozen(root, one.id)
+  assert.ok(existsSync(dir))
+  assert.deepEqual(readdirSync(using), [String(process.ppid)])
+  // A process that died while using it does not hold it.
+  rmSync(join(using, String(process.ppid)))
+  writeFileSync(join(using, '999999999'), '')
+  materialize(root, one.id)
+  releaseFrozen(root, one.id)
+  assert.deepEqual(readdirSync(copies), [])
+  // Releasing what this process never used removes nothing.
+  releaseFrozen(root, one.id)
 })
 
 test('a revision never stores or writes through a link, so restore cannot reach outside the project', () => {

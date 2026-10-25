@@ -33,7 +33,7 @@ import {
   videoOptionsOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { save } from '../project/revisions.ts'
+import { releaseFrozen, save } from '../project/revisions.ts'
 import { childOptions, open, parseRendering } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
@@ -850,6 +850,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     process.off('SIGTERM', interrupt)
     await Promise.all(extra.map((h) => h.close()))
     await child.close()
+    // The job's frozen copy goes once its hosts closed, unless another render uses it.
+    if (job) releaseFrozen(root, job.revision)
   }
 }
 

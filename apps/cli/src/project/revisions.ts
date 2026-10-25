@@ -470,6 +470,66 @@ export const fileAt = (root: string, id: string, path: string): Buffer | null =>
 export const materialize = (root: string, id: string): string => {
   const revision = readRevision(root, id)
   const dir = join(root, '.shaderera', 'revisions', id)
+  use(root, id)
   checkout(root, revision, dir)
   return dir
+}
+
+/**
+ * Who uses a frozen copy: one empty file per process, `.shaderera/revisions/<id>.using/<pid>`,
+ * and this process's own uses counted here, so the copy outlives every render made from it.
+ */
+const uses = new Map<string, { root: string; id: string; n: number }>()
+const usingDir = (root: string, id: string) => join(root, '.shaderera', 'revisions', `${id}.using`)
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+let hooked = false
+const use = (root: string, id: string) => {
+  const key = `${root}\0${id}`
+  const u = uses.get(key) ?? { root, id, n: 0 }
+  if (u.n === 0) {
+    mkdirSync(usingDir(root, id), { recursive: true })
+    writeFileSync(join(usingDir(root, id), String(process.pid)), '')
+  }
+  u.n++
+  uses.set(key, u)
+  if (!hooked) process.once('exit', releaseAll)
+  hooked = true
+}
+/** Removes this process's mark on a copy and, when no live process marks it, the copy. */
+const drop = (root: string, id: string) => {
+  const dir = usingDir(root, id)
+  try {
+    rmSync(join(dir, String(process.pid)), { force: true })
+    const others = existsSync(dir) ? readdirSync(dir).filter((p) => alive(Number(p))) : []
+    if (others.length > 0) return
+    rmSync(join(root, '.shaderera', 'revisions', id), { recursive: true, force: true })
+    rmSync(dir, { recursive: true, force: true })
+  } catch {
+    // A file a host still holds open (Windows): the copy stays, and the next release takes it.
+  }
+}
+const releaseAll = () => {
+  for (const { root, id } of uses.values()) drop(root, id)
+  uses.clear()
+}
+
+/**
+ * Ends one use of a revision's frozen copy (a render from it ended): when it was this process's
+ * last and no other live process uses it, the copy is removed. `materialize` makes it again when a
+ * render needs it. A process that exits with uses left removes its copies the same way.
+ */
+export const releaseFrozen = (root: string, id: string) => {
+  const key = `${root}\0${id}`
+  const u = uses.get(key)
+  if (!u) return
+  if (--u.n > 0) return
+  uses.delete(key)
+  drop(root, id)
 }

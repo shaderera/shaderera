@@ -161,6 +161,10 @@ test('render saves the revision it renders and tags the file; render --job saves
   assert.equal(frozen.status, 0, frozen.stderr)
   assert.equal((await versions()).log.length, saves)
   assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
+  // Its frozen copy went with the render; the next render --job makes it again.
+  assert.equal(existsSync(join(root, '.shaderera', 'revisions', id as string)), false)
+  assert.equal((await cli('render', '--job', 'final')).status, 0)
+  assert.equal(existsSync(join(root, '.shaderera', 'revisions', id as string)), false)
 })
 
 test('after prune --keep 0, render --job and restore still work, and diff says the pruned one was', {

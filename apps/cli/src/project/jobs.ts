@@ -20,7 +20,7 @@ import { hostOpener, openHosts } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { checkJobBakes, type JobBakes, pinBakes } from './bakes.ts'
 import { installedPackages, type Packages, packageChanges } from './dependencies.ts'
-import { type By, fileAt, materialize, readRevision, save } from './revisions.ts'
+import { type By, fileAt, materialize, readRevision, releaseFrozen, save } from './revisions.ts'
 
 /**
  * A render job: everything an export needs, frozen. It names a saved revision of the source
@@ -311,7 +311,10 @@ export const createJob = async (
   const files = readRevision(root, revision).files
   const lock = LOCKS.find((l) => files[l])
   const bakes = pinBakes(root, declared, revision, files)
-  const { packages } = await frozenBuild(root, revision, o.variant)
+  // Built only to find the packages: the copy goes unless a render is using it.
+  const { packages } = await frozenBuild(root, revision, o.variant).finally(() =>
+    releaseFrozen(root, revision),
+  )
   const frozen = {
     shaderera: 'job/3' as const,
     revision,

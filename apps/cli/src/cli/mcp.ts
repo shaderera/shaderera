@@ -14,7 +14,7 @@ import { findProject } from '../node/project.ts'
 import { createNodeSession, type NodeSession } from '../node/session.ts'
 import { createJob, listJobs, openJob, readJob, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, save } from '../project/revisions.ts'
+import { head, log, releaseFrozen, save } from '../project/revisions.ts'
 import { contactSheet, review, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { open, parse } from './args.ts'
@@ -521,6 +521,7 @@ export const createServer = (
             })
           } finally {
             await frozen.child.close()
+            releaseFrozen(root, job.revision)
           }
         }
         case 'save':

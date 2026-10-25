@@ -274,6 +274,9 @@ asked.
 - **The file stays in the project**, as `out/studio/<project>[-<variant>]-<job>.<mp4|mov|png>`.
   In the variant's name, anything but letters, digits, `_`, `.` and `-` becomes `_` (`16:9` is
   `16_9`).
+- **Only the newest export is kept** for each variant and format: when a job is done, the older
+  files of that name in `out/studio/` (another job id) are removed. A file you renamed or moved
+  out of `out/studio/` is never touched; keep an export by renaming it.
 
 ### `GET /render/<job>/file`
 

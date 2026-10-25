@@ -29,6 +29,7 @@ import { HOST, startRunner } from '../node/runner-server.ts'
 import { checkBakes } from '../project/bakes.ts'
 import { hashFile, save, scan, slash, treeId, validPath } from '../project/revisions.ts'
 import { toPng } from '../review/review.ts'
+import { keepNewestExport } from './exports.ts'
 import { telemetryStatus } from './telemetry.ts'
 
 export type StudioEvent =
@@ -275,6 +276,7 @@ export const startBridge = async (o: {
         await render(job, { ...(variant ? { variant } : {}), params, t })
         job.state = 'done'
         job.progress = 1
+        keepNewestExport(job.file)
         log('info', `render ${id}: ${slash(relative(root, job.file))}`)
       } catch (error) {
         job.state = 'failed'
