@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict'
-import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { IMAGES, ROTATE, record, summaryOf, tail } from './activity.ts'
+import { IMAGES, ROTATE, record, recordCommand, redact, summaryOf, tail } from './activity.ts'
 
 const png = (n = 8) => new Uint8Array(n).fill(7)
 
@@ -94,4 +102,58 @@ test('a summary is the counts by severity and the first three messages', () => {
   )
   assert.deepEqual(summaryOf([]), { error: 0, warning: 0, info: 0, messages: [] })
   assert.equal(summaryOf([f('error', 'y'.repeat(1000))]).messages[0]?.length, 300)
+})
+
+test('secrets stay out: credential-like flags are redacted, login and logout never recorded', () => {
+  assert.deepEqual(
+    redact([
+      '--token',
+      'abc',
+      '--api-key=k1',
+      '--SECRET',
+      's',
+      '--password',
+      'p',
+      '--passphrase=q',
+      '--keep',
+      '10',
+      '--root',
+      'r',
+      'check',
+    ]),
+    [
+      '--token',
+      '***',
+      '--api-key=***',
+      '--SECRET',
+      '***',
+      '--password',
+      '***',
+      '--passphrase=***',
+      '--keep',
+      '10',
+      '--root',
+      'r',
+      'check',
+    ],
+  )
+  // A flag with no value (a boolean) leaves the next flag alone.
+  assert.deepEqual(redact(['--token', '--json']), ['--token', '--json'])
+  const root = tempDir('activity')
+  writeFileSync(join(root, 'shaderera.json'), '{}')
+  for (const command of ['login', 'logout'])
+    recordCommand({
+      argv: [command, '--token', 't0k3n', '--root', root],
+      exitCode: 0,
+      findings: [],
+    })
+  recordCommand({ argv: ['share', '--token=t0k3n', '--root', root], exitCode: 0, findings: [] })
+  const entries = tail(root, 10)
+  assert.equal(entries.length, 1)
+  assert.ok(entries[0]?.kind === 'command')
+  assert.deepEqual(entries[0].args, ['--token=***', '--root', root])
+  assert.equal(
+    readFileSync(join(root, '.shaderera', 'activity.jsonl'), 'utf8').includes('t0k3n'),
+    false,
+  )
 })

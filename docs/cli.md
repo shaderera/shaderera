@@ -664,6 +664,9 @@ $ shaderera activity
   and the ones of dropped entries go with them.
 - **It never gets in the way.** A write that fails (a full disk, a folder it cannot write)
   changes nothing about the command: its output and exit code are the same.
+- **No secrets.** `login` and `logout` are never recorded, and the value of any flag whose name
+  holds `token`, `secret`, `key` or `pass` (any case: `--token`, `--api-key=…`, `--password`) is
+  written as `***`.
 - **It stays on this machine.** `.shaderera/` is never in a revision, so `share`, `fork` and
   `handoff` never carry it, and telemetry never reads it.
 

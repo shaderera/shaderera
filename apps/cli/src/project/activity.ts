@@ -179,6 +179,24 @@ export const projectRootOf = (argv: readonly string[]): string | undefined => {
 }
 
 /**
+ * What keeps secrets out of the activity, in one place: `login` and `logout` are never recorded,
+ * and a flag whose name looks like a credential has its value written as `***`.
+ */
+const SECRET_COMMANDS = new Set(['login', 'logout'])
+const SECRET_FLAG = /token|secret|key|pass/i
+
+/** `--token t` and `--token=t` as `--token ***` and `--token=***`; other args as they are. */
+export const redact = (args: readonly string[]): string[] =>
+  args.map((a, i) => {
+    const flag = /^--?([^=]+)=/.exec(a)
+    if (flag && SECRET_FLAG.test(flag[1] as string)) return `${a.slice(0, a.indexOf('='))}=***`
+    const before = args[i - 1]
+    if (!a.startsWith('-') && before && /^--?[^=]+$/.test(before) && SECRET_FLAG.test(before))
+      return '***'
+    return a
+  })
+
+/**
  * A command's entry (`by: cli`), from its exit code and findings, with the image it named
  * (activityImage). Nothing outside a project; never throws.
  */
@@ -193,6 +211,7 @@ export const recordCommand = (o: {
     const root = projectRootOf(o.argv)
     if (!root) return
     const [command = '', ...args] = o.argv
+    if (SECRET_COMMANDS.has(command)) return
     const png = file && statSync(file).size <= IMAGES.bytes ? readFileSync(file) : undefined
     record(
       root,
@@ -200,7 +219,9 @@ export const recordCommand = (o: {
         by: 'cli',
         kind: 'command',
         command,
-        args: args.slice(0, 20).map((a) => a.slice(0, 200)),
+        args: redact(args)
+          .slice(0, 20)
+          .map((a) => a.slice(0, 200)),
         exitCode: o.exitCode,
         ok: o.exitCode === 0,
         summary: summaryOf(o.findings),
