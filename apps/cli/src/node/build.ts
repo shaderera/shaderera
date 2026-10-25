@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { build } from 'vite'
@@ -33,14 +33,23 @@ export const plainError = (e: unknown): never => {
 
 /**
  * Removes the builds of processes that have exited, and the single shared build of versions
- * before 2026-10-12 (`.shaderera/node/entry.js`).
+ * before 2026-10-12 (`.shaderera/node/entry.js`). Processes that build at once (the chunks of one
+ * job, in one frozen copy) all find the same exited build: each moves it aside to a name of its
+ * own first, so only the one whose move succeeds removes it. Two removals of one folder at once
+ * fail with EPERM on Windows (#433). What cannot be removed now (a file held open) is left for a
+ * later sweep: a sweep never fails a build.
  */
 const sweep = (dir: string) => {
   if (!existsSync(dir)) return
   for (const name of readdirSync(dir)) {
-    const pid = /^(\d+)-\d+$/.exec(name)?.[1]
-    if (pid ? !alive(Number(pid)) : /\.js$/.test(name))
-      rmSync(join(dir, name), { recursive: true, force: true })
+    const pid = /^(\d+)-\d+(\.removing)?$/.exec(name)?.[1]
+    if (pid ? !alive(Number(pid)) : /\.js$/.test(name)) {
+      const aside = join(dir, `${process.pid}-${builds++}.removing`)
+      try {
+        renameSync(join(dir, name), aside)
+        rmSync(aside, { recursive: true, force: true })
+      } catch {}
+    }
   }
 }
 
