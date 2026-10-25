@@ -12,13 +12,21 @@ import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
 import { createNodeSession, type NodeSession } from '../node/session.ts'
-import { createJob, listJobs, openJob, readJob, safeName, videoOptionsOf } from '../project/jobs.ts'
+import {
+  createJob,
+  listJobs,
+  openJob,
+  readJob,
+  safeName,
+  videoOptionsOf,
+  windowOf,
+} from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { head, log, save } from '../project/revisions.ts'
 import { contactSheet, review, toPng } from '../review/review.ts'
 import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
-import { open, parse } from './args.ts'
+import { insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { valueAt } from './inspect.ts'
@@ -71,6 +79,36 @@ const frameStats = async (px: Uint8Array, width: number) => {
   }
 }
 
+/** A value as a message shows it: a string quoted, as the client sent it. */
+const shown = (x: unknown) => (typeof x === 'string' ? JSON.stringify(x) : String(x))
+
+/**
+ * The time `key` of a call (`fallback` when it is not given), in seconds inside the film, as the
+ * CLI checks its times (insideFilm); throws naming it when it is missing, not a number or outside.
+ */
+const timeOf = (
+  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+  a: { [k: string]: any },
+  key: string,
+  o: { tool: string; duration: number; fallback?: number },
+): number => {
+  const t = a[key] ?? o.fallback
+  if (t === undefined) throw new Error(`${o.tool} needs ${key} (seconds).`)
+  if (typeof t !== 'number' || !Number.isFinite(t))
+    throw new Error(`Not a time in seconds: ${key} ${shown(t)}.`)
+  insideFilm([t], o.duration)
+  return t
+}
+
+/** still's `times`: numbers of seconds (stillTimes then checks each is inside the film). */
+const timesOf = (times: unknown): number[] => {
+  if (times === undefined) return []
+  if (!Array.isArray(times)) throw new Error('times is a list of seconds.')
+  const bad = times.filter((t) => typeof t !== 'number' || !Number.isFinite(t))
+  if (bad.length > 0) throw new Error(`Not a time in seconds: ${bad.map(shown).join(', ')}.`)
+  return times
+}
+
 /** An image content block of a base64 PNG. */
 const image = (data: string) => ({ type: 'image', data, mimeType: 'image/png' })
 
@@ -103,7 +141,7 @@ const SEVERAL =
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
     'render_frame',
-    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version.',
+    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version.',
     {
       t: num,
       final: { type: 'boolean' },
@@ -155,7 +193,7 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'check',
-    `Like \`shaderera check\`: renders sampled t twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
+    `Like \`shaderera check\`: renders times sampled t (default 20, where the CLI's check takes 50) twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
     { times: num, seed: num, hdr10: { type: 'boolean' }, ...several },
     [],
   ],
@@ -297,7 +335,7 @@ export const createServer = (
       }
       const required = readRequirements(root)
       if (name === 'still') {
-        const given: number[] = Array.isArray(a.times) ? a.times : []
+        const given = timesOf(a.times)
         const every = typeof a.every === 'number' ? a.every : undefined
         if (given.length === 0 && every === undefined)
           throw new Error('still needs times or every.')
@@ -375,13 +413,16 @@ export const createServer = (
     const opened = own ?? (await session.open())
     const { manifest } = opened.project
     const c = opened.child
+    const at = (key: string, fallback?: number) =>
+      timeOf(a, key, { tool: name, duration: manifest.duration, fallback })
     try {
       switch (name) {
         case 'render_frame': {
+          const t = at('t')
           const start = performance.now()
           if (a.camera) await c.override(a.camera as Matrices)
           try {
-            const r = await c.render(a.t, a.final === false ? 'preview' : 'final')
+            const r = await c.render(t, a.final === false ? 'preview' : 'final')
             const ms = performance.now() - start
             const stats = { ...(await frameStats(r.pixels, manifest.width)), layers: r.layers, ms }
             const text = { type: 'text', text: JSON.stringify(stats) }
@@ -389,7 +430,7 @@ export const createServer = (
             const region: Region | undefined = Array.isArray(a.region)
               ? parseRegion(a.region.join(','))
               : typeof a.object === 'string'
-                ? objectRegion(await c.inspect(a.t), a.object)
+                ? objectRegion(await c.inspect(t), a.object)
                 : undefined
             if (!region) {
               const { width, height } = manifest
@@ -420,7 +461,7 @@ export const createServer = (
           }
         }
         case 'still': {
-          const given: number[] = Array.isArray(a.times) ? a.times : []
+          const given = timesOf(a.times)
           const every = typeof a.every === 'number' ? a.every : undefined
           if (given.length === 0 && every === undefined)
             throw new Error('still needs times or every.')
@@ -439,38 +480,39 @@ export const createServer = (
           ]
         }
         case 'inspect': {
+          // track reads a window, not one t: it runs before t is checked.
           if (typeof a.track === 'string') {
+            const { from, to } = windowOf(manifest, a.from, a.to)
             if (!c.has.inspect) throw new Error('This source has no inspect(t).')
-            const curve = await track((t) => c.inspect(t), a.track, {
-              fps: manifest.fps,
-              from: typeof a.from === 'number' ? a.from : 0,
-              to: typeof a.to === 'number' ? a.to : manifest.duration,
-            })
+            const curve = await track((t) => c.inspect(t), a.track, { fps: manifest.fps, from, to })
             if (curve.every((p) => p.value === undefined))
               throw new Error(`Nothing at ${a.track} in inspect.`)
             return curve
           }
-          if (typeof a.t !== 'number') throw new Error('inspect needs t, or track.')
-          const json = await inspect(c, a.t)
+          if (a.t === undefined) throw new Error('inspect needs t, or track.')
+          const json = await inspect(c, at('t'))
           const value = a.path ? valueAt(json, a.path) : json
           if (value === undefined) throw new Error(`Nothing at ${a.path} in inspect.`)
           return value
         }
         case 'compare': {
-          const [x, y] = [await inspect(c, a.a), await inspect(c, a.b)]
+          const [ta, tb] = [at('a'), at('b')]
+          const [x, y] = [await inspect(c, ta), await inspect(c, tb)]
           const under = (j: Json) => (a.path ? (valueAt(j, a.path) ?? null) : j)
-          const pixels = diffPixels(await final(c, a.a), await final(c, a.b))
+          const pixels = diffPixels(await final(c, ta), await final(c, tb))
           return { changes: diffJson(under(x), under(y)), pixels }
         }
         case 'pick': {
-          const pick = await c.pick(a.t, a.x, a.y)
-          const object = pick && c.has.inspect ? byId(await c.inspect(a.t), pick.id) : undefined
+          const t = at('t')
+          const pick = await c.pick(t, a.x, a.y)
+          const object = pick && c.has.inspect ? byId(await c.inspect(t), pick.id) : undefined
           return { pick, object: object?.value ?? null, source: object?.value.source ?? null }
         }
         case 'get_camera': {
-          const matrices = await c.camera(a.t)
+          const t = at('t')
+          const matrices = await c.camera(t)
           if (!matrices) throw new Error('This source has no camera.')
-          const json = c.has.inspect ? await c.inspect(a.t) : null
+          const json = c.has.inspect ? await c.inspect(t) : null
           const found = objects(json).find(
             (o) => o.value.id === 'camera' || /camera$/i.test(o.path),
           )
@@ -478,8 +520,9 @@ export const createServer = (
           return { matrices, description: describeCamera(matrices), path: found?.path, source }
         }
         case 'get_source': {
-          const found = byId(await inspect(c, a.t ?? 0), a.id)
-          if (!found) throw new Error(`No object with id ${a.id} in inspect(${a.t ?? 0}).`)
+          const t = at('t', 0)
+          const found = byId(await inspect(c, t), a.id)
+          if (!found) throw new Error(`No object with id ${a.id} in inspect(${t}).`)
           if (typeof found.value.source !== 'string') throw new Error(`${a.id} has no source.`)
           return { path: found.path, ...sourceAt(root, found.value.source) }
         }
@@ -498,6 +541,8 @@ export const createServer = (
         case 'render': {
           const out = typeof a.out === 'string' ? inside(root, a.out) : undefined
           if (typeof a.job !== 'string') {
+            // Before the save and ffmpeg (exportVideo checks it too).
+            windowOf(manifest, a.from, a.to)
             const hdr = a.hdr10 === true ? await open({ ...flags, root, hdr10: true }) : undefined
             try {
               const host = hdr?.child ?? c

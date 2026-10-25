@@ -12,6 +12,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
@@ -24,6 +25,7 @@ import { dirname, join, relative, sep } from 'node:path'
  *   versions/objects/<sha256>     file contents, stored once
  *   versions/revisions/<id>.json  one revision: its files (path → sha256), parent, label
  *   versions/log.jsonl            what happened, in order: save, restore, undo
+ *   versions/pruned.jsonl         the revisions `shaderera prune` removed (project/prune.ts)
  *
  * A revision's id is the hash of its file list, so the same tree always has the same id.
  *
@@ -213,12 +215,36 @@ export const treeId = (files: Files): string =>
     .digest('hex')
     .slice(0, 16)
 
+/** The ids `shaderera prune` removed, from `versions/pruned.jsonl` (a torn line is skipped). */
+export const prunedIds = (root: string): Set<string> => {
+  const file = join(store(root), 'pruned.jsonl')
+  const ids = new Set<string>()
+  if (!existsSync(file)) return ids
+  for (const line of readFileSync(file, 'utf8').split('\n'))
+    try {
+      const { id } = JSON.parse(line) as { id?: unknown }
+      if (typeof id === 'string') ids.add(id)
+    } catch {}
+  return ids
+}
+
+const wasPruned = (id: string) =>
+  new Error(
+    `Revision ${id} was pruned (shaderera prune): its files are no longer kept, so it cannot be restored, compared or rendered.`,
+  )
+
 /** A revision, checked: its id is the hash of its files, and every path and hash is well formed. */
 export const readRevision = (root: string, id: string): Revision => {
   if (!/^[0-9a-f]{16}$/.test(id)) throw new Error(`No revision ${id}.`)
   const file = join(store(root), 'revisions', `${id}.json`)
-  if (!existsSync(file)) throw new Error(`No revision ${id}.`)
-  const revision = JSON.parse(readFileSync(file, 'utf8')) as Revision
+  let text: string
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch {
+    // Gone, or removed by a prune as it was read.
+    throw prunedIds(root).has(id) ? wasPruned(id) : new Error(`No revision ${id}.`)
+  }
+  const revision = JSON.parse(text) as Revision
   const files = revision.files ?? {}
   const bad = Object.entries(files).find(([p, h]) => !validPath(p) || !/^[0-9a-f]{64}$/.test(h))
   if (bad) throw new Error(`Revision ${id} names an invalid file: ${JSON.stringify(bad[0])}.`)
@@ -324,7 +350,12 @@ export const save = (
   mkdirSync(objects, { recursive: true })
   for (const [path, hash] of Object.entries(files)) {
     const object = join(objects, hash)
-    if (existsSync(object)) continue
+    // Already stored: marked used now, so a prune running beside this save keeps it (prune.ts).
+    try {
+      const now = new Date()
+      utimesSync(object, now, now)
+      continue
+    } catch {}
     // Copied as it is hashed: a file edited since the scan is never stored under the old hash.
     const tmp = `${object}.${process.pid}.tmp`
     if (hashFile(join(root, path), tmp) !== hash) {
@@ -367,12 +398,23 @@ export const readObject = (root: string, hash: string): Buffer => {
  */
 const checkout = (root: string, target: Revision, dir = root) => {
   const now = existsSync(dir) ? scan(dir) : {}
-  const corrupt = (hash: string) => new Error(`versions/objects/${hash} is corrupt.`)
+  // An object a prune removed while this ran (its revision is listed pruned first) says so.
+  const corrupt = (hash: string) =>
+    prunedIds(root).has(target.id)
+      ? wasPruned(target.id)
+      : new Error(`versions/objects/${hash} is corrupt.`)
+  const intact = (object: string, hash: string) => {
+    try {
+      return hashFile(object) === hash
+    } catch {
+      return false
+    }
+  }
   const writes = Object.entries(target.files)
     .filter(([path, hash]) => now[path] !== hash)
     .map(([path, hash]) => {
       const object = join(store(root), 'objects', hash)
-      if (!existsSync(object) || hashFile(object) !== hash) throw corrupt(hash)
+      if (!intact(object, hash)) throw corrupt(hash)
       return [inside(dir, path), object, hash] as const
     })
   const removes = Object.keys(now)

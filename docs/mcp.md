@@ -30,12 +30,14 @@ above it, up to the first `shaderera.json`. A call that finds none is an error t
 after it started, and several projects, each with its own child.
 
 For each project the server keeps one child process open and reopens it (rebuilding the entry) on the next call
-after any file under the root changes, except in `node_modules`, `.shaderera` and `out`. So an
+after any file under the root changes, except in `node_modules`, `.shaderera`, `out`, `versions`
+and `NVIDIA Corporation` (a folder the NVIDIA driver can write there). So an
 edit is picked up without restarting the server. `shaderera.json` is read again with it, so a new
 size or fps reaches every tool.
 
 Tool calls run one at a time, whole: a `render_frame` with a `camera` never reaches a frame that
-another call renders. The project's own console output goes to the server's stderr, so stdout
+another call renders. A call whose frame never settles fails after a minute without a sign of work (`--timeout`,
+[cli.md](cli.md#common-flags)), naming its t, and the calls after it run. The project's own console output goes to the server's stderr, so stdout
 carries only MCP.
 
 ## Tools
@@ -50,19 +52,22 @@ variant; main is left out when a variant has its width, height, fps, duration an
 result names that variant as `main`). Each variant opens its own child, with `params`, and they
 run at once, as the CLI's `--variant a,b` does ([cli.md](cli.md#common-flags)): one call looks
 at, checks or reviews a film in 16:9 and 9:16 together
-([guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once)). Errors come back as
-`isError` with the message.
+([guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once)). Every time a tool
+takes (`t`, `a`, `b`, `times`, `from`, `to`) is checked before anything renders, as the CLI checks
+its times: a time missing, not a number or outside the film (from 0 up to but not including its
+duration) is refused, named (`Outside the film (0 to 10 s): 11.`). Errors come back as `isError`
+with the message.
 
 | Tool | Input | Output |
 |---|---|---|
-| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`), `scale?` 1–16; `variant?`, `params?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side unless `full: true`; a region is enlarged `scale` times, never scaled down |
+| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`, or a text run with its `box`), `scale?` 1–16; `variant?`, `params?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side unless `full: true`; a region is enlarged `scale` times, never scaled down |
 | `still` | `times?` (seconds), `every?`; `variant?` or `variants?`, `params?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. With `variants`, `{ times, variants: [{ variant, width, height }] }` and one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area `requirements.json` declares dashed. At most 64 frames in all; no file is written |
 | `inspect` | `t`; `path?`; or `track` (a path), `from?`, `to?`; `variant?`, `params?` | the inspect JSON at `t`, or the value at `path`. With `track`, like `shaderera inspect --track --json` ([cli.md](cli.md#inspect)): `[{ t, value, speed? }]` at every frame from `from` (default 0) to `to` (default the duration), `speed` per second for numbers and arrays of numbers |
 | `compare` | `a`, `b`; `path?`; `variant?`, `params?` | `{ changes, pixels }`: `diffJson` of the inspects at the two times (under `path`) and `diffPixels` of the two final frames. Not `shaderera diff`, which compares two revisions |
 | `pick` | `t`, `x`, `y` | `{ pick, object, source }`: the `Pick`, the inspected object with that `id`, its `source` |
 | `get_camera` | `t` | `{ matrices, description, path, source }`; `description` is eye, forward, up, fovY, aspect, near, far |
 | `get_source` | `id`; `t?` (default 0) | `{ path, file, line, column, around }`; `around` is ±8 numbered lines. Only a file inside the project (symbolic links followed) is read |
-| `check` | `times?` (default 20), `seed?`, `hdr10?`; `variants?` | like `shaderera check`: `{ times, failures, what, msPerFrame, previewVsFinal }`. `hdr10: true` checks the film's HDR10 render (its P010, the peak, the layers' light) and adds `light: { maxCll, maxFall }` in cd/m². With `variants`, `{ variants: [{ variant, ...that }] }` |
+| `check` | `times?` (default 20, where the CLI's `check` takes 50), `seed?`, `hdr10?`; `variants?` | like `shaderera check`: `{ times, failures, what, msPerFrame, previewVsFinal }`. `hdr10: true` checks the film's HDR10 render (its P010, the peak, the layers' light) and adds `light: { maxCll, maxFall }` in cd/m². With `variants`, `{ variants: [{ variant, ...that }] }` |
 | `render` | `from?`, `to?`, `out?`, `job?`, `hdr10?`, `softwareGpu?` | like `shaderera render`: `{ out, frames, seconds }` (needs ffmpeg). `out` must be inside the project. With `job` (a name from the `job` tool), renders that frozen job instead of the working tree. `hdr10: true` (not with `job`: a job is made with it) makes an HDR10 mp4 of a film with `hdr10` in shaderera.json and adds its measured `light` ([HDR10](delivery.md#hdr10)). A source that is not deterministic is refused and no file is left ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). A host on a software GPU is refused before anything is saved unless `softwareGpu: true` ([a software GPU](cli.md#a-software-gpu)) |
 | `save` | `label?`, `note?` | like `shaderera save`: the revision, saved in `versions/`; the same files always have the same id |
 | `versions` | — | like `shaderera versions`: `{ head, log, jobs }`: the head revision, the log of saves, restores and undos, and the render jobs |

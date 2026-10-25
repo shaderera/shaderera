@@ -107,8 +107,8 @@ The CLI and MCP can only show and change what the source exposes.
   `stagger` so they can be selected and changed.
 - **Report text** as runs, `{ id: 'title', text: 'Hello', box: [160, 236, 420, 84] }` (`box` is
   `[x, y, width, height]` in frame pixels), so review can read it. Any other shape is skipped with
-  no warning (`docs/protocol.md`, "Text runs"). Add a `bbox` (same form) for what should be looked
-  at closely, so `still --object` can find it.
+  no warning (`docs/protocol.md`, "Text runs"). `still --object <id>` finds a run by its `box`;
+  add a `bbox` (same form) to anything else that should be looked at closely.
 - **Params** are a JSON Schema in `shaderera.json` with titles and good defaults, for the few
   controls a non-programmer wants. If a param overrides a literal, say so in the README.
 - **Variants** (`16:9`, `9:16`, a cutdown) are outputs the film lays itself out for. The source

@@ -24,7 +24,9 @@ npx shaderera publish path/to/plugin path/to/other --site <folder>
 A component, preset or media plugin is copied into the project at the paths it lists, with what it
 is built on, once. A later `add` never replaces a file the project already has; `--force` replaces
 only the plugin named. Once copied, the files are the project's own code: to stop using one,
-delete its files.
+delete its files. A media plugin also gets a record in the project's `ASSETS.md` (made when
+missing): its version, licence, source and files, between `<!-- plugin <name> -->` markers that a
+later `add` of it replaces. Delete the record with the files.
 
 `add` and `remove` take several names. `add` resolves every one, and what each is built on,
 before it copies anything: if one is missing, nothing is copied. A range named on the command

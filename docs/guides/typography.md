@@ -15,7 +15,7 @@ A new project has no font: Shaderera has no house style. Find one in this order:
 3. **Shaderera's own plugins** have four OFL fonts: `font-ibm-plex-mono`, `font-ibm-plex-sans`,
    `font-instrument-serif` and `font-stix-two-text`. Add one when the person picks it:
    `npx shaderera add font-ibm-plex-sans` copies the files and their licence into
-   `assets/fonts/`.
+   `assets/fonts/` and records the font in `ASSETS.md`.
 
 Any font needs a licence that allows the use (OFL faces do), recorded in `ASSETS.md`.
 
