@@ -228,16 +228,23 @@ export const prunedIds = (root: string): Set<string> => {
   return ids
 }
 
+const wasPruned = (id: string) =>
+  new Error(
+    `Revision ${id} was pruned (shaderera prune): its files are no longer kept, so it cannot be restored, compared or rendered.`,
+  )
+
 /** A revision, checked: its id is the hash of its files, and every path and hash is well formed. */
 export const readRevision = (root: string, id: string): Revision => {
   if (!/^[0-9a-f]{16}$/.test(id)) throw new Error(`No revision ${id}.`)
   const file = join(store(root), 'revisions', `${id}.json`)
-  if (!existsSync(file) && prunedIds(root).has(id))
-    throw new Error(
-      `Revision ${id} was pruned (shaderera prune): its files are no longer kept, so it cannot be restored, compared or rendered.`,
-    )
-  if (!existsSync(file)) throw new Error(`No revision ${id}.`)
-  const revision = JSON.parse(readFileSync(file, 'utf8')) as Revision
+  let text: string
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch {
+    // Gone, or removed by a prune as it was read.
+    throw prunedIds(root).has(id) ? wasPruned(id) : new Error(`No revision ${id}.`)
+  }
+  const revision = JSON.parse(text) as Revision
   const files = revision.files ?? {}
   const bad = Object.entries(files).find(([p, h]) => !validPath(p) || !/^[0-9a-f]{64}$/.test(h))
   if (bad) throw new Error(`Revision ${id} names an invalid file: ${JSON.stringify(bad[0])}.`)
@@ -391,12 +398,23 @@ export const readObject = (root: string, hash: string): Buffer => {
  */
 const checkout = (root: string, target: Revision, dir = root) => {
   const now = existsSync(dir) ? scan(dir) : {}
-  const corrupt = (hash: string) => new Error(`versions/objects/${hash} is corrupt.`)
+  // An object a prune removed while this ran (its revision is listed pruned first) says so.
+  const corrupt = (hash: string) =>
+    prunedIds(root).has(target.id)
+      ? wasPruned(target.id)
+      : new Error(`versions/objects/${hash} is corrupt.`)
+  const intact = (object: string, hash: string) => {
+    try {
+      return hashFile(object) === hash
+    } catch {
+      return false
+    }
+  }
   const writes = Object.entries(target.files)
     .filter(([path, hash]) => now[path] !== hash)
     .map(([path, hash]) => {
       const object = join(store(root), 'objects', hash)
-      if (!existsSync(object) || hashFile(object) !== hash) throw corrupt(hash)
+      if (!intact(object, hash)) throw corrupt(hash)
       return [inside(dir, path), object, hash] as const
     })
   const removes = Object.keys(now)

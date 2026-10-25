@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import {
+  appendFileSync,
   cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   utimesSync,
   writeFileSync,
@@ -177,4 +179,38 @@ test('prune removes the frozen copies nobody uses, and keeps one a live process 
   // The revision stays (a save), and a render makes its copy again.
   assert.ok(existsSync(join(materialize(root, a), 'asset.bin')))
   releaseFrozen(root, a)
+})
+
+test('a revision file held open stays with its objects, and the next prune removes it', () => {
+  const root = project()
+  const a = saveWith(root, 'a held')
+  const b = saveWith(root, 'b gone')
+  saveWith(root, 'head')
+  age(root)
+  const held = (file: string) => {
+    if (file.endsWith(`${a}.json`)) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' })
+    rmSync(file, { force: true })
+  }
+  const first = prune(root, { keep: 0, remove: held })
+  assert.deepEqual(first.removed, [b])
+  assert.deepEqual(first.left, [a])
+  assert.deepEqual(first.objects, [hashOf('b gone')])
+  assert.ok(readRevision(root, a))
+  const second = prune(root, { keep: 0 })
+  assert.deepEqual([second.removed, second.left, second.objects], [[a], [], [hashOf('a held')]])
+})
+
+test('a restore that races a prune says the revision was pruned, not that an object is corrupt', () => {
+  const root = project()
+  const a = saveWith(root, 'only in a')
+  saveWith(root, 'head')
+  // The prune has listed a and removed its object, but not yet its file.
+  appendFileSync(join(root, 'versions', 'pruned.jsonl'), `${JSON.stringify({ id: a })}\n`)
+  rmSync(join(root, 'versions', 'objects', hashOf('only in a')))
+  assert.throws(() => restore(root, a), new RegExp(`Revision ${a} was pruned`))
+  // Without the prune, a missing object is corruption.
+  const b = saveWith(root, 'only in b')
+  saveWith(root, 'head again')
+  rmSync(join(root, 'versions', 'objects', hashOf('only in b')))
+  assert.throws(() => restore(root, b), /is corrupt/)
 })
