@@ -457,6 +457,98 @@ test('MCP still, check and review take variants: one host each, one sheet side b
   }
 })
 
+test('restore, undo and diff go back and compare revisions; the next call sees the files', async () => {
+  const root = copy('./fixtures/mcp/')
+  const { call, close } = await connect(root)
+  try {
+    const file = join(root, 'src', 'composition.ts')
+    const before = readFileSync(file, 'utf8')
+    const first = await call('save', { label: 'first' })
+    writeFileSync(file, `${before}\n// edited\n`)
+    const second = await call('save', { label: 'second' })
+
+    const diff = await call('diff', { a: first.id, b: second.id })
+    assert.deepEqual(diff.changed, ['src/composition.ts'])
+    assert.match(diff.patch, /\+\/\/ edited/)
+    assert.equal((await call('diff', { a: first.id, stat: true })).patch, undefined)
+
+    const back = await call('undo', {})
+    assert.equal(back.id, first.id)
+    assert.equal(back.files, undefined)
+    assert.equal(readFileSync(file, 'utf8'), before)
+    await call('render_frame', { t: 0 })
+
+    assert.equal((await call('restore', { id: second.id })).id, second.id)
+    assert.match(readFileSync(file, 'utf8'), /\/\/ edited/)
+    const log = (await call('versions', {})).log
+    assert.deepEqual(
+      log.slice(-2).map((e: { action: string; by: string }) => [e.action, e.by]),
+      [
+        ['undo', 'agent'],
+        ['restore', 'agent'],
+      ],
+    )
+  } finally {
+    await close()
+  }
+})
+
+test('restore puts back a clip the open child is decoding: the child closes first', async () => {
+  // While the session's child plays a clip (one too long for the pipe), ffmpeg holds the file open; Windows refuses to
+  // replace a file held open, which left a half-restored tree.
+  const root = tempDir('mcp-restore-clip')
+  mkdirSync(join(root, 'src'))
+  mkdirSync(join(root, 'assets'))
+  const clip = join(root, 'assets', 'clip.mp4')
+  const make = (color: string) =>
+    spawnSync('ffmpeg', [
+      '-v',
+      'error',
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      `color=c=${color}:s=320x240:r=10:d=10`,
+      '-pix_fmt',
+      'yuv420p',
+      clip,
+    ])
+  make('red')
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/c.ts', fps: 10, duration: 1, width: 320, height: 240 }),
+  )
+  writeFileSync(
+    join(root, 'src', 'c.ts'),
+    `export default async ({ io }) => {
+  const clip = await io.video('assets/clip.mp4')
+  const canvas = io.canvas(320, 240)
+  const ctx = canvas.getContext('2d')
+  return {
+    render: async (t) => {
+      const image = ctx.createImageData(320, 240)
+      image.data.set(await clip.frame(Math.min(9, Math.floor(t * 10))))
+      ctx.putImageData(image, 0, 0)
+      return { color: canvas }
+    },
+  }
+}`,
+  )
+  const { call, close } = await connect(root)
+  try {
+    const red = await call('save', { label: 'red' })
+    make('blue')
+    await call('save', { label: 'blue' })
+    const blue = JSON.parse((await call('render_frame', { t: 0.5 })).content[0].text).meanRgba
+    // The decoder now holds assets/clip.mp4 open.
+    assert.equal((await call('restore', { id: red.id })).id, red.id)
+    const back = JSON.parse((await call('render_frame', { t: 0.5 })).content[0].text).meanRgba
+    assert.ok(back[0] > 200 && blue[2] > 200, `${back} after ${blue}`)
+  } finally {
+    await close()
+  }
+})
+
 test('inspect with track returns the curve inspect --track gives', async () => {
   const { call, close } = await connect(fixture)
   try {

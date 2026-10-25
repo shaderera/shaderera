@@ -12,6 +12,7 @@ import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
 import { createNodeSession, type NodeSession } from '../node/session.ts'
+import { diffRevisions } from '../project/diff.ts'
 import {
   createJob,
   listJobs,
@@ -22,7 +23,7 @@ import {
   windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, releaseFrozen, save, slash } from '../project/revisions.ts'
+import { head, log, releaseFrozen, restore, save, slash, undo } from '../project/revisions.ts'
 import { contactSheet, type ReviewReport, review, toPng } from '../review/review.ts'
 import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
@@ -239,6 +240,24 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
     [],
   ],
   [
+    'restore',
+    'Like `shaderera restore <id>`: makes the project that revision (the working tree is saved first); returns the revision now checked out.',
+    { id: str },
+    ['id'],
+  ],
+  [
+    'undo',
+    'Like `shaderera undo`: returns the project to the previous revision (unsaved edits are saved first); returns the revision now checked out.',
+    {},
+    [],
+  ],
+  [
+    'diff',
+    'Like `shaderera diff <a> [<b>]`: the files added, removed and changed from revision a to b (or to the working tree), and a unified patch of their text unless stat: true.',
+    { a: str, b: str, stat: { type: 'boolean' } },
+    ['a'],
+  ],
+  [
     'job',
     'Like `shaderera job`: freezes a render job: a revision (the project is saved first unless revision is given), a variant from shaderera.json, params over the defaults, an optional window. hdr10: true makes a job that renders an HDR10 mp4 (shaderera.json needs hdr10). Returns the job.',
     {
@@ -408,6 +427,24 @@ export const createServer = (
     } finally {
       await Promise.all(hosts.map((o) => o.child.close()))
     }
+  }
+  /** The tools on versions/ alone: no child opens for them. */
+  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+  const revisions: { [name: string]: (root: string, a: { [k: string]: any }) => unknown } = {
+    restore: (root, a) => {
+      if (typeof a.id !== 'string') throw new Error('restore needs id: a revision from versions.')
+      const { files, ...r } = restore(root, a.id, 'agent')
+      return r
+    },
+    undo: (root) => {
+      const { files, ...r } = undo(root, 'agent')
+      return r
+    },
+    diff: (root, a) => {
+      if (typeof a.a !== 'string') throw new Error('diff needs a: a revision from versions.')
+      const d = diffRevisions(root, a.a, typeof a.b === 'string' ? a.b : undefined)
+      return a.stat === true ? { added: d.added, removed: d.removed, changed: d.changed } : d
+    },
   }
   // The low-level Server does not check arguments against a tool's input schema: they come as
   // the client sent them, and each tool reads what it needs.
@@ -671,12 +708,17 @@ export const createServer = (
         if (!tools.some(([n]) => n === params.name)) throw new Error(`Unknown tool ${params.name}.`)
         const { root } = await projectOf(dir, a.root)
         session = sessionOf(root)
-        return call(root, session, params.name, a)
+        const onVersions = revisions[params.name]
+        if (!onVersions) return call(root, session, params.name, a)
+        // restore and undo replace files the child (and its clips' ffmpeg) may hold open, which
+        // Windows refuses: close it first. The next call opens it again on the new files.
+        if (params.name !== 'diff') await session.drop()
+        return onVersions(root, a)
       })
       const content = IMAGES.has(params.name) ? r : [{ type: 'text', text: JSON.stringify(r) }]
       return { content }
     } catch (e) {
-      if (/exited|took longer/.test(String(e))) session?.drop()
+      if (/exited|took longer/.test(String(e))) void session?.drop()
       return { content: [{ type: 'text', text: (e as Error).message }], isError: true }
     }
   })
