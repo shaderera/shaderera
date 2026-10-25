@@ -2,7 +2,16 @@
 // project's code may not: the derived-data cache, decoded video frames and baked frames. The Node host asks
 // over IPC (child.ts), the browser host's worker over the runner server (runner-plugin.ts).
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { insideForRead } from './inside.ts'
 
@@ -182,12 +191,62 @@ export const clipDecoders = (): number[] =>
   [...shared.values()].flatMap((v) => (v.reader.pid === undefined ? [] : [v.reader.pid]))
 
 /**
+ * How many bytes a film's cache (`.shaderera/cache/`) may hold: 1 GiB, or
+ * `SHADERERA_FILM_CACHE_MB` megabytes.
+ */
+export const cacheLimit = (env: NodeJS.ProcessEnv = process.env): number => {
+  const mb = env.SHADERERA_FILM_CACHE_MB
+  if (mb === undefined || mb === '') return 1024 * 1024 * 1024
+  const n = Number(mb)
+  if (!Number.isFinite(n) || n < 0)
+    throw new Error(`SHADERERA_FILM_CACHE_MB is a number of megabytes, not ${JSON.stringify(mb)}.`)
+  return Math.floor(n * 1024 * 1024)
+}
+
+/** A cache entry's name: its key. Anything else there (a host's file being written) is not one. */
+const ENTRY = /^[0-9a-f]{64}$/
+
+/**
+ * Removes the least recently used entries of a cache folder until it holds at most `limit` bytes,
+ * never `keep` (the entry just put). An entry's modification time is its last use: a put writes
+ * it and a get touches it. A file another host is writing (`<key>.<pid>`) is not an entry, and one
+ * that cannot be removed now is left.
+ */
+const evict = (dir: string, limit: number, keep: string) => {
+  const entries = readdirSync(dir)
+    .filter((n) => ENTRY.test(n))
+    .flatMap((name) => {
+      try {
+        const s = statSync(join(dir, name))
+        return [{ name, size: s.size, used: s.mtimeMs }]
+      } catch {
+        return []
+      }
+    })
+  let total = entries.reduce((sum, e) => sum + e.size, 0)
+  for (const e of entries.sort((a, b) => a.used - b.used)) {
+    if (total <= limit) break
+    if (e.name === keep) continue
+    try {
+      rmSync(join(dir, e.name))
+      total -= e.size
+    } catch {}
+  }
+}
+
+/**
  * The services for one project: answers each request, or throws. `bakes` are the frames of each
  * bake, checked against its stamp before the source opened (project/bakes.ts): the only files
  * outside the project a host may read. A clip has one decoder for every host of this process that
- * opened it (`shared`), and it ends when the last of them closes it.
+ * opened it (`shared`), and it ends when the last of them closes it. The cache holds at most
+ * `cacheLimit` bytes, dropping the least recently used entries past it.
  */
-export const createServices = (root: string, bakes: BakeFrames = {}) => {
+export const createServices = (
+  root: string,
+  bakes: BakeFrames = {},
+  o: { cacheLimit?: number } = {},
+) => {
+  const limit = o.cacheLimit ?? cacheLimit()
   const baked = (name: string) => {
     const frames = bakes[name]
     if (!frames)
@@ -225,7 +284,18 @@ export const createServices = (root: string, bakes: BakeFrames = {}) => {
       case 'cache-get': {
         if (!/^[0-9a-f]{64}$/.test(r.hash)) throw new Error('A cache key is a sha256.')
         const file = join(cacheDir, r.hash)
-        return existsSync(file) ? new Uint8Array(readFileSync(file)) : null
+        // An entry another process evicts as it is read is a miss: the film makes it again.
+        let data: Buffer
+        try {
+          data = readFileSync(file)
+        } catch {
+          return null
+        }
+        try {
+          const now = new Date()
+          utimesSync(file, now, now)
+        } catch {}
+        return new Uint8Array(data)
       }
       case 'cache-put': {
         if (!/^[0-9a-f]{64}$/.test(r.hash)) throw new Error('A cache key is a sha256.')
@@ -234,6 +304,7 @@ export const createServices = (root: string, bakes: BakeFrames = {}) => {
         // Written beside and moved, so another host never reads half of it.
         writeFileSync(`${file}.${process.pid}`, r.bytes)
         renameSync(`${file}.${process.pid}`, file)
+        evict(cacheDir, limit, r.hash)
         return null
       }
       case 'video-open':

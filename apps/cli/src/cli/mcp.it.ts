@@ -68,16 +68,16 @@ test('the MCP tools render, inspect, compare, pick and read the camera of a fixt
     )
 
     assert.deepEqual(await call('inspect', { t: 0.5, path: 'box.x' }), 15)
-    const diff = await call('compare', { a: 0, b: 1, path: 'camera' })
-    assert.deepEqual(diff.changes, [{ path: 'x', a: 0, b: 10 }])
+    const diff = await call('compare', { a: 0, b: 0.5, path: 'camera' })
+    assert.deepEqual(diff.changes, [{ path: 'x', a: 0, b: 5 }])
     assert.ok(diff.pixels.differing > 0)
 
     const pick = await call('pick', { t: 0, x: 22, y: 12 })
     assert.equal(pick.pick.id, 'box')
     assert.match(pick.source, /^src\/composition\.ts:\d+:\d+$/)
 
-    const camera = await call('get_camera', { t: 1 })
-    assert.deepEqual(camera.description.eye, [10, 0, 5])
+    const camera = await call('get_camera', { t: 0.5 })
+    assert.deepEqual(camera.description.eye, [5, 0, 5])
     assert.equal(Math.round(camera.description.fovY), 90)
     assert.match(camera.source, /composition\.ts/)
 
@@ -89,6 +89,43 @@ test('the MCP tools render, inspect, compare, pick and read the camera of a fixt
     assert.equal(check.failures.length, 0)
     await assert.rejects(call('get_source', { id: 'nope' }), /No object with id nope/)
     await assert.rejects(call('render', { out: '../escaped.mp4' }), /outside the project/)
+  } finally {
+    await close()
+  }
+})
+
+test('every time a tool takes is checked first, naming the input', async () => {
+  const { call, close } = await connect(fixture)
+  try {
+    await assert.rejects(call('render_frame', {}), /render_frame needs t \(seconds\)/)
+    await assert.rejects(call('render_frame', { t: 'abc' }), /Not a time in seconds: t "abc"/)
+    await assert.rejects(call('render_frame', { t: -5 }), /Outside the film \(0 to 1 s\): -5\./)
+    await assert.rejects(call('render_frame', { t: 1e6 }), /Outside the film \(0 to 1 s\): 1000000/)
+    await assert.rejects(call('inspect', { t: 2 }), /Outside the film \(0 to 1 s\): 2\./)
+    await assert.rejects(call('compare', { a: 0, b: 2 }), /Outside the film \(0 to 1 s\): 2\./)
+    await assert.rejects(call('compare', { a: 0 }), /compare needs b/)
+    await assert.rejects(call('pick', { t: 2, x: 0, y: 0 }), /Outside the film/)
+    await assert.rejects(call('get_camera', { t: 2 }), /Outside the film/)
+    await assert.rejects(call('get_source', { id: 'box', t: 2 }), /Outside the film/)
+    await assert.rejects(call('still', { times: ['a'] }), /Not a time in seconds: "a"/)
+    await assert.rejects(call('still', { times: [0, 2] }), /Outside the film \(0 to 1 s\): 2\./)
+    await assert.rejects(call('render', { from: 'a' }), /Not a time in seconds: from "a"/)
+    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /The window 0\.8–0\.2 s/)
+  } finally {
+    await close()
+  }
+})
+
+test('a bad render range leaves the encoder of the next render as it was', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = copy('./fixtures/mcp/')
+  const { call, close } = await connect(root)
+  try {
+    const before = await call('render', { out: 'out/before.mp4' })
+    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /The window/)
+    const after = await call('render', { out: 'out/after.mp4' })
+    assert.equal(after.encoder, before.encoder)
   } finally {
     await close()
   }
@@ -207,7 +244,7 @@ test('the server starts outside a project; a call finds its project from root, o
 test('MCP tools alone find the planted camera jump in fixtures/camera-debug', async () => {
   const { call, close } = await connect(cameraDebug)
   try {
-    const ts = Array.from({ length: 181 }, (_, i) => i / 30)
+    const ts = Array.from({ length: 180 }, (_, i) => i / 30)
     const eyes: number[][] = []
     for (const t of ts) eyes.push((await call('get_camera', { t })).description.eye)
     const steps = eyes
@@ -492,5 +529,46 @@ test('restore puts back a clip the open child is decoding: the child closes firs
     assert.ok(back[0] > 200 && blue[2] > 200, `${back} after ${blue}`)
   } finally {
     await close()
+  }
+})
+
+test('a call whose frame never settles fails within the timeout, naming t, and the next call runs', async () => {
+  const root = copy('./fixtures/params/')
+  const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
+  manifest.params.properties.hang = { type: 'boolean', default: false }
+  writeFileSync(join(root, 'shaderera.json'), JSON.stringify(manifest))
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io, params }) => {
+  const canvas = io.canvas(16, 16)
+  return {
+    render: async (t) => {
+      if (params.hang && t > 0.5) await new Promise(() => {})
+      canvas.getContext('2d').fillRect(0, 0, 16, 16)
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const server = createServer(root, { timeout: '5' })
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: 'test', version: '0' })
+  await Promise.all([server.connect(a), client.connect(b)])
+  try {
+    const hung = client.callTool({
+      name: 'render_frame',
+      arguments: { t: 0.6, params: { hang: true } },
+    }) as Promise<{ content: { text: string }[]; isError?: boolean }>
+    // Queued behind the hung call (MCP's calls run one at a time).
+    const next = client.callTool({ name: 'render_frame', arguments: { t: 0.6 } }) as Promise<{
+      isError?: boolean
+    }>
+    const failed = await hung
+    assert.equal(failed.isError, true)
+    assert.match(failed.content[0]?.text ?? '', /took longer than 5000 ms on render at t = 0\.6 s/)
+    assert.notEqual((await next).isError, true)
+  } finally {
+    await client.close()
   }
 })

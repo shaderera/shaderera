@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { build } from 'vite'
 import { packageOf } from '../project/dependencies.ts'
 import { stamp } from '../stamp/plugin.ts'
@@ -16,6 +17,18 @@ export const alive = (pid: number) => {
     // EPERM: it runs, as another user.
     return (e as { code?: string }).code === 'EPERM'
   }
+}
+
+/**
+ * Rethrows a Vite build error as plain text, without its colour codes: it leaves the CLI for the
+ * studio page, `--json` and MCP, which cannot show them. Every build of a film throws through it.
+ */
+export const plainError = (e: unknown): never => {
+  if (e instanceof Error) {
+    e.message = stripVTControlCharacters(e.message)
+    if (e.stack) e.stack = stripVTControlCharacters(e.stack)
+  }
+  throw e
 }
 
 /**
@@ -37,7 +50,7 @@ const sweep = (dir: string) => {
  * external (Vite's SSR default). Each build has its own folder, so two commands on one project at
  * once (a check while a still renders) never empty each other's build; folders of exited
  * processes are removed. `packages` names the installed packages the build imports, which a render
- * job freezes.
+ * job freezes. A build error is plain text (plainError).
  */
 export const buildNode = async (
   project: Project,
@@ -62,7 +75,7 @@ export const buildNode = async (
         output: { format: 'es', entryFileNames: '[name].js' },
       },
     },
-  })
+  }).catch(plainError)
   const packages = new Set<string>()
   for (const output of Array.isArray(result) ? result : [result])
     for (const chunk of 'output' in output ? output.output : [])
