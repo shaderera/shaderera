@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -16,11 +18,14 @@ import {
   head,
   materialize,
   readRevision,
+  releaseFrozen,
+  removeFrozen,
   restore,
   save,
   scan,
   scanProject,
   undo,
+  unusedFrozen,
 } from './revisions.ts'
 
 const project = () => {
@@ -105,6 +110,106 @@ test('materialize writes a frozen copy that later edits do not touch', () => {
   writeFileSync(join(root, 'src', 'a.ts'), 'changed\n')
   assert.match(readFileSync(join(dir, 'src', 'a.ts'), 'utf8'), /One/)
   assert.equal(materialize(root, one.id), dir)
+})
+
+test('a frozen copy stays after its render; past three unused ones the least recently used go', () => {
+  const root = project()
+  const copies = join(root, '.shaderera', 'revisions')
+  const ids = ['one', 'two', 'three', 'four', 'five'].map((t) => {
+    writeFileSync(join(root, 'src', 'a.ts'), `export const headline = "${t}"\n`)
+    return save(root, { by: 'person' }).id
+  })
+  const [one, two, three, four, five] = ids as [string, string, string, string, string]
+  const ago = (id: string, minutes: number) => {
+    const at = new Date(Date.now() - minutes * 60_000)
+    utimesSync(join(copies, id), at, at)
+  }
+  // Two uses in this process: kept through both, and kept after them for the next render.
+  const dir = materialize(root, one)
+  materialize(root, one)
+  releaseFrozen(root, one)
+  releaseFrozen(root, one)
+  assert.ok(existsSync(join(dir, 'src', 'a.ts')))
+  assert.deepEqual(readdirSync(join(copies, `${one}.using`)), [])
+  // Another live process (this one's parent) renders from two: it is never counted or removed.
+  materialize(root, two)
+  writeFileSync(join(copies, `${two}.using`, String(process.ppid)), '')
+  releaseFrozen(root, two)
+  // three was used by a process that died: unused.
+  materialize(root, three)
+  writeFileSync(join(copies, `${three}.using`, '999999999'), '')
+  releaseFrozen(root, three)
+  materialize(root, four)
+  releaseFrozen(root, four)
+  ago(one, 40)
+  ago(two, 50)
+  ago(three, 30)
+  ago(four, 20)
+  // A fifth render: one, three, four and five are unused; one, the oldest of them, goes.
+  materialize(root, five)
+  releaseFrozen(root, five)
+  const left = readdirSync(copies).filter((n) => /^[0-9a-f]{16}$/.test(n))
+  assert.deepEqual(left.sort(), [two, three, four, five].sort())
+  assert.deepEqual(
+    unusedFrozen(root).map((c) => c.id),
+    [five, four, three],
+  )
+  // A copy kept is still checked: an edit to it is repaired on the next use.
+  writeFileSync(join(copies, four, 'src', 'a.ts'), 'edited\n')
+  assert.match(readFileSync(join(materialize(root, four), 'src', 'a.ts'), 'utf8'), /four/)
+  releaseFrozen(root, four)
+  // Releasing what this process never used removes nothing.
+  releaseFrozen(root, one)
+  assert.ok(existsSync(join(copies, two)))
+})
+
+test('a removal that races a render marking the copy gives it back, and never takes its mark', () => {
+  const root = project()
+  const id = save(root, { by: 'person' }).id
+  const copies = join(root, '.shaderera', 'revisions')
+  const dir = materialize(root, id)
+  releaseFrozen(root, id)
+  const other = join(copies, `${id}.using`, String(process.ppid))
+  // Another process marks the copy just as this one moved it aside: it is put back whole.
+  assert.equal(removeFrozen(root, id, { moved: () => writeFileSync(other, '') }), false)
+  assert.match(readFileSync(join(dir, 'src', 'a.ts'), 'utf8'), /One/)
+  assert.ok(existsSync(other))
+  rmSync(other)
+  // It marked it and began writing a new copy there: the one aside goes, its mark stays, and its
+  // materialize finishes a whole copy.
+  removeFrozen(root, id, {
+    moved: () => {
+      writeFileSync(other, '')
+      mkdirSync(join(dir, 'src'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'b.ts'), 'export const color = "#fff"\n')
+    },
+  })
+  assert.deepEqual(
+    readdirSync(copies).filter((n) => n.includes('removing')),
+    [],
+  )
+  assert.ok(existsSync(other))
+  materialize(root, id)
+  assert.match(readFileSync(join(dir, 'src', 'a.ts'), 'utf8'), /One/)
+  assert.ok(existsSync(join(dir, 'shaderera.json')))
+  releaseFrozen(root, id)
+  assert.ok(existsSync(other))
+  rmSync(other)
+  // Unmarked, it goes, with its empty marks folder.
+  assert.equal(removeFrozen(root, id), true)
+  assert.deepEqual(readdirSync(copies), [])
+})
+
+test('using a copy that needs no rewrite marks it used now', () => {
+  const root = project()
+  const id = save(root, { by: 'person' }).id
+  const dir = materialize(root, id)
+  releaseFrozen(root, id)
+  const old = new Date(Date.now() - 3600_000)
+  utimesSync(dir, old, old)
+  materialize(root, id)
+  assert.ok(Date.now() - statSync(dir).mtimeMs < 60_000)
+  releaseFrozen(root, id)
 })
 
 test('a revision never stores or writes through a link, so restore cannot reach outside the project', () => {

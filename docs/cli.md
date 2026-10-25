@@ -348,6 +348,13 @@ revision 3ff052ac48653666 to render with what is installed now.
 
 A job holds execution inputs and references, never the film.
 
+A revision's frozen copy (`.shaderera/revisions/<id>/`, a whole copy of the project) is made when
+a job is made or rendered, and kept for the next render, which then rewrites only what differs.
+Each process using one marks it in `.shaderera/revisions/<id>.using/`. When a render ends, at most
+3 copies no live process uses are kept, the most recently used; older ones are removed, and
+`shaderera prune` removes every unused one. `render --job` makes a removed copy again from
+`versions/`.
+
 ### Pruning
 
 `versions/` only grows: every `render`, `job` and studio render saves first, and each change to a
@@ -359,7 +366,7 @@ removes the revisions nobody needs and every object no remaining revision names.
 - every revision a job in `versions/jobs/` names;
 - every revision whose files a bake stamp (`versions/bakes/`) was made from;
 - every revision `versions/comments.jsonl` names;
-- every revision with a frozen copy in `.shaderera/revisions/` (a render may be running from it);
+- every revision whose frozen copy a live process is using (a render may be running from it);
 - the last `n` saves (`--keep`, 10 by default).
 
 `--dry-run` prints what it would remove and the bytes it would free, and removes nothing; without
@@ -367,15 +374,17 @@ it, prune prints the same and removes them. Removing is for good: run `--dry-run
 revision's lines stay in the log, which `versions` marks `(pruned)` (`versions/pruned.jsonl` lists
 them), and `restore`, `diff` or `job --revision` with it says it was pruned. An object a save used
 in the last 10 minutes is never removed, so a save running beside the prune keeps its files. When a
-job, a bake stamp or a revision cannot be read, prune removes nothing. It never touches the working
-tree, `.shaderera/` or `out/`.
+job, a bake stamp or a revision cannot be read, prune removes nothing. It also removes every
+frozen copy no live process uses and nobody used in the last 10 minutes (made again when a render
+needs it). It never touches the working tree, `out/` or the rest of `.shaderera/`.
 
 ```
 $ shaderera prune --dry-run --keep 0
 keep    3ff052ac48653666  the head, a label
-keep    9a1e07c25b3d4f10  job portrait-9a1e07c2-91d0be, a frozen copy
+keep    9a1e07c25b3d4f10  job portrait-9a1e07c2-91d0be
 would remove 51c0d2e8a7b64913
-would remove 1 revision(s) and 2 object(s): 536.9 MB (dry run: nothing was removed)
+would remove frozen copy 9a1e07c25b3d4f10
+would remove 1 revision(s), 2 object(s) and 1 frozen copy(ies): 1073.9 MB (dry run: nothing was removed)
 ```
 
 ## `deliver`
@@ -824,6 +833,8 @@ asks for.
   relay.
 - **What the page does through it.** The page previews the project with its runner, hears its
   edits, renders into `out/studio/` with the CLI's own hosts, and shares with `share`, as you.
+  Each export replaces the older one of its variant and format there; a file renamed or moved
+  out of `out/studio/` stays ([studio.md](studio.md)).
 - **What leaves the machine.** The page reads the code and renders from the bridge, so they stay
   here until you share. The relay pairs the page and the bridge with a key it never sees, and
   carries the page's requests sealed when the browser blocks 127.0.0.1 (protocol v1 sends a file
