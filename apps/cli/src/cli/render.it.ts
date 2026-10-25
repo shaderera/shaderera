@@ -167,6 +167,12 @@ test('render saves the revision it renders and tags the file; render --job saves
   assert.equal(frozen.status, 0, frozen.stderr)
   assert.equal((await versions()).log.length, saves)
   assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
+  // Its frozen copy stays for the next render, unmarked: no process uses it now.
+  const frozenCopy = join(root, '.shaderera', 'revisions', id as string)
+  assert.ok(existsSync(join(frozenCopy, 'shaderera.json')))
+  assert.deepEqual(readdirSync(`${frozenCopy}.using`), [])
+  assert.equal((await cli('render', '--job', 'final')).status, 0)
+  assert.ok(existsSync(join(frozenCopy, 'shaderera.json')))
 })
 
 test('after prune --keep 0, render --job and restore still work, and diff says the pruned one was', {
@@ -193,7 +199,10 @@ test('after prune --keep 0, render --job and restore still work, and diff says t
   const dry = await cli('prune', '--dry-run', '--keep', '0')
   assert.equal(dry.status, 0, dry.stderr)
   assert.match(dry.stdout, new RegExp(`would remove ${b}`))
-  assert.match(dry.stdout, /would remove 1 revision\(s\) and 1 object\(s\).*dry run/)
+  assert.match(
+    dry.stdout,
+    /would remove 1 revision\(s\), 1 object\(s\) and 0 frozen copy\(ies\).*dry run/,
+  )
   assert.equal(readdirSync(objects).length, before)
 
   const pruned = await cli('prune', '--keep', '0')

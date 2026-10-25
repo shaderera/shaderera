@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { Agent, request as httpRequest } from 'node:http'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { Agent, createServer, request as httpRequest } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { basename, join } from 'node:path'
 import {
   after,
@@ -13,6 +23,7 @@ import {
   type TestOptions,
 } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
@@ -32,6 +43,15 @@ import {
   unsealBytes,
 } from './pairing.ts'
 import { CHUNK, chunkAad, connectRelay } from './relay.ts'
+import {
+  claim,
+  privateFolder,
+  readRunning,
+  runningFile,
+  StudioRunning,
+  stopRunning,
+  unregister,
+} from './running.ts'
 import { NOTICE, noticeOnce, setTelemetry, telemetryStatus } from './telemetry.ts'
 
 // The user's config (telemetry) and tokens (share) live in a home of the tests' own.
@@ -320,7 +340,7 @@ test('a page that reloads is not closed; one that does not come back is', async 
   // Closed, and nothing comes back in time.
   first.ws.close()
   assert.deepEqual(await hear(1), ['closed'])
-  // Before pairing, a reload says hello again in time.
+  // Before pairing, a page that says hello in time is no reload: it pairs.
   const second = page(relay.origin, id)
   closeAtEnd(t, second)
   await second.opened
@@ -329,7 +349,8 @@ test('a page that reloads is not closed; one that does not come back is', async 
   const third = page(relay.origin, id)
   closeAtEnd(t, third)
   const { bridge: got } = await third.pair()
-  assert.deepEqual(await hear(2), ['closed', 'reloaded'])
+  await new Promise((r) => setTimeout(r, 100))
+  assert.deepEqual(heard, ['closed'])
   // Paired, a reload resumes without a hello: its request to the bridge is the page back.
   third.ws.close()
   await third.closed
@@ -339,10 +360,10 @@ test('a page that reloads is not closed; one that does not come back is', async 
     headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
   })
   assert.equal(info.status, 200)
-  assert.deepEqual(await hear(3), ['closed', 'reloaded', 'reloaded'])
+  assert.deepEqual(await hear(2), ['closed', 'reloaded'])
   // And no `closed` follows it.
   await new Promise((r) => setTimeout(r, 1200))
-  assert.deepEqual(heard, ['closed', 'reloaded', 'reloaded'])
+  assert.deepEqual(heard, ['closed', 'reloaded'])
 })
 
 test('a page of another protocol is told which side to update, and never gets the bridge', async (t) => {
@@ -561,6 +582,12 @@ test('/render renders on this machine into out/, and /render/<job>/file streams 
   assert.deepEqual([...file.body.subarray(1, 4)], [...Buffer.from('PNG')])
   assert.match(String(file.headers['content-disposition']), new RegExp(`-lighter-${job}\\.png`))
   assert.ok(existsSync(join(root, 'out', 'studio', `${basename(root)}-lighter-${job}.png`)))
+  // A second export of the variant and format replaces the first: one file of them is left.
+  const again = await renderJob({ format: 'png', variant: 'lighter', t: 0.25 })
+  assert.deepEqual(
+    readdirSync(join(root, 'out', 'studio')).filter((f) => /-lighter-[0-9a-f]{12}\.png$/.test(f)),
+    [`${basename(root)}-lighter-${again}.png`],
+  )
 
   const bad = await call(bridge.port, {
     method: 'POST',
@@ -892,6 +919,54 @@ test('through the relay: sealed requests, sealed events and a file', async (t) =
   assert.equal((await rpc('6', { method: 'GET', path: '/info' })).status, 200)
 })
 
+test('through the relay, a share holds back no other request', async (t) => {
+  // A films API that holds its health check: the share waits on it.
+  const films = createServer(() => {})
+  await new Promise<void>((done) => films.listen(0, '127.0.0.1', done))
+  const api = `http://127.0.0.1:${(films.address() as AddressInfo).port}`
+  saveToken(api, 'films-token')
+  const project = fixture()
+  writeFileSync(join(project, 'package.json'), JSON.stringify({ license: 'MIT' }))
+  const sharing = await startBridge({ root: project, api, site: SITE, origins: [SITE] })
+  t.after(async () => {
+    await sharing.close()
+    films.closeAllConnections()
+    await new Promise((done) => films.close(done))
+  })
+  const id = makeId()
+  const p = page(relay.origin, id)
+  const pairing = p.pair()
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge: sharing,
+    hello: { version: '0', os: 'test', telemetry: true },
+  })
+  closeAtEnd(t, cli, p)
+  const { key } = await pairing
+  const results = new Map<string, (m: Record<string, unknown>) => void>()
+  p.ws.addEventListener('message', (e) => {
+    const m = JSON.parse(String(e.data)) as { type: string; id: string; iv: string; box: string }
+    if (m.type === 'rpc-result')
+      void unseal<Record<string, unknown>>(key, m).then((r) => results.get(m.id)?.(r))
+  })
+  const rpc = async (rid: string, request: unknown) => {
+    const answer = new Promise<Record<string, unknown>>((done) => results.set(rid, done))
+    p.send({ type: 'rpc', id: rid, ...(await seal(key, request)) })
+    return answer
+  }
+  const shared = rpc('1', { method: 'POST', path: '/share', body: {} })
+  await new Promise((r) => setTimeout(r, 300))
+  const asked = Date.now()
+  const info = await rpc('2', { method: 'GET', path: '/info' })
+  assert.equal(info.status, 200)
+  assert.ok(Date.now() - asked < 1000, `/info took ${Date.now() - asked} ms`)
+  // The films API goes away: the share ends, refused.
+  films.closeAllConnections()
+  assert.equal((await shared).status, 500)
+})
+
 test('the relay closes a socket that sends a message over the Worker limit', async (t) => {
   const id = makeId()
   const p = page(relay.origin, id)
@@ -935,4 +1010,55 @@ test('telemetry: a config that cannot be read is off, and is never overwritten',
   } finally {
     writeFileSync(file, was)
   }
+})
+
+test("the running studio's folder is private before any file is made in it", (t) => {
+  const project = tempDir('running')
+  const dir = privateFolder(project)
+  assert.deepEqual(readdirSync(dir), [])
+  const open = /BUILTIN|Everyone|Authenticated Users/
+  if (process.platform === 'win32') {
+    const acl = spawnSync('icacls', [dir], { encoding: 'utf8' }).stdout
+    // One entry, the user's, inherited by files (OI) and folders (CI) made in it.
+    assert.match(acl, /\(OI\)\(CI\)\(F\)/, acl)
+    assert.doesNotMatch(acl, open, acl)
+  } else assert.equal(statSync(dir).mode & 0o777, 0o700)
+  // A file made in it is private from the start.
+  claim(project, process.pid)
+  t.after(() => unregister(project, process.pid))
+  if (process.platform === 'win32')
+    assert.doesNotMatch(
+      spawnSync('icacls', [runningFile(project)], { encoding: 'utf8' }).stdout,
+      open,
+    )
+  else assert.equal(statSync(runningFile(project)).mode & 0o077, 0)
+})
+
+test('a studio claims its project before its bridge starts; a second claim is refused', async (t) => {
+  const project = tempDir('running')
+  // A live process of our own stands for a studio still starting.
+  const starting = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'])
+  t.after(() => starting.kill())
+  claim(project, starting.pid as number)
+  assert.deepEqual(readRunning(project), { state: 'starting', pid: starting.pid })
+  assert.throws(() => claim(project, process.pid), StudioRunning)
+  assert.throws(() => claim(project, process.pid), /is starting/)
+  // --stop waits for a starting studio's bridge.
+  assert.equal((await stopRunning(project, 300)).state, 'slow')
+  // Its process ended without a bridge: the claim is stale, and a new one is made.
+  starting.kill()
+  await new Promise((r) => starting.on('close', r))
+  assert.equal((await stopRunning(project)).state, 'none')
+  assert.equal(existsSync(runningFile(project)), false)
+  claim(project, process.pid)
+  unregister(project, process.pid)
+  assert.equal(existsSync(runningFile(project)), false)
+})
+
+test("a running studio's file that cannot be read is refused, never removed", () => {
+  const project = tempDir('running')
+  // A directory where the file goes: reading it fails, as another user's file would.
+  mkdirSync(runningFile(project), { recursive: true })
+  assert.throws(() => readRunning(project), /Cannot read .*bridge\.json/)
+  assert.ok(existsSync(runningFile(project)))
 })
