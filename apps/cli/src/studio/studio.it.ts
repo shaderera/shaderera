@@ -567,3 +567,62 @@ test('shaderera studio: a relay that expires an id long before its limit ends it
     await hasty.close()
   }
 })
+
+test('shaderera studio --stop does not wait for a render that hangs', async () => {
+  // A film whose frames past 0.5 s never settle when `hang` is set.
+  const root = fixture()
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({
+      entry: './src/composition.ts',
+      fps: 10,
+      duration: 1,
+      width: 16,
+      height: 16,
+      params: { type: 'object', properties: { hang: { type: 'boolean', default: false } } },
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io, params }) => {
+  const canvas = io.canvas(16, 16)
+  return {
+    render: async (t) => {
+      if (params.hang && t > 0.5) await new Promise(() => {})
+      canvas.getContext('2d').fillRect(0, 0, 16, 16)
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const s = studioJson(slow.origin, ['--connect', id], { root, stdin: 'ignore' })
+  try {
+    const url = await s.event((e) => e.event === 'url')
+    const { bridge } = await p.pair(new URL(url.url as string).hash.slice(1))
+    const r = await call(bridge.port, {
+      method: 'POST',
+      path: '/render',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${bridge.secret}` },
+      body: { format: 'png', t: 0.8, params: { hang: true } },
+    })
+    assert.equal(r.status, 200, r.body.toString())
+    const { job } = jsonOf(r)
+    await s.event((e) => e.event === 'job' && e.id === job && e.state === 'running')
+    await new Promise((done) => setTimeout(done, 1000))
+    const asked = Date.now()
+    const stopped = await stopStudio(root)
+    assert.equal(stopped.code, 0, stopped.out)
+    assert.equal(await s.exited, 0, s.out())
+    assert.ok(Date.now() - asked < 15_000, `${Date.now() - asked} ms`)
+    assert.deepEqual(s.events().at(-1), { event: 'ended', exitCode: 0 })
+  } finally {
+    s.cli.kill('SIGINT')
+    await s.exited
+    p.ws.close()
+    await slow.close()
+  }
+})
