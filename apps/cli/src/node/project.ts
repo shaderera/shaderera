@@ -16,8 +16,15 @@ export const findProject = async (cwd: string): Promise<Project> => {
     if (parent === dir) throw new Error(`No shaderera.json in ${resolve(cwd)} or above it.`)
     dir = parent
   }
-  const text = await readFile(join(dir, 'shaderera.json'), 'utf8')
-  const manifest = checkManifest(JSON.parse(text))
+  const file = join(dir, 'shaderera.json')
+  const text = await readFile(file, 'utf8')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    throw new Error(`${file} is not valid JSON: ${(error as Error).message}`)
+  }
+  const manifest = checkManifest(parsed)
   // Decision 0008: a project whose shaderera.json requires what is not installed is refused
   // here, before anything renders, with the ways out (add, remove) in the message.
   assertRequirements(dir, shadereraVersion())
