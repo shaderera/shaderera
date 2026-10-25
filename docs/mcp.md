@@ -3,7 +3,7 @@
 `shaderera mcp` serves the CLI's operations as MCP tools over stdio, so an agent can render,
 inspect, compare and trace a frame back to its code, review it, and save revisions and render
 jobs. The tools have the CLI's names where they do what a command does (`render`, `check`,
-`still`, `save`, `versions`, `restore`, `undo`, `diff`, `job`, `review`). It starts in any folder, and accepts `--root`,
+`still`, `save`, `versions`, `restore`, `undo`, `diff`, `job`, `review`, `comments`). It starts in any folder, and accepts `--root`,
 `--variant`, `--host`, `--trusted` and `--timeout` as the CLI does: `--variant` makes that variant
 of `shaderera.json` every call's default, and `--host` opens every child (and freezes every `job`)
 in that host.
@@ -74,6 +74,10 @@ with the message.
 | `restore` | `id` | like `shaderera restore <id>`: the project becomes that revision (the working tree is saved first); returns the revision, without its files' hashes. The next call reopens the child on the restored files |
 | `undo` | — | like `shaderera undo`: the previous revision (unsaved edits are saved first); returns it as `restore` does |
 | `diff` | `a`, `b?`, `stat?` | like `shaderera diff`: `{ added, removed, changed, patch }` from revision `a` to `b` (or the working tree); `stat: true` leaves out `patch` |
+| `comments` | `state?` (`open` by default, `fixed`, `resolved`, `all`) or `id?` | like `shaderera comments --json`, the same JSON: `{ revision, head, comments }`: the working tree's id now, the head, and each comment as a thread with its replies and `stale` ([cli.md](cli.md#comments)). A comment's `t`, `point` or `box` go straight into `render_frame` (`region`) and `pick` |
+| `comment_add` | `t`, `text`; `to?`, `variant?`, `point?` `[x, y]` or `box?` `[x, y, w, h]`, `object?`, `params?` | like `shaderera comments add`: files a comment (for feedback the person gave in chat) on the tree as it is, which it saves as a revision; `{ revision, head, comments: [it] }` |
+| `comment_reply` | `id`, `text`, `fixed?` | like `shaderera comments reply`: `fixed: true` saves a revision labelled `fix <id>: <text>` and marks it fixed there, refused when nothing changed since the comment's revision; `{ revision, head, comments: [it] }` |
+| `comment_resolve` | `id`, `reopen?` | with `reopen: true`, reopens it. Without, refused: only the person resolves a comment |
 | `job` | `variant?`, `params?`, `revision?`, `name?`, `label?`, `from?`, `to?`, `hdr10?` | the job. Freezes a revision (the project is saved first unless `revision` is given), a variant from `shaderera.json`, params over the defaults and an optional window, like `shaderera job` ([cli.md](cli.md#versions-and-jobs)); `hdr10: true` makes an HDR10 job. It never replaces a job |
 | `review` | `variant?` or `variants?`, `quick?` | like `shaderera review` ([cli.md](cli.md#review)): the report JSON as text, then the contact sheet and each principal frame's thumb (shots and the last frame; not the transition samples) as PNG images. Files go to `out/review/` (a variant: `out/review/<variant>/`), and the report names them relative to the project; requirements from `requirements.json`. With `variants`, `{ variants: [{ variant, ...report }] }` as text, then each variant's contact sheet |
 
