@@ -16,6 +16,7 @@ import {
   addComment,
   commentsFile,
   fold,
+  frameAt,
   LISTENING_MS,
   listening,
   listing,
@@ -155,6 +156,19 @@ test('ids: 6 characters of the studio alphabet, never one already taken', () => 
   const id = newId(new Set(['aaaaaa']), bytes)
   assert.equal(id, 'bbbbbb')
   assert.match(newId(new Set()), /^[abcdefghjkmnpqrstuvwxyz23456789]{6}$/)
+})
+
+test("frame = floor(t·fps + 1e-6), the readout's rule: 2.4608 s at 60 fps is frame 147", async () => {
+  assert.equal(frameAt(2.4608, 60), 147)
+  assert.equal(frameAt(2.4607999999970236, 60), 147)
+  assert.equal(frameAt(0.1 * 3, 10), 3) // 2.9999999999999996 in floating point
+  assert.equal(frameAt(1.99, 30), 59) // floor, not round
+  const root = project()
+  const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
+  writeFileSync(join(root, 'shaderera.json'), JSON.stringify({ ...manifest, fps: 60 }))
+  const c = await addComment(root, { t: 2.4607999999970236, to: 3.999, text: 'here' }, 'person')
+  assert.equal(c.frame, 147)
+  assert.equal(c.toFrame, 239)
 })
 
 test('add: t, frame, range, variant size, point, params that differ; text capped', async () => {

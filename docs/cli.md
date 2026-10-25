@@ -414,10 +414,10 @@ characters. Only the studio page writes as the person (`by: person`); the CLI wr
 
 `--json` prints what MCP `comments` gives, `{revision, head, comments}`: `revision` is the working
 tree's id now, and each comment has `id` (6 characters), `state`, `revision` (the tree it was made
-on), `t` and `frame`, `to` and `toFrame` for a range, `variant`, `point` or `box` with the frame's
-`size`, `object`, `params` (those that differ from the defaults), `text`, `by`, `at`, `replies`,
-`fixedIn` (the fix's revision), `updated`, and `stale` (true when the tree is no longer the one it
-was made on). `point` and `box` go straight into MCP `pick` and `render_frame`'s `region`.
+on), `t` and `frame` (the frame that shows at t: floor(t·fps + 1e-6)), `to` and `toFrame` for a
+range, `variant`, `point` or `box` with the frame's `size`, `object`, `params` (those that differ
+from the defaults), `text`, `by`, `at`, `replies`, `fixedIn` (the fix's revision), `updated`, and
+`stale` (true when the tree is no longer the one it was made on). `point` and `box` go straight into MCP `pick` and `render_frame`'s `region`.
 
 ```
 $ shaderera comments

@@ -8,6 +8,7 @@ import {
   listing,
   type Point,
   replyTo,
+  seconds,
   setState,
   type Thread,
   waitForComments,
@@ -33,8 +34,6 @@ const numbers = (v: string | undefined, n: number, flag: string) => {
   return xs
 }
 
-/** A time for a person to read: to the millisecond (JSON keeps it whole). */
-const seconds = (t: number) => `${Number(t.toFixed(3))} s`
 const when = (c: Thread) =>
   `${seconds(c.t)} (frame ${c.frame})${c.to !== undefined ? ` to ${seconds(c.to)} (frame ${c.toFrame})` : ''}`
 const where = (c: Thread) =>

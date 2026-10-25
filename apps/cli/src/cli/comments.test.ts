@@ -128,6 +128,12 @@ test('reply --fixed on an unchanged tree exits 2 with the refusal; only the pers
     const third = await addComment(root, { t: 1 / 3, text: 'a third in' }, 'person')
     assert.match((await cli('comments', 'show', third.id, '--root', root)).stdout, /0\.333 s \(/)
     assert.equal((await call('comments', { id: third.id })).comments[0].t, 1 / 3)
+    // The page's unrounded t prints clean, at the frame the page shows (floor, not round).
+    const late = await addComment(root, { t: 2.4607999999970236, text: 'late' }, 'person')
+    assert.match(
+      (await cli('comments', 'show', late.id, '--root', root)).stdout,
+      /2\.461 s \(frame 73\)/,
+    )
     writeFileSync(join(root, 'src', 'c.ts'), '// brighter still\n')
     assert.match(
       (await cli('comments', 'show', c.id, '--root', root)).stdout,

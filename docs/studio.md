@@ -432,7 +432,9 @@ that can write the project can append to `versions/comments.jsonl`.
 - **`revision`** is the tree the page shows (`/info`'s, a `changed` event's, or a held one's). The
   working tree's id now is saved as a revision. Any other must be a stored revision, listed or not
   (a tree the page framed is stored, above), and `t`, `variant` and the frame are that revision's.
-- `t` (and `to`) must be inside the film or the variant.
+- `t` (and `to`) must be inside the film or the variant. The bridge keeps them as sent, and
+  `frame` (and `toFrame`) is the frame that shows then, as the page's readout counts:
+  floor(t·fps + 1e-6), so 2.4608 s at 60 fps is frame 147. The CLI prints t to the millisecond.
 - `point` (`[x, y]`) or `box` (`[x, y, w, h]`, w and h above 0), not both, are in that variant's
   frame pixels, inside the frame.
 - `object` is an id of at most 200 characters; `shot` is `{id, offset}`; `params` is an object of
