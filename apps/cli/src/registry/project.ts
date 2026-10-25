@@ -1,5 +1,6 @@
-import { cpSync, existsSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
+import type { Item } from './item.ts'
 import { npm } from './npm.ts'
 import { installedPackage, installedVersion, readRequires, setRequirement } from './requires.ts'
 import { parseVersion, satisfies as satisfiesRange } from './semver.ts'
@@ -36,8 +37,44 @@ export const saveFlags = (name: string, range: string): string[] => [
 ]
 
 /**
+ * Writes a media plugin's record in the project's ASSETS.md (made when missing): its version,
+ * licence, source and files, between markers, so adding it again replaces the record.
+ */
+export const recordAsset = (root: string, item: Item): void => {
+  const file = join(root, 'ASSETS.md')
+  const [open, close] = [`<!-- plugin ${item.name} -->`, `<!-- /plugin ${item.name} -->`]
+  const s = item.source
+  const record = [
+    open,
+    `## ${item.title} (\`${item.name}@${item.version}\`)`,
+    '',
+    `- Licence: ${item.licence}`,
+    ...(s
+      ? [
+          `- Source: ${s.origin}`,
+          ...(s.generator ? [`- Generator: ${s.generator}`] : []),
+          ...(s.terms ? [`- Terms: ${s.terms}`] : []),
+        ]
+      : []),
+    `- Files: ${item.files.map((f) => `\`${f}\``).join(', ')}`,
+    '- Added by `shaderera add`.',
+    close,
+  ].join('\n')
+  const text = existsSync(file) ? readFileSync(file, 'utf8') : '# Assets\n'
+  const at = text.indexOf(open)
+  const end = text.indexOf(close, at)
+  writeFileSync(
+    file,
+    at >= 0 && end > at
+      ? `${text.slice(0, at)}${record}${text.slice(end + close.length)}`
+      : `${text.trimEnd()}\n\n${record}\n`,
+  )
+}
+
+/**
  * Adds `specs` (each `name` or `name@range`) to the project at `root`: an extension is installed
- * and required; a component's, preset's or media item's files are copied in. What they require
+ * and required; a component's, preset's or media item's files are copied in (a media item's record
+ * goes in ASSETS.md). What they require
  * comes too, each item once, and all of it resolves before anything is copied: one that does not
  * resolve stops them all. A piece one is built on that the project already has is the project's
  * own: only its missing files are copied. A version that is not in a range another one requires
@@ -109,6 +146,7 @@ export const add = (
     const own = named.has(item.name)
     const files = own ? item.files : item.files.filter((f) => !existsSync(join(root, f)))
     for (const f of files) cpSync(join(dir, f), join(root, f), { recursive: true, force: true })
+    if (item.type === 'media' && files.length > 0) recordAsset(root, item)
     if (own || files.length > 0)
       done.push(
         `copied ${item.type} ${item.name}@${item.version}: ${files.join(', ')} (${item.licence})`,

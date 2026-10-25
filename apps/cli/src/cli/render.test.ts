@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
-import { canEncode, encodersFile, FfmpegError } from './ffmpeg.ts'
+import { canEncode, encoderSaid, encodersFile, FfmpegError } from './ffmpeg.ts'
 import { encoderRefused, exportVideo, transientEncoder } from './render.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
@@ -74,10 +74,38 @@ test('which encoder failures are retried', () => {
   assert.equal(transientEncoder(new Error('ffmpeg exited with -12.')), false)
 })
 
+/** What this machine's ffmpeg said when NVENC refused: no capable device, a size it does not take. */
+const NO_DEVICE = `[h264_nvenc @ 000002361346f640] No capable devices found
+[vf#0:0 @ 00000236151dabc0] Error sending frames to consumers: Generic error in an external library
+[vost#0:0/h264_nvenc @ 000002361346c7c0] Task finished with error code: -22 (Invalid argument)
+Conversion failed!`
+const TOO_SMALL = `[h264_nvenc @ 000001d2a6aee900] InitializeEncoder failed: invalid param (8): Frame Dimension less than the minimum supported value.
+[vost#0:0/h264_nvenc @ 000001d2a6aede80] [enc:h264_nvenc @ 000001d2a6ac7e80] Error while opening encoder - maybe incorrect parameters such as bit_rate, rate, width or height.`
+/** And when the output could not be written, or an option was bad: no encoder in it. */
+const NO_OUTPUT = `[out#0/mp4 @ 0000020a35f00180] Error opening output Z:/nope/x.mp4: No such file or directory
+Error opening output file Z:/nope/x.mp4.
+Error opening output files: No such file or directory`
+const BAD_OPTION = `[vost#0:0/h264_nvenc @ 0000020a35f00180] -t value must be non-negative
+Error parsing options for output file out.mp4.`
+
+test('what ffmpeg says tells a GPU encoder refusing from any other failure', () => {
+  assert.equal(encoderSaid(NO_DEVICE), true)
+  assert.equal(encoderSaid(TOO_SMALL), true)
+  assert.equal(encoderSaid('[AMF @ 00000191ef7765c0] DLL amfrt64.dll failed to open'), true)
+  assert.equal(encoderSaid(NO_OUTPUT), false)
+  assert.equal(encoderSaid(BAD_OPTION), false)
+})
+
 test('which encoder failures fall back from a GPU encoder', () => {
-  const exit = (code: number | null) => new FfmpegError('ffmpeg exited with 1.', 'exit', code, '')
-  // A non-zero exit: the encoder may have refused.
+  const exit = (code: number | null, said = NO_DEVICE) =>
+    new FfmpegError('ffmpeg exited with 1.', 'exit', code, said)
+  // A non-zero exit with the encoder's own words: it refused.
   for (const code of [1, -22, -12]) assert.equal(encoderRefused(exit(code)), true, String(code))
+  // The same exits without them: the output, an option; the encoder is kept.
+  for (const said of [NO_OUTPUT, BAD_OPTION, ''])
+    assert.equal(encoderRefused(exit(-22, said)), false, said)
+  // The encoder's words before the last lines kept: said by the sink, not in `stderr`.
+  assert.equal(encoderRefused(new FfmpegError('x', 'exit', -22, 'Conversion failed!', true)), true)
   // Its input ended early (0), a signal (null), a stall, an error that is not ffmpeg's.
   for (const code of [0, null]) assert.equal(encoderRefused(exit(code)), false, String(code))
   assert.equal(encoderRefused(new FfmpegError('x', 'stall', null, '')), false)
@@ -111,14 +139,14 @@ const withKeptNvenc = async (width: number, height: number, body: () => Promise<
 }
 
 /** A plan's chunks whose first read meets `error`, and the count of reads. */
-const failingOnce = (width: number, height: number, error: Error) => {
+const failingOnce = (width: number, height: number, error: Error, times = 1) => {
   const r = { reads: 0 }
   return Object.assign(r, {
     frames: {
       input: 'rgba' as const,
       count: 3,
       read: async function* () {
-        if (r.reads++ === 0) throw error
+        if (r.reads++ < times) throw error
         for (let i = 0; i < 3; i++) yield new Uint8Array(width * height * 4).fill(i * 40)
       },
     },
@@ -164,8 +192,12 @@ test('a GPU encoder that refuses to open falls back to the next encoder, droppin
   const project = memoryProject({ width: 96, height: 54 })
   const child = memoryChild({ size: { width: 96, height: 54 } })
   const out = join(project.root, 'out', 'fallback.mp4')
-  // AVERROR(EINVAL), as NVENC exits when it cannot open an encode session.
-  const plan = failingOnce(96, 54, new FfmpegError('ffmpeg exited with -22.', 'exit', -22, ''))
+  // AVERROR(EINVAL), as NVENC exits when it cannot open an encode session, saying so.
+  const plan = failingOnce(
+    96,
+    54,
+    new FfmpegError('ffmpeg exited with -22.', 'exit', -22, NO_DEVICE),
+  )
   const { kept, after } = await withKeptNvenc(96, 54, async () => {
     const o = { out, revision: 'test', to: 0.3, audio: false, frames: plan.frames }
     const { value, lines } = await quietly(() => exportVideo(project, child, o))
@@ -176,6 +208,82 @@ test('a GPU encoder that refuses to open falls back to the next encoder, droppin
   assert.equal(plan.reads, 2)
   assert.notEqual(after, kept)
   assert.equal(JSON.parse(after).answers['nvenc 96x54'], undefined)
+})
+
+test('a bad window is refused before ffmpeg runs, and keeps the GPU encoder', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 112, height: 64, duration: 10 })
+  const child = memoryChild({ size: { width: 112, height: 64 } })
+  const out = join(project.root, 'out', 'window.mp4')
+  const { kept, after } = await withKeptNvenc(112, 64, async () => {
+    const o = { out, revision: 'test', audio: false }
+    const { lines } = await quietly(async () => {
+      await assert.rejects(
+        exportVideo(project, child, { ...o, from: 8, to: 2 }),
+        /The window 8–2 s is outside 0–10 s\./,
+      )
+      await assert.rejects(
+        exportVideo(project, child, { ...o, from: 'a' as unknown as number }),
+        /Not a time in seconds: from "a"\./,
+      )
+    })
+    assert.deepEqual(lines, [])
+  })
+  assert.equal(after, kept)
+})
+
+/** An exit with an error whose words name no encoder (a new driver's, say). */
+const UNSAID = 'Conversion failed!'
+
+test('a GPU failure ffmpeg does not name: x264 once; it renders, so the GPU encoder is dropped', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 144, height: 80 })
+  const child = memoryChild({ size: { width: 144, height: 80 } })
+  const out = join(project.root, 'out', 'unsaid.mp4')
+  const plan = failingOnce(144, 80, new FfmpegError('ffmpeg exited with -22.', 'exit', -22, UNSAID))
+  const { kept, after } = await withKeptNvenc(144, 80, async () => {
+    const o = { out, revision: 'test', to: 0.3, audio: false, frames: plan.frames }
+    const { value, lines } = await quietly(() => exportVideo(project, child, o))
+    assert.equal(value.encoder, 'x264')
+    assert.match(lines.join('\n'), /trying x264 once[\s\S]*x264 did not: dropped it/)
+  })
+  assert.equal(plan.reads, 2)
+  assert.notEqual(after, kept)
+  assert.equal(JSON.parse(after).answers['nvenc 144x80'], undefined)
+})
+
+test('a failure x264 repeats (an output it cannot write) gives the first error and keeps the GPU encoder', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 160, height: 96 })
+  const child = memoryChild({ size: { width: 160, height: 96 } })
+  const out = join(project.root, 'out', 'unwritable.mp4')
+  const failed = new FfmpegError('ffmpeg exited with -2.', 'exit', -2, NO_OUTPUT)
+  const plan = failingOnce(160, 96, failed, 2)
+  const { kept, after } = await withKeptNvenc(160, 96, async () => {
+    const o = { out, revision: 'test', to: 0.3, audio: false, frames: plan.frames }
+    await quietly(() => assert.rejects(exportVideo(project, child, o), (e) => e === failed))
+  })
+  assert.equal(plan.reads, 2)
+  assert.equal(after, kept)
+})
+
+test('without a GPU encoder a failed encode is not tried again', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 176, height: 96 })
+  const child = memoryChild({ size: { width: 176, height: 96 } })
+  const out = join(project.root, 'out', 'x264.mp4')
+  const failed = new FfmpegError('ffmpeg exited with -22.', 'exit', -22, UNSAID)
+  const plan = failingOnce(176, 96, failed)
+  const o = { out, revision: 'test', to: 0.3, audio: false, frames: plan.frames }
+  const { lines } = await quietly(() =>
+    assert.rejects(exportVideo(project, child, { ...o, encoder: 'x264' }), (e) => e === failed),
+  )
+  assert.deepEqual(lines, [])
+  assert.equal(plan.reads, 1)
 })
 
 test('a stall goes to --retries, not to the GPU encoder fallback', {

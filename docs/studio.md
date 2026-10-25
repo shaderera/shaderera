@@ -54,7 +54,7 @@ a line, `{event, ...}`:
 | `resumed` | | the page came back within 10 s (a reload) |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
-| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events; a running job's progress comes at most every 10 % and 2 s, and every state change comes |
+| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start. A running job's progress comes at most every 10 % and 2 s, and every state change comes |
 | `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
 
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,
@@ -178,19 +178,21 @@ the permission first, and asks for a click (Connect) before that request when Ch
 - **To allow it again:** open the site settings from the icon left of the address, and set "Apps
   on device" to Allow. The page moves from the relay to the bridge without a reload.
 
-**Errors** are JSON: `{error}` with `400` for a bad request, `404` for no such route or job, and
-`500` otherwise.
+**Errors** are JSON: `{error}` with `400` for a bad request, `404` for no such route, job or
+file, and `500` otherwise. The error names the field or the file. A body over 1 MB is `400`, and
+the bridge closes that connection after it.
 
 ### `GET /info`
 
 ```json
 {
-  "version": "0.1.5",
+  "version": "…",
   "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
   "telemetry": true
 }
 ```
 
+- `version` is the running CLI's version, from its package.json.
 - `title` is package.json's `name`, else the folder's name.
 - `manifest` is shaderera.json as the CLI and the runner read it.
 - `variants` is shaderera.json's `variants`, in its own shape (`{}` when there are none): name →
@@ -252,28 +254,31 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
   `.git/` anywhere, and not a file that holds secrets (`.env`, `.npmrc`, … as `save` lists them in
   [cli.md](cli.md#versions-and-jobs)). A change that leaves the revision the same sends nothing.
 - **Job states** are `queued`, `running`, `done` and `failed`. `done` and `failed` end a job.
-  `progress` runs from 0 to 1.
+  `progress` runs from 0 to 1. A frame that never settles (no sign of work for a minute) fails its job
+  (`--timeout`, [cli.md](cli.md#common-flags)), its error naming t, and the next job runs.
 
 ### `POST /render {variant? | variants?, params?, format, t?}` → `{job}` or `{jobs}`
 
 Renders on your machine, with the CLI's own hosts and ffmpeg, one job at a time in the order
-asked.
+asked. Every field is checked first: a bad one is `400`, and nothing is queued or saved.
 
-- **`variant`** is a name in shaderera.json's `variants`. Leave it out for the film itself. The
-  answer is `{job}`.
+- **`variant`** is a name in shaderera.json's `variants`. Leave it out for the film itself. An
+  unknown name is `400`. The answer is `{job}`.
 - **`variants`** is a list of those names, for several at once, in place of `variant` (not with
   it). Every name is checked first: an unknown one is `400` and nothing is queued. The answer is
   `{jobs}`, one job a name (a name given twice renders once), queued in the order given, each
   with its own `job` events and file. `params`, `format` and `t` apply to every one.
-- **`params`** go over the defaults and the variant's. An undeclared name fails the job.
-- **`format`** is one of:
+- **`params`** is an object. Its values go over the defaults and the variant's. An undeclared
+  name fails the job.
+- **`format`** is required, one of:
   - `"mp4"`: H.264, the same file `shaderera render` makes;
   - `"mov"`: ProRes 422 HQ;
-  - `"png"`: one still, at `t` seconds (`0` by default), inside the film.
+  - `"png"`: one still, at `t` seconds (`0` by default). `t` must be inside the film (and inside
+    each variant asked), from 0 up to its length: one outside is `400`.
 - **The project is saved as a revision first**, and a video is tagged with it, as `render` does.
 - **The file stays in the project**, as `out/studio/<project>[-<variant>]-<job>.<mp4|mov|png>`.
-  In the variant's name, anything but letters, digits, `_`, `.` and `-` becomes `_` (`16:9` is
-  `16_9`).
+  In the variant's name, anything but letters and digits (in any script), `_`, `.` and `-`
+  becomes `_` (`16:9` is `16_9`, `tête` stays `tête`).
 
 ### `GET /render/<job>/file`
 
@@ -283,7 +288,15 @@ The job's file, streamed for the page to save, with:
   `filename` is the name in ASCII, with `_` for anything else; `filename*` is the name itself,
   percent-encoded UTF-8 (RFC 6266), for a project named in any script.
 
-A job that is not done gets `409`. An unknown one gets `404`.
+A job that is not done gets `409`. An unknown one gets `404`, and so does a done job whose file
+was deleted since.
+
+### `POST /render/<job>/cancel` → `{job}`
+
+Cancels a job that is queued or running. It ends as `failed` with the error `cancelled`, and the
+next job starts. A queued job never runs; a running one's hosts are closed, every one, a frame that never
+settles with them, and a video's partial file is removed, as a failed render leaves it. A job that
+has ended gets `409`. An unknown one gets `404`.
 
 ### `POST /share {title?}` → `{film, version, url}`
 
@@ -325,6 +338,14 @@ blocks local access)".
   `400`. The preview needs the direct connection to 127.0.0.1; the page says so, and Export (any
   size, in chunks) and Share still work.
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
+
+## Planned: protocol v2
+
+Not built yet. [ADR 0025](adr/0025-comments-and-activity-in-the-studio.md) decides it: comments on
+the film, kept in the project's `versions/comments.jsonl`; the agent's activity, recorded in
+`.shaderera/activity.jsonl`; and compare between the revisions comments name. They come as
+protocol v2, so a v1 page and a v2 CLI (or the reverse) never pair and each says which to
+update, as above. This page describes v1 until then.
 
 ## Telemetry
 
