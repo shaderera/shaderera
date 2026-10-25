@@ -36,5 +36,7 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
   licence: `package.json` starts as `"license": "UNLICENSED"` (all rights reserved). Ask the
   person which licence they want before you change it, and run `npx shaderera share --dry-run`
   first. The `shaderera` skill covers `login`, `share`, `fork` and `studio`.
+- Comments the person leaves in the studio: the `shaderera` skill's "Working with the person in
+  the studio" says how to wait for them, fix them and reply.
 - Report what you could not verify by looking: numbers such as contrast or a passing check do not
   establish that a frame looks good.

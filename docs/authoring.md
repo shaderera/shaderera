@@ -30,6 +30,10 @@ determinism, the CLI, MCP, delivery, and `participants/` per renderer); the task
 6. **Revise narrowly** (`guides/revisions.md`), then **verify**: `npx shaderera check`, review
    (`guides/review.md`), then export. Export refuses a source whose frames change with history.
 
+When the person reviews the film in the studio, their comments come at a moment of it: the
+`shaderera` skill's "Working with the person in the studio" is how to wait for them, fix them
+and reply.
+
 ## Renderers and hosts
 
 A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture` of `host.gpu`
