@@ -673,11 +673,13 @@ a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
 The project's activity is what the CLI, the agent (MCP) and the studio did in it, for the studio
 to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It fills itself:
 
-- **Every command run in a project** adds one entry: `{kind: "command", command, args, exitCode,
-  ok, summary}`, `by: "cli"`. `summary` is its findings counted by severity and the first three
-  messages: `{error, warning, info, messages}`. `still --sheet` keeps its contact sheet as the
-  entry's `image`. `mcp`, `studio`, `activity` and `--help` add none, and nothing is written outside
-  a project.
+- **Every command run in a project that changes, checks or renders** adds one entry:
+  `{kind: "command", command, args, exitCode, ok, summary}`, `by: "cli"`. `summary` is its findings
+  counted by severity and the first three messages: `{error, warning, info, messages}`.
+  `still --sheet` keeps its contact sheet as the entry's `image`. The ones that only read add
+  none: `versions`, `diff`, `doctor`, `help`, `activity`, and `comments` but for `add`, `reply`,
+  `resolve` and `reopen` (not `list`, `show` or `--wait`); nor do `mcp`, `studio` (they record their
+  own) and `--help`. Nothing is written outside a project.
 - **Every MCP tool call** adds one: `{kind: "tool", tool, ok, ms, summary}`, `by: "agent"`
   ([mcp.md](mcp.md#tools)).
 - **Every entry** has an `id` (it sorts by time) and `at` (ISO 8601).
@@ -685,13 +687,13 @@ to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It f
 | Command | What it does |
 |---|---|
 | `activity [--last 20] [--json]` | the last entries, oldest first: time, who, what, the image. `--json`: the entries as a list |
-| `activity add [--comment id] <text>` | adds `{kind: "note", text, comment?}`, at most 4000 characters, and prints its id. For what you mean to do; what you did is recorded already |
+| `activity add [--comment id] <text>` | adds `{kind: "note", text, comment?}`, `by: "agent"`, at most 4000 characters, and prints its id. It is the agent's channel: for what you mean to do; what you did is recorded already |
 
 ```
 $ shaderera activity
 2026-10-25 10:42:07  cli    check --times 4: exit 0
 2026-10-25 10:42:31  agent  render_frame: ok in 48 ms  .shaderera/activity/mh6x2k8q0007-3fa1c2d9.png
-2026-10-25 10:43:02  cli    Making the logo bigger (comment c7)
+2026-10-25 10:43:02  agent  Making the logo bigger (comment c7)
 ```
 
 - **Where it is kept.** `.shaderera/activity.jsonl`, one line an entry, only ever appended. Past

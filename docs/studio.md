@@ -55,7 +55,9 @@ does not make one id after another.
 
 When the page closes, the CLI says so only if no page comes back within 10 seconds. Once paired,
 a reload comes back sooner (a new `page-hello`, or a request to the bridge, directly or through
-the relay), and the CLI says "the studio page reloaded" instead. Before pairing, a page that comes
+the relay), and the CLI says "the studio page reloaded" instead. A request in the 2 s before the
+relay says the page left counts too: a reloaded page reaches 127.0.0.1 before the relay's word
+does. Before pairing, a page that comes
 back is simply the page that pairs.
 
 **For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the

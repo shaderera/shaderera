@@ -412,8 +412,8 @@ export const currentTree = (root: string) => treeId(scanProject(root))
 
 /**
  * Replies to a comment. With `fixed`, the tree is saved as a revision labelled
- * `fix <id>: <text>` and the comment is fixed in it; refused when the tree is still the one the
- * comment was made on (nothing was changed to fix it).
+ * `fix <id>: <text>` and the comment is fixed in it; refused when the tree is still the one of
+ * the comment's last fix, or the one it was made on when it has none (nothing was changed to fix it).
  */
 export const replyTo = async (
   root: string,
@@ -428,9 +428,10 @@ export const replyTo = async (
   if (o.fixed) {
     if (t.state === 'resolved')
       throw new Error(`Comment ${id} is resolved: the person reopens it before it is fixed again.`)
-    if (currentTree(root) === t.revision)
+    const last = t.fixedIn ?? t.revision
+    if (currentTree(root) === last)
       throw new Error(
-        `Refusing to mark ${id} fixed: nothing changed since the revision it was made on (${t.revision}).`,
+        `Refusing to mark ${id} fixed: nothing changed since ${t.fixedIn ? 'its last fix' : 'the revision it was made on'} (${last}).`,
       )
     revision = save(root, { by: o.by, label: `fix ${id}: ${[...text].slice(0, 60).join('')}` }).id
   }

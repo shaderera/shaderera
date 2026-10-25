@@ -319,6 +319,35 @@ test('a page that reloads is not closed; one that does not come back is', async 
   assert.deepEqual(heard, ['closed', 'reloaded'])
 })
 
+test('a reload whose request reaches the bridge before the page-left is resumed, not closed', async (t) => {
+  const id = makeId()
+  const heard: string[] = []
+  const p = page(relay.origin, id)
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+    pageBackMs: 1000,
+    onPage: (state) => heard.push(state),
+  })
+  closeAtEnd(t, cli, p)
+  const { bridge: got } = await p.pair()
+  // The reloaded page asks 127.0.0.1 at once; the relay's page-left comes after.
+  const info = await call(got.port, {
+    path: '/info',
+    headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
+  })
+  assert.equal(info.status, 200)
+  p.ws.close()
+  await p.closed
+  for (let i = 0; i < 100 && heard.length === 0; i++) await new Promise((r) => setTimeout(r, 20))
+  // Within the 10 s a reload has, and no `closed` after it.
+  await new Promise((r) => setTimeout(r, 1200))
+  assert.deepEqual(heard, ['reloaded'])
+})
+
 test('a page of another protocol is told which side to update, and never gets the bridge', async (t) => {
   const id = makeId()
   const said: { update: string; text: string }[] = []
