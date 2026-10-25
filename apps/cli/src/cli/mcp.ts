@@ -24,6 +24,7 @@ import {
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { head, log, releaseFrozen, save } from '../project/revisions.ts'
 import { contactSheet, review, toPng } from '../review/review.ts'
+import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
@@ -162,9 +163,9 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'inspect',
-    "Returns the source's inspect JSON at t, or the subtree at a diffJson path (a.b, a[id=x]). variant and params as render_frame.",
-    { t: num, path: str, ...looks },
-    ['t'],
+    "Returns the source's inspect JSON at t, or the subtree at a diffJson path (a.b, a[id=x]). With track (a path) instead of t, like `shaderera inspect --track`: the value at that path at every frame from from to to (default the whole film), each { t, value, speed? } (speed per second, for numbers and arrays of numbers): a curve to read easing, holds and overshoot. variant and params as render_frame.",
+    { t: num, path: str, track: str, from: num, to: num, ...looks },
+    [],
   ],
   [
     'compare',
@@ -479,6 +480,16 @@ export const createServer = (
           ]
         }
         case 'inspect': {
+          // track reads a window, not one t: it runs before t is checked.
+          if (typeof a.track === 'string') {
+            const { from, to } = windowOf(manifest, a.from, a.to)
+            if (!c.has.inspect) throw new Error('This source has no inspect(t).')
+            const curve = await track((t) => c.inspect(t), a.track, { fps: manifest.fps, from, to })
+            if (curve.every((p) => p.value === undefined))
+              throw new Error(`Nothing at ${a.track} in inspect.`)
+            return curve
+          }
+          if (a.t === undefined) throw new Error('inspect needs t, or track.')
           const json = await inspect(c, at('t'))
           const value = a.path ? valueAt(json, a.path) : json
           if (value === undefined) throw new Error(`Nothing at ${a.path} in inspect.`)
