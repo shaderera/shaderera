@@ -29,6 +29,7 @@ Versions and jobs:
   undo                                       back to the previous revision
   restore <revision>                         make the project that revision
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
+  comments [list|show|add|reply|resolve|reopen] [--state s] [--wait] [--json]   the comments on the film: read, add, reply (--fixed saves the fix), resolve; --wait for the next one
   prune [--dry-run] [--keep 10]              remove the revisions nobody names, and the objects only they held
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems] [--hdr10]   freeze a render job
 
@@ -72,6 +73,7 @@ const commands = [
   'restore',
   'diff',
   'prune',
+  'comments',
   'job',
   'login',
   'logout',
@@ -90,6 +92,7 @@ const OWN_JSON = new Set([
   'still',
   'review',
   'versions',
+  'comments',
   'doctor',
   'activity',
   'search',

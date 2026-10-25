@@ -45,7 +45,7 @@ Two facts shape the answer:
 4. **A comment's life, and who ends it.**
    - **States:** open → fixed (in a revision, with the agent's reply) → resolved, or reopened.
    - **The agent marks it fixed**, with `comments reply <id> --fixed`. That saves a revision, and refuses if nothing changed since the comment's revision.
-   - **Only the person resolves.** A reply from the person reopens a fixed comment.
+   - **Only the person resolves, in the studio.** A reply from the person reopens a fixed comment.
    - **Feedback given in chat.** When the person gives feedback about a moment in chat, the agent files it as a comment, so it shows on their timeline.
 
 5. **Compare uses the revisions comments name, not every edit.**

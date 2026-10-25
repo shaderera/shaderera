@@ -11,6 +11,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`still`](#still) | stills of any moment, a close look, a contact sheet |
 | [`render`](#render) | export an mp4 or a ProRes mov (a png job: frames, `audio.wav`, `delivery.json`) |
 | [`save`, `versions`, `undo`, `restore`, `diff`, `prune`, `job`](#versions-and-jobs) | revisions and frozen render jobs |
+| [`comments`](#comments) | the comments the person leaves on the film: read, add, reply, resolve, wait for the next |
 | [`deliver`](#deliver) | a batch of every variant × locale into `out/deliveries/<batch>/` |
 | [`plan`, `assemble`](#plan-render---chunk-assemble) | render a job's chunks on several machines |
 | [`reexport`](#reexport) | a job's sound on a delivered file's own picture, or its caption sidecars, with no frame rendered |
@@ -386,6 +387,40 @@ keep    9a1e07c25b3d4f10  job portrait-9a1e07c2-91d0be
 would remove 51c0d2e8a7b64913
 would remove frozen copy 9a1e07c25b3d4f10
 would remove 1 revision(s), 2 object(s) and 1 frozen copy(ies): 1073.9 MB (dry run: nothing was removed)
+```
+
+## `comments`
+
+What the person leaves on the film at a moment of it is a **comment**; the agent reads and answers
+it. Comments live in the project, in `versions/comments.jsonl` (one operation a line, only ever
+appended, so the studio, the CLI and MCP can all write at once), and travel with it: a copied
+folder, a git push. `share`, `fork` and `handoff` never send them.
+
+| Command | Does |
+|---|---|
+| `comments [list] [--state open\|fixed\|resolved\|all] [--json]` | the comments in that state (`open` by default) |
+| `comments show <id> [--json]` | one comment, with its replies |
+| `comments add --at <t>[-<t2>] [--variant v] [--point x,y \| --box x,y,w,h] <text>` | files a comment at t (or the range t to t2) on the tree as it is, which it saves as a revision. `--point` and `--box` are in that variant's frame pixels |
+| `comments reply <id> [--fixed] <text>` | replies. `--fixed` saves the tree as a revision labelled `fix <id>: <text>` (cut to 60 characters) and marks the comment fixed in it; when nothing changed since the revision the comment was made on, it refuses (exit 2) |
+| `comments reopen <id>` | opens it again. `comments resolve <id>` exits 2: "Resolve it in the studio: only the person resolves" |
+| `comments --wait [--json]` | waits until the person leaves a comment, or reopens one (their reply to a fixed one), prints it and exits 0. The agent's own comments and replies never wake it. While it waits it keeps `.shaderera/comments.wait/<pid>` (`{pid, started}`) fresh, touched every second; the studio says the agent is listening while one is under 5 s old |
+
+A comment is `open`, then `fixed` (an agent's `reply --fixed`), then `resolved` by the person,
+in the studio. The person's reply to a fixed comment opens it again. Text is at most 4000
+characters. Only the studio page writes as the person (`by: person`); the CLI writes `cli` and MCP
+`agent`, so a fix on a resolved comment, or a resolve from either, changes nothing.
+
+`--json` prints what MCP `comments` gives, `{revision, head, comments}`: `revision` is the working
+tree's id now, and each comment has `id` (6 characters), `state`, `revision` (the tree it was made
+on), `t` and `frame`, `to` and `toFrame` for a range, `variant`, `point` or `box` with the frame's
+`size`, `object`, `params` (those that differ from the defaults), `text`, `by`, `at`, `replies`,
+`fixedIn` (the fix's revision), `updated`, and `stale` (true when the tree is no longer the one it
+was made on). `point` and `box` go straight into MCP `pick` and `render_frame`'s `region`.
+
+```
+$ shaderera comments
+k7m2qa  open     2.4 s (frame 72)  at 812,214  person: the logo comes in too early
+$ shaderera comments reply k7m2qa --fixed "the logo enters at 2.8 s now"
 ```
 
 ## `deliver`

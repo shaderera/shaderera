@@ -13,6 +13,7 @@ import { inside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
 import { createNodeSession, type NodeSession } from '../node/session.ts'
 import { NOTE, record } from '../project/activity.ts'
+import { addComment, type CommentState, listing, replyTo, setState } from '../project/comments.ts'
 import { diffRevisions } from '../project/diff.ts'
 import {
   createJob,
@@ -259,6 +260,39 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
     'Like `shaderera diff <a> [<b>]`: the files added, removed and changed from revision a to b (or to the working tree), and a unified patch of their text unless stat: true.',
     { a: str, b: str, stat: { type: 'boolean' } },
     ['a'],
+  ],
+  [
+    'comments',
+    "Like `shaderera comments --json`: the person's comments on the film, as threads with their replies: { revision (the working tree's id now), head, comments: [{ id, state (open, fixed, resolved), revision, t, frame, to?, variant?, point?/box? with size, object?, params?, text, replies, fixedIn?, stale }] }. state (default open; all) or id (one). stale: the tree is not the one it was made on. point and box go straight into pick and render_frame region, at t.",
+    { state: str, id: str },
+    [],
+  ],
+  [
+    'comment_add',
+    'Like `shaderera comments add`: files a comment at t (to t..to with to) on the tree as it is (saved as a revision), for feedback the person gave in chat. point [x, y] or box [x, y, w, h] in the variant’s frame pixels, object, params (only those that differ from the defaults are kept). Returns { revision, head, comments: [it] }.',
+    {
+      t: num,
+      to: num,
+      variant: str,
+      point: { type: 'array', items: num },
+      box: { type: 'array', items: num },
+      object: str,
+      params: obj,
+      text: str,
+    },
+    ['t', 'text'],
+  ],
+  [
+    'comment_reply',
+    'Like `shaderera comments reply <id> [--fixed]`: replies to a comment. fixed: true saves the tree as a revision labelled "fix <id>: <text>" and marks the comment fixed in it; refused when nothing changed since the revision the comment was made on. Returns { revision, head, comments: [it] }.',
+    { id: str, text: str, fixed: { type: 'boolean' } },
+    ['id', 'text'],
+  ],
+  [
+    'comment_resolve',
+    'Like `shaderera comments reopen <id>` with reopen: true. Without it, refused: only the person resolves a comment, in the studio.',
+    { id: str, reopen: { type: 'boolean' } },
+    ['id'],
   ],
   [
     'job',
@@ -514,6 +548,45 @@ export const createServer = (
       return a.stat === true ? { added: d.added, removed: d.removed, changed: d.changed } : d
     },
   }
+  /** The tools on versions/comments.jsonl: no child opens for them, and the open one stays. */
+  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+  const commentTools: { [name: string]: (root: string, a: { [k: string]: any }) => unknown } = {
+    comments: (root, a) =>
+      listing(root, {
+        ...(typeof a.state === 'string' ? { state: a.state as CommentState } : {}),
+        ...(typeof a.id === 'string' ? { id: a.id } : {}),
+      }),
+    comment_add: async (root, a) => {
+      if (typeof a.t !== 'number') throw new Error('comment_add needs t, in seconds.')
+      const c = await addComment(
+        root,
+        {
+          t: a.t,
+          text: String(a.text ?? ''),
+          ...(typeof a.to === 'number' ? { to: a.to } : {}),
+          ...(typeof a.variant === 'string' ? { variant: a.variant } : {}),
+          ...(a.point !== undefined ? { point: a.point } : {}),
+          ...(a.box !== undefined ? { box: a.box } : {}),
+          ...(typeof a.object === 'string' ? { object: a.object } : {}),
+          ...(a.params && typeof a.params === 'object' ? { params: a.params } : {}),
+        },
+        'agent',
+      )
+      return listing(root, { id: c.id })
+    },
+    comment_reply: async (root, a) => {
+      const c = await replyTo(root, String(a.id), String(a.text ?? ''), {
+        by: 'agent',
+        fixed: a.fixed === true,
+      })
+      return listing(root, { id: c.id })
+    },
+    comment_resolve: async (root, a) => {
+      const state = a.reopen === true ? 'open' : 'resolved'
+      const c = await setState(root, String(a.id), state, 'agent')
+      return listing(root, { id: c.id })
+    },
+  }
   /** A call's revision, opened (render_frame and still only). */
   const revisionOf = async (
     root: string,
@@ -538,6 +611,8 @@ export const createServer = (
     // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
     a: { [k: string]: any },
   ): Promise<unknown> => {
+    const onComments = commentTools[name]
+    if (onComments) return onComments(root, a)
     // A variant or params get their own child, closed with the call; the session's child is the
     // server's own variant (`--variant`), with the defaults.
     if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
