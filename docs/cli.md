@@ -786,7 +786,7 @@ asks for.
   ends, exit 2), or, for an older page, to reload it.
 - **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
   `paired`, `page-closed`, `resumed`, `mismatch`, `relay`, `job`, `share`, `ended`, …), listed
-  in [studio.md](studio.md).
+  in [studio.md](studio.md). A render's `job` progress comes about every 10 %, not every frame.
 - **The protocol** is [studio.md](studio.md).
 
 The studio page reports usage counts to shaderera.com, which stores them in PostHog: never code,

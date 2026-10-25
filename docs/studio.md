@@ -54,7 +54,7 @@ a line, `{event, ...}`:
 | `resumed` | | the page came back within 10 s (a reload) |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
-| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events |
+| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events; a running job's progress comes at most every 10 % and 2 s, and every state change comes |
 | `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
 
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,

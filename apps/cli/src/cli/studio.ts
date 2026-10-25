@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
 import { isOrigin } from '../player/parents.ts'
-import { startBridge } from '../studio/bridge.ts'
+import { type StudioEvent, startBridge } from '../studio/bridge.ts'
 import { ID_LENGTH, isId, makeId, makeNonce, pageUrl } from '../studio/pairing.ts'
 import { closeText, connectRelay } from '../studio/relay.ts'
 import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
@@ -56,10 +56,23 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     origins: [site, ...(v.origin ?? []).filter((o) => o !== site)],
     hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
   })
+  // An agent pays for every line: a running job's progress comes once it moved 10 % and 2 s have
+  // passed since the last line, and every state change comes.
+  const jobLines = new Map<string, { state: string; progress: number; at: number }>()
+  const tooSoon = (e: Extract<StudioEvent, { type: 'job' }>) => {
+    const last = jobLines.get(e.id)
+    const now = Date.now()
+    if (last?.state === e.state && (e.progress - last.progress < 0.1 || now - last.at < 2000))
+      return true
+    if (e.state === 'done' || e.state === 'failed') jobLines.delete(e.id)
+    else jobLines.set(e.id, { state: e.state, progress: e.progress, at: now })
+    return false
+  }
   bridge.onEvent((e) => {
     const { type, ...fields } = e
     if (e.type === 'log') say(type, fields, e.text, e.level !== 'info')
     else if (e.type === 'changed') say(type, fields, `changed: revision ${e.revision}`)
+    else if (e.type === 'job' && tooSoon(e)) return
     else say(type, fields)
   })
   const id = v.connect ?? makeId()

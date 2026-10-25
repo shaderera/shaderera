@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
@@ -25,6 +25,7 @@ const fixture = (root = tempDir('studio')) => {
   return root
 }
 const jsonOf = (r: { body: Buffer }) => JSON.parse(r.body.toString('utf8'))
+const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
 let relay: Awaited<ReturnType<typeof startRelay>>
 before(async () => {
@@ -216,6 +217,82 @@ test('shaderera studio --json: one JSON line per event, for an agent', async () 
     // Nothing but events on stdout.
     assert.ok(events().every((e) => typeof e.event === 'string'))
     assert.equal(err, '')
+  } finally {
+    cli.kill('SIGINT')
+    await exited
+    p.ws.close()
+    await slow.close()
+  }
+})
+
+test('shaderera studio --json: a render sends its progress now and then, not a line a frame', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  // A 10 s film: 100 frames.
+  const project = fixture()
+  const manifest = JSON.parse(readFileSync(join(project, 'shaderera.json'), 'utf8'))
+  writeFileSync(join(project, 'shaderera.json'), JSON.stringify({ ...manifest, duration: 10 }))
+  const cli = spawn(
+    process.execPath,
+    [
+      main,
+      'studio',
+      '--connect',
+      id,
+      '--site',
+      slow.origin,
+      '--no-open',
+      '--json',
+      '--root',
+      project,
+    ],
+    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+  )
+  let out = ''
+  cli.stdout.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  cli.stderr.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
+  const events = () =>
+    out
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
+  const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
+    for (let i = 0; i < 2400; i++) {
+      const e = events().find(match)
+      if (e) return e
+      if (cli.exitCode !== null) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    throw new Error(`no such event in: ${out}`)
+  }
+  try {
+    const url = await event((e) => e.event === 'url')
+    const { bridge } = await p.pair(new URL(url.url as string).hash.slice(1))
+    const r = await call(bridge.port, {
+      method: 'POST',
+      path: '/render',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${bridge.secret}` },
+      body: { format: 'mp4' },
+    })
+    assert.equal(r.status, 200, r.body.toString())
+    const { job } = jsonOf(r)
+    await event((e) => e.event === 'job' && e.id === job && e.state === 'done')
+    const lines = events().filter((e) => e.event === 'job' && e.id === job)
+    assert.ok(lines.length <= 12, `${lines.length} job lines`)
+    for (const state of ['queued', 'running', 'done'])
+      assert.ok(
+        lines.some((e) => e.state === state),
+        state,
+      )
   } finally {
     cli.kill('SIGINT')
     await exited
