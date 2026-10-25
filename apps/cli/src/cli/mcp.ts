@@ -710,11 +710,12 @@ export const createServer = (
       }
       throw new Error(`Unknown tool ${name}.`)
     } catch (e) {
-      // A revision's host that died or hung is not kept for the next call.
-      if (revision && /exited|took longer/.test(String(e))) await frozen.drop()
+      // A revision's host that failed (it died, hung, lost its GPU) is not kept for the next call.
+      if (revision) await frozen.drop()
       throw e
     } finally {
       await own?.child.close()
+      if (revision) frozen.rest()
     }
   }
   const server = new Server(

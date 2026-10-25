@@ -46,8 +46,9 @@ carries only MCP.
 one a comment names): the call renders that revision from its frozen copy
 (`.shaderera/revisions/<id>/`) in its own child, with its own `shaderera.json`, `variant?` and
 `params?`, whatever the files are now. The server keeps that child open for the next call on the
-same revision, variant and params, closes it when another revision is asked for or the server
-ends, and the copy then stays in the pool `shaderera prune` and each render trim. An unknown
+same revision, variant and params, and closes it when another revision is asked for, a call on it
+fails, it has been unused for 5 minutes, or the server ends; a revision pruned meanwhile says so.
+The copy then stays in the pool `shaderera prune` and each render trim. An unknown
 revision is `No revision <id>.`, a pruned one `Revision <id> was pruned`. Not with `variants`.
 
 Every tool returns one JSON text block, except `render_frame`, `still` and `review`. Every tool

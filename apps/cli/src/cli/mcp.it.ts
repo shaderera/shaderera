@@ -525,6 +525,16 @@ test('render_frame and still take a revision: they render it, not the tree as it
       String(process.pid),
     ])
 
+    // R pruned while its host is kept: the next call says so instead of rendering the open copy.
+    const kept = readFileSync(join(root, 'versions', 'revisions', `${r}.json`))
+    rmSync(join(root, 'versions', 'revisions', `${r}.json`))
+    appendFileSync(join(root, 'versions', 'pruned.jsonl'), `${JSON.stringify({ id: r })}\n`)
+    await assert.rejects(
+      call('render_frame', { t: 0.5, revision: r }),
+      new RegExp(`Revision ${r} was pruned`),
+    )
+    writeFileSync(join(root, 'versions', 'revisions', `${r}.json`), kept)
+    assert.equal(await sha({ t: 0.5, revision: r }), was)
     await assert.rejects(
       call('render_frame', { t: 0.5, revision: 'feedfacefeedface' }),
       /No revision feedfacefeedface/,
