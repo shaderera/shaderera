@@ -22,7 +22,7 @@ import {
   windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, save, slash } from '../project/revisions.ts'
+import { head, log, releaseFrozen, save, slash } from '../project/revisions.ts'
 import { contactSheet, type ReviewReport, review, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parse } from './args.ts'
@@ -587,6 +587,7 @@ export const createServer = (
             })
           } finally {
             await frozen.child.close()
+            releaseFrozen(root, job.revision)
           }
         }
         case 'save':
