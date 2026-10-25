@@ -139,14 +139,14 @@ const withKeptNvenc = async (width: number, height: number, body: () => Promise<
 }
 
 /** A plan's chunks whose first read meets `error`, and the count of reads. */
-const failingOnce = (width: number, height: number, error: Error) => {
+const failingOnce = (width: number, height: number, error: Error, times = 1) => {
   const r = { reads: 0 }
   return Object.assign(r, {
     frames: {
       input: 'rgba' as const,
       count: 3,
       read: async function* () {
-        if (r.reads++ === 0) throw error
+        if (r.reads++ < times) throw error
         for (let i = 0; i < 3; i++) yield new Uint8Array(width * height * 4).fill(i * 40)
       },
     },
@@ -233,23 +233,57 @@ test('a bad window is refused before ffmpeg runs, and keeps the GPU encoder', {
   assert.equal(after, kept)
 })
 
-test('an ffmpeg failure that is not the encoder (an output it cannot write) keeps the kept GPU encoder', {
+/** An exit with an error whose words name no encoder (a new driver's, say). */
+const UNSAID = 'Conversion failed!'
+
+test('a GPU failure ffmpeg does not name: x264 once; it renders, so the GPU encoder is dropped', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
   const project = memoryProject({ width: 144, height: 80 })
   const child = memoryChild({ size: { width: 144, height: 80 } })
-  const out = join(project.root, 'out', 'unwritable.mp4')
-  const failed = new FfmpegError('ffmpeg exited with -2.', 'exit', -2, NO_OUTPUT)
-  const plan = failingOnce(144, 80, failed)
+  const out = join(project.root, 'out', 'unsaid.mp4')
+  const plan = failingOnce(144, 80, new FfmpegError('ffmpeg exited with -22.', 'exit', -22, UNSAID))
   const { kept, after } = await withKeptNvenc(144, 80, async () => {
     const o = { out, revision: 'test', to: 0.3, audio: false, frames: plan.frames }
-    const { lines } = await quietly(() =>
-      assert.rejects(exportVideo(project, child, o), (e) => e === failed),
-    )
-    assert.deepEqual(lines, [])
+    const { value, lines } = await quietly(() => exportVideo(project, child, o))
+    assert.equal(value.encoder, 'x264')
+    assert.match(lines.join('\n'), /trying x264 once[\s\S]*x264 did not: dropped it/)
   })
-  assert.equal(plan.reads, 1)
+  assert.equal(plan.reads, 2)
+  assert.notEqual(after, kept)
+  assert.equal(JSON.parse(after).answers['nvenc 144x80'], undefined)
+})
+
+test('a failure x264 repeats (an output it cannot write) gives the first error and keeps the GPU encoder', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 160, height: 96 })
+  const child = memoryChild({ size: { width: 160, height: 96 } })
+  const out = join(project.root, 'out', 'unwritable.mp4')
+  const failed = new FfmpegError('ffmpeg exited with -2.', 'exit', -2, NO_OUTPUT)
+  const plan = failingOnce(160, 96, failed, 2)
+  const { kept, after } = await withKeptNvenc(160, 96, async () => {
+    const o = { out, revision: 'test', to: 0.3, audio: false, frames: plan.frames }
+    await quietly(() => assert.rejects(exportVideo(project, child, o), (e) => e === failed))
+  })
+  assert.equal(plan.reads, 2)
   assert.equal(after, kept)
+})
+
+test('without a GPU encoder a failed encode is not tried again', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 176, height: 96 })
+  const child = memoryChild({ size: { width: 176, height: 96 } })
+  const out = join(project.root, 'out', 'x264.mp4')
+  const failed = new FfmpegError('ffmpeg exited with -22.', 'exit', -22, UNSAID)
+  const plan = failingOnce(176, 96, failed)
+  const o = { out, revision: 'test', to: 0.3, audio: false, frames: plan.frames }
+  const { lines } = await quietly(() =>
+    assert.rejects(exportVideo(project, child, { ...o, encoder: 'x264' }), (e) => e === failed),
+  )
+  assert.deepEqual(lines, [])
+  assert.equal(plan.reads, 1)
 })
 
 test('a stall goes to --retries, not to the GPU encoder fallback', {

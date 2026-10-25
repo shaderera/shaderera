@@ -54,6 +54,7 @@ import {
   hasHevcNvenc,
   hdr10Args,
   type Input,
+  keptEncoder,
   type Loudness,
   loudnessLine,
   masteringOf,
@@ -466,10 +467,16 @@ const exportOnce = async (
 }
 
 /**
- * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg refuses
- * (encoderRefused), the yes is dropped and the film is rendered again once, with the next encoder
- * found (x264 at the last), saying so on stderr. Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never
- * kept.
+ * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg exits with an
+ * error (encoderFailed), the outcome decides whether it was the encoder:
+ *
+ * - ffmpeg names the encoder (encoderRefused): the yes is dropped and the film is rendered again
+ *   once, with the next encoder found (x264 at the last), saying so on stderr.
+ * - It does not (a new driver's words, an output it cannot write): the film is rendered once with
+ *   x264, the yes kept. If x264 renders it, it was the encoder: the yes is dropped, saying so. If
+ *   x264 fails too, it was not: the first error is thrown and the encoder kept.
+ *
+ * Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never kept.
  */
 const exportFallingBack: typeof exportOnce = async (project, child, o) => {
   const { width, height } = project.manifest
@@ -484,10 +491,23 @@ const exportFallingBack: typeof exportOnce = async (project, child, o) => {
   try {
     return await exportOnce(project, child, o)
   } catch (error) {
-    if (!picked || !encoderRefused(error)) throw error
-    if (!forgetEncoder(picked, width, height)) throw error
-    console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
-    return exportOnce(project, child, o)
+    if (!picked || !encoderFailed(error) || !keptEncoder(picked, width, height)) throw error
+    if (encoderRefused(error)) {
+      forgetEncoder(picked, width, height)
+      console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
+      return exportOnce(project, child, o)
+    }
+    console.warn(`! ${picked} failed and ffmpeg did not say it was the encoder: trying x264 once.`)
+    let done: Awaited<ReturnType<typeof exportOnce>>
+    try {
+      done = await exportOnce(project, child, { ...o, encoder: 'x264' })
+    } catch {
+      // x264 fails too: not the encoder. The first error says what went wrong.
+      throw error
+    }
+    forgetEncoder(picked, width, height)
+    console.warn(`! ${picked} failed where it worked before and x264 did not: dropped it.`)
+    return done
   }
 }
 
@@ -499,11 +519,11 @@ const exportFallingBack: typeof exportOnce = async (project, child, o) => {
  * (transientEncoder).
  */
 export const encoderRefused = (error: unknown): boolean =>
-  error instanceof FfmpegError &&
-  error.reason === 'exit' &&
-  error.code !== null &&
-  error.code !== 0 &&
-  error.encoder
+  encoderFailed(error) && (error as FfmpegError).encoder
+
+/** An encoder ffmpeg that exited with a code other than 0 (not a stall, a signal or 0). */
+export const encoderFailed = (error: unknown): boolean =>
+  error instanceof FfmpegError && error.reason === 'exit' && error.code !== null && error.code !== 0
 
 /**
  * An encoder failure a second try may not repeat: ffmpeg stalled, or exited with 0 while frames

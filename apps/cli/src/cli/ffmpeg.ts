@@ -155,6 +155,10 @@ export const hardwareEncoder = async (
   return tried.find((_, i) => has[i])
 }
 
+/** Whether this encoder's yes at this size came from encodersFile, not a test encode here. */
+export const keptEncoder = (encoder: Hardware, width: number, height: number): boolean =>
+  keptYes.has(`${encoder} ${width}x${height}`)
+
 /**
  * Drops a kept yes for this encoder and size, whose encode has just failed (a GPU or driver gone
  * since): false when the yes was not a kept one. This process then answers no; the next one tests
