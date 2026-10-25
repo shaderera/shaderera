@@ -102,7 +102,7 @@ const SEVERAL =
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
     'render_frame',
-    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version.',
+    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version.',
     {
       t: num,
       final: { type: 'boolean' },
