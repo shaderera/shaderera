@@ -176,8 +176,10 @@ every change. Once the studio is open (section 5), work in rounds:
 
 1. **Listen.** Run `npx shaderera comments --wait --json` in the background. It exits when the
    person comments, or reopens a comment with a reply, and prints those comments; your own
-   comments and replies never wake it. While it runs, the page tells the person you will see
-   their comment now. Run it again after each round.
+   comments and replies never wake it. MCP has no wait tool: wait with this CLI command even when
+   you use MCP for the rest. While it runs, the page shows "· listening"; when it doesn't, the
+   page tells the person "Your agent isn't listening: tell it you left comments". Run it again
+   after each round.
 2. **Read** with MCP `comments`: the open ones (`state: "all"` lists every one). Take them open
    first, oldest first. A `fixed` comment is waiting for the person: leave it.
 3. **Say what you start**, one line per comment: MCP `activity_add {text, comment}` with the
