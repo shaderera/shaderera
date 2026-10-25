@@ -147,6 +147,12 @@ page:
 4. On a `mismatch` event, relay its `text`: the page and the CLI speak different studio
    protocols (this CLI speaks v1). `update: "page"` means reload the page; `update: "cli"` means
    `npm i shaderera@latest` and run `studio` again (the command ends with exit 2).
+5. A second `url` event means no page came for the first address in 10 minutes: give the person
+   the new one.
+6. To stop it, write `{"stop":true}` and a newline to its stdin, or close its stdin: it ends with
+   `ended` and the page is told. Start it with stdin as a pipe for that. If you cannot reach its
+   stdin, send SIGTERM (macOS, Linux), or kill it as your tools stop a command; the page then
+   hears only that the CLI left.
 
 Reviewing there is a loop with the person. The page reloads the frame on each of your edits (a
 `changed` event), so they see every change without asking. Their notes come through the chat
