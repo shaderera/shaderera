@@ -69,7 +69,7 @@ const lineOf = (s: Still) => {
  *
  * Stills of any moment straight from the source, rendered by the same host as `check` and
  * `render`, so a shader that does not compile or a WebGPU error fails the still instead of
- * writing a black frame. `--region` (frame pixels) or `--object` (an inspected object's `bbox`)
+ * writing a black frame. `--region` (frame pixels) or `--object` (an inspected object's `bbox`, else a text run's `box`)
  * also writes that part of each still, enlarged `--scale` times by whole pixels: a close look.
  * `--compare <variant>` renders each t in that variant too and writes the pair side by side with
  * PSNR and mean ΔE between them: measured, never judged (decision 0011). `--variant a,b` or

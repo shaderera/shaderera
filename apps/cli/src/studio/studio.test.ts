@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { createServer, request as httpRequest } from 'node:http'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { Agent, createServer, request as httpRequest } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { basename, join } from 'node:path'
 import {
@@ -577,10 +577,70 @@ test('/render renders on this machine into out/, and /render/<job>/file streams 
   )
 })
 
+test('/render refuses a bad request up front, naming the field', async () => {
+  const sse = events(bridge)
+  await sse.opened
+  const asked = sse.got.length
+  for (const [body, field] of [
+    [{}, /format/],
+    [{ params: [] }, /format/],
+    [{ format: 'png', params: [] }, /params/],
+    [{ format: 'png', t: 1 }, /^t .*outside the film/],
+    [{ format: 'png', t: -1 }, /^t .*outside the film/],
+    [{ format: 'png', t: 1e9 }, /^t .*outside the film/],
+    [{ format: 'png', variant: 'nowhere' }, /variant "nowhere"/],
+  ] as const) {
+    const r = await call(bridge.port, {
+      method: 'POST',
+      path: '/render',
+      headers: asPage(bridge),
+      body,
+    })
+    assert.equal(r.status, 400, JSON.stringify(body))
+    assert.match(jsonOf(r).error, field, JSON.stringify(body))
+  }
+  // Nothing was queued: no job came.
+  await new Promise((r) => setTimeout(r, 100))
+  assert.ok(sse.got.slice(asked).every((e) => e.type !== 'job'))
+  sse.close()
+})
+
+test('a body over 1 MB is refused, and the connection goes on', async () => {
+  const agent = new Agent({ keepAlive: true, maxSockets: 1 })
+  try {
+    const big = await call(bridge.port, {
+      method: 'POST',
+      path: '/render',
+      headers: asPage(bridge),
+      body: { format: 'png', pad: 'x'.repeat(2 << 20) },
+      agent,
+    })
+    assert.equal(big.status, 400)
+    assert.match(jsonOf(big).error, /over 1 MB/)
+    for (let i = 0; i < 2; i++)
+      assert.equal(
+        (await call(bridge.port, { path: '/info', headers: asPage(bridge), agent })).status,
+        200,
+      )
+  } finally {
+    agent.destroy()
+  }
+})
+
+test('/render/<job>/file of a file deleted since is a 404 naming it', async () => {
+  const job = await renderJob({ format: 'png' })
+  const name = `${basename(root)}-${job}.png`
+  rmSync(join(root, 'out', 'studio', name))
+  const r = await call(bridge.port, { path: `/render/${job}/file`, headers: asPage(bridge) })
+  assert.equal(r.status, 404)
+  assert.match(jsonOf(r).error, new RegExp(name))
+})
+
 test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and the bridge lives on', async () => {
   const thai = fixture(join(tempDir('studio'), 'ภาพยนตร์'))
   const manifest = JSON.parse(readFileSync(join(thai, 'shaderera.json'), 'utf8'))
   manifest.variants['16:9'] = { params: { grey: 50 } }
+  manifest.variants.tête = { params: { grey: 60 } }
   writeFileSync(join(thai, 'shaderera.json'), JSON.stringify(manifest))
   const b = await startBridge({ root: thai, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
   try {
@@ -619,6 +679,29 @@ test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and 
       assert.equal(bad.status, 400, format)
     }
     assert.equal((await call(b.port, { path: '/info', headers: asPage(b) })).status, 200)
+
+    // A variant's name keeps its letters, in any script.
+    const sse2 = events(b)
+    await sse2.opened
+    const accented = jsonOf(
+      await call(b.port, {
+        method: 'POST',
+        path: '/render',
+        headers: asPage(b),
+        body: { format: 'png', variant: 'tête' },
+      }),
+    ).job
+    await sse2.next(
+      (e) => e.type === 'job' && e.id === accented && (e.state === 'done' || e.state === 'failed'),
+    )
+    sse2.close()
+    assert.ok(existsSync(join(thai, 'out', 'studio', `ภาพยนตร์-tête-${accented}.png`)))
+
+    // A shaderera.json that does not parse is named in the error.
+    writeFileSync(join(thai, 'shaderera.json'), '{"name": "broken')
+    const broken = await call(b.port, { path: '/info', headers: asPage(b) })
+    assert.equal(broken.status, 500)
+    assert.match(jsonOf(broken).error, /shaderera\.json/)
   } finally {
     await b.close()
   }

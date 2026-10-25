@@ -24,7 +24,78 @@ test('a hung source fails the call after timeoutMs and closes without a crash', 
     timeoutMs: 500,
     openTimeoutMs: TIMEOUT,
   })
-  await assert.rejects(child.render(0, 'final'), /took longer than 500 ms/)
+  await assert.rejects(
+    child.render(0, 'final'),
+    /took longer than 500 ms on render at t = 0 s without a sign of work: .*--timeout <s>/,
+  )
   await child.close()
   await assert.rejects(child.render(0, 'final'), /has exited/)
+})
+
+test("a sequential source's call outlasts timeoutMs while each frame it steps through is in time", async () => {
+  const root = tempDir('steps')
+  cpSync(fileURLToPath(new URL('./fixtures/sequential/', import.meta.url)), root, {
+    recursive: true,
+    filter: (p) => !p.includes('.shaderera'),
+  })
+  // 300 ms a frame: render(0.9) steps 10 frames, 3 s in one call.
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default () => ({
+  render: async () => {
+    await new Promise((done) => setTimeout(done, 300))
+    return { color: new Uint8Array(4 * 2 * 4).fill(255), alpha: 'opaque' }
+  },
+})
+`,
+  )
+  const project = await findProject(root)
+  const child = await openChild(project, {
+    entryFile: await buildForNode(project),
+    timeoutMs: 1000,
+    openTimeoutMs: TIMEOUT,
+  })
+  try {
+    const start = performance.now()
+    await child.render(0.9, 'final')
+    assert.ok(performance.now() - start > 2500)
+  } finally {
+    await child.close()
+  }
+})
+
+test('a call outlasts timeoutMs while the source keeps asking this process for things (io.cache)', async () => {
+  const root = tempDir('asking')
+  cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
+  // Six cache entries made 400 ms apart: 2.4 s in one call, never 1 s without a request.
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io }) => {
+  const canvas = io.canvas(64, 36)
+  return {
+    render: async (t) => {
+      for (let i = 0; i < 6; i++)
+        await io.cache(\`step-\${t}-\${i}\`, [], async () => {
+          await new Promise((done) => setTimeout(done, 400))
+          return new Uint8Array(1)
+        })
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const project = await findProject(root)
+  const child = await openChild(project, {
+    entryFile: await buildForNode(project),
+    timeoutMs: 1000,
+    openTimeoutMs: TIMEOUT,
+  })
+  try {
+    const start = performance.now()
+    await child.render(0, 'final')
+    assert.ok(performance.now() - start > 2000)
+  } finally {
+    await child.close()
+  }
 })
