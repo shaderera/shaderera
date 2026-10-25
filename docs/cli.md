@@ -677,10 +677,12 @@ to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It f
   `{kind: "command", command, args, exitCode, ok, summary}`, `by: "cli"`. `summary` is its findings
   counted by severity and the first three messages: `{error, warning, info, messages}`.
   `still --sheet` keeps its contact sheet as the entry's `image`. The ones that only read add
-  none: `versions`, `diff`, `doctor`, `help`, `activity`, and `comments` but for `add`, `reply`,
-  `resolve` and `reopen` (not `list`, `show` or `--wait`); nor do `mcp`, `studio` (they record their
-  own) and `--help`. Nothing is written outside a project.
-- **Every MCP tool call** adds one: `{kind: "tool", tool, ok, ms, summary}`, `by: "agent"`
+  none: `versions`, `diff`, `doctor`, `help`, `activity`, and `comments` `list`, `show` and
+  `--wait`; nor do `mcp`, `studio` (they record their own) and `--help`. The `comments` that
+  write (`add`, `reply`, `resolve`, `reopen`) add one only when they fail: done, the comment is the
+  record. Nothing is written outside a project.
+- **Every MCP tool call** adds one (`comment_add`, `comment_reply` and `comment_resolve` only
+  when they fail): `{kind: "tool", tool, ok, ms, summary}`, `by: "agent"`
   ([mcp.md](mcp.md#tools)).
 - **Every entry** has an `id` (it sorts by time) and `at` (ISO 8601).
 

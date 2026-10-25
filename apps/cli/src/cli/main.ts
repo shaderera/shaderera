@@ -220,7 +220,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
   // Activity, once per command run in a project; a write that fails changes nothing.
   const asked = given.includes('--help') || given.includes('-h')
-  if (commands.includes(command) && recordable(given) && !asked)
+  if (commands.includes(command) && recordable(given, exitCode) && !asked)
     recordCommand({ argv: given, exitCode, findings })
   if (envelope) {
     let result: unknown

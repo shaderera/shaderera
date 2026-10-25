@@ -325,6 +325,8 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
 
 /** The tools whose PNG is kept as their activity entry's image (decision 0025). */
 const PICTURED = new Set(['still', 'render_frame'])
+/** The tools that write comments (decision 0025). */
+const COMMENT_WRITES = new Set(['comment_add', 'comment_reply', 'comment_resolve'])
 
 /**
  * A tool call's activity entry (`by: agent`): its result and time, its error as the summary, and
@@ -867,7 +869,12 @@ export const createServer = (
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     const { root, start, ...result } = await answer(params)
     // Activity, once per call in a project (activity_add is its own entry), timed from when it ran.
-    if (root && params.name !== 'activity_add')
+    // A comment written is its own record: a comment tool's entry is only for its failure.
+    if (
+      root &&
+      params.name !== 'activity_add' &&
+      (!COMMENT_WRITES.has(params.name) || result.isError)
+    )
       recordTool(root, params.name, performance.now() - start, result)
     return result
   })
