@@ -170,7 +170,8 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
 **The relay's rules:**
 - It forwards every frame from one side to the other as it is. It stores only when it first saw
   the id, whether the id is used or ended, and the SHA-256 of each resume token.
-- When a side closes, it sends `{type:"cli-left"}` or `{type:"page-left"}` to the other side.
+- When a side closes, it sends `{type:"cli-left"}` or `{type:"page-left"}` to the other side,
+  except a paired CLI's close with 1000, which ends the session (below).
 - **Close codes.** It closes a socket with:
   - `4001 expired`: the sockets on an id no CLI paired with in time;
   - `4002 used`: a second CLI, before or after pairing, or one with a wrong resume token;
@@ -186,8 +187,8 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
     8, 16 and then every 30 s, for as long as it runs. Its keys stay, so the page goes on.
   - A side with its token replaces that side's socket, if one is still there, and gets
     `{type:"resumed"}`; a CLI's return sends the page `cli-joined`.
-- **The session ends** when the paired CLI closes with 1000 (stopped): the relay closes the page
-  with `4004`. A paired CLI that dropped and does not come back within 10 minutes ends it too.
+- **The session ends** when the paired CLI closes with 1000 (stopped): the relay sends the page
+  `{type:"ended"}`, then closes it with `4004`. The page takes either as "The CLI stopped". A paired CLI that dropped and does not come back within 10 minutes ends it too.
 - **An id that expired or ended is forgotten**: the relay deletes what it stored, so the id then
   starts as a new one.
 
