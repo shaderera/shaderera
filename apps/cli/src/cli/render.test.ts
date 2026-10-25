@@ -178,6 +178,29 @@ test('a GPU encoder that refuses to open falls back to the next encoder, droppin
   assert.equal(JSON.parse(after).answers['nvenc 96x54'], undefined)
 })
 
+test('a bad window is refused before ffmpeg runs, and keeps the GPU encoder', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 112, height: 64, duration: 10 })
+  const child = memoryChild({ size: { width: 112, height: 64 } })
+  const out = join(project.root, 'out', 'window.mp4')
+  const { kept, after } = await withKeptNvenc(112, 64, async () => {
+    const o = { out, revision: 'test', audio: false }
+    const { lines } = await quietly(async () => {
+      await assert.rejects(
+        exportVideo(project, child, { ...o, from: 8, to: 2 }),
+        /The window 8–2 s is outside 0–10 s\./,
+      )
+      await assert.rejects(
+        exportVideo(project, child, { ...o, from: 'a' as unknown as number }),
+        /Not a time in seconds: from "a"\./,
+      )
+    })
+    assert.deepEqual(lines, [])
+  })
+  assert.equal(after, kept)
+})
+
 test('a stall goes to --retries, not to the GPU encoder fallback', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {

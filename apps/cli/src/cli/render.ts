@@ -31,10 +31,11 @@ import {
   readJob,
   safeName,
   videoOptionsOf,
+  windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { save } from '../project/revisions.ts'
-import { childOptions, open, parseRendering } from './args.ts'
+import { childOptions, open, parseRendering, timesOf } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
   bitsPerSecond,
@@ -519,16 +520,18 @@ export const transientEncoder = (error: unknown): boolean => {
 }
 
 /**
- * Exports the film (exportOnce, with exportFallingBack's GPU encoder fallback). With `retries`, an
- * encode that fails transiently (transientEncoder) is done again from the start, up to that many
- * times (withRetries): the frames are rendered again (or read again from a plan's chunks), and
- * give the same bytes.
+ * Exports the film (exportOnce, with exportFallingBack's GPU encoder fallback), its window checked
+ * first (windowOf). With `retries`, an encode that fails transiently (transientEncoder) is done
+ * again from the start, up to that many times (withRetries): the frames are rendered again (or read
+ * again from a plan's chunks), and give the same bytes.
  */
 export const exportVideo = async (
   project: Project,
   child: Child,
   o: Parameters<typeof exportOnce>[2] & { retries?: number },
 ): ReturnType<typeof exportOnce> => {
+  // Before ffmpeg runs: its refusal of a bad window would read as the GPU encoder's.
+  windowOf(project.manifest, o.from, o.to)
   const { retries = 0, ...rest } = o
   return withRetries(() => exportFallingBack(project, child, rest), {
     retries,
@@ -652,6 +655,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
     )
   const num = (x: unknown) => (x === undefined ? undefined : Number(x))
+  // --from and --to, refused before anything opens when they are not seconds.
+  const [from, to] = [v.from, v.to].map((x) => (x === undefined ? undefined : timesOf([x])[0]))
   const planDir = (j: { name: string }) =>
     typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${j.name}.plan`)
   const reusing = v.reuse !== undefined || v.changed !== undefined || v.fix !== undefined
@@ -670,11 +675,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       reusing || v.chunk === undefined
         ? !reusing && job?.delivery.format === 'png'
           ? 0
-          : frameTimes(
-              m.fps,
-              job?.output.from ?? num(v.from) ?? 0,
-              job?.output.to ?? num(v.to) ?? m.duration,
-            ).length
+          : frameTimes(m.fps, job?.output.from ?? from ?? 0, job?.output.to ?? to ?? m.duration)
+              .length
         : chunkFrames()
     if (frames === 0 || m.sequential) return 0
     return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
@@ -686,8 +688,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)
   const { project } = opened
-  // On a software adapter, refused unless accepted, before anything is saved.
-  await refuseSoftware(opened.child, v['software-gpu'] === true).catch(async (error) => {
+  // A window outside the film (windowOf), and a software adapter unless accepted, are refused
+  // before anything is saved.
+  await (async () => {
+    if (!job) windowOf(project.manifest, from, to)
+    await refuseSoftware(opened.child, v['software-gpu'] === true)
+  })().catch(async (error) => {
     await Promise.all([opened.child, ...opened.extra].map((h) => h.close()))
     throw error
   })
@@ -800,13 +806,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     // Only around a chunk and the video export: a png job keeps the default Ctrl-C.
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
-    const from = job?.output.from ?? num(v.from) ?? 0
-    const to = job?.output.to ?? num(v.to) ?? project.manifest.duration
     const ext = extensionOf(video.codec)
     const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
       ...video,
-      from,
-      to,
+      from: job?.output.from ?? from,
+      to: job?.output.to ?? to,
       hosts: extra,
       out:
         typeof v.out === 'string'
