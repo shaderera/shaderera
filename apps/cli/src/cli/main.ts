@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { recordCommand } from '../project/activity.ts'
 import { COMMANDS as PLUGIN, usage as pluginUsage } from '../registry/cli.ts'
 import { EXIT, errorFinding, findings, found } from './findings.ts'
 
@@ -19,6 +20,8 @@ Commands:
   bake [name...]                             run a bake's command and stamp the frames it made
   doctor [--json]                            what this machine and project have and lack (ffmpeg, encoders, Chrome, Dawn, GPU)
   mcp                                        serve the CLI as MCP tools over stdio
+  activity [--last 20] [--json]              what the CLI, the agent and the studio did in this project
+  activity add [--comment id] <text>         add a note of what you mean to do to the activity
 
 Versions and jobs:
   save [--label text]                        save the project as a revision
@@ -63,6 +66,7 @@ const commands = [
   'bake',
   'doctor',
   'mcp',
+  'activity',
   'save',
   'versions',
   'undo',
@@ -90,6 +94,7 @@ const OWN_JSON = new Set([
   'versions',
   'comments',
   'doctor',
+  'activity',
   'search',
   'info',
   'share',
@@ -101,6 +106,11 @@ const OWN_JSON = new Set([
  * own `--json` prints one JSON line per event.
  */
 const STREAMS = new Set(['mcp', 'studio'])
+/**
+ * Commands with no activity entry of their own (decision 0025): mcp records each tool call, studio
+ * its edits and renders, and activity is the log itself.
+ */
+const UNRECORDED = new Set(['mcp', 'studio', 'activity'])
 
 /** The commands that talk to the films API or the site: they take --api and --site. */
 const ONLINE = new Set(['login', 'logout', 'whoami', 'share', 'fork', 'studio', ...PLUGIN])
@@ -213,6 +223,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   } finally {
     console.log = print
   }
+  // Activity, once per command run in a project; a write that fails changes nothing.
+  const asked = given.includes('--help') || given.includes('-h')
+  if (commands.includes(command) && !UNRECORDED.has(command) && !asked)
+    recordCommand({ argv: given, exitCode, findings })
   if (envelope) {
     let result: unknown
     if (OWN_JSON.has(command) && log.length > 0)

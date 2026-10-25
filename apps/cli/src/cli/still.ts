@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
+import { activityImage } from '../project/activity.ts'
 import { safeName } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { type Comparison, compareFrames, sideBySide } from '../review/compare.ts'
@@ -108,6 +109,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         `${kept.map((k) => safeName(k.name)).join('-')}-sheet.png`,
       )
       writeFileSync(file, await variantSheet(kept))
+      activityImage(file)
       return { line: relative(process.cwd(), file), result: { sheet: file } }
     },
   })
@@ -229,6 +231,7 @@ const stillOne = async (
     } else if (v.sheet) {
       sheet = join(outDir, `${pair}-sheet.png`)
       await pngs.write(sheet, contactSheet(rendered, sheetWidth, height))
+      activityImage(sheet)
     }
     await pngs.done()
     if (sheet && !v.json) out.log(relative(process.cwd(), sheet))

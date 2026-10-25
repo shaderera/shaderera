@@ -556,3 +556,62 @@ export const videoOptionsOf = (d: Partial<Delivery>) => ({
   ...(d.editList === false ? { editList: false } : {}),
   ...(d.stems ? { stems: true } : {}),
 })
+
+/**
+ * Opens a saved revision (not a job) in its own host, from its frozen copy, as `openJob` does: the
+ * revision's own manifest, `variant` and `params` over its defaults, and the bakes its stamps pin
+ * for it. `close` ends the host and releases the copy, which stays in the pool of frozen copies
+ * (revisions.ts). An unknown revision says "No revision", a pruned one "was pruned".
+ */
+export const openRevision = async (
+  root: string,
+  revision: string,
+  o: {
+    variant?: string
+    params?: { readonly [key: string]: Json }
+    host?: unknown
+    trusted?: boolean
+    timeoutMs?: number
+  } = {},
+): Promise<{ project: Project; child: Child; close: () => Promise<void> }> => {
+  const built = await frozenBuild(root, revision, o.variant)
+  try {
+    const declared = manifestAt(root, revision)
+    const { manifest, params: variantParams } = withVariant(declared, o.variant)
+    const params = effectiveParams(manifest, variantParams, o.params)
+    const pinned = pinBakes(root, declared, revision, readRevision(root, revision).files)
+    const bakes = checkJobBakes({
+      name: `revision ${revision}`,
+      revision,
+      inputs: { bakes: pinned },
+    })
+    const more = await hostOpener(
+      hostOf(manifest, o.host),
+      { root, manifest: built.project.manifest },
+      {
+        revision,
+        ...(o.variant ? { variant: o.variant } : {}),
+        params,
+        bakes,
+        trusted: o.trusted,
+        timeoutMs: o.timeoutMs,
+        build: async () => built,
+      },
+    )
+    const child = await more()
+    return {
+      project: built.project,
+      child,
+      close: async () => {
+        try {
+          await child.close()
+        } finally {
+          releaseFrozen(root, revision)
+        }
+      },
+    }
+  } catch (error) {
+    releaseFrozen(root, revision)
+    throw error
+  }
+}

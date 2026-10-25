@@ -12,6 +12,7 @@ import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
 import { createNodeSession, type NodeSession } from '../node/session.ts'
+import { NOTE, record } from '../project/activity.ts'
 import { addComment, type CommentState, listing, replyTo, setState } from '../project/comments.ts'
 import { diffRevisions } from '../project/diff.ts'
 import {
@@ -33,6 +34,7 @@ import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { valueAt } from './inspect.ts'
 import { exportVideo, extensionOf } from './render.ts'
+import { revisionHosts } from './revision-host.ts'
 import { stillTimes } from './still.ts'
 import { nameOf, sameAsMain, variantList } from './variants.ts'
 
@@ -159,7 +161,7 @@ const SEVERAL =
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
     'render_frame',
-    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version.',
+    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version. revision (a saved revision id, from versions or a comment) renders that revision from its frozen copy instead of the files as they are now.',
     {
       t: num,
       final: { type: 'boolean' },
@@ -169,14 +171,15 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
       region: { type: 'array', items: num },
       object: str,
       scale: num,
+      revision: str,
       ...looks,
     },
     ['t'],
   ],
   [
     'still',
-    `Like \`shaderera still <t>... --sheet\`: renders each of times (seconds), or every \`every\` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant and params as render_frame. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. ${SEVERAL}`,
-    { times: { type: 'array', items: num }, every: num, ...looks, ...several },
+    `Like \`shaderera still <t>... --sheet\`: renders each of times (seconds), or every \`every\` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant, params and revision as render_frame. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. ${SEVERAL}`,
+    { times: { type: 'array', items: num }, every: num, revision: str, ...looks, ...several },
     [],
   ],
   [
@@ -312,7 +315,66 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
     { variant: str, quick: { type: 'boolean' }, ...several },
     [],
   ],
+  [
+    'activity_add',
+    'Like `shaderera activity add`: adds a note of what you mean to do (text, at most 4000 characters) to the activity the studio shows, about a comment when comment (its id) is given. Only for what you mean to do: every tool call is recorded already. Returns the entry.',
+    { text: str, comment: str },
+    ['text'],
+  ],
 ]
+
+/** The tools whose PNG is kept as their activity entry's image (decision 0025). */
+const PICTURED = new Set(['still', 'render_frame'])
+
+/**
+ * A tool call's activity entry (`by: agent`): its result and time, its error as the summary, and
+ * the PNG still and render_frame returned. Never throws.
+ */
+const recordTool = (
+  root: string,
+  tool: string,
+  ms: number,
+  result: { content: unknown; isError?: boolean },
+) => {
+  const blocks = Array.isArray(result.content)
+    ? (result.content as { type?: string; data?: string; text?: string }[])
+    : []
+  const png = PICTURED.has(tool) ? blocks.find((b) => b.type === 'image')?.data : undefined
+  const error = result.isError ? (blocks[0]?.text ?? '').slice(0, 300) : undefined
+  record(
+    root,
+    {
+      by: 'agent',
+      kind: 'tool',
+      tool,
+      ok: !result.isError,
+      ms: Math.round(ms),
+      summary: {
+        error: error === undefined ? 0 : 1,
+        warning: 0,
+        info: 0,
+        messages: error ? [error] : [],
+      },
+    },
+    png ? Buffer.from(png, 'base64') : undefined,
+  )
+}
+
+/** activity_add: a note, by the agent. */
+const addNote = (root: string, a: { [k: string]: unknown }) => {
+  if (typeof a.text !== 'string' || !a.text.trim()) throw new Error('activity_add needs text.')
+  if (a.text.length > NOTE) throw new Error(`A note is at most ${NOTE} characters.`)
+  if (a.comment !== undefined && typeof a.comment !== 'string')
+    throw new Error('comment is a comment id.')
+  const entry = record(root, {
+    by: 'agent',
+    kind: 'note',
+    text: a.text.trim(),
+    ...(a.comment ? { comment: a.comment } : {}),
+  })
+  if (!entry) throw new Error(`Could not write ${root}/.shaderera/activity.jsonl.`)
+  return entry
+}
 
 /**
  * The project of a call: its `root` (resolved against `dir`), or else `dir` itself, and every
@@ -342,6 +404,12 @@ export const createServer = (
   flags: { trusted?: boolean; timeout?: string; variant?: string; host?: string } = {},
 ) => {
   const sessions = new Map<string, NodeSession>()
+  // render_frame and still with a revision: its frozen copy in its own host, kept for the next call.
+  const frozen = revisionHosts({
+    host: flags.host,
+    trusted: flags.trusted === true,
+    ...(flags.timeout ? { timeoutMs: Number(flags.timeout) * 1000 } : {}),
+  })
   const sessionOf = (root: string) => {
     let session = sessions.get(root)
     if (!session) {
@@ -519,6 +587,21 @@ export const createServer = (
       return listing(root, { id: c.id })
     },
   }
+  /** A call's revision, opened (render_frame and still only). */
+  const revisionOf = async (
+    root: string,
+    name: string,
+    // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+    a: { [k: string]: any },
+    params: Obj | undefined,
+  ) => {
+    if (a.revision === undefined) return undefined
+    if (name !== 'render_frame' && name !== 'still') throw new Error(`${name} takes no revision.`)
+    if (typeof a.revision !== 'string') throw new Error('revision is a revision id, from versions.')
+    if (a.variants !== undefined) throw new Error('Give revision or variants, not both.')
+    const variant = typeof a.variant === 'string' ? a.variant : flags.variant
+    return frozen.get(root, a.revision, variant, params)
+  }
   // The low-level Server does not check arguments against a tool's input schema: they come as
   // the client sent them, and each tool reads what it needs.
   const call = async (
@@ -534,14 +617,15 @@ export const createServer = (
     // server's own variant (`--variant`), with the defaults.
     if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
     const params = a.params && typeof a.params === 'object' ? (a.params as Obj) : undefined
+    const revision = await revisionOf(root, name, a, params)
     if (a.variants !== undefined && ['still', 'check', 'review'].includes(name))
       return forVariants(root, name, a, params)
     const variant = typeof a.variant === 'string' ? a.variant : flags.variant
     const own =
-      LOOKS.has(name) && (typeof a.variant === 'string' || params)
+      !revision && LOOKS.has(name) && (typeof a.variant === 'string' || params)
         ? await open({ ...flags, root, variant, param: paramFlags(params) })
         : undefined
-    const opened = own ?? (await session.open())
+    const opened = revision ?? own ?? (await session.open())
     const { manifest } = opened.project
     const c = opened.child
     const at = (key: string, fallback?: number) =>
@@ -760,8 +844,13 @@ export const createServer = (
         }
       }
       throw new Error(`Unknown tool ${name}.`)
+    } catch (e) {
+      // A revision's host that failed (it died, hung, lost its GPU) is not kept for the next call.
+      if (revision) await frozen.drop()
+      throw e
     } finally {
       await own?.child.close()
+      if (revision) frozen.rest()
     }
   }
   const server = new Server(
@@ -776,12 +865,26 @@ export const createServer = (
     })),
   }))
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+    const { root, start, ...result } = await answer(params)
+    // Activity, once per call in a project (activity_add is its own entry), timed from when it ran.
+    if (root && params.name !== 'activity_add')
+      recordTool(root, params.name, performance.now() - start, result)
+    return result
+  })
+  const answer = async (params: {
+    name: string
+    arguments?: { [k: string]: unknown }
+  }): Promise<{ content: unknown; isError?: true; root?: string; start: number }> => {
     const a = params.arguments ?? {}
+    let start = performance.now()
     let session: NodeSession | undefined
+    let root: string | undefined
     try {
       const r = await serial(async () => {
+        start = performance.now()
         if (!tools.some(([n]) => n === params.name)) throw new Error(`Unknown tool ${params.name}.`)
-        const { root } = await projectOf(dir, a.root)
+        root = (await projectOf(dir, a.root)).root
+        if (params.name === 'activity_add') return addNote(root, a)
         session = sessionOf(root)
         const onVersions = revisions[params.name]
         if (!onVersions) return call(root, session, params.name, a)
@@ -791,14 +894,15 @@ export const createServer = (
         return onVersions(root, a)
       })
       const content = IMAGES.has(params.name) ? r : [{ type: 'text', text: JSON.stringify(r) }]
-      return { content }
+      return { content, root, start }
     } catch (e) {
       if (/exited|took longer/.test(String(e))) void session?.drop()
-      return { content: [{ type: 'text', text: (e as Error).message }], isError: true }
+      return { content: [{ type: 'text', text: (e as Error).message }], isError: true, root, start }
     }
-  })
+  }
   server.onclose = () => {
     for (const session of sessions.values()) session.close()
+    void frozen.drop()
   }
   return server
 }
