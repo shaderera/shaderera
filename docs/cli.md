@@ -260,7 +260,7 @@ of footage it takes a moment, not the time to read all of it.
 
 | Flag | Default |
 |---|---|
-| `--from <s>`, `--to <s>` | 0, `duration` |
+| `--from <s>`, `--to <s>` | 0, `duration`. A window outside the film, or `--to` before `--from`, is refused before anything renders |
 | `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
 | `--master` | off: review quality (crf 16, preset veryfast). On: crf 12, preset slow |

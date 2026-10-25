@@ -42,6 +42,12 @@ test('a piped render reports progress only when asked (a parent process asks); a
   assert.equal(quiet.status, 0, quiet.stderr)
   assert.doesNotMatch(quiet.stderr, /frame \d+\//)
   assert.match(quiet.stdout, /^5 frames in/m)
+  // A window that is not one is refused before ffmpeg runs.
+  const backwards = render('--from', '0.8', '--to', '0.2')
+  assert.equal(backwards.status, 2)
+  assert.match(backwards.stderr, /The window 0\.8–0\.2 s is outside 0–1 s\./)
+  assert.doesNotMatch(backwards.stderr, /ffmpeg|failed where it worked/)
+  assert.match(render('--from', 'a').stderr, /Not a time in seconds: a\./)
 })
 
 test('the output holds the previous film until the new one is complete; a failed render leaves it', {

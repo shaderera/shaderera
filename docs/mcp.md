@@ -52,8 +52,11 @@ variant; main is left out when a variant has its width, height, fps, duration an
 result names that variant as `main`). Each variant opens its own child, with `params`, and they
 run at once, as the CLI's `--variant a,b` does ([cli.md](cli.md#common-flags)): one call looks
 at, checks or reviews a film in 16:9 and 9:16 together
-([guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once)). Errors come back as
-`isError` with the message.
+([guides/formats.md](guides/formats.md#one-film-in-169-and-916-at-once)). Every time a tool
+takes (`t`, `a`, `b`, `times`, `from`, `to`) is checked before anything renders, as the CLI checks
+its times: a time missing, not a number or outside the film (from 0 up to but not including its
+duration) is refused, named (`Outside the film (0 to 10 s): 11.`). Errors come back as `isError`
+with the message.
 
 | Tool | Input | Output |
 |---|---|---|
