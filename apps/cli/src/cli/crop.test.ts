@@ -22,17 +22,21 @@ test('a crop is clamped to the frame and enlarged by whole pixels', () => {
   )
 })
 
-test('an object region comes from its bbox in inspect', () => {
+test('an object region comes from its bbox in inspect, else its box', () => {
   const json: Json = {
     shots: [
       { id: 'logo', bbox: [10, 20, 30, 40] },
       { id: 'tag', bbox: { x: 1, y: 2, width: 3, height: 4 } },
+      { id: 'title', text: 'Hello', box: [160, 236, 420, 84] },
+      { id: 'both', bbox: [1, 1, 2, 2], box: [0, 0, 9, 9] },
       { id: 'bare' },
     ],
   }
   assert.deepEqual(objectRegion(json, 'logo'), { x: 10, y: 20, width: 30, height: 40 })
   assert.deepEqual(objectRegion(json, 'tag'), { x: 1, y: 2, width: 3, height: 4 })
-  assert.throws(() => objectRegion(json, 'bare'), /has no bbox/)
+  assert.deepEqual(objectRegion(json, 'title'), { x: 160, y: 236, width: 420, height: 84 })
+  assert.deepEqual(objectRegion(json, 'both'), { x: 1, y: 1, width: 2, height: 2 })
+  assert.throws(() => objectRegion(json, 'bare'), /has no bbox or box/)
   assert.throws(() => objectRegion(json, 'nope'), /No object with id "nope"/)
   assert.throws(() => parseRegion('1,2,3'), /x,y,width,height/)
 })

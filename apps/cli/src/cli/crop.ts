@@ -20,9 +20,9 @@ export const parseRegion = (text: string): Region => {
 }
 
 /**
- * The box of the object with this `id` in inspect's JSON: its `bbox` as `[x, y, width, height]`
- * or `{ x, y, width, height }` in frame pixels, which a source reports for the objects it wants
- * looked at closely. Throws when there is no such object or it has no bbox.
+ * The box of the object with this `id` in inspect's JSON: its `bbox`, else its `box` (a text
+ * run's), as `[x, y, width, height]` or `{ x, y, width, height }` in frame pixels. Throws when
+ * there is no such object or it has neither.
  */
 export const objectRegion = (json: Json, id: string): Region => {
   let found: Json | undefined
@@ -41,7 +41,8 @@ export const objectRegion = (json: Json, id: string): Region => {
   }
   walk(json)
   if (found === undefined) throw new Error(`No object with id "${id}" in inspect.`)
-  const b = (found as { bbox?: Json }).bbox
+  const { bbox, box: run } = found as { bbox?: Json; box?: Json }
+  const b = bbox ?? run
   const box = Array.isArray(b)
     ? b
     : b && typeof b === 'object'
@@ -49,7 +50,7 @@ export const objectRegion = (json: Json, id: string): Region => {
       : undefined
   if (!box || box.length !== 4 || box.some((v) => typeof v !== 'number'))
     throw new Error(
-      `The object "${id}" has no bbox in inspect: report one as bbox: [x, y, width, height] in frame pixels.`,
+      `The object "${id}" has no bbox or box in inspect: report one as bbox: [x, y, width, height] in frame pixels (a text run's box counts).`,
     )
   return parseRegion(box.join(','))
 }
