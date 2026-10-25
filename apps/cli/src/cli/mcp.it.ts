@@ -402,3 +402,23 @@ test('MCP still, check and review take variants: one host each, one sheet side b
     await close()
   }
 })
+
+test('inspect with track returns the curve inspect --track gives', async () => {
+  const { call, close } = await connect(fixture)
+  try {
+    const curve = await call('inspect', { track: 'box.x', from: 0, to: 0.5 })
+    const cli = spawnSync(
+      process.execPath,
+      [bin, 'inspect', '--track', 'box.x', '--from', '0', '--to', '0.5', '--json'],
+      { cwd: fixture, encoding: 'utf8' },
+    )
+    assert.equal(cli.status, 0, cli.stderr)
+    assert.deepEqual(curve, JSON.parse(cli.stdout).result)
+    assert.equal(curve[0].value, 20)
+    assert.ok(curve.length > 2 && curve.every((p: { t: number }) => p.t <= 0.5))
+    await assert.rejects(call('inspect', { track: 'nope' }), /Nothing at nope/)
+    await assert.rejects(call('inspect', {}), /inspect needs t, or track/)
+  } finally {
+    await close()
+  }
+})
