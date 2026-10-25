@@ -3,7 +3,7 @@
 `shaderera mcp` serves the CLI's operations as MCP tools over stdio, so an agent can render,
 inspect, compare and trace a frame back to its code, review it, and save revisions and render
 jobs. The tools have the CLI's names where they do what a command does (`render`, `check`,
-`still`, `save`, `versions`, `job`, `review`). It starts in any folder, and accepts `--root`,
+`still`, `save`, `versions`, `restore`, `undo`, `diff`, `job`, `review`). It starts in any folder, and accepts `--root`,
 `--variant`, `--host`, `--trusted` and `--timeout` as the CLI does: `--variant` makes that variant
 of `shaderera.json` every call's default, and `--host` opens every child (and freezes every `job`)
 in that host.
@@ -66,6 +66,9 @@ at, checks or reviews a film in 16:9 and 9:16 together
 | `render` | `from?`, `to?`, `out?`, `job?`, `hdr10?`, `softwareGpu?` | like `shaderera render`: `{ out, frames, seconds }` (needs ffmpeg). `out` must be inside the project. With `job` (a name from the `job` tool), renders that frozen job instead of the working tree. `hdr10: true` (not with `job`: a job is made with it) makes an HDR10 mp4 of a film with `hdr10` in shaderera.json and adds its measured `light` ([HDR10](delivery.md#hdr10)). A source that is not deterministic is refused and no file is left ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). A host on a software GPU is refused before anything is saved unless `softwareGpu: true` ([a software GPU](cli.md#a-software-gpu)) |
 | `save` | `label?`, `note?` | like `shaderera save`: the revision, saved in `versions/`; the same files always have the same id |
 | `versions` | — | like `shaderera versions`: `{ head, log, jobs }`: the head revision, the log of saves, restores and undos, and the render jobs |
+| `restore` | `id` | like `shaderera restore <id>`: the project becomes that revision (the working tree is saved first); returns the revision, without its files' hashes. The next call reopens the child on the restored files |
+| `undo` | — | like `shaderera undo`: the previous revision (unsaved edits are saved first); returns it as `restore` does |
+| `diff` | `a`, `b?`, `stat?` | like `shaderera diff`: `{ added, removed, changed, patch }` from revision `a` to `b` (or the working tree); `stat: true` leaves out `patch` |
 | `job` | `variant?`, `params?`, `revision?`, `name?`, `label?`, `from?`, `to?`, `hdr10?` | the job. Freezes a revision (the project is saved first unless `revision` is given), a variant from `shaderera.json`, params over the defaults and an optional window, like `shaderera job` ([cli.md](cli.md#versions-and-jobs)); `hdr10: true` makes an HDR10 job. It never replaces a job |
 | `review` | `variant?` or `variants?`, `quick?` | like `shaderera review` ([cli.md](cli.md#review)): the report JSON as text, then the contact sheet and each principal frame's thumb (shots and the last frame; not the transition samples) as PNG images. Files go to `out/review/` (a variant: `out/review/<variant>/`); requirements from `requirements.json`. With `variants`, `{ variants: [{ variant, ...report }] }` as text, then each variant's contact sheet |
 
@@ -125,5 +128,5 @@ says which keys it is between: the jump happens while passing `k5`.
 `k5` is at `src/composition.ts:20:3`: 0.02 s after `k4`, on a 4.4 m orbit instead of 4 m.
 
 **4. Fix and verify.** The agent edits the file **with its own tools** (Edit, Write). Shaderera's
-MCP has no tool that edits project code: the server notices the change, and the next `get_camera`
+MCP has no tool that edits project code (`restore` and `undo` only put back a saved revision): the server notices the change, and the next `get_camera`
 scan, `compare` and `check` run against the new code.

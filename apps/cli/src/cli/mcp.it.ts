@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -397,6 +397,42 @@ test('MCP still, check and review take variants: one host each, one sheet side b
     await assert.rejects(
       call('check', { variant: '16:9', variants: ['9:16'] }),
       /variant or variants, not both/,
+    )
+  } finally {
+    await close()
+  }
+})
+
+test('restore, undo and diff go back and compare revisions; the next call sees the files', async () => {
+  const root = copy('./fixtures/mcp/')
+  const { call, close } = await connect(root)
+  try {
+    const file = join(root, 'src', 'composition.ts')
+    const before = readFileSync(file, 'utf8')
+    const first = await call('save', { label: 'first' })
+    writeFileSync(file, `${before}\n// edited\n`)
+    const second = await call('save', { label: 'second' })
+
+    const diff = await call('diff', { a: first.id, b: second.id })
+    assert.deepEqual(diff.changed, ['src/composition.ts'])
+    assert.match(diff.patch, /\+\/\/ edited/)
+    assert.equal((await call('diff', { a: first.id, stat: true })).patch, undefined)
+
+    const back = await call('undo', {})
+    assert.equal(back.id, first.id)
+    assert.equal(back.files, undefined)
+    assert.equal(readFileSync(file, 'utf8'), before)
+    await call('render_frame', { t: 0 })
+
+    assert.equal((await call('restore', { id: second.id })).id, second.id)
+    assert.match(readFileSync(file, 'utf8'), /\/\/ edited/)
+    const log = (await call('versions', {})).log
+    assert.deepEqual(
+      log.slice(-2).map((e: { action: string; by: string }) => [e.action, e.by]),
+      [
+        ['undo', 'agent'],
+        ['restore', 'agent'],
+      ],
     )
   } finally {
     await close()
