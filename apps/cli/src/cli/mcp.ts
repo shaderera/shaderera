@@ -12,6 +12,7 @@ import type { Child } from '../node/child.ts'
 import { inside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
 import { createNodeSession, type NodeSession } from '../node/session.ts'
+import { NOTE, record } from '../project/activity.ts'
 import { diffRevisions } from '../project/diff.ts'
 import {
   createJob,
@@ -278,7 +279,66 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
     { variant: str, quick: { type: 'boolean' }, ...several },
     [],
   ],
+  [
+    'activity_add',
+    'Like `shaderera activity add`: adds a note of what you mean to do (text, at most 4000 characters) to the activity the studio shows, about a comment when comment (its id) is given. Only for what you mean to do: every tool call is recorded already. Returns the entry.',
+    { text: str, comment: str },
+    ['text'],
+  ],
 ]
+
+/** The tools whose PNG is kept as their activity entry's image (decision 0025). */
+const PICTURED = new Set(['still', 'render_frame'])
+
+/**
+ * A tool call's activity entry (`by: agent`): its result and time, its error as the summary, and
+ * the PNG still and render_frame returned. Never throws.
+ */
+const recordTool = (
+  root: string,
+  tool: string,
+  ms: number,
+  result: { content: unknown; isError?: boolean },
+) => {
+  const blocks = Array.isArray(result.content)
+    ? (result.content as { type?: string; data?: string; text?: string }[])
+    : []
+  const png = PICTURED.has(tool) ? blocks.find((b) => b.type === 'image')?.data : undefined
+  const error = result.isError ? (blocks[0]?.text ?? '').slice(0, 300) : undefined
+  record(
+    root,
+    {
+      by: 'agent',
+      kind: 'tool',
+      tool,
+      ok: !result.isError,
+      ms: Math.round(ms),
+      summary: {
+        error: error === undefined ? 0 : 1,
+        warning: 0,
+        info: 0,
+        messages: error ? [error] : [],
+      },
+    },
+    png ? Buffer.from(png, 'base64') : undefined,
+  )
+}
+
+/** activity_add: a note, by the agent. */
+const addNote = (root: string, a: { [k: string]: unknown }) => {
+  if (typeof a.text !== 'string' || !a.text.trim()) throw new Error('activity_add needs text.')
+  if (a.text.length > NOTE) throw new Error(`A note is at most ${NOTE} characters.`)
+  if (a.comment !== undefined && typeof a.comment !== 'string')
+    throw new Error('comment is a comment id.')
+  const entry = record(root, {
+    by: 'agent',
+    kind: 'note',
+    text: a.text.trim(),
+    ...(a.comment ? { comment: a.comment } : {}),
+  })
+  if (!entry) throw new Error(`Could not write ${root}/.shaderera/activity.jsonl.`)
+  return entry
+}
 
 /**
  * The project of a call: its `root` (resolved against `dir`), or else `dir` itself, and every
@@ -701,12 +761,26 @@ export const createServer = (
     })),
   }))
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+    const { root, start, ...result } = await answer(params)
+    // Activity, once per call in a project (activity_add is its own entry), timed from when it ran.
+    if (root && params.name !== 'activity_add')
+      recordTool(root, params.name, performance.now() - start, result)
+    return result
+  })
+  const answer = async (params: {
+    name: string
+    arguments?: { [k: string]: unknown }
+  }): Promise<{ content: unknown; isError?: true; root?: string; start: number }> => {
     const a = params.arguments ?? {}
+    let start = performance.now()
     let session: NodeSession | undefined
+    let root: string | undefined
     try {
       const r = await serial(async () => {
+        start = performance.now()
         if (!tools.some(([n]) => n === params.name)) throw new Error(`Unknown tool ${params.name}.`)
-        const { root } = await projectOf(dir, a.root)
+        root = (await projectOf(dir, a.root)).root
+        if (params.name === 'activity_add') return addNote(root, a)
         session = sessionOf(root)
         const onVersions = revisions[params.name]
         if (!onVersions) return call(root, session, params.name, a)
@@ -716,12 +790,12 @@ export const createServer = (
         return onVersions(root, a)
       })
       const content = IMAGES.has(params.name) ? r : [{ type: 'text', text: JSON.stringify(r) }]
-      return { content }
+      return { content, root, start }
     } catch (e) {
       if (/exited|took longer/.test(String(e))) void session?.drop()
-      return { content: [{ type: 'text', text: (e as Error).message }], isError: true }
+      return { content: [{ type: 'text', text: (e as Error).message }], isError: true, root, start }
     }
-  })
+  }
   server.onclose = () => {
     for (const session of sessions.values()) session.close()
   }
