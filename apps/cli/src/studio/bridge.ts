@@ -12,6 +12,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
   watch,
   writeFileSync,
@@ -35,9 +36,11 @@ import {
   addComment,
   type CommentState,
   commentsFile,
+  fold,
   listening,
   listing,
   type NewComment,
+  parseOps,
   readThreads,
   replyTo,
   setState,
@@ -76,7 +79,7 @@ export type StudioEvent =
       files: { added: string[]; removed: string[]; changed: string[] }
     }
   | { type: 'activity'; entry: ShownEntry }
-  | { type: 'comment'; comment: Thread }
+  | { type: 'comment'; comment: Thread & { stale: boolean } }
   | { type: 'agent'; listening: boolean }
   | {
       type: 'job'
@@ -161,13 +164,19 @@ const projectFile = (root: string, path: string | null): BridgeReply => {
   if (!path || !validPath(path))
     return json(400, { error: 'path is a file of the project, as a revision names it' })
   let at = root
+  let named = realpathSync.native(root)
   for (const part of path.split('/')) {
     at = join(at, part)
+    named = join(named, part)
     try {
       if (lstatSync(at).isSymbolicLink()) return json(400, { error: `${path} goes through a link` })
     } catch {
       return json(404, { error: `${path} is not in the project` })
     }
+    // Each part as the disk names it: another case (`.ENV` for `.env` on NTFS and APFS), an 8.3
+    // short name (`ENV~1`) or any other alias is refused, so no rule above is passed by a spelling.
+    if (realpathSync.native(at) !== named)
+      return json(400, { error: `${path} is not the name the project gives that file` })
   }
   if (isSecret(at, basename(at))) return json(400, { error: `${path} holds secrets` })
   if (!statSync(at).isFile()) return json(404, { error: `${path} is not a file` })
@@ -278,6 +287,12 @@ export const startBridge = async (o: {
   settleMs?: number
   /** `POST /stop` from the CLI (`studio --stop`): the command should end. Without it, no route. */
   onStop?: () => void
+  /** The token `POST /stop` carries: not the secret, and good for nothing else. */
+  stopToken?: string
+  /** How long a revision's runner whose frame was just sent is kept past the cap, in ms. */
+  runnerKeepMs?: number
+  /** For tests: false leaves the comments and the activity to the poll alone. */
+  tailOnWatch?: boolean
 }): Promise<Bridge> => {
   const project = await findProject(o.root)
   const { root } = project
@@ -358,20 +373,34 @@ export const startBridge = async (o: {
 
   // The files other processes write while the studio runs (decision 0025): the comments and the
   // activity, sent on as they grow. The CLI and MCP need no channel to the bridge.
-  // By id, not by time: two processes may append their lines out of their ids' order.
-  let seenEntries = new Set(tail(root, 200).map((e) => e.id))
+  // The activity by id, not by time: two processes may append their lines out of their ids'
+  // order. All of it is read (two files of at most 1 MB), so a burst is never cut short.
+  let seenEntries = new Set(tail(root, Number.MAX_SAFE_INTEGER).map((e) => e.id))
   const tailActivity = () => {
-    const now = tail(root, 200)
+    const now = tail(root, Number.MAX_SAFE_INTEGER)
     for (const e of now) if (!seenEntries.has(e.id)) emit({ type: 'activity', entry: shown(e) })
     seenEntries = new Set(now.map((e) => e.id))
   }
-  const seenThreads = new Map(readThreads(root).map((t) => [t.id, t.updated]))
-  const tailComments = () => {
-    for (const t of readThreads(root)) {
-      if (seenThreads.get(t.id) === t.updated) continue
-      seenThreads.set(t.id, t.updated)
-      emit({ type: 'comment', comment: t })
+  // The comments by operation: the threads the new lines touch, folded with all the lines.
+  const opsNow = () => {
+    try {
+      return parseOps(readFileSync(commentsFile(root), 'utf8'))
+    } catch {
+      return []
     }
+  }
+  let opsSeen = opsNow().length
+  const tailComments = () => {
+    const ops = opsNow()
+    // Fewer lines than before: the file was replaced, and every thread is sent again.
+    const fresh = ops.length >= opsSeen ? ops.slice(opsSeen) : ops
+    opsSeen = ops.length
+    if (fresh.length === 0) return
+    const touched = new Set(fresh.map((op) => op.id))
+    const tree = treeId(filesNow())
+    for (const t of fold(ops))
+      if (touched.has(t.id))
+        emit({ type: 'comment', comment: { ...t, stale: t.revision !== tree } })
   }
   const sizeOf = (file: string) => {
     try {
@@ -382,52 +411,70 @@ export const startBridge = async (o: {
     }
   }
   const activityFile = join(root, '.shaderera', 'activity.jsonl')
-  let sizes = { activity: sizeOf(activityFile), comments: sizeOf(commentsFile(root)) }
+  const sizes = { activity: sizeOf(activityFile), comments: sizeOf(commentsFile(root)) }
+  /** Each file on its own: one that fails is read again next time, and never holds up the other. */
   const tails = () => {
-    const now = { activity: sizeOf(activityFile), comments: sizeOf(commentsFile(root)) }
-    try {
-      if (now.activity !== sizes.activity) tailActivity()
-      if (now.comments !== sizes.comments) tailComments()
-    } catch (error) {
-      log('warn', `watch: ${(error as Error).message}`)
+    for (const [which, file, read] of [
+      ['activity', activityFile, tailActivity],
+      ['comments', commentsFile(root), tailComments],
+    ] as const) {
+      const now = sizeOf(file)
+      if (now === sizes[which]) continue
+      try {
+        read()
+        sizes[which] = now
+      } catch (error) {
+        log('warn', `watch: ${(error as Error).message}`)
+      }
     }
-    sizes = now
   }
   // One watcher: the comments and the activity before the filter that keeps to a revision's files.
   const watcher: FSWatcher = watch(root, { recursive: true }, (_, name) => {
     const path = name ? slash(String(name)) : ''
-    if (path === 'versions/comments.jsonl' || path.startsWith('.shaderera/activity')) return tails()
+    if (path === 'versions/comments.jsonl' || path.startsWith('.shaderera/activity')) {
+      if (o.tailOnWatch !== false) tails()
+      return
+    }
     if (name && !validPath(path)) return
     scanSoon()
   })
-  // Every second: what a watch missed, and whether an agent waits for comments (its waiter's
-  // file is touched every second, so a stale one means it stopped).
-  let waiting = listening(root)
-  const poll = setInterval(() => {
-    tails()
-    const now = listening(root)
-    if (now === waiting) return
-    waiting = now
-    emit({ type: 'agent', listening: now })
-  }, 1000)
-  poll.unref()
 
   // Runners on revisions' frozen copies (/runner?revision=), for compare: at most FROZEN_RUNNERS
-  // besides the working tree's, the least recently used closed first.
-  const frozen = new Map<
-    string,
-    Promise<{ page: string; slot: number; close: () => Promise<void> }>
-  >()
+  // besides the working tree's, the least recently used closed first, but never one whose frame
+  // was sent in the last `runnerKeepMs` (it is still loading in the page). Each has a Vite cache
+  // of its own, reused only once the runner that had it has closed.
+  type Frozen = { page: string; slot: number; close: () => Promise<void> }
+  const frozen = new Map<string, Promise<Frozen>>()
+  const sentAt = new Map<string, number>()
+  const slots = new Set<number>()
+  const closing = new Set<Promise<void>>()
+  const keepMs = o.runnerKeepMs ?? 30_000
+  const trimRunners = () => {
+    for (const [id, f] of frozen) {
+      if (frozen.size <= FROZEN_RUNNERS) return
+      if (Date.now() - (sentAt.get(id) ?? 0) < keepMs) continue
+      frozen.delete(id)
+      sentAt.delete(id)
+      const done = f.then((x) => x.close().finally(() => slots.delete(x.slot))).catch(() => {})
+      closing.add(done)
+      void done.finally(() => closing.delete(done))
+    }
+  }
   const frozenRunner = (id: string) => {
+    sentAt.set(id, Date.now())
     const known = frozen.get(id)
     if (known) {
       frozen.delete(id)
       frozen.set(id, known)
       return known
     }
-    const opening = (async () => {
+    const opening = (async (): Promise<Frozen> => {
+      // After the trim below: the runners it closes free their caches first.
+      await Promise.resolve()
+      await Promise.all([...closing])
       const revision = readRevision(root, id)
       const dir = materialize(root, id)
+      let slot: number | undefined
       try {
         const declared = manifestAt(root, id)
         let pinned: ReturnType<typeof checkJobBakes> | undefined
@@ -440,17 +487,9 @@ export const startBridge = async (o: {
         } catch (error) {
           log('warn', (error as Error).message)
         }
-        const used = new Set(
-          await Promise.all(
-            [...frozen.values()].map((f) =>
-              f.then(
-                (x) => x.slot,
-                () => -1,
-              ),
-            ),
-          ),
-        )
-        const slot = [0, 1, 2].find((n) => !used.has(n)) ?? 0
+        slot = 0
+        while (slots.has(slot)) slot++
+        slots.add(slot)
         const secretBase = `/runner/${randomBytes(16).toString('hex')}/`
         const server = await startRunner(
           { root: dir, manifest: declared },
@@ -473,6 +512,7 @@ export const startBridge = async (o: {
           },
         }
       } catch (error) {
+        if (slot !== undefined) slots.delete(slot)
         releaseFrozen(root, id)
         throw error
       }
@@ -481,13 +521,23 @@ export const startBridge = async (o: {
     opening.catch(() => {
       if (frozen.get(id) === opening) frozen.delete(id)
     })
-    while (frozen.size > FROZEN_RUNNERS) {
-      const [oldest, gone] = frozen.entries().next().value as [string, typeof opening]
-      frozen.delete(oldest)
-      void gone.then((f) => f.close()).catch(() => {})
-    }
+    trimRunners()
     return opening
   }
+
+  // Every second: what a watch missed, the runners past the cap whose frames have loaded, and
+  // whether an agent waits for comments (its waiter's file is touched every second, so a stale
+  // one means it stopped).
+  let waiting = listening(root)
+  const poll = setInterval(() => {
+    tails()
+    trimRunners()
+    const now = listening(root)
+    if (now === waiting) return
+    waiting = now
+    emit({ type: 'agent', listening: now })
+  }, 1000)
+  poll.unref()
 
   // Renders, one at a time, in the order asked; closing the bridge stops the one running.
   const jobs = new Map<string, Job>()
@@ -700,8 +750,12 @@ export const startBridge = async (o: {
     }
     if (route === 'POST /comments') {
       // The page's comments are the person's: only the bridge writes `person` (decision 0025).
+      const body = (r.body ?? {}) as NewComment
+      // The tree the page shows, which the comment points at (decision 0025, point 3).
+      if (typeof body.revision !== 'string')
+        return json(400, { error: 'revision is the revision id of the tree the page shows' })
       try {
-        return json(200, await addComment(root, (r.body ?? {}) as NewComment, 'person'))
+        return json(200, await addComment(root, body, 'person'))
       } catch (error) {
         return json(400, { error: (error as Error).message })
       }
@@ -907,8 +961,14 @@ export const startBridge = async (o: {
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
     // The CLI's own request (`studio --stop`): no Origin, the secret, on 127.0.0.1 as every
     // request here. Never through the relay: a page cannot send one.
-    if (origin === undefined && req.method === 'POST' && url.pathname === '/stop' && o.onStop) {
-      if (!sameSecret(bearer, secret)) return refuse(403, 'secret')
+    if (
+      origin === undefined &&
+      req.method === 'POST' &&
+      url.pathname === '/stop' &&
+      o.onStop &&
+      o.stopToken
+    ) {
+      if (!sameSecret(bearer, o.stopToken)) return refuse(403, 'secret')
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ stopping: true }))
       o.onStop()
@@ -1006,7 +1066,10 @@ export const startBridge = async (o: {
       await new Promise<void>((done) => server.close(() => done()))
       await queue
       await runner.server.close()
-      await Promise.all([...frozen.values()].map((f) => f.then((x) => x.close()).catch(() => {})))
+      await Promise.all([
+        ...[...frozen.values()].map((f) => f.then((x) => x.close()).catch(() => {})),
+        ...closing,
+      ])
     },
   }
 }

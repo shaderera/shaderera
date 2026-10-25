@@ -56,16 +56,20 @@ export type LogEntry = {
   label?: string
 }
 
+// Every name below is matched in any case, on every OS: NTFS and APFS take `.ENV` for `.env` and
+// `OUT` for `out`, and a file really named `.ENV` holds secrets as well.
 /** Never part of a revision, at the root: builds, renders, the store itself, tool folders. */
-const ROOT_ONLY = new Set(['out', '.shaderera', 'versions', '.claude', 'NVIDIA Corporation'])
+const ROOT_ONLY = new Set(['out', '.shaderera', 'versions', '.claude', 'nvidia corporation'])
 /** Never part of a revision, at any depth: installs and git's own folders. */
 const ANYWHERE = new Set(['node_modules', '.git'])
+const rootOnly = (name: string) => ROOT_ONLY.has(name.toLowerCase())
+const anywhere = (name: string) => ANYWHERE.has(name.toLowerCase())
 /**
  * Never part of a revision, at any depth: files that hold secrets (env files, direnv's, Wrangler's,
  * npm's and curl's credentials, private keys), so neither a share nor a handoff can carry one.
  */
 export const SECRET =
-  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|.+\.(pem|key|p12|pfx))$/
+  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|.+\.(pem|key|p12|pfx))$/i
 
 /** Shaderera's own MCP server, as a new project's `.mcp.json` names it: `shaderera` or `shaderera@<version>`. */
 const SHADERERA_PACKAGE = /^shaderera(@[\w.+-]+)?$/
@@ -110,7 +114,7 @@ export const mcpIsShaderera = (file: string): boolean => {
 
 /** A file a revision never holds because it holds secrets: SECRET by name, or an MCP config other than Shaderera's own. */
 export const isSecret = (file: string, name: string): boolean =>
-  SECRET.test(name) || (name === '.mcp.json' && !mcpIsShaderera(file))
+  SECRET.test(name) || (name.toLowerCase() === '.mcp.json' && !mcpIsShaderera(file))
 /** writeAtomic's temporary files, which another process may be about to move into place. */
 const TEMPORARY = /\.\d+\.tmp$/
 
@@ -156,8 +160,7 @@ export const scan = (
   const files: Files = {}
   const walk = (dir: string) => {
     for (const name of readdirSync(dir).sort()) {
-      if (ANYWHERE.has(name) || TEMPORARY.test(name) || (dir === root && ROOT_ONLY.has(name)))
-        continue
+      if (anywhere(name) || TEMPORARY.test(name) || (dir === root && rootOnly(name))) continue
       const full = join(dir, name)
       const path = slash(relative(root, full))
       const s = lstatSync(full)
@@ -176,8 +179,8 @@ export const validPath = (path: string) => {
   const parts = path.split('/')
   return (
     !/[\\:\0]/.test(path) &&
-    parts.every((p) => p !== '' && p !== '.' && p !== '..' && !ANYWHERE.has(p)) &&
-    !ROOT_ONLY.has(parts[0] as string)
+    parts.every((p) => p !== '' && p !== '.' && p !== '..' && !anywhere(p)) &&
+    !rootOnly(parts[0] as string)
   )
 }
 

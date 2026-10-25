@@ -328,7 +328,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and any `.mcp.json` other than a new project's, at any depth. A `.mcp.json` is stored only when it parses and every server in it is exactly `npx -y shaderera mcp` (or `shaderera@<version>`), with no other fields but an empty `env` or `headers` |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and any `.mcp.json` other than a new project's, at any depth, each in any case (`.ENV`, `ID.PEM`). A `.mcp.json` is stored only when it parses and every server in it is exactly `npx -y shaderera mcp` (or `shaderera@<version>`), with no other fields but an empty `env` or `headers` |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
@@ -783,7 +783,7 @@ and `login` says so: `--token` is the way in then.
 **What `share` sends** is the project's files as a revision holds them (`save`,
 [above](#versions-and-jobs)), and nothing else:
 - never `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, `node_modules/` or `.git/`
-  anywhere, or a link (symlink, junction);
+  anywhere, or a link (symlink, junction), each name in any case (`OUT/`, `.GIT/`);
 - never a file that holds secrets, which a revision never holds (`save`, above): `.env` and
   `.env.*`, `.envrc`, `.dev.vars`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, and a
   `.mcp.json` unless every server in it is Shaderera's own (`npx -y shaderera mcp`, as a new

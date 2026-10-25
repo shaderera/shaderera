@@ -19,10 +19,10 @@ import {
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { type Json, type Manifest, parseFps } from '@shaderera/core'
-import { withVariant } from '@shaderera/core/host'
+import { checkManifest, withVariant } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
 import { ID_ALPHABET } from '../studio/pairing.ts'
-import { type By, head, save, scanProject, treeId } from './revisions.ts'
+import { type By, fileAt, head, save, scanProject, treeId } from './revisions.ts'
 
 /**
  * Comments on the film (decision 0025): what the person leaves at a moment of it, and the replies.
@@ -285,7 +285,16 @@ export type NewComment = {
   shot?: { id: string; offset: number }
   params?: { [name: string]: Json }
   text: string
+  /**
+   * The tree the person was watching (the studio page sends the one it shows): the working tree's
+   * id now, which is saved, or a saved revision's. Without it, the tree now is saved.
+   */
+  revision?: string
 }
+
+/** The longest `object` and shot id, and the most a comment's params hold (as JSON). */
+const MAX_NAME = 200
+const MAX_PARAMS = 16 * 1024
 
 const numbers = (v: unknown, n: number, what: string) => {
   if (
@@ -318,7 +327,19 @@ const changedParams = (manifest: Manifest, params: { [name: string]: Json }) => 
 export const addComment = async (root: string, c: NewComment, by: By): Promise<Thread> => {
   checkText(c.text)
   if (c.point && c.box) throw new Error('A comment has a point or a box, not both.')
-  const { manifest: base } = await findProject(root)
+  if (
+    c.revision !== undefined &&
+    (typeof c.revision !== 'string' || !/^[0-9a-f]{16}$/.test(c.revision))
+  )
+    throw new Error('revision is a revision id, 16 hex digits.')
+  // A saved revision the person was watching is checked, and its own film placed against; the
+  // tree as it is now is saved below.
+  const saved = c.revision !== undefined && c.revision !== currentTree(root)
+  const base = saved
+    ? checkManifest(
+        JSON.parse((fileAt(root, c.revision as string, 'shaderera.json') ?? '{}').toString('utf8')),
+      )
+    : (await findProject(root)).manifest
   const { manifest } = withVariant(base, c.variant)
   const fps = (parseFps(manifest.fps) as { fps: number }).fps
   const inside = (t: number) => Number.isFinite(t) && t >= 0 && t < manifest.duration
@@ -327,9 +348,35 @@ export const addComment = async (root: string, c: NewComment, by: By): Promise<T
     throw new Error(
       `to ${c.to} is not after t ${c.t} inside the film (0 to ${manifest.duration} s).`,
     )
+  const { width, height } = manifest
   const point = c.point ? (numbers(c.point, 2, 'point') as Point) : undefined
+  if (point && !(point[0] >= 0 && point[0] < width && point[1] >= 0 && point[1] < height))
+    throw new Error(`point is outside the frame (${width}×${height}).`)
   const box = c.box ? (numbers(c.box, 4, 'box') as Box) : undefined
-  const revision = save(root, { by }).id
+  const [bx, bt, bw, bh] = box ?? [0, 0, 1, 1]
+  if (box && !(bw > 0 && bh > 0 && bx >= 0 && bt >= 0 && bx + bw <= width && bt + bh <= height))
+    throw new Error(`box is [x, y, width, height] inside the frame (${width}×${height}).`)
+  if (c.object !== undefined && (typeof c.object !== 'string' || c.object.length > MAX_NAME))
+    throw new Error(`object is an id of at most ${MAX_NAME} characters.`)
+  if (
+    c.shot !== undefined &&
+    (typeof c.shot !== 'object' ||
+      c.shot === null ||
+      typeof c.shot.id !== 'string' ||
+      c.shot.id.length > MAX_NAME ||
+      typeof c.shot.offset !== 'number' ||
+      !Number.isFinite(c.shot.offset))
+  )
+    throw new Error('shot is {id, offset}: a shot id and seconds into it.')
+  if (
+    c.params !== undefined &&
+    (typeof c.params !== 'object' ||
+      c.params === null ||
+      Array.isArray(c.params) ||
+      JSON.stringify(c.params).length > MAX_PARAMS)
+  )
+    throw new Error(`params is an object, at most ${MAX_PARAMS / 1024} KB as JSON.`)
+  const revision = saved ? (c.revision as string) : save(root, { by }).id
   const params = c.params ? changedParams(manifest, c.params) : undefined
   const op = await appendOp(root, {
     op: 'comment',

@@ -586,12 +586,27 @@ test('shaderera studio --stop ends the running studio cleanly, with no stdin to 
   const file = join(root, '.shaderera', 'studio', 'bridge.json')
   try {
     const url = await s.event((e) => e.event === 'url')
-    await p.pair(new URL(url.url as string).hash.slice(1))
+    const { bridge: got } = await p.pair(new URL(url.url as string).hash.slice(1))
     await s.event((e) => e.event === 'paired')
+    // The page's secret does not stop the studio: only the stop token does.
+    const withSecret = await call(got.port, {
+      method: 'POST',
+      path: '/stop',
+      headers: { Authorization: `Bearer ${got.secret}` },
+    })
+    assert.equal(withSecret.status, 403)
     // The running studio is registered, for the user only.
     const running = JSON.parse(readFileSync(file, 'utf8'))
     assert.equal(running.pid, s.cli.pid)
     assert.equal(running.port, Number(new URL(url.bridge as string).port))
+    // The page's secret is not in the file: its token only stops the studio.
+    assert.equal(running.secret, undefined)
+    assert.match(running.token, /^[0-9a-f]{32}$/)
+    const asPage = await call(running.port, {
+      path: '/info',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${running.token}` },
+    })
+    assert.equal(asPage.status, 403)
     if (process.platform === 'win32') {
       const acl = spawnSync('icacls', [file], { encoding: 'utf8' }).stdout
       assert.doesNotMatch(acl, /BUILTIN|Everyone|Authenticated Users/, acl)
@@ -623,7 +638,7 @@ test('shaderera studio --stop removes a stale file, and says no studio runs', as
   await new Promise((r) => gone.on('close', r))
   const file = join(root, '.shaderera', 'studio', 'bridge.json')
   mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify({ port: 9, secret: 'x'.repeat(32), pid: gone.pid }))
+  writeFileSync(file, JSON.stringify({ port: 9, token: 'x'.repeat(32), pid: gone.pid }))
   const r = await stopStudio(root)
   assert.equal(r.code, 0, r.out)
   assert.match(r.out, /No studio is running/)
@@ -761,10 +776,13 @@ test('shaderera studio v2: comments through the relay, an MCP reply on /events, 
       }
     }
     // The person's comment, through the relay, comes back sealed as a `comment` event.
+    const info = (await rpc('0', { method: 'GET', path: '/info' })).body as unknown as {
+      revision: string
+    }
     const made = await rpc('1', {
       method: 'POST',
       path: '/comments',
-      body: { t: 0.5, text: 'darker' },
+      body: { revision: info.revision, t: 0.5, text: 'darker' },
     })
     assert.equal(made.status, 200, JSON.stringify(made))
     assert.equal(made.body.by, 'person')

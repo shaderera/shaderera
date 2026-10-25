@@ -21,11 +21,13 @@ import {
   releaseFrozen,
   removeFrozen,
   restore,
+  SECRET,
   save,
   scan,
   scanProject,
   undo,
   unusedFrozen,
+  validPath,
 } from './revisions.ts'
 
 const project = () => {
@@ -297,4 +299,23 @@ test('a scan hashes again only the files whose size, time or inode changed, neve
   writeFileSync(join(root, '.shaderera', 'hashes.json'), '{')
   assert.deepEqual(scanProject(root), scan(root))
   assert.equal(save(root).files['src/a.ts'], scan(root)['src/a.ts'])
+})
+
+test('secrets and ignored folders are matched in any case: a file named .ENV is never saved', () => {
+  const root = project()
+  // On a case-insensitive disk (NTFS, APFS) these are the same files as .env and out/; on a
+  // case-sensitive one they are files of their own. Either way none is a revision's.
+  writeFileSync(join(root, '.ENV'), 'TOKEN=secret\n')
+  writeFileSync(join(root, 'src', 'ID.PEM'), 'key')
+  writeFileSync(join(root, '.MCP.json'), '{"mcpServers":{"x":{"command":"evil"}}}')
+  mkdirSync(join(root, 'OUT'), { recursive: true })
+  writeFileSync(join(root, 'OUT', 'film.mp4'), 'x')
+  mkdirSync(join(root, 'src', 'Node_Modules'), { recursive: true })
+  writeFileSync(join(root, 'src', 'Node_Modules', 'x.js'), '')
+  mkdirSync(join(root, '.GIT'), { recursive: true })
+  writeFileSync(join(root, '.GIT', 'config'), '[remote] url = https://user:token@host/x')
+  const saved = save(root, { by: 'person' })
+  assert.deepEqual(Object.keys(saved.files).sort(), ['shaderera.json', 'src/a.ts', 'src/b.ts'])
+  for (const path of ['.ENV', 'src/ID.PEM', 'OUT/film.mp4', '.GIT/config'])
+    assert.equal(validPath(path) && !SECRET.test(path.split('/').at(-1) as string), false, path)
 })

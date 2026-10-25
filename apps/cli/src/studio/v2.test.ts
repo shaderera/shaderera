@@ -1,7 +1,15 @@
 // Protocol v2 of the bridge (decision 0025, docs/studio.md): what /info, /events and the new
 // routes give the page, on a project of the test's own.
 import assert from 'node:assert/strict'
-import { cpSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { after, before, test as nodeTest, type TestFn } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +20,10 @@ import { replyTo } from '../project/comments.ts'
 import { head, save, scanProject, treeId } from '../project/revisions.ts'
 import { toPng } from '../review/review.ts'
 import { type Bridge, startBridge } from './bridge.ts'
-import { call, events } from './fixtures/page.ts'
+import { call, events, nonce, page } from './fixtures/page.ts'
+import { startRelay } from './fixtures/relay.ts'
+import { makeId, seal, unseal } from './pairing.ts'
+import { connectRelay } from './relay.ts'
 
 const home = tempDir('home')
 process.env.HOME = home
@@ -28,11 +39,21 @@ cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), root,
   recursive: true,
 })
 let bridge: Bridge
+let relay: Awaited<ReturnType<typeof startRelay>>
 before(async () => {
-  bridge = await startBridge({ root, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
+  relay = await startRelay()
+  bridge = await startBridge({
+    root,
+    api: SITE,
+    site: SITE,
+    origins: [SITE],
+    settleMs: 50,
+    runnerKeepMs: 500,
+  })
 })
 after(async () => {
   await bridge.close()
+  await relay.close()
 })
 const get = (path: string) =>
   call(bridge.port, { path, headers: { Origin: SITE, Authorization: `Bearer ${bridge.secret}` } })
@@ -219,9 +240,15 @@ test('/runner?revision= frames a runner on that revision, the tree changed since
 test('comments: the person comments, replies and resolves through the bridge', async () => {
   const sse = events(bridge)
   await sse.opened
-  assert.equal((await post('/comments', { t: 99, text: 'late' })).status, 400)
-  assert.equal((await post('/comments', { t: 0.2 })).status, 400)
-  const made = await post('/comments', { t: 0.2, text: 'warmer here', point: [4, 4] })
+  const shown = jsonOf(await get('/info')).revision
+  assert.equal((await post('/comments', { revision: shown, t: 99, text: 'late' })).status, 400)
+  assert.equal((await post('/comments', { revision: shown, t: 0.2 })).status, 400)
+  const made = await post('/comments', {
+    revision: shown,
+    t: 0.2,
+    text: 'warmer here',
+    point: [4, 4],
+  })
   assert.equal(made.status, 200, made.body.toString())
   const thread = jsonOf(made)
   assert.equal(thread.by, 'person')
@@ -257,4 +284,179 @@ test('comments: the person comments, replies and resolves through the bridge', a
   assert.equal((await post('/comments/nope00/reply', { text: 'x' })).status, 404)
   assert.equal(jsonOf(await get('/comments?state=resolved')).length, 1)
   sse.close()
+})
+
+/** A request through the relay, as the page sends it when it cannot reach 127.0.0.1. */
+const throughRelay = async () => {
+  const id = makeId()
+  const p = page(relay.origin, id)
+  const pairing = p.pair()
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+  })
+  const { key } = await pairing
+  let n = 0
+  const rpc = async (request: unknown) => {
+    const rid = String(++n)
+    p.send({ type: 'rpc', id: rid, ...(await seal(key, request)) })
+    const m = (await p.next('rpc-result')) as unknown as { id: string; iv: string; box: string }
+    assert.equal(m.id, rid)
+    return unseal<{ status: number; body?: unknown }>(key, m)
+  }
+  return {
+    rpc,
+    close: async () => {
+      await cli.close()
+      p.ws.close()
+    },
+  }
+}
+
+test('/file refuses another case, a short name and a link in capitals, directly and through the relay', async () => {
+  writeFileSync(join(root, '.env'), 'TOKEN=secret\n')
+  writeFileSync(join(root, 'src', 'id.pem'), 'key')
+  mkdirSync(join(root, '.git'), { recursive: true })
+  writeFileSync(join(root, '.git', 'config'), '[remote] url = https://user:token@host/x')
+  writeFileSync(join(root, '.mcp.json'), '{"mcpServers":{"x":{"command":"evil"}}}')
+  mkdirSync(join(root, 'out'), { recursive: true })
+  writeFileSync(join(root, 'out', 'x.mp4'), 'x')
+  const outside = tempDir('outside')
+  writeFileSync(join(outside, 'x.txt'), 'not the project')
+  symlinkSync(outside, join(root, 'Linked'), 'junction')
+  const paths = [
+    '.ENV',
+    '.Env',
+    'ENV~1',
+    'src/ID.PEM',
+    '.GIT/config',
+    '.MCP.json',
+    'OUT/x.mp4',
+    'Linked/x.txt',
+    'LINKED/x.txt',
+  ]
+  const relayed = await throughRelay()
+  try {
+    for (const path of paths) {
+      const direct = await get(`/file?path=${encodeURIComponent(path)}`)
+      assert.ok([400, 404].includes(direct.status), `${path}: ${direct.status}`)
+      const far = await relayed.rpc({
+        method: 'GET',
+        path: `/file?path=${encodeURIComponent(path)}`,
+      })
+      assert.ok([400, 404].includes(far.status), `${path} through the relay: ${far.status}`)
+    }
+  } finally {
+    await relayed.close()
+  }
+})
+
+test('/runner through the relay is refused before any runner or frozen copy is made', async () => {
+  const file = join(root, 'src', 'composition.ts')
+  writeFileSync(file, `${readFileSync(file, 'utf8')}\n// relayed\n`)
+  const id = save(root, { by: 'person' }).id
+  const relayed = await throughRelay()
+  try {
+    const r = await relayed.rpc({ method: 'GET', path: `/runner?revision=${id}` })
+    assert.equal(r.status, 400)
+    assert.equal(existsSync(join(root, '.shaderera', 'revisions', id)), false)
+  } finally {
+    await relayed.close()
+  }
+})
+
+test('a third revision runner closes the least recently used, once its frame had time to load', async () => {
+  const file = join(root, 'src', 'composition.ts')
+  const ids: string[] = []
+  for (const n of [1, 2, 3]) {
+    writeFileSync(file, `${readFileSync(file, 'utf8')}\n// three ${n}\n`)
+    ids.push(save(root, { by: 'person' }).id)
+  }
+  const runnerOf = async (id: string) => {
+    const r = await call(bridge.port, { path: `/runner?s=${bridge.secret}&revision=${id}` })
+    assert.equal(r.status, 302)
+    return new URL(String(r.headers.location))
+  }
+  const alive = (at: URL) =>
+    fetch(at).then(
+      () => true,
+      () => false,
+    )
+  const pages = []
+  for (const id of ids) pages.push(await runnerOf(id))
+  // All three were just sent: none is closed under the page loading it.
+  assert.deepEqual(await Promise.all(pages.map(alive)), [true, true, true])
+  // Past the keep time and the next poll, the least recently used goes.
+  for (let i = 0; i < 100 && (await alive(pages[0] as URL)); i++)
+    await new Promise((r) => setTimeout(r, 100))
+  assert.deepEqual(await Promise.all(pages.map(alive)), [false, true, true])
+})
+
+test('comments: the input is checked, and the revision is the one the page shows', async () => {
+  const shown = jsonOf(await get('/info')).revision
+  const comment = (body: object) =>
+    post('/comments', { revision: shown, t: 0.1, text: 'x', ...body })
+  // In the fixture's 16×16 frame.
+  for (const body of [
+    { revision: undefined },
+    { revision: 'nope' },
+    { revision: 'f'.repeat(16) },
+    { point: [16, 0] },
+    { point: [-1, 2] },
+    { box: [0, 0, 0, 4] },
+    { box: [10, 10, 8, 8] },
+    { object: 'x'.repeat(201) },
+    { object: 5 },
+    { shot: { id: 's' } },
+    { params: [] },
+    { params: { big: 'x'.repeat(17_000) } },
+  ]) {
+    const r = await comment(body)
+    assert.equal(r.status, 400, JSON.stringify(body).slice(0, 80))
+  }
+  // A saved revision the page held: the comment points at it, and nothing new is saved.
+  const held = save(root, { by: 'person' }).id
+  writeFileSync(join(root, 'src', 'later.ts'), 'export const later = 1\n')
+  const before = jsonOf(await get('/versions')).revisions.length
+  const made = jsonOf(await post('/comments', { revision: held, t: 0.1, text: 'on the held one' }))
+  assert.equal(made.revision, held)
+  assert.equal(jsonOf(await get('/versions')).revisions.length, before)
+})
+
+test('the activity goes on through a rotation, and the poll finds what no watch said', async () => {
+  const sse = events(bridge)
+  await sse.opened
+  // Past 1 MB: the log rotates, and the entries after it still come.
+  for (let i = 0; i < 300; i++)
+    record(root, { by: 'agent', kind: 'note', text: `${i} ${'x'.repeat(3990)}` })
+  const after = record(root, { by: 'agent', kind: 'note', text: 'after the rotation' })
+  assert.ok(after)
+  await sse.next((e) => e.type === 'activity' && (e.entry as { id: string }).id === after.id)
+  sse.close()
+
+  // A bridge that leaves the files to its poll.
+  const other = tempDir('studio-poll')
+  cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), other, {
+    recursive: true,
+  })
+  const polled = await startBridge({
+    root: other,
+    api: SITE,
+    site: SITE,
+    origins: [SITE],
+    tailOnWatch: false,
+  })
+  try {
+    const seen = events(polled)
+    await seen.opened
+    const entry = record(other, { by: 'cli', kind: 'note', text: 'polled' })
+    assert.ok(entry)
+    await seen.next((e) => e.type === 'activity' && (e.entry as { id: string }).id === entry.id)
+    seen.close()
+  } finally {
+    await polled.close()
+  }
 })

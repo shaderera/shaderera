@@ -48,6 +48,9 @@ export const PAGE_BACK_MS = 10_000
 /** How long the CLI waits before its nth rejoin, in ms: 1, 2, 4, 8, 16, then 30 s. */
 export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000)
 
+/** The answer to `/runner` through the relay: a frame cannot come through it. */
+const RUNNER_REFUSED = { status: 400, body: { error: 'The runner is framed from 127.0.0.1 only.' } }
+
 /** What a close code means, for the person. */
 export const closeText = (code: number, site: string, id: string): string =>
   code === CLOSE.expired
@@ -184,9 +187,14 @@ export const connectRelay = (o: {
         ...(await seal(k, { status: 400, body: { error: 'box' } })),
       })
     }
+    const path = typeof request.path === 'string' ? request.path : '/'
+    // Refused before the bridge sees it: a runner (one on a revision opens Vite and a frozen copy)
+    // is never started for a frame that cannot come.
+    if (new URL(path, 'http://bridge').pathname === '/runner')
+      return send({ type: 'rpc-result', id, ...(await seal(k, RUNNER_REFUSED)) })
     const reply = await o.bridge.handle({
       method: typeof request.method === 'string' ? request.method : 'GET',
-      path: typeof request.path === 'string' ? request.path : '/',
+      path,
       body: request.body,
     })
     if ('json' in reply)
@@ -196,14 +204,7 @@ export const connectRelay = (o: {
         ...(await seal(k, { status: reply.status, body: reply.json })),
       })
     if ('location' in reply)
-      return send({
-        type: 'rpc-result',
-        id,
-        ...(await seal(k, {
-          status: 400,
-          body: { error: 'The runner is framed from 127.0.0.1 only.' },
-        })),
-      })
+      return send({ type: 'rpc-result', id, ...(await seal(k, RUNNER_REFUSED)) })
     // A file, in chunks: not awaited, so the page's other requests are answered meanwhile.
     void sendFile(k, id, reply.file).catch(() => {})
   }

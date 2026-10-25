@@ -84,8 +84,9 @@ whatever stdin the running command has, on every OS. Closing a piped stdin, or w
 `{"stop":true}` to it, does the same.
 
 **One studio a project.** A studio claims its project before its bridge starts. It makes
-`.shaderera/studio/bridge.json` with its `pid`, adds its bridge's `port` and `secret` once the
-bridge is up, and removes the file when it ends.
+`.shaderera/studio/bridge.json` with its `pid`, adds its bridge's `port` and a stop `token` once
+the bridge is up, and removes the file when it ends. The token is not the page's secret: it is good
+for `POST /stop` and nothing else, so a process that reads the file cannot act as the page.
 - **Only you can read it.** The folder is made private before any file is made in it, so every
   file is private from the moment it exists:
   - On macOS and Linux, the folder is mode 0700 and the file mode 0600.
@@ -97,8 +98,8 @@ bridge is up, and removes the file when it ends.
 - **`--stop` on a studio still starting** waits until its bridge is up, then stops it.
 - **A stale file** (its pid has ended, or its bridge does not answer) is removed, and counts as no
   studio. A file the CLI cannot read (another user's) is never removed: the command says so.
-- **The CLI's requests** to the bridge are the ones without an `Origin`, carrying the secret
-  (below). Other commands reach the running studio the same way.
+- **The CLI's request** to the bridge is `POST /stop`, without an `Origin`, carrying the token
+  (below).
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -201,9 +202,10 @@ HTTP on `127.0.0.1:<port>` only, on a free port, while the command runs.
 
 ### `POST /stop`
 
-From the CLI only (`studio --stop`), with no `Origin` and the secret: it answers `{stopping:true}`,
-and the command ends, as on Ctrl-C. A page cannot send it: a browser always sends an `Origin` with
-a POST, and the relay does not carry it.
+From the CLI only (`studio --stop`), with no `Origin` and the stop token from bridge.json (not the
+secret, which `/stop` refuses): it answers `{stopping:true}`, and the command ends, as on Ctrl-C. A
+page cannot send it: a browser always sends an `Origin` with a POST, and the relay does not carry
+it.
 
 **The secret.** Every request carries `Authorization: Bearer <secret>`. Where a request cannot set
 headers (EventSource, a frame), it passes `?s=<secret>` instead. A wrong or missing secret gets
@@ -271,8 +273,9 @@ port the frame posts, as with the web player.
   revision's files, from its frozen copy under `.shaderera/revisions/<id>/`, however the tree
   changed since. This is how the page compares a comment's revision with its fix. Its `variant`
   is one of that revision's. At most 2 such runners run besides the working tree's: a third
-  closes the least recently used. An id that is not 16 hex digits is `400`; one the project does
-  not keep (unknown, or pruned) is `404`. The working tree's runner never reloads for them.
+  closes the least recently used, once its frame has had 30 s to load. An id that is not 16 hex
+  digits is `400`; one the project does not keep (unknown, or pruned) is `404`. The working tree's
+  runner never reloads for them.
 
 - **The bridge redirects (`302`) to the runner page**, keeping the query but `s`. The runner page
   is served by the project's own Vite, on another port of 127.0.0.1, under a path that is itself a
@@ -308,7 +311,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 | `{type:"log", level, text}` | `info`, `warn` or `error`: a render's or a share's error, a share's warnings, watcher problems, the runner's build errors, and the framed film's console warnings and errors (not a browser extension's) |
 | `{type:"share", film, version, url}` | a share sent the film: its id, the new version and its page |
 | `{type:"activity", entry}` | an activity entry was added, by any process: the CLI, MCP or the bridge (`GET /activity`) |
-| `{type:"comment", comment}` | a comment was made or changed, by any process: the whole thread, folded (`GET /comments`) |
+| `{type:"comment", comment}` | a comment was made or changed, by any process: the whole thread, folded, with `stale`, as `GET /comments` gives it |
 | `{type:"agent", listening}` | an agent started or stopped waiting for comments (`/info`'s `listening`) |
 
 - **The files are the channel.** The CLI and MCP write `versions/comments.jsonl` and
@@ -407,14 +410,21 @@ thread, as `shaderera comments --json` gives it:
 - **`stale`** is true when the tree now is not the one the comment was made on.
 - Another `state` is `400`.
 
-### `POST /comments {t, to?, variant?, point? | box?, object?, shot?, params?, text}` → thread
+### `POST /comments {revision, t, to?, variant?, point? | box?, object?, shot?, params?, text}` → thread
 
 The person's comment, at `t` seconds (to `to`). Only the bridge writes comments `by: person`.
+That guards against an agent's mistakes, not against a hostile process on your machine: anything
+that can write the project can append to `versions/comments.jsonl`.
 
-- **The tree the person saw is saved first**, as a revision: the comment's `revision`.
-- `t` (and `to`) must be inside the film or the variant. `point` (`[x, y]`) or `box`
-  (`[x, y, w, h]`) are in that variant's frame pixels, not both. `params` keeps only those that
-  differ from the defaults. `text` is at most 4000 characters.
+- **`revision`** is the tree the page shows (`/info`'s, a `changed` event's, or a held one's). The
+  working tree's id now is saved as a revision; any other must be a saved revision, and `t`,
+  `variant` and the frame are that revision's.
+- `t` (and `to`) must be inside the film or the variant.
+- `point` (`[x, y]`) or `box` (`[x, y, w, h]`, w and h above 0), not both, are in that variant's
+  frame pixels, inside the frame.
+- `object` is an id of at most 200 characters; `shot` is `{id, offset}`; `params` is an object of
+  at most 16 KB as JSON, and keeps only those that differ from the defaults.
+- `text` is at most 4000 characters.
 - A field that is wrong is `400`, and nothing is saved.
 
 ### `POST /comments/<id>/reply {text}` → thread
@@ -465,7 +475,9 @@ The entry's still, `image/png`. None is `404`.
 A file of the project, streamed, for the page to play the film's sound. `path` is as a revision
 names it (`audio/score.wav`), and the bridge checks it as a revision does:
 - a path outside the project, through a link, or one a revision never holds (`out/`,
-  `versions/`, `.shaderera/`, `node_modules/`, …) is `400`;
+  `versions/`, `.shaderera/`, `node_modules/`, …, in any case) is `400`;
+- a path that is not the file's own name on disk is `400`: another case (`.ENV` for `.env`), an
+  8.3 short name (`ENV~1`), any alias;
 - a file that holds secrets (`.env`, `.npmrc`, keys, …) is `400`;
 - a missing file is `404`.
 

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 import { parseArgs } from 'node:util'
@@ -84,8 +85,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
 
   let stopNow = () => {}
+  // What `studio --stop` carries, in bridge.json: it stops the studio, and opens nothing else.
+  const stopToken = randomBytes(16).toString('hex')
   const bridge = await startBridge({
     onStop: () => stopNow(),
+    stopToken,
     root,
     api,
     site,
@@ -143,7 +147,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // `shaderera studio --stop` (and later commands) reach this bridge through the file.
   if (claimed)
     try {
-      register(root, { port: bridge.port, secret: bridge.secret, pid: process.pid })
+      register(root, { port: bridge.port, token: stopToken, pid: process.pid })
     } catch (error) {
       unregister(root, process.pid)
       unreachable(error)
