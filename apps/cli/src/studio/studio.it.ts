@@ -367,7 +367,7 @@ test("shaderera studio --json: the page's console comes as log events, without a
 const studioJson = (
   site: string,
   args: readonly string[] = [],
-  o: { root?: string; stdin?: 'pipe' | 'ignore' } = {},
+  o: { root?: string; stdin?: 'pipe' | 'ignore'; env?: NodeJS.ProcessEnv } = {},
 ) => {
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
   const cli = spawn(
@@ -375,7 +375,7 @@ const studioJson = (
     [main, 'studio', '--site', site, '--no-open', '--json', '--root', o.root ?? fixture(), ...args],
     // `ignore`: stdin is the null device, as an agent's shell gives a command.
     {
-      env: { ...process.env, HOME: home, USERPROFILE: home },
+      env: { ...process.env, HOME: home, USERPROFILE: home, ...o.env },
       stdio: [o.stdin ?? 'pipe', 'pipe', 'pipe'],
     },
   )
@@ -433,7 +433,7 @@ test('shaderera studio ends cleanly when its stdin closes or on a stop line', as
 
 test('shaderera studio: an id no page came for gives a new id and url, and goes on', async () => {
   const short = await startRelay({ ttlMs: 1500, alarm: true })
-  const s = studioJson(short.origin)
+  const s = studioJson(short.origin, [], { env: { SHADERERA_STUDIO_EXPIRY_MS: '1500' } })
   try {
     const first = await s.event((e) => e.event === 'url')
     const second = await s.event((e) => e.event === 'url' && e.id !== first.id)
@@ -551,4 +551,19 @@ test('shaderera studio --stop removes a stale file, and says no studio runs', as
   assert.equal(r.code, 0, r.out)
   assert.match(r.out, /No studio is running/)
   assert.equal(existsSync(file), false)
+})
+
+test('shaderera studio: a relay that expires an id long before its limit ends it, once', async () => {
+  // The relay expires ids after 300 ms; the CLI expects 1.5 s.
+  const hasty = await startRelay({ ttlMs: 300, alarm: true })
+  const s = studioJson(hasty.origin, [], { env: { SHADERERA_STUDIO_EXPIRY_MS: '1500' } })
+  try {
+    assert.equal(await s.exited, 2, s.out())
+    assert.equal(s.events().filter((e) => e.event === 'url').length, 1)
+    const last = s.events().at(-1)
+    assert.equal(last?.event, 'ended')
+    assert.match(String(last?.error), /expired studio session \w+ after 0\.\d s/)
+  } finally {
+    await hasty.close()
+  }
 })
