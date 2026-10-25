@@ -23,7 +23,10 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
-`shaderera` alone, or `--help` / `-h` anywhere, prints the usage.
+`shaderera` alone, `shaderera help` or `shaderera --help` prints the usage; `shaderera help <command>`
+or `shaderera <command> --help` (or `-h`) prints that command's lines of it. A name that is no
+command exits 2 with `shaderera: Unknown command: <name>.` on stderr, and the nearest command when
+one is within two letters (`Did you mean still?`).
 
 ## Common flags
 
@@ -49,9 +52,18 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 - **`--trusted`**: run the project without Node's permission model
   ([where project code runs](determinism.md#where-project-code-runs)). Given by the person running
   the command; a project cannot declare it.
-- **`--timeout <s>`**: how long one call to the source may take before its process is stopped.
-  Default 600 s: a GPU source's first call compiles its pipelines, which can take minutes on Dawn
-  (a path tracer took about 165 s). In the browser host it bounds every DevTools call.
+- **`--timeout <s>`**: how long a call to the source may go without a sign of work before its
+  process is stopped, the error naming the call and its t (`took longer than 60000 ms on render at
+  t = 1 s without a sign of work`). By default the source's open may take 600 s, and a call after
+  it 60 s of silence: the clock starts again at each frame a sequential source steps through and
+  each request the source makes (a video or bake frame, the cache), so a frame that never settles
+  fails in a minute and one that keeps working does not. A call that makes a pipeline (a first
+  frame, often: Dawn's compile can take minutes, a path tracer's took about 165 s), the reopen
+  after a lost GPU device and every call on a software adapter have the 600 s, and every call at
+  least 10 times the host's slowest so far. The browser host sees no work inside the page: its
+  first call, a sequential source's calls and a software adapter's have 600 s, and the others a
+  minute or 10 times the slowest. With `--timeout`, the open and every call have that long. In the
+  browser host it bounds every DevTools call.
 
 The commands that render the source (`check`, `inspect`, `still`, `render`, `review`) also take:
 
@@ -70,6 +82,11 @@ While `render`, `render --chunk` or `assemble` hands frames to ffmpeg, an ffmpeg
 before the last frame (even with 0, as it does when it runs out of memory reading its input) fails
 the command with its last lines, and one that reads nothing for 300 seconds while a frame waits
 fails it as stalled. `SHADERERA_FFMPEG_STALL` sets those seconds.
+
+A film's `io.cache` keeps its bytes in the project's `.shaderera/cache/`, at most 1 GiB:
+`SHADERERA_FILM_CACHE_MB` sets another limit, in megabytes. Past the limit the least recently used
+entries are removed, and a film makes an entry again when it asks for it, so deleting
+`.shaderera/cache/` is always safe ([protocol.md](protocol.md)).
 
 ## Required plugins
 
@@ -166,7 +183,7 @@ Stills of any moment straight from the source, rendered by the same host as `che
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
 | `--out <dir>` | `out/stills/` |
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
-| `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely |
+| `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely, else a text run's `box` |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
 | `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet`. Several variants: `variants`, one entry each, and the side-by-side `sheet` |
@@ -243,7 +260,7 @@ of footage it takes a moment, not the time to read all of it.
 
 | Flag | Default |
 |---|---|
-| `--from <s>`, `--to <s>` | 0, `duration` |
+| `--from <s>`, `--to <s>` | 0, `duration`. A window outside the film, or `--to` before `--from`, is refused before anything renders |
 | `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
 | `--master` | off: review quality (crf 16, preset veryfast). On: crf 12, preset slow |
@@ -583,7 +600,7 @@ Plugins come from the site's `/r`: `--site <origin>`, else `SHADERERA_SITE`, els
 |---|---|
 | `search <words> [--type t] [--category c] [--tag x] [--json]` | full-text over names, descriptions and code |
 | `info <name>[@range] [--json]` | what it is, its licence, what it copies and is built on, its README |
-| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.json` `requires`. All of them resolve first: one that does not, or a version outside a range another requires, stops them all |
+| `add <name>[@range]... [--force]` | copies plugins and what they are built on into the project; a package plugin is installed and recorded in `shaderera.json` `requires`; a media plugin (a font, say) is recorded in `ASSETS.md` with its licence and source. All of them resolve first: one that does not, or a version outside a range another requires, stops them all |
 | `remove <name>...` | uninstalls package plugins and stops requiring them; each must be a package plugin the project uses, never a plain npm dependency, or none is removed |
 | `publish [dir]... --site <folder> [--force]` | puts plugins into a folder of plugins, each in turn; the end names any that failed |
 

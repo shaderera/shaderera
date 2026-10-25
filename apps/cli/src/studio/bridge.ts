@@ -104,15 +104,21 @@ const attachment = (name: string): string => {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
 }
 
-/** Reads a request body as JSON (at most 1 MB); none is undefined. */
+/** The answer to a body over 1 MB: the connection closes after it. */
+const TOO_BIG = 'The request body is over 1 MB.'
+
+/**
+ * Reads a request body as JSON (at most 1 MB); none is undefined. A larger one is read to its end
+ * and dropped, so its connection is never cut mid-request.
+ */
 const readBody = async (req: IncomingMessage): Promise<unknown> => {
   const parts: Buffer[] = []
   let size = 0
   for await (const part of req) {
     size += (part as Buffer).length
-    if (size > 1 << 20) throw new Error('The request body is over 1 MB.')
-    parts.push(part as Buffer)
+    if (size <= 1 << 20) parts.push(part as Buffer)
   }
+  if (size > 1 << 20) throw new Error(TOO_BIG)
   const text = Buffer.concat(parts).toString('utf8').trim()
   return text ? JSON.parse(text) : undefined
 }
@@ -206,6 +212,8 @@ export const startBridge = async (o: {
   // Renders, one at a time, in the order asked; closing the bridge stops the one running.
   const jobs = new Map<string, Job>()
   const stop = new AbortController()
+  /** The cancel of each job queued or running (POST /render/<id>/cancel). */
+  const cancels = new Map<string, AbortController>()
   let queue: Promise<void> = Promise.resolve()
   const report = (job: Job) =>
     emit({
@@ -215,15 +223,32 @@ export const startBridge = async (o: {
       progress: job.progress,
       ...(job.error ? { error: job.error } : {}),
     })
-  const render = async (job: Job, r: { variant?: string; params: object; t: number }) => {
+  const render = async (
+    job: Job,
+    r: { variant?: string; params: object; t: number },
+    signal: AbortSignal,
+  ) => {
     const flags = {
       ...o.hostFlags,
       root,
       ...(r.variant ? { variant: r.variant } : {}),
       param: Object.entries(r.params).map(([k, v]) => `${k}=${JSON.stringify(v)}`),
     }
-    const { project: opened, child, more } = await open(flags)
+    const { project: opened, child, more: opener } = await open(flags)
+    // A cancelled job's hosts are closed, every one: a frame that never settles ends with them.
+    const hosts = [child]
+    const more = async () => {
+      const host = await opener()
+      hosts.push(host)
+      if (signal.aborted) void host.close()
+      return host
+    }
+    const closeChild = () => {
+      for (const host of hosts) void host.close()
+    }
+    signal.addEventListener('abort', closeChild, { once: true })
     try {
+      signal.throwIfAborted()
       const traced = save(root, { by: 'studio' }).id
       mkdirSync(join(root, 'out', 'studio'), { recursive: true })
       const { manifest } = opened
@@ -240,7 +265,7 @@ export const startBridge = async (o: {
         workers: defaultWorkers(manifest, frameTimes(manifest.fps, 0, manifest.duration).length),
         more,
         revision: traced,
-        signal: stop.signal,
+        signal,
         onFrame: (i, n) => {
           job.progress = (i + 1) / n
           // About a hundred reports a render, not one a frame.
@@ -251,6 +276,7 @@ export const startBridge = async (o: {
         },
       })
     } finally {
+      signal.removeEventListener('abort', closeChild)
       await child.close()
     }
   }
@@ -259,7 +285,7 @@ export const startBridge = async (o: {
   const queueJob = (format: Format, variant: string | undefined, params: object, t: number) => {
     const id = randomBytes(6).toString('hex')
     // A variant's name may hold what a file name cannot (`16:9`), as in project/jobs.ts.
-    const name = `${basename(root)}${variant ? `-${variant.replace(/[^\w.-]/g, '_')}` : ''}-${id}.${format}`
+    const name = `${basename(root)}${variant ? `-${variant.replace(/[^\p{L}\p{M}\p{N}_.-]/gu, '_')}` : ''}-${id}.${format}`
     const job: Job = {
       id,
       state: 'queued',
@@ -268,13 +294,26 @@ export const startBridge = async (o: {
       file: join(root, 'out', 'studio', name),
     }
     jobs.set(id, job)
+    const cancel = new AbortController()
+    cancels.set(id, cancel)
     report(job)
     queue = queue.then(async () => {
+      // Cancelled while queued: failed already.
+      if (cancel.signal.aborted) return
       job.state = 'running'
       report(job)
       log('info', `render ${id}: ${format}${variant ? ` of ${variant}` : ''}`)
+      const signal = AbortSignal.any([stop.signal, cancel.signal])
       try {
-        await render(job, { ...(variant ? { variant } : {}), params, t })
+        // The queue goes on at a cancel, while the render winds down (its host closing).
+        const rendering = render(job, { ...(variant ? { variant } : {}), params, t }, signal)
+        rendering.catch(() => {})
+        await Promise.race([
+          rendering,
+          new Promise((_, fail) =>
+            signal.addEventListener('abort', () => fail(signal.reason), { once: true }),
+          ),
+        ])
         job.state = 'done'
         job.progress = 1
         log('info', `render ${id}: ${slash(relative(root, job.file))}`)
@@ -282,6 +321,8 @@ export const startBridge = async (o: {
         job.state = 'failed'
         job.error = error instanceof Error ? error.message : String(error)
         log('error', `render ${id}: ${job.error}`)
+      } finally {
+        cancels.delete(id)
       }
       report(job)
     })
@@ -325,8 +366,10 @@ export const startBridge = async (o: {
         format?: unknown
         t?: unknown
       }
-      const format = (body.format ?? 'mp4') as Format
-      if (!Object.hasOwn(TYPES, format)) return json(400, { error: 'format is mp4, mov or png' })
+      // Every field is checked before a job is queued: a bad one opens no host, saves nothing.
+      const format = body.format as Format
+      if (typeof format !== 'string' || !Object.hasOwn(TYPES, format))
+        return json(400, { error: 'format is mp4, mov or png' })
       if (body.variant !== undefined && typeof body.variant !== 'string')
         return json(400, { error: 'variant is a name' })
       const many = body.variants
@@ -338,29 +381,58 @@ export const startBridge = async (o: {
           body.variant !== undefined)
       )
         return json(400, { error: 'variants is a list of names, without variant' })
-      if (body.params !== undefined && (typeof body.params !== 'object' || body.params === null))
+      if (
+        body.params !== undefined &&
+        (typeof body.params !== 'object' || body.params === null || Array.isArray(body.params))
+      )
         return json(400, { error: 'params is an object' })
-      if (body.t !== undefined && typeof body.t !== 'number')
+      if (body.t !== undefined && (typeof body.t !== 'number' || !Number.isFinite(body.t)))
         return json(400, { error: 't is a time in seconds' })
       const params = (body.params ?? {}) as object
       const t = (body.t as number | undefined) ?? 0
-      if (many === undefined)
-        return json(200, { job: queueJob(format, body.variant as string | undefined, params, t) })
-      // Several: every name is checked before any job is queued, then one job each, in order.
-      const declared = (await findProject(root)).manifest.variants ?? {}
-      const unknown = (many as string[]).find((v) => !Object.hasOwn(declared, v))
+      const { manifest } = await findProject(root)
+      const names: (string | undefined)[] =
+        many === undefined ? [body.variant as string | undefined] : [...new Set(many as string[])]
+      const unknown = names.find(
+        (v) => v !== undefined && !Object.hasOwn(manifest.variants ?? {}, v),
+      )
       if (unknown !== undefined)
         return json(400, { error: `shaderera.json has no variant "${unknown}"` })
-      return json(200, {
-        jobs: [...new Set(many as string[])].map((v) => queueJob(format, v, params, t)),
-      })
+      if (format === 'png')
+        for (const v of names) {
+          const { duration } = v === undefined ? manifest : withVariant(manifest, v).manifest
+          if (t < 0 || t >= duration)
+            return json(400, {
+              error: `t ${t} is outside the film${v === undefined ? '' : ` "${v}"`} (0 to ${duration} s)`,
+            })
+        }
+      const queued = names.map((v) => queueJob(format, v, params, t))
+      return json(200, many === undefined ? { job: queued[0] } : { jobs: queued })
+    }
+    const cancel = /^POST \/render\/([0-9a-f]+)\/cancel$/.exec(route)
+    if (cancel) {
+      const job = jobs.get(cancel[1] as string)
+      if (!job) return json(404, { error: 'no such job' })
+      const c = cancels.get(job.id)
+      if (!c) return json(409, { error: `the job is ${job.state}` })
+      c.abort(new Error('cancelled'))
+      // A queued job never runs; a running one fails at once (the queue's race), its host closing.
+      if (job.state === 'queued') {
+        cancels.delete(job.id)
+        job.state = 'failed'
+        job.error = 'cancelled'
+        log('info', `render ${job.id}: cancelled`)
+        report(job)
+      }
+      return json(200, { job: job.id })
     }
     const file = /^GET \/render\/([0-9a-f]+)\/file$/.exec(route)
     if (file) {
       const job = jobs.get(file[1] as string)
       if (!job) return json(404, { error: 'no such job' })
-      if (job.state !== 'done' || !existsSync(job.file))
-        return json(409, { error: `the job is ${job.state}` })
+      if (job.state !== 'done') return json(409, { error: `the job is ${job.state}` })
+      if (!existsSync(job.file))
+        return json(404, { error: `${slash(relative(root, job.file))} is no longer there` })
       return {
         status: 200,
         file: { path: job.file, type: TYPES[job.format], name: basename(job.file) },
@@ -410,7 +482,11 @@ export const startBridge = async (o: {
       ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' }
       : { Vary: 'Origin' }
     const refuse = (status: number, error: string) => {
-      res.writeHead(status, { ...cors, 'Content-Type': 'application/json' })
+      res.writeHead(status, {
+        ...cors,
+        'Content-Type': 'application/json',
+        ...(error === TOO_BIG ? { Connection: 'close' } : {}),
+      })
       res.end(JSON.stringify({ error }))
     }
     if (req.method === 'OPTIONS') {

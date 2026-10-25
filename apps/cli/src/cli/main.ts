@@ -116,13 +116,60 @@ export const goneFlag = (command: string, args: readonly string[]): string | nul
   return null
 }
 
+/** One command's lines of the usage, or the whole usage for none (or one it has no line for). */
+export const usageOf = (command?: string): string => {
+  const lines = usage.split('\n').filter((l) => command && l.startsWith(`  ${command} `))
+  return lines.length > 0 ? lines.join('\n') : usage
+}
+
+/** The edits (insert, delete, replace) that turn a into b. */
+const distance = (a: string, b: string): number => {
+  let row = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i]
+    for (let j = 1; j <= b.length; j++)
+      next[j] = Math.min(
+        (row[j] as number) + 1,
+        (next[j - 1] as number) + 1,
+        (row[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1),
+      )
+    row = next
+  }
+  return row[b.length] as number
+}
+
+/** The command a mistyped name most likely meant: the nearest within two edits. */
+export const closest = (name: string): string | undefined => {
+  const [best] = commands
+    .map((c) => ({ c, d: distance(name, c) }))
+    .filter((x) => x.d <= 2)
+    .sort((x, y) => x.d - y.d)
+  return best?.c
+}
+
+/** A name that is no command: says so on stderr, with the nearest one. */
+const unknown = (name: string): number => {
+  const near = closest(name)
+  console.error(
+    `shaderera: Unknown command: ${name}.${near ? ` Did you mean ${near}?` : ''} \`shaderera help\` lists the commands.`,
+  )
+  found({ code: 'usage', severity: 'error', message: `Unknown command: ${name}` })
+  return EXIT.error
+}
+
 const main = async (argv: readonly string[]): Promise<number> => {
   const [command, ...rest] = argv
-  const help = !command || ['--help', '-h'].some((h) => command === h || rest.includes(h))
-  if (help || !commands.includes(command)) {
-    console.log(usage)
-    if (!help) found({ code: 'usage', severity: 'error', message: `Unknown command: ${command}` })
-    return help ? EXIT.ok : EXIT.error
+  // `help [command]`, `<command> --help`: that command's lines of the usage; no command: all.
+  if (!command || command === 'help' || command === '--help' || command === '-h') {
+    const about = rest.find((a) => !a.startsWith('-'))
+    if (about && !commands.includes(about)) return unknown(about)
+    console.log(usageOf(about))
+    return EXIT.ok
+  }
+  if (!commands.includes(command)) return unknown(command)
+  if (rest.includes('--help') || rest.includes('-h')) {
+    console.log(usageOf(command))
+    return EXIT.ok
   }
   const gone = goneFlag(command, rest)
   if (gone) throw new Error(gone)
