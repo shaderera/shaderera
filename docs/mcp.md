@@ -30,7 +30,8 @@ above it, up to the first `shaderera.json`. A call that finds none is an error t
 after it started, and several projects, each with its own child.
 
 For each project the server keeps one child process open and reopens it (rebuilding the entry) on the next call
-after any file under the root changes, except in `node_modules`, `.shaderera` and `out`. So an
+after any file under the root changes, except in `node_modules`, `.shaderera`, `out`, `versions`
+and `NVIDIA Corporation` (a folder the NVIDIA driver can write there). So an
 edit is picked up without restarting the server. `shaderera.json` is read again with it, so a new
 size or fps reaches every tool.
 

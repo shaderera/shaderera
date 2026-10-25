@@ -54,7 +54,7 @@ a line, `{event, ...}`:
 | `resumed` | | the page came back within 10 s (a reload) |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
-| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events |
+| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start |
 | `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
 
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,
@@ -185,12 +185,13 @@ the permission first, and asks for a click (Connect) before that request when Ch
 
 ```json
 {
-  "version": "0.1.5",
+  "version": "…",
   "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
   "telemetry": true
 }
 ```
 
+- `version` is the running CLI's version, from its package.json.
 - `title` is package.json's `name`, else the folder's name.
 - `manifest` is shaderera.json as the CLI and the runner read it.
 - `variants` is shaderera.json's `variants`, in its own shape (`{}` when there are none): name →
