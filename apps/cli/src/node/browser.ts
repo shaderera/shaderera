@@ -19,7 +19,7 @@ import type { TextRun } from '../review/measure.ts'
 import { unpackClips } from '../runner/audio.ts'
 import { type AdapterInfo, adapterLine, softwareAdapter } from './adapter.ts'
 import { alive } from './build.ts'
-import { type Child, type Rendered, TIMEOUT } from './child.ts'
+import { CALL_TIMEOUT, type Child, callName, type Rendered, TIMEOUT } from './child.ts'
 import type { Project } from './project.ts'
 import { FRAME_PATH, frameUploads, RUNNER_PATH } from './runner-plugin.ts'
 import { HOST, startRunner } from './runner-server.ts'
@@ -399,8 +399,10 @@ export const openBrowserChild = async (
       }
     }
     debug('opened')
-    timeout.ms = o.timeoutMs ?? TIMEOUT
     const { capabilities } = opened
+    // A minute a call, as in the Node host; a sequential source's call steps every frame before t
+    // inside the page, where nothing reports each step, so it keeps the open's allowance.
+    timeout.ms = o.timeoutMs ?? (capabilities.sequential ? TIMEOUT : CALL_TIMEOUT)
     // The Child's capabilities, as the Node host reports them; the page's own carry more.
     const has: Child['has'] = {
       inspect: capabilities.inspect,
@@ -411,8 +413,15 @@ export const openBrowserChild = async (
       deep: capabilities.deep,
       p010: capabilities.p010,
     }
+    // A call that took too long names what it was asked: `render at t = 1 s`.
     const call = <T>(method: string, ...args: unknown[]) =>
-      evaluate<T>(`window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`)
+      evaluate<T>(
+        `window.__shaderera.${method}(${args.map((a) => JSON.stringify(a)).join(',')})`,
+      ).catch((error: unknown) => {
+        if (!/took longer than/.test(String(error))) throw error
+        const asked = callName({ type: method === 'send' ? 'render' : method, t: args[0] })
+        throw new Error(`${(error as Error).message.replace(/\.$/, '')} (${asked}).`)
+      })
     return {
       render: async (t, intent, format = 'rgba') => {
         // The worker POSTs the frame to the runner server, which hands it here (decision 0007):

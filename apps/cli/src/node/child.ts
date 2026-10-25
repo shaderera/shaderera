@@ -77,8 +77,25 @@ const packageDirs = (root: string): string[] => {
   return [...dirs.map((d) => realpathSync(d)), ...walked]
 }
 
-/** How long one call may take: generous, because a GPU source's first call compiles its pipelines. */
+/**
+ * How long the source's open may take: generous, since it loads its footage, fonts and bakes and
+ * may compile its pipelines.
+ */
 export const TIMEOUT = 600_000
+
+/**
+ * How long one call after the open may take by default: about one frame (render, inspect, pick,
+ * camera), so a hung frame fails in a minute, not ten. The host says when a call is not hung
+ * (`alive`): a sequential source's call steps every frame on the way to t, and each step starts
+ * its minute again; a call that makes a pipeline (a first frame, often: three.js compiles there)
+ * has the open's allowance from then on, since Dawn's compile can take minutes. `--timeout` sets
+ * both.
+ */
+export const CALL_TIMEOUT = 60_000
+
+/** A call's name in a message: `render at t = 1 s`. */
+export const callName = (request: { type: string; t?: unknown }) =>
+  typeof request.t === 'number' ? `${request.type} at t = ${request.t} s` : request.type
 
 export type HostIdentity = {
   host: 'node' | 'browser'
@@ -209,22 +226,37 @@ export const openChild = async (
   child.on('error', () => {})
   let next = 0
   let queue: Promise<unknown> = Promise.resolve()
-  const call = <T>(request: Request, ms = o.timeoutMs ?? TIMEOUT): Promise<T> => {
+  const opening = o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT
+  const call = <T>(request: Request, ms = o.timeoutMs ?? CALL_TIMEOUT): Promise<T> => {
     const run = () =>
       new Promise<T>((done, fail) => {
         if (child.killed || !child.connected)
           return fail(new Error('The source process has exited.'))
         const id = next++
-        const timer = setTimeout(() => {
+        let limit = ms
+        const expire = () => {
           child.kill()
-          fail(new Error(`The source took longer than ${ms} ms on ${request.type}.`))
-        }, ms)
+          fail(new Error(`The source took longer than ${limit} ms on ${callName(request)}.`))
+        }
+        let timer = setTimeout(expire, limit)
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           clearTimeout(timer)
           child.off('message', onMessage)
           fail(new Error(`The source process exited (${code ?? signal}).`))
         }
-        const onMessage = (m: { id: number; result?: T; error?: string; stack?: string }) => {
+        const onMessage = (m: {
+          id: number
+          alive?: number
+          compiling?: boolean
+          result?: T
+          error?: string
+          stack?: string
+        }) => {
+          if (m.alive === id) {
+            clearTimeout(timer)
+            if (m.compiling) limit = Math.max(limit, opening)
+            timer = setTimeout(expire, limit)
+          }
           if (m.id !== id) return
           clearTimeout(timer)
           child.off('message', onMessage).off('exit', onExit)
@@ -252,7 +284,7 @@ export const openChild = async (
       ...(o.range ? { range: o.range } : {}),
       checkpointMs: o.checkpointMs,
     },
-    o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT,
+    opening,
   ).catch((error: unknown) => {
     // A source that cannot open must not keep the process alive.
     child.kill()

@@ -49,9 +49,14 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 - **`--trusted`**: run the project without Node's permission model
   ([where project code runs](determinism.md#where-project-code-runs)). Given by the person running
   the command; a project cannot declare it.
-- **`--timeout <s>`**: how long one call to the source may take before its process is stopped.
-  Default 600 s: a GPU source's first call compiles its pipelines, which can take minutes on Dawn
-  (a path tracer took about 165 s). In the browser host it bounds every DevTools call.
+- **`--timeout <s>`**: how long one call to the source may take before its process is stopped,
+  the error naming the call and its t (`took longer than 60000 ms on render at t = 1 s`). By
+  default, the source's open may take 600 s and each call after it 60 s, so a frame that never
+  settles fails in a minute. A call that makes a pipeline (a first frame, often) has the 600 s
+  from then on in the Node host: Dawn's compile can take minutes (a path tracer took about 165 s).
+  A sequential source's call has 60 s for each frame it steps through on the way to t (the browser
+  host gives it 600 s). With `--timeout`, every call and the open have that long. In the browser
+  host it bounds every DevTools call.
 
 The commands that render the source (`check`, `inspect`, `still`, `render`, `review`) also take:
 
