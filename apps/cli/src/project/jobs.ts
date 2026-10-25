@@ -264,6 +264,32 @@ const frozenBuild = async (root: string, revision: string, variant: string | und
 export const safeName = (name: string) => name.replace(/[^\w.-]|^\.+$/g, '_')
 
 /**
+ * A window of the film, `from` (0 by default) to `to` (its duration): each a number of seconds,
+ * inside the film and holding a frame; throws naming the one that is not.
+ */
+export const windowOf = (
+  manifest: Pick<Manifest, 'duration' | 'fps'>,
+  given: unknown,
+  until: unknown,
+): { from: number; to: number } => {
+  for (const [key, x] of [
+    ['from', given],
+    ['to', until],
+  ] as const)
+    if (x !== undefined && !(typeof x === 'number' && Number.isFinite(x)))
+      throw new Error(
+        `Not a time in seconds: ${key} ${typeof x === 'string' ? JSON.stringify(x) : String(x)}.`,
+      )
+  const from = (given as number | undefined) ?? 0
+  const to = (until as number | undefined) ?? manifest.duration
+  if (!(from >= 0 && to > from && to <= manifest.duration + 1e-9))
+    throw new Error(`The window ${from}–${to} s is outside 0–${manifest.duration} s.`)
+  if (frameTimes(manifest.fps, from, to).length === 0)
+    throw new Error(`The window ${from}–${to} s holds no frame at ${manifest.fps} fps.`)
+  return { from, to }
+}
+
+/**
  * Freezes a job: saves the working tree as a revision unless one is named, resolves the variant
  * and params against that revision's manifest, records the packages it executes, and writes
  * `versions/jobs/<name>.json`. The same inputs under the same name return the job already there;
@@ -302,12 +328,7 @@ export const createJob = async (
       'An hdr10 job needs the hdr10 block in shaderera.json: { mastering: { peak, min, primaries }, dither }.',
     )
   if (o.range === 'hdr10') checkHdr10Delivery(o.delivery ?? {})
-  const from = o.from ?? 0
-  const to = o.to ?? manifest.duration
-  if (!(from >= 0 && to > from && to <= manifest.duration + 1e-9))
-    throw new Error(`The window ${from}–${to} s is outside 0–${manifest.duration} s.`)
-  if (frameTimes(manifest.fps, from, to).length === 0)
-    throw new Error(`The window ${from}–${to} s holds no frame at ${manifest.fps} fps.`)
+  const { from, to } = windowOf(manifest, o.from, o.to)
   const files = readRevision(root, revision).files
   const lock = LOCKS.find((l) => files[l])
   const bakes = pinBakes(root, declared, revision, files)

@@ -31,10 +31,11 @@ import {
   readJob,
   safeName,
   videoOptionsOf,
+  windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { releaseFrozen, save } from '../project/revisions.ts'
-import { childOptions, open, parseRendering } from './args.ts'
+import { childOptions, open, parseRendering, timesOf } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
   bitsPerSecond,
@@ -53,6 +54,7 @@ import {
   hasHevcNvenc,
   hdr10Args,
   type Input,
+  keptEncoder,
   type Loudness,
   loudnessLine,
   masteringOf,
@@ -465,10 +467,16 @@ const exportOnce = async (
 }
 
 /**
- * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg refuses
- * (encoderRefused), the yes is dropped and the film is rendered again once, with the next encoder
- * found (x264 at the last), saying so on stderr. Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never
- * kept.
+ * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg exits with an
+ * error (encoderFailed), the outcome decides whether it was the encoder:
+ *
+ * - ffmpeg names the encoder (encoderRefused): the yes is dropped and the film is rendered again
+ *   once, with the next encoder found (x264 at the last), saying so on stderr.
+ * - It does not (a new driver's words, an output it cannot write): the film is rendered once with
+ *   x264, the yes kept. If x264 renders it, it was the encoder: the yes is dropped, saying so. If
+ *   x264 fails too, it was not: the first error is thrown and the encoder kept.
+ *
+ * Never for HDR10, whose HEVC NVENC is asked apart (hasHevcNvenc) and never kept.
  */
 const exportFallingBack: typeof exportOnce = async (project, child, o) => {
   const { width, height } = project.manifest
@@ -483,19 +491,38 @@ const exportFallingBack: typeof exportOnce = async (project, child, o) => {
   try {
     return await exportOnce(project, child, o)
   } catch (error) {
-    if (!picked || !encoderRefused(error)) throw error
-    if (!forgetEncoder(picked, width, height)) throw error
-    console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
-    return exportOnce(project, child, o)
+    if (!picked || !encoderFailed(error) || !keptEncoder(picked, width, height)) throw error
+    if (encoderRefused(error)) {
+      forgetEncoder(picked, width, height)
+      console.warn(`! ${picked} failed where it worked before: rendering again without it.`)
+      return exportOnce(project, child, o)
+    }
+    console.warn(`! ${picked} failed and ffmpeg did not say it was the encoder: trying x264 once.`)
+    let done: Awaited<ReturnType<typeof exportOnce>>
+    try {
+      done = await exportOnce(project, child, { ...o, encoder: 'x264' })
+    } catch {
+      // x264 fails too: not the encoder. The first error says what went wrong.
+      throw error
+    }
+    forgetEncoder(picked, width, height)
+    console.warn(`! ${picked} failed where it worked before and x264 did not: dropped it.`)
+    return done
   }
 }
 
 /**
- * An encoder ffmpeg that exited with a code other than 0: the encoder itself may have refused (a
- * GPU or driver gone). Not a stall, a signal or an exit with 0 while frames still came (ffmpeg's
- * input ended early): those go to `--retries` only (transientEncoder).
+ * An encoder ffmpeg that exited with a code other than 0 with the GPU encoder's own words in what
+ * it said (encoderSaid): the encoder refused (a GPU or driver gone). Any other failure (an output
+ * that cannot be written, a bad option) keeps the encoder. Not a stall, a signal or an exit with
+ * 0 while frames still came (ffmpeg's input ended early): those go to `--retries` only
+ * (transientEncoder).
  */
 export const encoderRefused = (error: unknown): boolean =>
+  encoderFailed(error) && (error as FfmpegError).encoder
+
+/** An encoder ffmpeg that exited with a code other than 0 (not a stall, a signal or 0). */
+export const encoderFailed = (error: unknown): boolean =>
   error instanceof FfmpegError && error.reason === 'exit' && error.code !== null && error.code !== 0
 
 /**
@@ -519,16 +546,18 @@ export const transientEncoder = (error: unknown): boolean => {
 }
 
 /**
- * Exports the film (exportOnce, with exportFallingBack's GPU encoder fallback). With `retries`, an
- * encode that fails transiently (transientEncoder) is done again from the start, up to that many
- * times (withRetries): the frames are rendered again (or read again from a plan's chunks), and
- * give the same bytes.
+ * Exports the film (exportOnce, with exportFallingBack's GPU encoder fallback), its window checked
+ * first (windowOf). With `retries`, an encode that fails transiently (transientEncoder) is done
+ * again from the start, up to that many times (withRetries): the frames are rendered again (or read
+ * again from a plan's chunks), and give the same bytes.
  */
 export const exportVideo = async (
   project: Project,
   child: Child,
   o: Parameters<typeof exportOnce>[2] & { retries?: number },
 ): ReturnType<typeof exportOnce> => {
+  // Before ffmpeg runs: its refusal of a bad window would read as the GPU encoder's.
+  windowOf(project.manifest, o.from, o.to)
   const { retries = 0, ...rest } = o
   return withRetries(() => exportFallingBack(project, child, rest), {
     retries,
@@ -652,6 +681,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `Job ${job.name} renders in the ${job.host} host; make a new job for --host ${v.host}.`,
     )
   const num = (x: unknown) => (x === undefined ? undefined : Number(x))
+  // --from and --to, refused before anything opens when they are not seconds.
+  const [from, to] = [v.from, v.to].map((x) => (x === undefined ? undefined : timesOf([x])[0]))
   const planDir = (j: { name: string }) =>
     typeof v.plan === 'string' ? resolve(v.plan) : join(root, 'out', `${j.name}.plan`)
   const reusing = v.reuse !== undefined || v.changed !== undefined || v.fix !== undefined
@@ -670,11 +701,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       reusing || v.chunk === undefined
         ? !reusing && job?.delivery.format === 'png'
           ? 0
-          : frameTimes(
-              m.fps,
-              job?.output.from ?? num(v.from) ?? 0,
-              job?.output.to ?? num(v.to) ?? m.duration,
-            ).length
+          : frameTimes(m.fps, job?.output.from ?? from ?? 0, job?.output.to ?? to ?? m.duration)
+              .length
         : chunkFrames()
     if (frames === 0 || m.sequential) return 0
     return Math.max(1, Math.floor(num(v.workers) ?? defaultWorkers(m, frames))) - 1
@@ -686,8 +714,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     ? await openJob(root, job, childOptions(v), extraOf)
     : await open(v, undefined, extraOf)
   const { project } = opened
-  // On a software adapter, refused unless accepted, before anything is saved.
-  await refuseSoftware(opened.child, v['software-gpu'] === true).catch(async (error) => {
+  // A window outside the film (windowOf), and a software adapter unless accepted, are refused
+  // before anything is saved.
+  await (async () => {
+    if (!job) windowOf(project.manifest, from, to)
+    await refuseSoftware(opened.child, v['software-gpu'] === true)
+  })().catch(async (error) => {
     await Promise.all([opened.child, ...opened.extra].map((h) => h.close()))
     throw error
   })
@@ -800,13 +832,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     // Only around a chunk and the video export: a png job keeps the default Ctrl-C.
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
-    const from = job?.output.from ?? num(v.from) ?? 0
-    const to = job?.output.to ?? num(v.to) ?? project.manifest.duration
     const ext = extensionOf(video.codec)
     const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
       ...video,
-      from,
-      to,
+      from: job?.output.from ?? from,
+      to: job?.output.to ?? to,
       hosts: extra,
       out:
         typeof v.out === 'string'

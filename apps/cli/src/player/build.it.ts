@@ -74,6 +74,16 @@ test('a player is static: a page, the runner, the film bundled and its files', a
   await assert.rejects(build(project, []), /at least one parent/)
 })
 
+test('a build error leaves as plain text, without colour codes', async () => {
+  const project = await plainProject(false)
+  writeFileSync(join(project.root, 'src', 'composition.ts'), 'export default (t =>\n')
+  await assert.rejects(build(project), (e: Error) => {
+    assert.match(e.message, /composition\.ts/)
+    assert.equal(e.message.includes('\x1b'), false)
+    return true
+  })
+})
+
 test('the stamp runs when shaderera.json sets it, and only then', async () => {
   const stamped = await build(await plainProject(true))
   assert.match(stamped.code, /source: "src\/composition\.ts:\d+:\d+",\s*id: "camera"/)

@@ -62,7 +62,10 @@ test('a hung source fails the call after timeoutMs and closes Chrome', async () 
     openTimeoutMs: TIMEOUT,
   })
   try {
-    await assert.rejects(child.render(0.3, 'final'), /took longer than 500 ms/)
+    await assert.rejects(
+      child.render(0.3, 'final'),
+      /browser host took longer than 500 ms on render at t = 0\.3 s: .*--timeout <s>/,
+    )
     await assert.rejects(child.render(0.3, 'final'), /Chrome closed/)
   } finally {
     await child.close()

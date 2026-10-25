@@ -689,3 +689,50 @@ test('the plugin-sources hint is worded for the command that was run', async () 
   await assert.rejects(quiet('search', ['x', '--site', sources]), /then search that:/)
   await assert.rejects(quiet('info', ['look-x', '--site', sources]), /then run info on that:/)
 })
+
+test('add records a media plugin in ASSETS.md once, replacing its record when added again', () => {
+  const registry = temp('reg')
+  const font = (version: string) =>
+    write(temp('font'), {
+      'shaderera.item.json': {
+        name: 'font-test-sans',
+        type: 'media',
+        title: 'Test Sans',
+        description: 'A sans for labels',
+        category: 'Fonts',
+        tags: ['sans serif'],
+        version,
+        licence: 'OFL-1.1',
+        source: { origin: 'https://example.com/test-sans' },
+        files: ['assets/fonts/TestSans.ttf', 'assets/fonts/TestSans-OFL.txt'],
+      },
+      'assets/fonts/TestSans.ttf': 'ttf',
+      'assets/fonts/TestSans-OFL.txt': 'OFL',
+    })
+  publish(font('0.1.0'), registry)
+  const root = project()
+  writeFileSync(join(root, 'ASSETS.md'), "# Assets\n\nThe person's own notes.\n")
+  add(root, registry, 'font-test-sans')
+  const first = readFileSync(join(root, 'ASSETS.md'), 'utf8')
+  assert.match(first, /The person's own notes\./)
+  assert.match(first, /`font-test-sans@0\.1\.0`/)
+  assert.match(first, /Licence: OFL-1\.1/)
+  assert.match(first, /Source: https:\/\/example\.com\/test-sans/)
+  assert.match(first, /`assets\/fonts\/TestSans\.ttf`, `assets\/fonts\/TestSans-OFL\.txt`/)
+
+  publish(font('0.2.0'), registry)
+  add(root, registry, 'font-test-sans', { force: true })
+  const again = readFileSync(join(root, 'ASSETS.md'), 'utf8')
+  assert.equal(again.match(/<!-- plugin font-test-sans -->/g)?.length, 1)
+  assert.match(again, /font-test-sans@0\.2\.0/)
+  assert.doesNotMatch(again, /0\.1\.0/)
+  assert.match(again, /The person's own notes\./)
+
+  // A project with no ASSETS.md gets one.
+  const fresh = project()
+  add(fresh, registry, 'font-test-sans')
+  assert.match(
+    readFileSync(join(fresh, 'ASSETS.md'), 'utf8'),
+    /^# Assets\n\n<!-- plugin font-test-sans -->/,
+  )
+})
