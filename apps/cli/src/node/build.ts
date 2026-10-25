@@ -20,6 +20,18 @@ export const alive = (pid: number) => {
 }
 
 /**
+ * Rethrows a Vite build error as plain text, without its colour codes: it leaves the CLI for the
+ * studio page, `--json` and MCP, which cannot show them. Every build of a film throws through it.
+ */
+export const plainError = (e: unknown): never => {
+  if (e instanceof Error) {
+    e.message = stripVTControlCharacters(e.message)
+    if (e.stack) e.stack = stripVTControlCharacters(e.stack)
+  }
+  throw e
+}
+
+/**
  * Removes the builds of processes that have exited, and the single shared build of versions
  * before 2026-10-12 (`.shaderera/node/entry.js`).
  */
@@ -38,8 +50,7 @@ const sweep = (dir: string) => {
  * external (Vite's SSR default). Each build has its own folder, so two commands on one project at
  * once (a check while a still renders) never empty each other's build; folders of exited
  * processes are removed. `packages` names the installed packages the build imports, which a render
- * job freezes. A build error's message is plain text, without Vite's colour codes: it leaves the
- * CLI for the studio page, `--json` and MCP, which cannot show them.
+ * job freezes. A build error is plain text (plainError).
  */
 export const buildNode = async (
   project: Project,
@@ -64,13 +75,7 @@ export const buildNode = async (
         output: { format: 'es', entryFileNames: '[name].js' },
       },
     },
-  }).catch((e: unknown) => {
-    if (e instanceof Error) {
-      e.message = stripVTControlCharacters(e.message)
-      if (e.stack) e.stack = stripVTControlCharacters(e.stack)
-    }
-    throw e
-  })
+  }).catch(plainError)
   const packages = new Set<string>()
   for (const output of Array.isArray(result) ? result : [result])
     for (const chunk of 'output' in output ? output.output : [])
