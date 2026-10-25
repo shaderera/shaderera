@@ -36,6 +36,7 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
 It runs until you stop it. Once paired, it keeps serving the page even if the relay closes, and
 rejoins the relay when it was dropped (below). Stopping it ends the session: the page says the CLI
 disconnected. It stops, cleanly, on:
+- `shaderera studio --stop`, run in the same project (below);
 - Ctrl-C, or SIGTERM;
 - when its stdin is a pipe (an agent's): stdin closing, or the line `{"stop":true}` on it.
 
@@ -73,10 +74,28 @@ a line, `{event, ...}`:
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,
 with exit code 2, before any event.
 
-**To stop it**, close its stdin or write `{"stop":true}` and a newline to it: it sends `ended`
-and exits 0, and the page is told the session ended. Start it with stdin as a pipe for that.
-Where stdin is not a pipe (a shell's background job gets none), stop it with SIGTERM on macOS and
-Linux. Otherwise you can only kill it (above).
+**To stop it**, run `shaderera studio --stop` in the project (or with `--root`). The running
+command sends `ended` and exits 0, and the page is told the session ended. `--stop` waits for it
+to end, then exits 0. It also exits 0 when no studio runs for the project, and says so. It works
+whatever stdin the running command has, on every OS. Closing a piped stdin, or writing
+`{"stop":true}` to it, does the same.
+
+**One studio a project.** A studio claims its project before its bridge starts. It makes
+`.shaderera/studio/bridge.json` with its `pid`, adds its bridge's `port` and `secret` once the
+bridge is up, and removes the file when it ends.
+- **Only you can read it.** The folder is made private before any file is made in it, so every
+  file is private from the moment it exists:
+  - On macOS and Linux, the folder is mode 0700 and the file mode 0600.
+  - On Windows, the folder's inherited permissions are replaced with one entry for your account,
+    which the files in it inherit. A project outside your profile (`C:\work`) would otherwise
+    inherit read access for every user of the machine.
+- **A second `studio`** on a project whose studio is starting or running is refused (exit 2), and
+  names `--stop`. Two started at once never both run: the file is made only if it is not there.
+- **`--stop` on a studio still starting** waits until its bridge is up, then stops it.
+- **A stale file** (its pid has ended, or its bridge does not answer) is removed, and counts as no
+  studio. A file the CLI cannot read (another user's) is never removed: the command says so.
+- **The CLI's requests** to the bridge are the ones without an `Origin`, carrying the secret
+  (below). Other commands reach the running studio the same way.
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -174,8 +193,14 @@ HTTP on `127.0.0.1:<port>` only, on a free port, while the command runs.
   - `Access-Control-Allow-Methods: GET, POST`;
   - `Access-Control-Allow-Headers: Authorization, Content-Type`;
   - `Access-Control-Allow-Private-Network: true`.
-- Any other origin, or none, gets `403`. The one exception is the frame's navigation to
-  `/runner`, which carries no `Origin`.
+- Any other origin, or none, gets `403`. There are two exceptions, both without an `Origin`: the
+  frame's navigation to `/runner`, and the CLI's own `POST /stop`.
+
+### `POST /stop`
+
+From the CLI only (`studio --stop`), with no `Origin` and the secret: it answers `{stopping:true}`,
+and the command ends, as on Ctrl-C. A page cannot send it: a browser always sends an `Origin` with
+a POST, and the relay does not carry it.
 
 **The secret.** Every request carries `Authorization: Bearer <secret>`. Where a request cannot set
 headers (EventSource, a frame), it passes `?s=<secret>` instead. A wrong or missing secret gets

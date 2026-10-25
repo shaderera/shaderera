@@ -817,7 +817,8 @@ or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]` | serves the project to the studio page on the site until stopped: Ctrl-C, SIGTERM, or (stdin a pipe) stdin closing or `{"stop":true}` |
+| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]` | serves the project to the studio page on the site until stopped: `studio --stop`, Ctrl-C, SIGTERM, or (stdin a pipe) stdin closing or `{"stop":true}` |
+| `studio --stop` | stops the studio running for this project cleanly, and waits for it to end; one studio runs a project at a time |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your

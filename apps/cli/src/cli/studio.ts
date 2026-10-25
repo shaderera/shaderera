@@ -7,6 +7,7 @@ import { isOrigin } from '../player/parents.ts'
 import { startBridge } from '../studio/bridge.ts'
 import { CLOSE, ID_LENGTH, isId, makeId, makeNonce, pageUrl } from '../studio/pairing.ts'
 import { closeText, connectRelay, type RelayEnd } from '../studio/relay.ts'
+import { claim, register, StudioRunning, stopRunning, unregister } from '../studio/running.ts'
 import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
 import { common } from './args.ts'
 import { EXIT } from './findings.ts'
@@ -31,6 +32,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       origin: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
       json: { type: 'boolean' },
+      stop: { type: 'boolean' },
       ...common,
     },
   })
@@ -44,19 +46,54 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `Not a studio session id: ${v.connect} (${ID_LENGTH} letters and digits, from ${site}/studio).`,
     )
   const { root } = await findProject(v.root ?? process.cwd())
+  if (v.stop) {
+    const r = await stopRunning(root)
+    if (r.state === 'slow') {
+      console.error(
+        `Asked the studio for ${root} (pid ${r.pid}) to stop; it is still starting or ending.`,
+      )
+      return EXIT.failed
+    }
+    console.log(
+      r.state === 'none'
+        ? `No studio is running for ${root}.`
+        : `Stopped the studio for ${root} (pid ${r.pid}).`,
+    )
+    return EXIT.ok
+  }
   /** One event: a JSON line `{event, ...fields}` with --json, else `text` if any (`error`: stderr). */
   const say = (event: string, fields: object, text?: string, error = false) => {
     if (v.json) console.log(JSON.stringify({ event, ...fields }))
     else if (text !== undefined) (error ? console.error : console.log)(text)
   }
   noticeOnce((text) => say('notice', { text }, `${text}\n`))
+  const unreachable = (error: unknown) => {
+    const text = `studio --stop cannot reach this studio: ${(error as Error).message}`
+    say('log', { level: 'warn', text }, text, true)
+  }
 
+  // One studio a project, the one other commands reach (running.ts): claimed before the bridge
+  // starts, so two started at once never both run.
+  let claimed = false
+  try {
+    claim(root, process.pid)
+    claimed = true
+  } catch (error) {
+    if (error instanceof StudioRunning) throw error
+    unreachable(error)
+  }
+
+  let stopNow = () => {}
   const bridge = await startBridge({
+    onStop: () => stopNow(),
     root,
     api,
     site,
     origins: [site, ...(v.origin ?? []).filter((o) => o !== site)],
     hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
+  }).catch((error: unknown) => {
+    unregister(root, process.pid)
+    throw error
   })
   bridge.onEvent((e) => {
     const { type, ...fields } = e
@@ -64,10 +101,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     else if (e.type === 'changed') say(type, fields, `changed: revision ${e.revision}`)
     else say(type, fields)
   })
-  // It stops on Ctrl-C or SIGTERM, and, when stdin is a pipe (an agent's), when stdin closes or
-  // sends the line {"stop":true}: an agent can stop it on any OS without killing it.
+  // It stops on `shaderera studio --stop` (POST /stop), Ctrl-C or SIGTERM, and, when stdin is a
+  // pipe (an agent's), when stdin closes or sends the line {"stop":true}: an agent can stop it on
+  // any OS without killing it.
   const piped = !process.stdin.isTTY && process.stdin instanceof Socket
   const stop = new Promise<void>((done) => {
+    stopNow = done
     process.once('SIGINT', () => done())
     process.once('SIGTERM', () => done())
     if (!piped) return
@@ -79,6 +118,15 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     })
     lines.on('close', () => done())
   })
+
+  // `shaderera studio --stop` (and later commands) reach this bridge through the file.
+  if (claimed)
+    try {
+      register(root, { port: bridge.port, secret: bridge.secret, pid: process.pid })
+    } catch (error) {
+      unregister(root, process.pid)
+      unreachable(error)
+    }
 
   let id = v.connect ?? makeId()
   let expired: string | undefined
@@ -174,6 +222,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
   await relay.close()
   await bridge.close()
+  unregister(root, process.pid)
   say('ended', { exitCode: code, ...(error ? { error } : {}) }, error, true)
   if (piped) process.stdin.destroy()
   return code
