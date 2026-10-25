@@ -26,6 +26,7 @@ import { withVariant } from '@shaderera/core/host'
 import { childOptions, insideFilm, open } from '../cli/args.ts'
 import { defaultWorkers, exportVideo } from '../cli/render.ts'
 import { LoginNeeded, shareProject, titleOf } from '../cli/share.ts'
+import { DEFAULT_API } from '../cli/site.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
 import { RUNNER_PATH } from '../node/runner-plugin.ts'
@@ -721,6 +722,8 @@ export const startBridge = async (o: {
         revision: treeId(filesNow()),
         head: head(root),
         listening: listening(root),
+        // Only another films API than the default, for the page's command to run this again.
+        ...(o.api !== DEFAULT_API ? { api: o.api } : {}),
       })
     }
     if (route === 'GET /runner') {
