@@ -10,8 +10,10 @@ import {
   readFileSync,
   readSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
@@ -24,6 +26,7 @@ import { dirname, join, relative, sep } from 'node:path'
  *   versions/objects/<sha256>     file contents, stored once
  *   versions/revisions/<id>.json  one revision: its files (path → sha256), parent, label
  *   versions/log.jsonl            what happened, in order: save, restore, undo
+ *   versions/pruned.jsonl         the revisions `shaderera prune` removed (project/prune.ts)
  *
  * A revision's id is the hash of its file list, so the same tree always has the same id.
  *
@@ -213,12 +216,36 @@ export const treeId = (files: Files): string =>
     .digest('hex')
     .slice(0, 16)
 
+/** The ids `shaderera prune` removed, from `versions/pruned.jsonl` (a torn line is skipped). */
+export const prunedIds = (root: string): Set<string> => {
+  const file = join(store(root), 'pruned.jsonl')
+  const ids = new Set<string>()
+  if (!existsSync(file)) return ids
+  for (const line of readFileSync(file, 'utf8').split('\n'))
+    try {
+      const { id } = JSON.parse(line) as { id?: unknown }
+      if (typeof id === 'string') ids.add(id)
+    } catch {}
+  return ids
+}
+
+const wasPruned = (id: string) =>
+  new Error(
+    `Revision ${id} was pruned (shaderera prune): its files are no longer kept, so it cannot be restored, compared or rendered.`,
+  )
+
 /** A revision, checked: its id is the hash of its files, and every path and hash is well formed. */
 export const readRevision = (root: string, id: string): Revision => {
   if (!/^[0-9a-f]{16}$/.test(id)) throw new Error(`No revision ${id}.`)
   const file = join(store(root), 'revisions', `${id}.json`)
-  if (!existsSync(file)) throw new Error(`No revision ${id}.`)
-  const revision = JSON.parse(readFileSync(file, 'utf8')) as Revision
+  let text: string
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch {
+    // Gone, or removed by a prune as it was read.
+    throw prunedIds(root).has(id) ? wasPruned(id) : new Error(`No revision ${id}.`)
+  }
+  const revision = JSON.parse(text) as Revision
   const files = revision.files ?? {}
   const bad = Object.entries(files).find(([p, h]) => !validPath(p) || !/^[0-9a-f]{64}$/.test(h))
   if (bad) throw new Error(`Revision ${id} names an invalid file: ${JSON.stringify(bad[0])}.`)
@@ -324,7 +351,12 @@ export const save = (
   mkdirSync(objects, { recursive: true })
   for (const [path, hash] of Object.entries(files)) {
     const object = join(objects, hash)
-    if (existsSync(object)) continue
+    // Already stored: marked used now, so a prune running beside this save keeps it (prune.ts).
+    try {
+      const now = new Date()
+      utimesSync(object, now, now)
+      continue
+    } catch {}
     // Copied as it is hashed: a file edited since the scan is never stored under the old hash.
     const tmp = `${object}.${process.pid}.tmp`
     if (hashFile(join(root, path), tmp) !== hash) {
@@ -367,12 +399,23 @@ export const readObject = (root: string, hash: string): Buffer => {
  */
 const checkout = (root: string, target: Revision, dir = root) => {
   const now = existsSync(dir) ? scan(dir) : {}
-  const corrupt = (hash: string) => new Error(`versions/objects/${hash} is corrupt.`)
+  // An object a prune removed while this ran (its revision is listed pruned first) says so.
+  const corrupt = (hash: string) =>
+    prunedIds(root).has(target.id)
+      ? wasPruned(target.id)
+      : new Error(`versions/objects/${hash} is corrupt.`)
+  const intact = (object: string, hash: string) => {
+    try {
+      return hashFile(object) === hash
+    } catch {
+      return false
+    }
+  }
   const writes = Object.entries(target.files)
     .filter(([path, hash]) => now[path] !== hash)
     .map(([path, hash]) => {
       const object = join(store(root), 'objects', hash)
-      if (!existsSync(object) || hashFile(object) !== hash) throw corrupt(hash)
+      if (!intact(object, hash)) throw corrupt(hash)
       return [inside(dir, path), object, hash] as const
     })
   const removes = Object.keys(now)
@@ -446,6 +489,175 @@ export const fileAt = (root: string, id: string, path: string): Buffer | null =>
 export const materialize = (root: string, id: string): string => {
   const revision = readRevision(root, id)
   const dir = join(root, '.shaderera', 'revisions', id)
-  checkout(root, revision, dir)
-  return dir
+  // Marked before it is written, so no trim or prune takes it from now on (removeFrozen).
+  use(root, id)
+  // A trim that moved the copy aside as this began (and gave it back, or could not) leaves files
+  // missing or a write failing: checked out again until every file is there.
+  let failed: unknown = new Error(`The frozen copy of ${id} could not be made.`)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      checkout(root, revision, dir)
+      if (complete(root, revision, dir)) {
+        touch(dir)
+        return dir
+      }
+    } catch (e) {
+      failed = e
+    }
+  }
+  releaseFrozen(root, id)
+  throw failed
+}
+
+/** Whether every file of a revision is in a folder at its object's size. */
+const complete = (root: string, revision: Revision, dir: string) =>
+  Object.entries(revision.files).every(([path, hash]) => {
+    try {
+      return (
+        statSync(join(dir, ...path.split('/'))).size ===
+        statSync(join(store(root), 'objects', hash)).size
+      )
+    } catch {
+      return false
+    }
+  })
+
+/**
+ * Who uses a frozen copy: one empty file per process, `.shaderera/revisions/<id>.using/<pid>`,
+ * and this process's own uses counted here, so a copy is never removed while a render uses it.
+ * A copy's modification time is its last use.
+ */
+const uses = new Map<string, { root: string; id: string; n: number }>()
+const copiesDir = (root: string) => join(root, '.shaderera', 'revisions')
+const usingDir = (root: string, id: string) => join(copiesDir(root), `${id}.using`)
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+const touch = (dir: string) => {
+  try {
+    const now = new Date()
+    utimesSync(dir, now, now)
+  } catch {}
+}
+let hooked = false
+const use = (root: string, id: string) => {
+  const key = `${root}\0${id}`
+  const u = uses.get(key) ?? { root, id, n: 0 }
+  if (u.n === 0) {
+    mkdirSync(usingDir(root, id), { recursive: true })
+    writeFileSync(join(usingDir(root, id), String(process.pid)), '')
+  }
+  u.n++
+  uses.set(key, u)
+  if (!hooked) process.once('exit', releaseAll)
+  hooked = true
+}
+
+/** How many frozen copies nobody uses are kept after a render: see `releaseFrozen`. */
+export const KEEP_FROZEN = 3
+
+/**
+ * The frozen copies no live process uses, most recently used first, with their last use (ms).
+ */
+export const unusedFrozen = (root: string): { id: string; used: number }[] => {
+  const dir = copiesDir(root)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((n) => /^[0-9a-f]{16}$/.test(n))
+    .filter((id) => liveMarks(root, id).length === 0)
+    .flatMap((id) => {
+      try {
+        return [{ id, used: statSync(join(dir, id)).mtimeMs }]
+      } catch {
+        return []
+      }
+    })
+    .sort((a, b) => b.used - a.used)
+}
+
+/** Removes a frozen copy and its marks; false when a file in it is held open (Windows). */
+export const removeFrozen = (root: string, id: string, o: { moved?: () => void } = {}): boolean => {
+  const dir = join(copiesDir(root), id)
+  // Moved aside in one step, then the marks read again: a process that marked the copy before
+  // the move gets it back; one that marks it after finds no copy and makes it again.
+  const aside = join(copiesDir(root), `${id}.removing-${process.pid}-${Date.now()}`)
+  try {
+    renameSync(dir, aside)
+  } catch {
+    return false
+  }
+  o.moved?.()
+  if (liveMarks(root, id).length > 0) {
+    try {
+      renameSync(aside, dir)
+      return false
+    } catch {
+      // It already began a new copy there: that one repairs itself (materialize), and this goes.
+    }
+  }
+  try {
+    rmSync(aside, { recursive: true, force: true })
+  } catch {}
+  // The marks folder goes only when empty: another process's mark is never removed.
+  try {
+    rmdirSync(usingDir(root, id))
+  } catch {}
+  return !existsSync(aside)
+}
+
+/** The processes that mark a copy and still run. */
+const liveMarks = (root: string, id: string) => {
+  try {
+    return readdirSync(usingDir(root, id)).filter((p) => alive(Number(p)))
+  } catch {
+    return []
+  }
+}
+
+/** Removes this process's mark on a copy, marks it used now, and trims the unused copies. */
+const drop = (root: string, id: string) => {
+  try {
+    rmSync(join(usingDir(root, id), String(process.pid)), { force: true })
+  } catch {}
+  touch(join(copiesDir(root), id))
+  for (const old of unusedFrozen(root).slice(KEEP_FROZEN)) removeFrozen(root, old.id)
+  // Copies moved aside by a removal that could not finish (a file held open), when that process
+  // is gone or is this one.
+  try {
+    for (const name of readdirSync(copiesDir(root))) {
+      const m = /^[0-9a-f]{16}\.removing-(\d+)-\d+$/.exec(name)
+      if (m && (Number(m[1]) === process.pid || !alive(Number(m[1]))))
+        rmSync(join(copiesDir(root), name), { recursive: true, force: true })
+    }
+  } catch {}
+}
+const releaseAll = () => {
+  for (const { root, id } of uses.values()) drop(root, id)
+  uses.clear()
+}
+
+/**
+ * Ends one use of a revision's frozen copy (a render from it ended). The copy stays, so the next
+ * render of the revision rewrites only what differs; of the copies no live process uses, the
+ * `KEEP_FROZEN` most recently used are kept and the older ones removed (`materialize` makes one
+ * again when a render needs it). A process that exits with uses left releases them the same way:
+ * `plan`, `assemble`, `reexport`, `deliver` and `handoff` open jobs only as their own CLI process,
+ * so they release on exit; the MCP server, which lives on, releases after each export.
+ *
+ * A mark is live while a process with its pid runs. On Windows a pid can be reused: a mark whose
+ * render died and whose pid another program took holds the copy until that program ends (its
+ * start time is not read: that would mean a process listing per check).
+ */
+export const releaseFrozen = (root: string, id: string) => {
+  const key = `${root}\0${id}`
+  const u = uses.get(key)
+  if (!u) return
+  if (--u.n > 0) return
+  uses.delete(key)
+  drop(root, id)
 }
