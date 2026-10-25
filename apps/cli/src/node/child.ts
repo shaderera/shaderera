@@ -245,7 +245,8 @@ export const openChild = async (
   // Its clips' decoders end after it exits; close() waits for them too.
   let released: Promise<void> = Promise.resolve()
   child.once('exit', () => {
-    released = services.close()
+    // Never awaited when the CLI does not close the host: a failure must not go unhandled.
+    released = services.close().catch(() => {})
   })
   // A send to a process that died fails here; the call fails through its exit or its timeout.
   child.on('error', () => {})

@@ -79,11 +79,11 @@ export const videoReader = (
   file: string,
   keep: () => number = () => 1,
   ahead: () => number = keep,
+  /** For tests: another thread in video-worker.ts's place. */
+  thread: URL = new URL(`./video-worker${extname(import.meta.url)}`, import.meta.url),
 ) => {
   const info = probeVideo(file)
-  const worker = new Worker(new URL(`./video-worker${extname(import.meta.url)}`, import.meta.url), {
-    workerData: { file, info },
-  })
+  const worker = new Worker(thread, { workerData: { file, info } })
   // Only while it answers a request: an idle decoder does not keep the CLI running.
   worker.unref()
   let pid: number | undefined
@@ -127,9 +127,12 @@ export const videoReader = (
     close: async () => {
       await ask({ type: 'close' })
     },
-    /** Ends the decoder and its thread: the reader is not used again. */
+    /**
+     * Ends the decoder and its thread: the reader is not used again. Never fails: a thread that
+     * dies before it answers is gone all the same (and a host's exit awaits nothing of it).
+     */
     dispose: async () => {
-      if (!dead) await ask({ type: 'close' })
+      if (!dead) await ask({ type: 'close' }).catch(() => {})
       await worker.terminate()
     },
     /** Why the thread is gone, once it is: the reader is then of no use. */

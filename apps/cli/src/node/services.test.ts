@@ -174,6 +174,26 @@ test('a decoder that cannot start fails each frame at once, and a gone thread fa
   await assert.rejects(v.frame(2), /has stopped/)
 })
 
+test('a decoder thread that dies while it is disposed fails nothing, and leaves nothing unhandled', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const unhandled: unknown[] = []
+  const note = (e: unknown) => unhandled.push(e)
+  process.on('unhandledRejection', note)
+  try {
+    const dying = new URL('./fixtures/dying-video-worker.ts', import.meta.url)
+    const v = videoReader(join(clip(), 'v.mp4'), undefined, undefined, dying)
+    await v.frame(0)
+    await v.dispose()
+    assert.match(String(v.dead), /has stopped/)
+    await new Promise((done) => setTimeout(done, 100))
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off('unhandledRejection', note)
+  }
+})
+
 const key = (c: string) => c.repeat(64)
 const bytes = (n: number, fill: number) => new Uint8Array(n).fill(fill)
 
