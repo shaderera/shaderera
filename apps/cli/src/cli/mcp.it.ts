@@ -252,9 +252,25 @@ test('the review tool returns the report, the contact sheet and the frames as im
     }
     const report = JSON.parse(r.content[0]?.text as string)
     assert.equal(report.version, 1)
-    assert.ok(existsSync(report.contactSheet))
+    // Paths relative to the project, so the result doesn't repeat its folder.
+    assert.equal(report.contactSheet, 'out/review/contact-sheet.png')
+    assert.ok(existsSync(join(root, report.contactSheet)))
+    assert.ok(
+      report.frames.every(
+        (f: { file: string; thumb: string }) =>
+          f.file.startsWith('out/review/') && existsSync(join(root, f.thumb)),
+      ),
+    )
     assert.equal(r.content.length, 1 + 1 + report.frames.length)
     assert.ok(r.content.slice(1).every((c) => c.mimeType === 'image/png'))
+    // save gives the count of the revision's files, not each one's hash.
+    const s = (await client.callTool({ name: 'save', arguments: { label: 'one' } })) as {
+      content: { text: string }[]
+    }
+    const saved = JSON.parse(s.content[0]?.text as string)
+    assert.equal(saved.label, 'one')
+    assert.equal(typeof saved.files, 'number')
+    assert.ok(saved.files > 0)
   } finally {
     await client.close()
   }
@@ -393,6 +409,7 @@ test('MCP still, check and review take variants: one host each, one sheet side b
       ],
     )
     assert.ok(existsSync(join(ratios, 'out', 'review', '9_16', 'contact-sheet.png')))
+    assert.equal(review.variants[0].contactSheet, 'out/review/9_16/contact-sheet.png')
     await assert.rejects(call('still', { times: [0], variants: ['4:5'] }), /no variant "4:5"/)
     await assert.rejects(
       call('check', { variant: '16:9', variants: ['9:16'] }),

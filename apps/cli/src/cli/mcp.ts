@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -14,8 +14,8 @@ import { findProject } from '../node/project.ts'
 import { createNodeSession, type NodeSession } from '../node/session.ts'
 import { createJob, listJobs, openJob, readJob, safeName, videoOptionsOf } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, save } from '../project/revisions.ts'
-import { contactSheet, review, toPng } from '../review/review.ts'
+import { head, log, save, slash } from '../project/revisions.ts'
+import { contactSheet, type ReviewReport, review, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { open, parse } from './args.ts'
 import { checkChild } from './check.ts'
@@ -72,6 +72,22 @@ const frameStats = async (px: Uint8Array, width: number) => {
 
 /** An image content block of a base64 PNG. */
 const image = (data: string) => ({ type: 'image', data, mimeType: 'image/png' })
+
+/** A revision as a tool returns it: the count of its files, not each one's hash. */
+const briefRevision = <R extends { files: object }>({ files, ...r }: R) => ({
+  ...r,
+  files: Object.keys(files).length,
+})
+
+/** A review report as a tool returns it: its files relative to the project, with `/`. */
+const relativeReport = <R extends ReviewReport>(root: string, r: R): R => {
+  const rel = (p: string) => slash(relative(root, p))
+  return {
+    ...r,
+    contactSheet: rel(r.contactSheet),
+    frames: r.frames.map((f) => ({ ...f, file: rel(f.file), thumb: rel(f.thumb) })),
+  }
+}
 
 /** The long side of render_frame's image unless `full`: a full HD PNG is ~3 MB of base64. */
 const IMAGE = 1024
@@ -342,7 +358,10 @@ export const createServer = (
           type: 'text',
           text: JSON.stringify({
             ...main,
-            variants: reports.map((r, i) => ({ variant: nameOf(names[i]), ...r })),
+            variants: reports.map((r, i) => ({
+              variant: nameOf(names[i]),
+              ...relativeReport(root, r),
+            })),
           }),
         },
         ...reports.map((r) => image(readFileSync(r.contactSheet).toString('base64'))),
@@ -524,7 +543,7 @@ export const createServer = (
           }
         }
         case 'save':
-          return save(root, { by: 'agent', label: a.label, note: a.note })
+          return briefRevision(save(root, { by: 'agent', label: a.label, note: a.note }))
         case 'versions':
           return { head: head(root), log: log(root), jobs: listJobs(root) }
         case 'job': {
@@ -560,7 +579,7 @@ export const createServer = (
             })
             const file = (path: string) => image(readFileSync(path).toString('base64'))
             return [
-              { type: 'text', text: JSON.stringify(report) },
+              { type: 'text', text: JSON.stringify(relativeReport(root, report)) },
               file(report.contactSheet),
               ...report.frames.filter((f) => f.label !== 'transition').map((f) => file(f.thumb)),
             ]
