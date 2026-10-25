@@ -51,7 +51,7 @@ export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000
 /** What a close code means, for the person. */
 export const closeText = (code: number, site: string, id: string): string =>
   code === CLOSE.expired
-    ? `Studio session ${id} expired: no CLI paired with it within 10 minutes. Open ${site}/studio for a new one.`
+    ? `Studio session ${id} expired: the page and the CLI did not pair within 10 minutes. Open ${site}/studio for a new one.`
     : code === CLOSE.used
       ? `Studio session ${id} is already paired with another CLI. Open ${site}/studio for a new one.`
       : code === CLOSE.taken
@@ -76,8 +76,8 @@ export const connectRelay = (o: {
   hello: { version: string; os: string; telemetry: boolean }
   onPaired?: () => void
   /**
-   * The page left and did not come back within `pageBackMs` (`closed`), or came back within it
-   * (`reloaded`): a reload is not a close.
+   * The page left and did not come back within `pageBackMs` (`closed`), or, once paired, came
+   * back within it (`reloaded`): a reload is not a close.
    */
   onPage?: (state: 'closed' | 'reloaded') => void
   /**
@@ -116,13 +116,15 @@ export const connectRelay = (o: {
     if (!away) return
     clearTimeout(away)
     away = undefined
-    o.onPage?.('reloaded')
+    // Before pairing, a page that says hello is a page that pairs, not one that reloaded.
+    if (paired) o.onPage?.('reloaded')
   }
   const stopVisits = o.bridge.onVisit(pageBack)
   const send = (m: Message) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m))
   }
   // Messages are handled in the order they came: a key is derived before an rpc under it is read.
+  // An rpc is only started in order: its answer holds back no later message.
   let chain: Promise<void> = Promise.resolve()
 
   /**
@@ -168,6 +170,42 @@ export const connectRelay = (o: {
     } finally {
       await handle.close()
     }
+  }
+
+  /** One rpc of the page's, opened with the session key and answered through the bridge. */
+  const answer = async (k: CryptoKey, id: string, sealed: { iv: string; box: string }) => {
+    let request: { method?: unknown; path?: unknown; body?: unknown }
+    try {
+      request = await unseal(k, sealed)
+    } catch {
+      return send({
+        type: 'rpc-result',
+        id,
+        ...(await seal(k, { status: 400, body: { error: 'box' } })),
+      })
+    }
+    const reply = await o.bridge.handle({
+      method: typeof request.method === 'string' ? request.method : 'GET',
+      path: typeof request.path === 'string' ? request.path : '/',
+      body: request.body,
+    })
+    if ('json' in reply)
+      return send({
+        type: 'rpc-result',
+        id,
+        ...(await seal(k, { status: reply.status, body: reply.json })),
+      })
+    if ('location' in reply)
+      return send({
+        type: 'rpc-result',
+        id,
+        ...(await seal(k, {
+          status: 400,
+          body: { error: 'The runner is framed from 127.0.0.1 only.' },
+        })),
+      })
+    // A file, in chunks: not awaited, so the page's other requests are answered meanwhile.
+    void sendFile(k, id, reply.file).catch(() => {})
   }
 
   const onMessage = async (m: Message) => {
@@ -222,43 +260,13 @@ export const connectRelay = (o: {
       }, o.pageBackMs ?? PAGE_BACK_MS)
     } else if (m.type === 'rpc' && key && typeof m.iv === 'string' && typeof m.box === 'string') {
       const k = key
-      const id = String(m.id)
       // The page uses the relay: the bridge's events follow, sealed, from now on.
       stopEvents ??= o.bridge.onEvent((event: StudioEvent) => {
         void seal(k, event).then((sealed) => send({ type: 'event', ...sealed }))
       })
-      let request: { method?: unknown; path?: unknown; body?: unknown }
-      try {
-        request = await unseal(k, { iv: m.iv, box: m.box })
-      } catch {
-        return send({
-          type: 'rpc-result',
-          id,
-          ...(await seal(k, { status: 400, body: { error: 'box' } })),
-        })
-      }
-      const reply = await o.bridge.handle({
-        method: typeof request.method === 'string' ? request.method : 'GET',
-        path: typeof request.path === 'string' ? request.path : '/',
-        body: request.body,
-      })
-      if ('json' in reply)
-        return send({
-          type: 'rpc-result',
-          id,
-          ...(await seal(k, { status: reply.status, body: reply.json })),
-        })
-      if ('location' in reply)
-        return send({
-          type: 'rpc-result',
-          id,
-          ...(await seal(k, {
-            status: 400,
-            body: { error: 'The runner is framed from 127.0.0.1 only.' },
-          })),
-        })
-      // A file, in chunks: not awaited, so the page's other requests are answered meanwhile.
-      void sendFile(k, id, reply.file).catch(() => {})
+      // Not awaited: each request is answered on its own, as direct ones are, and a long one (a
+      // share) holds back no other message.
+      void answer(k, String(m.id), { iv: m.iv, box: m.box }).catch(() => {})
     }
   }
 

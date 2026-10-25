@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { cpSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { addressOf, call, nonce, page } from './fixtures/page.ts'
 import { startRelay } from './fixtures/relay.ts'
-import { makeId } from './pairing.ts'
+import { keyPair, makeId, PROTOCOL } from './pairing.ts'
 
 // The user's tokens (share) live in a home of the tests' own.
 const home = tempDir('home')
@@ -25,6 +25,7 @@ const fixture = (root = tempDir('studio')) => {
   return root
 }
 const jsonOf = (r: { body: Buffer }) => JSON.parse(r.body.toString('utf8'))
+const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
 let relay: Awaited<ReturnType<typeof startRelay>>
 before(async () => {
@@ -224,6 +225,82 @@ test('shaderera studio --json: one JSON line per event, for an agent', async () 
   }
 })
 
+test('shaderera studio --json: a render sends its progress now and then, not a line a frame', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  // A 10 s film: 100 frames.
+  const project = fixture()
+  const manifest = JSON.parse(readFileSync(join(project, 'shaderera.json'), 'utf8'))
+  writeFileSync(join(project, 'shaderera.json'), JSON.stringify({ ...manifest, duration: 10 }))
+  const cli = spawn(
+    process.execPath,
+    [
+      main,
+      'studio',
+      '--connect',
+      id,
+      '--site',
+      slow.origin,
+      '--no-open',
+      '--json',
+      '--root',
+      project,
+    ],
+    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+  )
+  let out = ''
+  cli.stdout.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  cli.stderr.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  const exited = new Promise<number>((done) => cli.on('exit', (code) => done(code ?? -1)))
+  const events = () =>
+    out
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
+  const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
+    for (let i = 0; i < 2400; i++) {
+      const e = events().find(match)
+      if (e) return e
+      if (cli.exitCode !== null) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    throw new Error(`no such event in: ${out}`)
+  }
+  try {
+    const url = await event((e) => e.event === 'url')
+    const { bridge } = await p.pair(new URL(url.url as string).hash.slice(1))
+    const r = await call(bridge.port, {
+      method: 'POST',
+      path: '/render',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${bridge.secret}` },
+      body: { format: 'mp4' },
+    })
+    assert.equal(r.status, 200, r.body.toString())
+    const { job } = jsonOf(r)
+    await event((e) => e.event === 'job' && e.id === job && e.state === 'done')
+    const lines = events().filter((e) => e.event === 'job' && e.id === job)
+    assert.ok(lines.length <= 12, `${lines.length} job lines`)
+    for (const state of ['queued', 'running', 'done'])
+      assert.ok(
+        lines.some((e) => e.state === state),
+        state,
+      )
+  } finally {
+    cli.kill('SIGINT')
+    await exited
+    p.ws.close()
+    await slow.close()
+  }
+})
+
 test('shaderera studio --json ends with an ended event when the id expired', async () => {
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
   const old = makeId()
@@ -358,6 +435,270 @@ test("shaderera studio --json: the page's console comes as log events, without a
     vite?.close()
     cli.kill('SIGINT')
     await exited
+    p.ws.close()
+    await slow.close()
+  }
+})
+
+/** `shaderera studio --json --no-open` on a project, and its events as they come. */
+const studioJson = (
+  site: string,
+  args: readonly string[] = [],
+  o: { root?: string; stdin?: 'pipe' | 'ignore'; env?: NodeJS.ProcessEnv } = {},
+) => {
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  const cli = spawn(
+    process.execPath,
+    [main, 'studio', '--site', site, '--no-open', '--json', '--root', o.root ?? fixture(), ...args],
+    // `ignore`: stdin is the null device, as an agent's shell gives a command.
+    {
+      env: { ...process.env, HOME: home, USERPROFILE: home, ...o.env },
+      stdio: [o.stdin ?? 'pipe', 'pipe', 'pipe'],
+    },
+  )
+  let out = ''
+  cli.stdout?.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  cli.stderr?.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  // 'close', not 'exit': stdout has been read to its end.
+  const exited = new Promise<number>((done) => cli.on('close', (code) => done(code ?? -1)))
+  const events = () =>
+    out
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
+  const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
+    for (let i = 0; i < 400; i++) {
+      const e = events().find(match)
+      if (e) return e
+      if (cli.exitCode !== null) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    throw new Error(`no such event in: ${out}`)
+  }
+  return { cli, exited, events, event, out: () => out }
+}
+
+test('shaderera studio ends cleanly when its stdin closes or on a stop line', async () => {
+  for (const stop of ['close', 'line'] as const) {
+    const slow = await startRelay()
+    const id = makeId()
+    const p = page(slow.origin, id)
+    const s = studioJson(slow.origin, ['--connect', id])
+    try {
+      const url = await s.event((e) => e.event === 'url')
+      await p.pair(new URL(url.url as string).hash.slice(1))
+      await s.event((e) => e.event === 'paired')
+      if (stop === 'close') s.cli.stdin?.end()
+      else s.cli.stdin?.write('{"stop":true}\n')
+      assert.equal(await s.exited, 0, s.out())
+      const last = s.events().at(-1)
+      assert.deepEqual(last, { event: 'ended', exitCode: 0 }, stop)
+      // The session ended at the relay: the page is told so.
+      assert.equal(await p.closed, 4004, stop)
+    } finally {
+      s.cli.kill('SIGINT')
+      await s.exited
+      p.ws.close()
+      await slow.close()
+    }
+  }
+})
+
+test('shaderera studio: an id no page came for gives a new id and url, and goes on', async () => {
+  const short = await startRelay({ ttlMs: 1500, alarm: true })
+  const s = studioJson(short.origin, [], { env: { SHADERERA_STUDIO_EXPIRY_MS: '1500' } })
+  try {
+    const first = await s.event((e) => e.event === 'url')
+    const second = await s.event((e) => e.event === 'url' && e.id !== first.id)
+    assert.equal(second.expired, first.id)
+    assert.match(String(second.text), /No studio page came/)
+    assert.equal(second.opened, false)
+    assert.ok(!s.events().some((e) => e.event === 'ended'), s.out())
+    // The new id pairs.
+    const p = page(short.origin, second.id as string)
+    await p.pair(new URL(second.url as string).hash.slice(1))
+    await s.event((e) => e.event === 'paired')
+    p.ws.close()
+  } finally {
+    s.cli.stdin?.end()
+    await s.exited
+    await short.close()
+  }
+})
+
+test('shaderera studio: a page that leaves before pairing is no reload', async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  // A page that says hello and closes, then another that pairs.
+  const first = page(slow.origin, id)
+  await first.opened
+  const s = studioJson(slow.origin, ['--connect', id])
+  try {
+    const url = await s.event((e) => e.event === 'url')
+    await first.next('cli-joined')
+    first.send({ type: 'page-hello', pub: (await keyPair()).pub, protocol: PROTOCOL })
+    await first.next('cli-hello')
+    first.ws.close()
+    await first.closed
+    await new Promise((r) => setTimeout(r, 200))
+    const p = page(slow.origin, id)
+    await p.pair(new URL(url.url as string).hash.slice(1))
+    await s.event((e) => e.event === 'paired')
+    await new Promise((r) => setTimeout(r, 200))
+    const names = s.events().map((e) => e.event)
+    assert.ok(!names.includes('resumed'), names.join(' '))
+    assert.ok(!names.includes('page-closed'), names.join(' '))
+    p.ws.close()
+  } finally {
+    s.cli.stdin?.end()
+    await s.exited
+    await slow.close()
+  }
+})
+
+/** `shaderera studio --stop --root <root>`: its exit code and what it printed. */
+const stopStudio = (root: string) =>
+  new Promise<{ code: number; out: string }>((done) => {
+    const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+    const c = spawn(process.execPath, [main, 'studio', '--stop', '--root', root], {
+      env: { ...process.env, HOME: home, USERPROFILE: home },
+    })
+    let out = ''
+    c.stdout.on('data', (d: Buffer) => {
+      out += d.toString()
+    })
+    c.stderr.on('data', (d: Buffer) => {
+      out += d.toString()
+    })
+    c.on('close', (code) => done({ code: code ?? -1, out }))
+  })
+
+test('shaderera studio --stop ends the running studio cleanly, with no stdin to reach', async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const root = fixture()
+  const s = studioJson(slow.origin, ['--connect', id], { root, stdin: 'ignore' })
+  const file = join(root, '.shaderera', 'studio', 'bridge.json')
+  try {
+    const url = await s.event((e) => e.event === 'url')
+    await p.pair(new URL(url.url as string).hash.slice(1))
+    await s.event((e) => e.event === 'paired')
+    // The running studio is registered, for the user only.
+    const running = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(running.pid, s.cli.pid)
+    assert.equal(running.port, Number(new URL(url.bridge as string).port))
+    if (process.platform === 'win32') {
+      const acl = spawnSync('icacls', [file], { encoding: 'utf8' }).stdout
+      assert.doesNotMatch(acl, /BUILTIN|Everyone|Authenticated Users/, acl)
+    } else assert.equal(statSync(file).mode & 0o077, 0)
+
+    // A second studio on the project is refused while this one runs.
+    const second = studioJson(slow.origin, [], { root })
+    assert.equal(await second.exited, 2)
+    assert.match(second.out(), /studio --stop/)
+
+    const stopped = await stopStudio(root)
+    assert.equal(stopped.code, 0, stopped.out)
+    assert.equal(await s.exited, 0, s.out())
+    assert.deepEqual(s.events().at(-1), { event: 'ended', exitCode: 0 })
+    assert.equal(await p.closed, 4004)
+    assert.equal(existsSync(file), false)
+  } finally {
+    s.cli.kill('SIGINT')
+    await s.exited
+    p.ws.close()
+    await slow.close()
+  }
+})
+
+test('shaderera studio --stop removes a stale file, and says no studio runs', async () => {
+  const root = fixture()
+  // The pid of a process that has ended.
+  const gone = spawn(process.execPath, ['-e', ''])
+  await new Promise((r) => gone.on('close', r))
+  const file = join(root, '.shaderera', 'studio', 'bridge.json')
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify({ port: 9, secret: 'x'.repeat(32), pid: gone.pid }))
+  const r = await stopStudio(root)
+  assert.equal(r.code, 0, r.out)
+  assert.match(r.out, /No studio is running/)
+  assert.equal(existsSync(file), false)
+})
+
+test('shaderera studio: a relay that expires an id long before its limit ends it, once', async () => {
+  // The relay expires ids after 300 ms; the CLI expects 1.5 s.
+  const hasty = await startRelay({ ttlMs: 300, alarm: true })
+  const s = studioJson(hasty.origin, [], { env: { SHADERERA_STUDIO_EXPIRY_MS: '1500' } })
+  try {
+    assert.equal(await s.exited, 2, s.out())
+    assert.equal(s.events().filter((e) => e.event === 'url').length, 1)
+    const last = s.events().at(-1)
+    assert.equal(last?.event, 'ended')
+    assert.match(String(last?.error), /expired studio session \w+ after 0\.\d s/)
+  } finally {
+    await hasty.close()
+  }
+})
+
+test('shaderera studio --stop does not wait for a render that hangs', async () => {
+  // A film whose frames past 0.5 s never settle when `hang` is set.
+  const root = fixture()
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({
+      entry: './src/composition.ts',
+      fps: 10,
+      duration: 1,
+      width: 16,
+      height: 16,
+      params: { type: 'object', properties: { hang: { type: 'boolean', default: false } } },
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io, params }) => {
+  const canvas = io.canvas(16, 16)
+  return {
+    render: async (t) => {
+      if (params.hang && t > 0.5) await new Promise(() => {})
+      canvas.getContext('2d').fillRect(0, 0, 16, 16)
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const s = studioJson(slow.origin, ['--connect', id], { root, stdin: 'ignore' })
+  try {
+    const url = await s.event((e) => e.event === 'url')
+    const { bridge } = await p.pair(new URL(url.url as string).hash.slice(1))
+    const r = await call(bridge.port, {
+      method: 'POST',
+      path: '/render',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${bridge.secret}` },
+      body: { format: 'png', t: 0.8, params: { hang: true } },
+    })
+    assert.equal(r.status, 200, r.body.toString())
+    const { job } = jsonOf(r)
+    await s.event((e) => e.event === 'job' && e.id === job && e.state === 'running')
+    await new Promise((done) => setTimeout(done, 1000))
+    const asked = Date.now()
+    const stopped = await stopStudio(root)
+    assert.equal(stopped.code, 0, stopped.out)
+    assert.equal(await s.exited, 0, s.out())
+    assert.ok(Date.now() - asked < 15_000, `${Date.now() - asked} ms`)
+    assert.deepEqual(s.events().at(-1), { event: 'ended', exitCode: 0 })
+  } finally {
+    s.cli.kill('SIGINT')
+    await s.exited
     p.ws.close()
     await slow.close()
   }

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -23,8 +23,9 @@ import {
   windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, releaseFrozen, restore, save, undo } from '../project/revisions.ts'
-import { contactSheet, review, toPng } from '../review/review.ts'
+import { head, log, releaseFrozen, restore, save, slash, undo } from '../project/revisions.ts'
+import { contactSheet, type ReviewReport, review, toPng } from '../review/review.ts'
+import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
@@ -112,6 +113,22 @@ const timesOf = (times: unknown): number[] => {
 /** An image content block of a base64 PNG. */
 const image = (data: string) => ({ type: 'image', data, mimeType: 'image/png' })
 
+/** A revision as a tool returns it: the count of its files, not each one's hash. */
+const briefRevision = <R extends { files: object }>({ files, ...r }: R) => ({
+  ...r,
+  files: Object.keys(files).length,
+})
+
+/** A review report as a tool returns it: its files relative to the project, with `/`. */
+const relativeReport = <R extends ReviewReport>(root: string, r: R): R => {
+  const rel = (p: string) => slash(relative(root, p))
+  return {
+    ...r,
+    contactSheet: rel(r.contactSheet),
+    frames: r.frames.map((f) => ({ ...f, file: rel(f.file), thumb: rel(f.thumb) })),
+  }
+}
+
 /** The long side of render_frame's image unless `full`: a full HD PNG is ~3 MB of base64. */
 const IMAGE = 1024
 /** The most frames one `still` sheet holds. */
@@ -163,9 +180,9 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'inspect',
-    "Returns the source's inspect JSON at t, or the subtree at a diffJson path (a.b, a[id=x]). variant and params as render_frame.",
-    { t: num, path: str, ...looks },
-    ['t'],
+    "Returns the source's inspect JSON at t, or the subtree at a diffJson path (a.b, a[id=x]). With track (a path) instead of t, like `shaderera inspect --track`: the value at that path at every frame from from to to (default the whole film), each { t, value, speed? } (speed per second, for numbers and arrays of numbers): a curve to read easing, holds and overshoot. variant and params as render_frame.",
+    { t: num, path: str, track: str, from: num, to: num, ...looks },
+    [],
   ],
   [
     'compare',
@@ -399,7 +416,10 @@ export const createServer = (
           type: 'text',
           text: JSON.stringify({
             ...main,
-            variants: reports.map((r, i) => ({ variant: nameOf(names[i]), ...r })),
+            variants: reports.map((r, i) => ({
+              variant: nameOf(names[i]),
+              ...relativeReport(root, r),
+            })),
           }),
         },
         ...reports.map((r) => image(readFileSync(r.contactSheet).toString('base64'))),
@@ -516,6 +536,16 @@ export const createServer = (
           ]
         }
         case 'inspect': {
+          // track reads a window, not one t: it runs before t is checked.
+          if (typeof a.track === 'string') {
+            const { from, to } = windowOf(manifest, a.from, a.to)
+            if (!c.has.inspect) throw new Error('This source has no inspect(t).')
+            const curve = await track((t) => c.inspect(t), a.track, { fps: manifest.fps, from, to })
+            if (curve.every((p) => p.value === undefined))
+              throw new Error(`Nothing at ${a.track} in inspect.`)
+            return curve
+          }
+          if (a.t === undefined) throw new Error('inspect needs t, or track.')
           const json = await inspect(c, at('t'))
           const value = a.path ? valueAt(json, a.path) : json
           if (value === undefined) throw new Error(`Nothing at ${a.path} in inspect.`)
@@ -609,7 +639,7 @@ export const createServer = (
           }
         }
         case 'save':
-          return save(root, { by: 'agent', label: a.label, note: a.note })
+          return briefRevision(save(root, { by: 'agent', label: a.label, note: a.note }))
         case 'versions':
           return { head: head(root), log: log(root), jobs: listJobs(root) }
         case 'job': {
@@ -645,7 +675,7 @@ export const createServer = (
             })
             const file = (path: string) => image(readFileSync(path).toString('base64'))
             return [
-              { type: 'text', text: JSON.stringify(report) },
+              { type: 'text', text: JSON.stringify(relativeReport(root, report)) },
               file(report.contactSheet),
               ...report.frames.filter((f) => f.label !== 'transition').map((f) => file(f.thumb)),
             ]

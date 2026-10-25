@@ -33,13 +33,27 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
   to the renders the page asks for, and to a share's poster and loop.
 
-It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
-rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
-disconnected.
+It runs until you stop it. Once paired, it keeps serving the page even if the relay closes, and
+rejoins the relay when it was dropped (below). Stopping it ends the session: the page says the CLI
+disconnected. It stops, cleanly, on:
+- `shaderera studio --stop`, run in the same project (below);
+- Ctrl-C, or SIGTERM;
+- when its stdin is a pipe (an agent's): stdin closing, or the line `{"stop":true}` on it.
 
-When the page closes, the CLI says so only if no page comes back within 10 seconds. A reload comes
-back sooner (a new `page-hello`, or a request to the bridge, directly or through the relay), and
-the CLI says "the studio page reloaded" instead.
+Killing the process (on Windows, any signal from another process kills it) skips all that: the
+page hears only that the CLI left, and the relay keeps the session for a while in case it comes
+back.
+
+An id the CLI made itself that no page pairs with in 10 minutes expires (below). The CLI then
+makes a new id and prints its address (a second `url` event, not opened), and goes on waiting. An
+id from `--connect` belongs to the page that made it: when it expires, the command ends. So does an id
+the relay expires well before 10 minutes (an older relay, or the wrong `--site`), exit 2: the CLI
+does not make one id after another.
+
+When the page closes, the CLI says so only if no page comes back within 10 seconds. Once paired,
+a reload comes back sooner (a new `page-hello`, or a request to the bridge, directly or through
+the relay), and the CLI says "the studio page reloaded" instead. Before pairing, a page that comes
+back is simply the page that pairs.
 
 **For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
 `url` event's address (or let the command open it), and read the events. stdout is one JSON object
@@ -48,17 +62,40 @@ a line, `{event, ...}`:
 | Event | Fields | When |
 |---|---|---|
 | `notice` | `text` | the first `studio` on this machine: the telemetry notice |
-| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api` | the bridge is up; `opened` is false with `--no-open` |
+| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api`; `expired`, `text` on a new id | the bridge is up; `opened` is false with `--no-open`. Again, with a new id, when no page came for the last one in 10 minutes: `expired` is that id |
 | `paired` | | the page the CLI opened paired |
 | `page-closed` | | the page closed and did not come back within 10 s |
-| `resumed` | | the page came back within 10 s (a reload) |
+| `resumed` | | once paired, the page came back within 10 s (a reload) |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
-| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start |
-| `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
+| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start. A running job's progress comes at most every 10 % and 2 s, and every state change comes |
+| `ended` | `exitCode`, `error?` | the command ends: stopped (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
 
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,
 with exit code 2, before any event.
+
+**To stop it**, run `shaderera studio --stop` in the project (or with `--root`). The running
+command sends `ended` and exits 0, and the page is told the session ended. `--stop` waits for it
+to end, then exits 0. It also exits 0 when no studio runs for the project, and says so. It works
+whatever stdin the running command has, on every OS. Closing a piped stdin, or writing
+`{"stop":true}` to it, does the same.
+
+**One studio a project.** A studio claims its project before its bridge starts. It makes
+`.shaderera/studio/bridge.json` with its `pid`, adds its bridge's `port` and `secret` once the
+bridge is up, and removes the file when it ends.
+- **Only you can read it.** The folder is made private before any file is made in it, so every
+  file is private from the moment it exists:
+  - On macOS and Linux, the folder is mode 0700 and the file mode 0600.
+  - On Windows, the folder's inherited permissions are replaced with one entry for your account,
+    which the files in it inherit. A project outside your profile (`C:\work`) would otherwise
+    inherit read access for every user of the machine.
+- **A second `studio`** on a project whose studio is starting or running is refused (exit 2), and
+  names `--stop`. Two started at once never both run: the file is made only if it is not there.
+- **`--stop` on a studio still starting** waits until its bridge is up, then stops it.
+- **A stale file** (its pid has ended, or its bridge does not answer) is removed, and counts as no
+  studio. A file the CLI cannot read (another user's) is never removed: the command says so.
+- **The CLI's requests** to the bridge are the ones without an `Origin`, carrying the secret
+  (below). Other commands reach the running studio the same way.
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -141,7 +178,7 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
     8, 16 and then every 30 s, for as long as it runs. Its keys stay, so the page goes on.
   - A side with its token replaces that side's socket, if one is still there, and gets
     `{type:"resumed"}`; a CLI's return sends the page `cli-joined`.
-- **The session ends** when the paired CLI closes with 1000 (Ctrl-C): the relay closes the page
+- **The session ends** when the paired CLI closes with 1000 (stopped): the relay closes the page
   with `4004`. A paired CLI that dropped and does not come back within 10 minutes ends it too.
 - **An id that expired or ended is forgotten**: the relay deletes what it stored, so the id then
   starts as a new one.
@@ -156,8 +193,14 @@ HTTP on `127.0.0.1:<port>` only, on a free port, while the command runs.
   - `Access-Control-Allow-Methods: GET, POST`;
   - `Access-Control-Allow-Headers: Authorization, Content-Type`;
   - `Access-Control-Allow-Private-Network: true`.
-- Any other origin, or none, gets `403`. The one exception is the frame's navigation to
-  `/runner`, which carries no `Origin`.
+- Any other origin, or none, gets `403`. There are two exceptions, both without an `Origin`: the
+  frame's navigation to `/runner`, and the CLI's own `POST /stop`.
+
+### `POST /stop`
+
+From the CLI only (`studio --stop`), with no `Origin` and the secret: it answers `{stopping:true}`,
+and the command ends, as on Ctrl-C. A page cannot send it: a browser always sends an `Origin` with
+a POST, and the relay does not carry it.
 
 **The secret.** Every request carries `Authorization: Bearer <secret>`. Where a request cannot set
 headers (EventSource, a frame), it passes `?s=<secret>` instead. A wrong or missing secret gets
@@ -328,6 +371,8 @@ blocks local access)".
 | CLI | `{type:"event", iv, box}` | the same event JSON as on `/events` |
 
 - **`id`** is the page's own string, echoed in the result.
+- **Each request is answered on its own**, as a direct one is: results come in any order, and a
+  long one (a share) holds back no other.
 - **Events** go through the relay once the page has sent its first `rpc`.
 - **A file comes in chunks.** The Worker takes WebSocket messages of 32 MiB at most, and a film's
   mp4 or mov is often larger. After the head, the CLI sends `chunks` frames `rpc-chunk`, in order,

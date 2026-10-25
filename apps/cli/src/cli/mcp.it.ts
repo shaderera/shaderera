@@ -289,9 +289,25 @@ test('the review tool returns the report, the contact sheet and the frames as im
     }
     const report = JSON.parse(r.content[0]?.text as string)
     assert.equal(report.version, 1)
-    assert.ok(existsSync(report.contactSheet))
+    // Paths relative to the project, so the result doesn't repeat its folder.
+    assert.equal(report.contactSheet, 'out/review/contact-sheet.png')
+    assert.ok(existsSync(join(root, report.contactSheet)))
+    assert.ok(
+      report.frames.every(
+        (f: { file: string; thumb: string }) =>
+          f.file.startsWith('out/review/') && existsSync(join(root, f.thumb)),
+      ),
+    )
     assert.equal(r.content.length, 1 + 1 + report.frames.length)
     assert.ok(r.content.slice(1).every((c) => c.mimeType === 'image/png'))
+    // save gives the count of the revision's files, not each one's hash.
+    const s = (await client.callTool({ name: 'save', arguments: { label: 'one' } })) as {
+      content: { text: string }[]
+    }
+    const saved = JSON.parse(s.content[0]?.text as string)
+    assert.equal(saved.label, 'one')
+    assert.equal(typeof saved.files, 'number')
+    assert.ok(saved.files > 0)
   } finally {
     await client.close()
   }
@@ -430,6 +446,7 @@ test('MCP still, check and review take variants: one host each, one sheet side b
       ],
     )
     assert.ok(existsSync(join(ratios, 'out', 'review', '9_16', 'contact-sheet.png')))
+    assert.equal(review.variants[0].contactSheet, 'out/review/9_16/contact-sheet.png')
     await assert.rejects(call('still', { times: [0], variants: ['4:5'] }), /no variant "4:5"/)
     await assert.rejects(
       call('check', { variant: '16:9', variants: ['9:16'] }),
@@ -527,6 +544,34 @@ test('restore puts back a clip the open child is decoding: the child closes firs
     assert.equal((await call('restore', { id: red.id })).id, red.id)
     const back = JSON.parse((await call('render_frame', { t: 0.5 })).content[0].text).meanRgba
     assert.ok(back[0] > 200 && blue[2] > 200, `${back} after ${blue}`)
+  } finally {
+    await close()
+  }
+})
+
+test('inspect with track returns the curve inspect --track gives', async () => {
+  const { call, close } = await connect(fixture)
+  try {
+    const curve = await call('inspect', { track: 'box.x', from: 0, to: 0.5 })
+    const cli = spawnSync(
+      process.execPath,
+      [bin, 'inspect', '--track', 'box.x', '--from', '0', '--to', '0.5', '--json'],
+      { cwd: fixture, encoding: 'utf8' },
+    )
+    assert.equal(cli.status, 0, cli.stderr)
+    assert.deepEqual(curve, JSON.parse(cli.stdout).result)
+    assert.equal(curve[0].value, 20)
+    assert.ok(curve.length > 2 && curve.every((p: { t: number }) => p.t <= 0.5))
+    // track alone: the whole film, no t needed.
+    const whole = await call('inspect', { track: 'box.x' })
+    assert.ok(whole.length > curve.length)
+    await assert.rejects(
+      call('inspect', { track: 'box.x', from: 0.5, to: 0.2 }),
+      /The window 0.5–0.2 s/,
+    )
+    await assert.rejects(call('inspect', { track: 'box.x', to: 'x' }), /Not a time in seconds: to/)
+    await assert.rejects(call('inspect', { track: 'nope' }), /Nothing at nope/)
+    await assert.rejects(call('inspect', {}), /inspect needs t, or track/)
   } finally {
     await close()
   }

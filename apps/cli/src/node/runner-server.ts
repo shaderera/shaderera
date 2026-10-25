@@ -103,6 +103,11 @@ export const startRunner = async (project: Project, o: RunnerOptions) => {
 
 const listen = async (project: Project, o: RunnerOptions & { port: number }) => {
   const vite = await import('vite')
+  // Vite ends the process itself, at once, on SIGTERM and when stdin ends. The command that
+  // started the runner owns its end and its cleanup (the studio's `ended`, a render's partials):
+  // the handlers Vite adds are taken off again.
+  const sigterm = new Set(process.listeners('SIGTERM'))
+  const stdinEnd = new Set(process.stdin.listeners('end'))
   const runner = await vite.createServer({
     root: project.root,
     appType: 'custom',
@@ -149,6 +154,9 @@ const listen = async (project: Project, o: RunnerOptions & { port: number }) => 
       watch: { ignored: ['**/.shaderera/**', '**/versions/**', '**/out/**'] },
     },
   })
+  for (const l of process.listeners('SIGTERM')) if (!sigterm.has(l)) process.off('SIGTERM', l)
+  for (const l of process.stdin.listeners('end'))
+    if (!stdinEnd.has(l)) process.stdin.off('end', l as () => void)
   try {
     await runner.listen()
   } catch (error) {
