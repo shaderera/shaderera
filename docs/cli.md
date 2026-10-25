@@ -10,7 +10,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`check`](#check) | render each t twice in two orders and compare |
 | [`still`](#still) | stills of any moment, a close look, a contact sheet |
 | [`render`](#render) | export an mp4 or a ProRes mov (a png job: frames, `audio.wav`, `delivery.json`) |
-| [`save`, `versions`, `undo`, `restore`, `diff`, `job`](#versions-and-jobs) | revisions and frozen render jobs |
+| [`save`, `versions`, `undo`, `restore`, `diff`, `prune`, `job`](#versions-and-jobs) | revisions and frozen render jobs |
 | [`deliver`](#deliver) | a batch of every variant × locale into `out/deliveries/<batch>/` |
 | [`plan`, `assemble`](#plan-render---chunk-assemble) | render a job's chunks on several machines |
 | [`reexport`](#reexport) | a job's sound on a delivered file's own picture, or its caption sidecars, with no frame rendered |
@@ -315,6 +315,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
 | `diff <a> [<b>] [--stat]` | files added, removed and changed from revision a to b (or the working tree), with a unified diff of text files |
 | `job [--variant v] [--params json] [--revision id] [--name n] [--label l] [--from s] [--to s] [--host h] [--format f] [--png] [--master] [--bitrate r \| --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--hdr10] [--replace]` | freezes a render job (`job/3`) in `versions/jobs/<name>.json`: the revision (the project is saved first unless one is given), the host, the variant, the complete params (an unknown name is refused), the seed, the window, the delivery settings and the installed packages the source and its DOM import, by content, and the stamp of every bake it reads ([what a job pins](delivery.md#handoff)). Its `id` hashes all of that. The same inputs return the job already there; a `--name` that holds different inputs is refused unless `--replace`. `--hdr10`: the job renders in an `hdr10` range to an HDR10 mp4 (`range: "hdr10"`, `delivery.color: "hdr10-bt2020-pq"`), or an HDR10 ProRes mov with `--format prores-hq\|prores-4444`; a png or a bitrate is refused for it |
+| `prune [--dry-run] [--keep n]` | removes the revisions nobody names and the objects only they held ([pruning](#pruning)) |
 | `render --job <name>` | renders exactly that job in its host, from the revision's frozen copy, whatever the project became; refuses another `--host`, a package the job executes that changed, or another Shaderera version |
 
 ```
@@ -329,6 +330,36 @@ revision 3ff052ac48653666 to render with what is installed now.
 ```
 
 A job holds execution inputs and references, never the film.
+
+### Pruning
+
+`versions/` only grows: every `render`, `job` and studio render saves first, and each change to a
+large file (footage, audio, a model) stores it whole again. `shaderera prune [--dry-run] [--keep n]`
+removes the revisions nobody needs and every object no remaining revision names. It keeps:
+
+- the head (the revision the project was last saved as or restored to);
+- every revision with a label (`save --label`);
+- every revision a job in `versions/jobs/` names;
+- every revision whose files a bake stamp (`versions/bakes/`) was made from;
+- every revision `versions/comments.jsonl` names;
+- every revision with a frozen copy in `.shaderera/revisions/` (a render may be running from it);
+- the last `n` saves (`--keep`, 10 by default).
+
+`--dry-run` prints what it would remove and the bytes it would free, and removes nothing; without
+it, prune prints the same and removes them. Removing is for good: run `--dry-run` first. A pruned
+revision's lines stay in the log, which `versions` marks `(pruned)` (`versions/pruned.jsonl` lists
+them), and `restore`, `diff` or `job --revision` with it says it was pruned. An object a save used
+in the last 10 minutes is never removed, so a save running beside the prune keeps its files. When a
+job, a bake stamp or a revision cannot be read, prune removes nothing. It never touches the working
+tree, `.shaderera/` or `out/`.
+
+```
+$ shaderera prune --dry-run --keep 0
+keep    3ff052ac48653666  the head, a label
+keep    9a1e07c25b3d4f10  job portrait-9a1e07c2-91d0be, a frozen copy
+would remove 51c0d2e8a7b64913
+would remove 1 revision(s) and 2 object(s): 536.9 MB (dry run: nothing was removed)
+```
 
 ## `deliver`
 

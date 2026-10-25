@@ -12,6 +12,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
@@ -24,6 +25,7 @@ import { dirname, join, relative, sep } from 'node:path'
  *   versions/objects/<sha256>     file contents, stored once
  *   versions/revisions/<id>.json  one revision: its files (path → sha256), parent, label
  *   versions/log.jsonl            what happened, in order: save, restore, undo
+ *   versions/pruned.jsonl         the revisions `shaderera prune` removed (project/prune.ts)
  *
  * A revision's id is the hash of its file list, so the same tree always has the same id.
  *
@@ -213,10 +215,27 @@ export const treeId = (files: Files): string =>
     .digest('hex')
     .slice(0, 16)
 
+/** The ids `shaderera prune` removed, from `versions/pruned.jsonl` (a torn line is skipped). */
+export const prunedIds = (root: string): Set<string> => {
+  const file = join(store(root), 'pruned.jsonl')
+  const ids = new Set<string>()
+  if (!existsSync(file)) return ids
+  for (const line of readFileSync(file, 'utf8').split('\n'))
+    try {
+      const { id } = JSON.parse(line) as { id?: unknown }
+      if (typeof id === 'string') ids.add(id)
+    } catch {}
+  return ids
+}
+
 /** A revision, checked: its id is the hash of its files, and every path and hash is well formed. */
 export const readRevision = (root: string, id: string): Revision => {
   if (!/^[0-9a-f]{16}$/.test(id)) throw new Error(`No revision ${id}.`)
   const file = join(store(root), 'revisions', `${id}.json`)
+  if (!existsSync(file) && prunedIds(root).has(id))
+    throw new Error(
+      `Revision ${id} was pruned (shaderera prune): its files are no longer kept, so it cannot be restored, compared or rendered.`,
+    )
   if (!existsSync(file)) throw new Error(`No revision ${id}.`)
   const revision = JSON.parse(readFileSync(file, 'utf8')) as Revision
   const files = revision.files ?? {}
@@ -324,7 +343,12 @@ export const save = (
   mkdirSync(objects, { recursive: true })
   for (const [path, hash] of Object.entries(files)) {
     const object = join(objects, hash)
-    if (existsSync(object)) continue
+    // Already stored: marked used now, so a prune running beside this save keeps it (prune.ts).
+    try {
+      const now = new Date()
+      utimesSync(object, now, now)
+      continue
+    } catch {}
     // Copied as it is hashed: a file edited since the scan is never stored under the old hash.
     const tmp = `${object}.${process.pid}.tmp`
     if (hashFile(join(root, path), tmp) !== hash) {
