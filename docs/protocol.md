@@ -152,7 +152,11 @@ it, before any frame.
   again and gives the same bytes.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and
   runs: `make` runs only when nothing is kept for the key with the input files as they are now (a
-  changed input is another entry). Put a version in the key when the making changes.
+  changed input is another entry). Put a version in the key when the making changes. The cache
+  holds at most 1 GiB (`SHADERERA_FILM_CACHE_MB` sets another limit, in megabytes): a put past it
+  removes the least recently used entries (a hit counts as a use) until the rest fit, never the one
+  just put, nor a file another host is still writing. An entry removed is made again the next time
+  it is asked for, so deleting `.shaderera/cache/` is always safe.
 - `io.bake(name)` opens a [bake](#bakes)'s frames: `frames` is their count, `read(i)` frame i's
   bytes as the file has them, `image(i)` the same decoded as `io.image` decodes (PNG, JPEG). The
   frames were checked against the bake's stamp before the source opened.

@@ -71,6 +71,11 @@ before the last frame (even with 0, as it does when it runs out of memory readin
 the command with its last lines, and one that reads nothing for 300 seconds while a frame waits
 fails it as stalled. `SHADERERA_FFMPEG_STALL` sets those seconds.
 
+A film's `io.cache` keeps its bytes in the project's `.shaderera/cache/`, at most 1 GiB:
+`SHADERERA_FILM_CACHE_MB` sets another limit, in megabytes. Past the limit the least recently used
+entries are removed, and a film makes an entry again when it asks for it, so deleting
+`.shaderera/cache/` is always safe ([protocol.md](protocol.md)).
+
 ## Required plugins
 
 Every command that finds a project reads the `requires` in its `shaderera.json`. When the
