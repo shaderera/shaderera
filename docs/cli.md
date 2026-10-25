@@ -18,6 +18,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`review`](#review) | principal frames, a contact sheet and technical checks |
 | [`bake`](#bake) | run a bake's command and stamp the frames it made outside the host |
 | [`doctor`](#doctor) | what this machine and project have and lack |
+| [`activity`](#activity) | what the CLI, the agent and the studio did in this project, and a note of your own |
 | [`search`, `info`, `add`, `remove`, `publish`](#plugins) | find, copy in, remove and publish plugins |
 | [`login`, `whoami`, `logout`, `share`, `fork`](#shadereracom-login-whoami-logout-share-fork) | send a film to shaderera.com, and fork one from there |
 | [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
@@ -629,6 +630,47 @@ a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
 | `maxStorageBufferBindingSize` | how much of a buffer one storage binding reads, in bytes |
 | `maxTextureDimension2D` | a 2D texture's width and height, in pixels: the frame and every render target |
 | `maxTextureArrayLayers` | the layers of one texture array, such as a stack of baked frames |
+
+## `activity`
+
+The project's activity is what the CLI, the agent (MCP) and the studio did in it, for the studio
+to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It fills itself:
+
+- **Every command run in a project** adds one entry: `{kind: "command", command, args, exitCode,
+  ok, summary}`, `by: "cli"`. `summary` is its findings counted by severity and the first three
+  messages: `{error, warning, info, messages}`. `still --sheet` keeps its contact sheet as the
+  entry's `image`. `mcp`, `studio`, `activity` and `--help` add none, and nothing is written outside
+  a project.
+- **Every MCP tool call** adds one: `{kind: "tool", tool, ok, ms, summary}`, `by: "agent"`
+  ([mcp.md](mcp.md#tools)).
+- **Every entry** has an `id` (it sorts by time) and `at` (ISO 8601).
+
+| Command | What it does |
+|---|---|
+| `activity [--last 20] [--json]` | the last entries, oldest first: time, who, what, the image. `--json`: the entries as a list |
+| `activity add [--comment id] <text>` | adds `{kind: "note", text, comment?}`, at most 4000 characters, and prints its id. For what you mean to do; what you did is recorded already |
+
+```
+$ shaderera activity
+2026-10-25 10:42:07  cli    check --times 4: exit 0
+2026-10-25 10:42:31  agent  render_frame: ok in 48 ms  .shaderera/activity/mh6x2k8q0007-3fa1c2d9.png
+2026-10-25 10:43:02  cli    Making the logo bigger (comment c7)
+```
+
+- **Where it is kept.** `.shaderera/activity.jsonl`, one line an entry, only ever appended. Past
+  1 MB it becomes `activity.1.jsonl` (the one before is dropped), so the two hold at most 2 MB.
+  Images are copies under `.shaderera/activity/<id>.png`, not links: a later still written over
+  the same file would change a linked one. An image over 2 MB is left out and at most 50 are
+  kept, so they take 100 MB at most; the ones of dropped entries go with them. Deleting
+  `.shaderera/activity/`, or the whole log, is safe: an entry whose image is gone shows without it.
+- **It never gets in the way.** A write that fails (a full disk, a folder it cannot write)
+  changes nothing about the command: its output and exit code are the same.
+- **No secrets.** `login` and `logout` are never recorded, and the value of any flag whose name
+  holds `token`, `secret`, `key`, `pass`, `auth`, `bearer` or `credential` (any case: `--token`,
+  `--api-key=…`, `--password`) is written as `***`, and so is a URL's user and password
+  (`https://***@host`).
+- **It stays on this machine.** `.shaderera/` is never in a revision, so `share`, `fork` and
+  `handoff` never carry it, and telemetry never reads it.
 
 ## Plugins
 

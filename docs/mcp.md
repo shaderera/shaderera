@@ -84,7 +84,13 @@ with the message.
 | `undo` | — | like `shaderera undo`: the previous revision (unsaved edits are saved first); returns it as `restore` does |
 | `diff` | `a`, `b?`, `stat?` | like `shaderera diff`: `{ added, removed, changed, patch }` from revision `a` to `b` (or the working tree); `stat: true` leaves out `patch` |
 | `job` | `variant?`, `params?`, `revision?`, `name?`, `label?`, `from?`, `to?`, `hdr10?` | the job. Freezes a revision (the project is saved first unless `revision` is given), a variant from `shaderera.json`, params over the defaults and an optional window, like `shaderera job` ([cli.md](cli.md#versions-and-jobs)); `hdr10: true` makes an HDR10 job. It never replaces a job |
+| `activity_add` | `text`, `comment?` | like `shaderera activity add` ([cli.md](cli.md#activity)): the entry. A note (at most 4000 characters) of what you mean to do, about a comment when its id is given |
 | `review` | `variant?` or `variants?`, `quick?` | like `shaderera review` ([cli.md](cli.md#review)): the report JSON as text, then the contact sheet and each principal frame's thumb (shots and the last frame; not the transition samples) as PNG images. Files go to `out/review/` (a variant: `out/review/<variant>/`), and the report names them relative to the project; requirements from `requirements.json`. With `variants`, `{ variants: [{ variant, ...report }] }` as text, then each variant's contact sheet |
+
+Every call in a project adds one entry to its activity (`.shaderera/activity.jsonl`, [cli.md](cli.md#activity)):
+`{kind: "tool", tool, ok, ms, summary, by: "agent"}`, with the error as `summary` when it failed.
+`still`, and `render_frame` with `image: true`, keep their PNG as the entry's image. A write that
+fails changes nothing about the call. `activity_add` adds its note and nothing else.
 
 Notes from the code:
 
