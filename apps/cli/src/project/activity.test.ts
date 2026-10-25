@@ -6,6 +6,7 @@ import {
   readdirSync,
   readFileSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
@@ -137,6 +138,29 @@ test('secrets stay out: credential-like flags are redacted, login and logout nev
       'check',
     ],
   )
+  // auth, bearer and credential flags; a URL's user and password, wherever it is.
+  assert.deepEqual(
+    redact([
+      '--auth',
+      'a',
+      '--bearer=b',
+      '--credentials',
+      'c',
+      'https://user:pa55@host.example/x',
+      '--api=https://me@api.example',
+      'https://host.example/@me',
+    ]),
+    [
+      '--auth',
+      '***',
+      '--bearer=***',
+      '--credentials',
+      '***',
+      'https://***@host.example/x',
+      '--api=https://***@api.example',
+      'https://host.example/@me',
+    ],
+  )
   // A flag with no value (a boolean) leaves the next flag alone.
   assert.deepEqual(redact(['--token', '--json']), ['--token', '--json'])
   const root = tempDir('activity')
@@ -156,4 +180,21 @@ test('secrets stay out: credential-like flags are redacted, login and logout nev
     readFileSync(join(root, '.shaderera', 'activity.jsonl'), 'utf8').includes('t0k3n'),
     false,
   )
+})
+
+test('an image no entry names (a rotation raced by another process) goes at the next rotation, once a minute old', () => {
+  const root = tempDir('activity')
+  const images = join(root, '.shaderera', 'activity')
+  mkdirSync(images, { recursive: true })
+  const orphan = join(images, 'orphan.png')
+  const fresh = join(images, 'fresh.png')
+  writeFileSync(orphan, png())
+  writeFileSync(fresh, png())
+  const old = new Date(Date.now() - 120_000)
+  utimesSync(orphan, old, old)
+  const text = 'x'.repeat(2000)
+  for (let i = 0; i < 600; i++) record(root, { by: 'cli', kind: 'note', text })
+  assert.ok(existsSync(join(root, '.shaderera', 'activity.1.jsonl')))
+  assert.equal(existsSync(orphan), false)
+  assert.equal(existsSync(fresh), true)
 })

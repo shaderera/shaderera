@@ -660,13 +660,15 @@ $ shaderera activity
 - **Where it is kept.** `.shaderera/activity.jsonl`, one line an entry, only ever appended. Past
   1 MB it becomes `activity.1.jsonl` (the one before is dropped), so the two hold at most 2 MB.
   Images are copies under `.shaderera/activity/<id>.png`, not links: a later still written over
-  the same file would change a linked one. An image over 4 MB is left out, at most 100 are kept,
-  and the ones of dropped entries go with them.
+  the same file would change a linked one. An image over 2 MB is left out and at most 50 are
+  kept, so they take 100 MB at most; the ones of dropped entries go with them. Deleting
+  `.shaderera/activity/`, or the whole log, is safe: an entry whose image is gone shows without it.
 - **It never gets in the way.** A write that fails (a full disk, a folder it cannot write)
   changes nothing about the command: its output and exit code are the same.
 - **No secrets.** `login` and `logout` are never recorded, and the value of any flag whose name
-  holds `token`, `secret`, `key` or `pass` (any case: `--token`, `--api-key=…`, `--password`) is
-  written as `***`.
+  holds `token`, `secret`, `key`, `pass`, `auth`, `bearer` or `credential` (any case: `--token`,
+  `--api-key=…`, `--password`) is written as `***`, and so is a URL's user and password
+  (`https://***@host`).
 - **It stays on this machine.** `.shaderera/` is never in a revision, so `share`, `fork` and
   `handoff` never carry it, and telemetry never reads it.
 

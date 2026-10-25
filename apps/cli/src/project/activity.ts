@@ -42,8 +42,14 @@ export type Entry = EntryInput & {
 
 /** The log rotates past this many bytes, so it and its one older file hold at most twice it. */
 export const ROTATE = 1 << 20
-/** An image over `bytes` is left out of its entry; past `count` images, the oldest go. */
-export const IMAGES = { bytes: 4 << 20, count: 100 }
+/**
+ * An image over `bytes` is left out of its entry; past `count` images, the oldest go: at most
+ * 100 MB under `.shaderera/activity/`. 2 MB holds a 1024 px render_frame and a contact sheet; the
+ * studio shows the latest few.
+ */
+export const IMAGES = { bytes: 2 << 20, count: 50 }
+/** An image younger than this may be another process's whose line is not written yet. */
+const SETTLING = 60_000
 /** A message as long as a summary keeps it. */
 const MESSAGE = 300
 
@@ -88,13 +94,25 @@ const read = (file: string): Entry[] => {
 
 /**
  * Before a line that would take the log past ROTATE: the log becomes the older file, and the
- * images of the entries the older file held go with it.
+ * images of the entries the older file held go with it. Two processes rotating at once may drop
+ * a full older file for a short one: its entries are lost (activity is lossy), and their images,
+ * named by no entry, go at the next rotation once a minute old (younger, it may be another
+ * process's whose line is coming).
  */
 const rotate = (root: string, adding: number) => {
   const log = logOf(root)
   if (!existsSync(log) || statSync(log).size + adding <= ROTATE) return
-  for (const e of read(olderOf(root))) if (e.image) rmSync(join(root, e.image), { force: true })
+  const dropped = read(olderOf(root)).map((e) => e.image)
   renameSync(log, olderOf(root))
+  for (const image of dropped) if (image) rmSync(join(root, image), { force: true })
+  if (!existsSync(imagesOf(root))) return
+  const named = new Set(read(olderOf(root)).map((e) => e.image))
+  const now = Date.now()
+  for (const name of readdirSync(imagesOf(root))) {
+    const file = join(imagesOf(root), name)
+    if (!named.has(`.shaderera/activity/${name}`) && now - statSync(file).mtimeMs > SETTLING)
+      rmSync(file, { force: true })
+  }
 }
 
 /** Past IMAGES.count, the oldest images go (their names sort by time). */
@@ -183,9 +201,14 @@ export const projectRootOf = (argv: readonly string[]): string | undefined => {
  * and a flag whose name looks like a credential has its value written as `***`.
  */
 const SECRET_COMMANDS = new Set(['login', 'logout'])
-const SECRET_FLAG = /token|secret|key|pass/i
+const SECRET_FLAG = /token|secret|key|pass|auth|bearer|credential/i
+/** A URL's user and password: `https://user:pass@host`. */
+const USERINFO = /([a-z][\w+.-]*:\/\/)[^/@\s]+@/gi
 
-/** `--token t` and `--token=t` as `--token ***` and `--token=***`; other args as they are. */
+/**
+ * `--token t` and `--token=t` as `--token ***` and `--token=***`, a URL's user and password as
+ * `https://***@host`; other args as they are.
+ */
 export const redact = (args: readonly string[]): string[] =>
   args.map((a, i) => {
     const flag = /^--?([^=]+)=/.exec(a)
@@ -193,7 +216,7 @@ export const redact = (args: readonly string[]): string[] =>
     const before = args[i - 1]
     if (!a.startsWith('-') && before && /^--?[^=]+$/.test(before) && SECRET_FLAG.test(before))
       return '***'
-    return a
+    return a.replace(USERINFO, '$1***@')
   })
 
 /**
