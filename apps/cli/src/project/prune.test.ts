@@ -19,7 +19,16 @@ import { hashInputs } from './bakes.ts'
 import { diffRevisions } from './diff.ts'
 import { createJob, verifyJob } from './jobs.ts'
 import { prune } from './prune.ts'
-import { hashFile, log, prunedIds, readRevision, restore, save } from './revisions.ts'
+import {
+  hashFile,
+  log,
+  materialize,
+  prunedIds,
+  readRevision,
+  releaseFrozen,
+  restore,
+  save,
+} from './revisions.ts'
 
 const fixture = fileURLToPath(new URL('../cli/fixtures/mcp/', import.meta.url))
 
@@ -102,14 +111,16 @@ test('prune keeps the last n saves, what comments and bake stamps name, and froz
     join(root, 'versions', 'bakes', 'glow.json'),
     JSON.stringify({ shaderera: 'bake/1', name: 'glow', bake: { inputs: ['asset.bin'] }, inputs }),
   )
-  // A render is running from one's frozen copy.
+  // Another live process (this one's parent) is rendering from one's frozen copy.
   mkdirSync(join(root, '.shaderera', 'revisions', one), { recursive: true })
+  mkdirSync(join(root, '.shaderera', 'revisions', `${one}.using`))
+  writeFileSync(join(root, '.shaderera', 'revisions', `${one}.using`, String(process.ppid)), '')
   age(root)
   const r = prune(root, { keep: 1 })
   assert.deepEqual(r.removed, [five])
   const why = Object.fromEntries(r.kept.map((k) => [k.id, k.why.join(', ')]))
   assert.deepEqual(why, {
-    [one]: 'a frozen copy',
+    [one]: 'a frozen copy in use',
     [two]: 'a comment',
     [three]: 'a comment',
     [four]: 'bake glow',
@@ -143,6 +154,31 @@ test('prune removes nothing when a job, a stamp or a revision cannot be read', (
   writeFileSync(join(root, 'versions', 'jobs', 'broken.json'), '{"revision": ')
   assert.throws(() => prune(root, { keep: 0 }), /versions\/jobs\/broken.json.*nothing was removed/)
   assert.equal(readdirSync(join(root, 'versions', 'revisions')).length, 2)
+})
+
+test('prune removes the frozen copies nobody uses, and keeps one a live process uses', () => {
+  const root = project()
+  const a = saveWith(root, 'a')
+  const b = saveWith(root, 'b')
+  const copies = join(root, '.shaderera', 'revisions')
+  materialize(root, a)
+  releaseFrozen(root, a)
+  materialize(root, b)
+  writeFileSync(join(copies, `${b}.using`, String(process.ppid)), '')
+  releaseFrozen(root, b)
+  const old = new Date(Date.now() - 24 * 3600_000)
+  for (const id of [a, b]) utimesSync(join(copies, id), old, old)
+  age(root)
+  const dry = prune(root, { keep: 10, dryRun: true })
+  assert.deepEqual(dry.copies, [a])
+  assert.ok(existsSync(join(copies, a)))
+  const done = prune(root, { keep: 10 })
+  assert.deepEqual(done.copies, [a])
+  assert.ok(dry.bytes > 0 && done.bytes === dry.bytes)
+  assert.deepEqual(readdirSync(copies).sort(), [b, `${b}.using`].sort())
+  // The revision stays (a save), and a render makes its copy again.
+  assert.ok(existsSync(join(materialize(root, a), 'asset.bin')))
+  releaseFrozen(root, a)
 })
 
 test('a revision file held open stays with its objects, and the next prune removes it', () => {
