@@ -46,8 +46,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const text = words.join(' ').trim()
     if (!text) throw new Error('Usage: shaderera activity add [--comment <id>] <text>')
     if (text.length > NOTE) throw new Error(`A note is at most ${NOTE} characters.`)
+    // The agent's own channel (decision 0025, point 6): its notes are the agent's.
     const entry = record(root, {
-      by: 'cli',
+      by: 'agent',
       kind: 'note',
       text,
       ...(values.comment ? { comment: values.comment } : {}),

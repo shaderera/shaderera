@@ -238,6 +238,23 @@ export const redact = (args: readonly string[]): string[] =>
   })
 
 /**
+ * Commands with no activity entry of their own (decision 0025): mcp records each tool call, studio
+ * its edits and renders, activity is the log itself (`activity add` writes its own note), and the
+ * ones that only read: versions, diff, doctor, and comments but for add, reply, resolve and reopen.
+ */
+const UNRECORDED = new Set(['mcp', 'studio', 'activity', 'versions', 'diff', 'doctor', 'help'])
+const COMMENT_WRITES = new Set(['add', 'reply', 'resolve', 'reopen'])
+
+/** Whether a command run gets an entry: anything that changes, checks or renders. */
+export const recordable = (argv: readonly string[]): boolean => {
+  const [command = '', ...rest] = argv
+  if (UNRECORDED.has(command)) return false
+  if (command === 'comments')
+    return rest.some((a) => COMMENT_WRITES.has(a)) && !rest.includes('--wait')
+  return true
+}
+
+/**
  * A command's entry (`by: cli`), from its exit code and findings, with the image it named
  * (activityImage). Nothing outside a project; never throws.
  */

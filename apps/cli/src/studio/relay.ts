@@ -45,6 +45,9 @@ export const chunkAad = (id: string, seq: number): string => `${id}:${seq}`
  */
 export const PAGE_BACK_MS = 10_000
 
+/** How long before a page-left a request of the page's still counts as the page back. */
+export const BACK_FIRST_MS = 2000
+
 /** How long the CLI waits before its nth rejoin, in ms: 1, 2, 4, 8, 16, then 30 s. */
 export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000)
 
@@ -122,7 +125,13 @@ export const connectRelay = (o: {
     // Before pairing, a page that says hello is a page that pairs, not one that reloaded.
     if (paired) o.onPage?.('reloaded')
   }
-  const stopVisits = o.bridge.onVisit(pageBack)
+  // A reloaded page asks the bridge directly (127.0.0.1) at once, while the relay's page-left
+  // crosses the internet: its request often comes first. One just before the page-left counts.
+  let lastVisit = 0
+  const stopVisits = o.bridge.onVisit(() => {
+    lastVisit = Date.now()
+    pageBack()
+  })
   const send = (m: Message) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m))
   }
@@ -255,6 +264,10 @@ export const connectRelay = (o: {
       o.onRelay?.(true)
     } else if (m.type === 'page-left') {
       clearTimeout(away)
+      if (paired && Date.now() - lastVisit < BACK_FIRST_MS) {
+        away = undefined
+        return o.onPage?.('reloaded')
+      }
       away = setTimeout(() => {
         away = undefined
         o.onPage?.('closed')
