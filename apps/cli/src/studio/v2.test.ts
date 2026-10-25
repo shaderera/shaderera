@@ -16,8 +16,16 @@ import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
 import { tempDir } from '../fixtures/temp.ts'
 import { record } from '../project/activity.ts'
-import { replyTo } from '../project/comments.ts'
-import { head, save, scanProject, treeId } from '../project/revisions.ts'
+import { listing, replyTo, setState } from '../project/comments.ts'
+import { prune } from '../project/prune.ts'
+import {
+  fileAt,
+  head,
+  log as revisionLog,
+  save,
+  scanProject,
+  treeId,
+} from '../project/revisions.ts'
 import { toPng } from '../review/review.ts'
 import { type Bridge, startBridge } from './bridge.ts'
 import { call, events, nonce, page } from './fixtures/page.ts'
@@ -459,4 +467,55 @@ test('the activity goes on through a rotation, and the poll finds what no watch 
   } finally {
     await polled.close()
   }
+})
+
+test('a comment on a framed tree the agent edited since points at the files the person saw', async () => {
+  const file = join(root, 'src', 'composition.ts')
+  writeFileSync(file, `${readFileSync(file, 'utf8')}\n// what the person saw\n`)
+  // The page frames the working tree: the bridge stores it, unlisted.
+  const shown = jsonOf(await get('/info')).revision
+  assert.equal((await call(bridge.port, { path: `/runner?s=${bridge.secret}` })).status, 302)
+  assert.ok(!revisionLog(root).some((e) => e.id === shown))
+  const listed = jsonOf(await get('/versions')).revisions.find(
+    (r: { id: string }) => r.id === shown,
+  )
+  assert.equal(listed.unlisted, true)
+  // The agent edits while the person writes.
+  writeFileSync(file, readFileSync(file, 'utf8').replace('what the person saw', 'the agent edit'))
+  const made = await post('/comments', { revision: shown, t: 0.1, text: 'this one' })
+  assert.equal(made.status, 200, made.body.toString())
+  assert.equal(jsonOf(made).revision, shown)
+  assert.match(String(fileAt(root, shown, 'src/composition.ts')), /what the person saw/)
+
+  // Another framed tree nobody comments on: prune drops it, and keeps the commented one.
+  assert.equal((await call(bridge.port, { path: `/runner?s=${bridge.secret}` })).status, 302)
+  const unnamed = jsonOf(await get('/info')).revision
+  const later = Date.now() + 3600_000
+  const pruned = prune(root, { keep: 100, now: () => later })
+  assert.ok(pruned.removed.includes(unnamed), JSON.stringify(pruned.removed))
+  assert.ok(!pruned.removed.includes(shown))
+})
+
+test('the person deletes a comment: listings drop it, the event and show still say so', async () => {
+  const sse = events(bridge)
+  await sse.opened
+  const shown = jsonOf(await get('/info')).revision
+  const made = jsonOf(await post('/comments', { revision: shown, t: 0.1, text: 'never mind' }))
+  const gone = await post(`/comments/${made.id}/state`, { state: 'deleted' })
+  assert.equal(gone.status, 200, gone.body.toString())
+  assert.equal(jsonOf(gone).state, 'deleted')
+  await sse.next(
+    (e) =>
+      e.type === 'comment' &&
+      (e.comment as { id: string; state: string }).id === made.id &&
+      (e.comment as { state: string }).state === 'deleted',
+  )
+  assert.ok(!jsonOf(await get('/comments')).some((c: { id: string }) => c.id === made.id))
+  assert.equal(listing(root, { id: made.id }).comments[0]?.state, 'deleted')
+  // Final: no reply, no reopen; and only the person deletes.
+  assert.equal((await post(`/comments/${made.id}/reply`, { text: 'back?' })).status, 400)
+  assert.equal((await post(`/comments/${made.id}/state`, { state: 'open' })).status, 400)
+  const other = jsonOf(await post('/comments', { revision: shown, t: 0.2, text: 'keep' }))
+  await assert.rejects(setState(root, other.id, 'deleted', 'agent'), /Only the person deletes/)
+  sse.close()
 })

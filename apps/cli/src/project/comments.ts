@@ -39,7 +39,8 @@ import { type By, fileAt, head, save, scanProject, treeId } from './revisions.ts
 export const MAX_TEXT = 4000
 export type Point = [number, number]
 export type Box = [number, number, number, number]
-export type CommentState = 'open' | 'fixed' | 'resolved'
+/** `deleted`: the person took the comment back; listings leave it out, `show` still says so. */
+export type CommentState = 'open' | 'fixed' | 'resolved' | 'deleted'
 
 export type CommentOp = {
   op: 'comment'
@@ -74,7 +75,13 @@ export type ReplyOp = {
   fixed?: true
   revision?: string
 }
-export type StateOp = { op: 'state'; at: string; by: By; id: string; state: 'open' | 'resolved' }
+export type StateOp = {
+  op: 'state'
+  at: string
+  by: By
+  id: string
+  state: 'open' | 'resolved' | 'deleted'
+}
 export type Op = CommentOp | ReplyOp | StateOp
 
 export type Reply = Omit<ReplyOp, 'op' | 'id'>
@@ -95,7 +102,7 @@ const isOp = (o: unknown): o is Op => {
   if (x.op === 'comment')
     return typeof x.revision === 'string' && typeof x.t === 'number' && typeof x.text === 'string'
   if (x.op === 'reply') return typeof x.text === 'string'
-  if (x.op === 'state') return x.state === 'open' || x.state === 'resolved'
+  if (x.op === 'state') return x.state === 'open' || x.state === 'resolved' || x.state === 'deleted'
   return false
 }
 
@@ -114,7 +121,8 @@ export const parseOps = (text: string): Op[] =>
  * The threads the operations make, in the order their comments were made:
  * - a reply with `fixed` makes it `fixed`, in its `revision`;
  * - the person's reply to a `fixed` comment reopens it;
- * - `resolved` counts only from the person; `open` (reopen) from anyone.
+ * - `resolved` counts only from the person; `open` (reopen) from anyone;
+ * - `deleted` counts only from the person, and is final: later operations on it change nothing.
  * The first comment of an id is the one; a reply or state for no comment is skipped.
  */
 export const fold = (ops: readonly Op[]): Thread[] => {
@@ -127,7 +135,7 @@ export const fold = (ops: readonly Op[]): Thread[] => {
       continue
     }
     const t = threads.get(o.id)
-    if (!t) continue
+    if (!t || t.state === 'deleted') continue
     if (o.op === 'reply') {
       const { op: _, id: __, ...reply } = o
       t.replies.push(reply)
@@ -138,9 +146,9 @@ export const fold = (ops: readonly Op[]): Thread[] => {
           if (o.revision) t.fixedIn = o.revision
         }
       } else if (o.by === 'person' && t.state === 'fixed') t.state = 'open'
-    } else if (o.state === 'resolved') {
+    } else if (o.state === 'resolved' || o.state === 'deleted') {
       if (o.by !== 'person') continue
-      t.state = 'resolved'
+      t.state = o.state
     } else t.state = 'open'
     t.updated = o.at
   }
@@ -415,6 +423,7 @@ export const replyTo = async (
 ): Promise<Thread> => {
   checkText(text)
   const t = threadOf(root, id)
+  if (t.state === 'deleted') throw new Error(`Comment ${id} was deleted.`)
   let revision: string | undefined
   if (o.fixed) {
     if (t.state === 'resolved')
@@ -436,16 +445,18 @@ export const replyTo = async (
   return threadOf(root, id)
 }
 
-/** Resolves (the person only: the studio writes it) or reopens a comment. */
+/** Resolves or deletes (the person only: the studio writes it), or reopens a comment. */
 export const setState = async (
   root: string,
   id: string,
-  state: 'open' | 'resolved',
+  state: 'open' | 'resolved' | 'deleted',
   by: By,
 ): Promise<Thread> => {
   if (state === 'resolved' && by !== 'person')
     throw new Error('Resolve it in the studio: only the person resolves (ADR 0025).')
-  threadOf(root, id)
+  if (state === 'deleted' && by !== 'person')
+    throw new Error('Only the person deletes a comment, in the studio.')
+  if (threadOf(root, id).state === 'deleted') throw new Error(`Comment ${id} was deleted.`)
   await appendOp(root, { op: 'state', at: new Date().toISOString(), by, id, state })
   return threadOf(root, id)
 }
@@ -460,7 +471,7 @@ export type Listing = {
 /**
  * What `shaderera comments --json` and MCP `comments` give: the threads in `state` (open by
  * default; `all`), or the one with `id`, each `stale` when the tree now is not the one it was
- * made on.
+ * made on. A deleted comment is in no listing; asked for by `id`, it says it was deleted.
  */
 export const listing = (
   root: string,
@@ -473,7 +484,9 @@ export const listing = (
   const threads =
     o.id !== undefined
       ? [threadOf(root, o.id)]
-      : readThreads(root).filter((t) => state === 'all' || t.state === state)
+      : readThreads(root).filter(
+          (t) => t.state !== 'deleted' && (state === 'all' || t.state === state),
+        )
   return {
     revision,
     head: head(root),

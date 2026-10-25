@@ -276,6 +276,11 @@ port the frame posts, as with the web player.
   closes the least recently used, once its frame has had 30 s to load. An id that is not 16 hex
   digits is `400`; one the project does not keep (unknown, or pruned) is `404`. The working tree's
   runner never reloads for them.
+- **Without `revision`, the tree it frames is stored**, as an unlisted revision: its files and its
+  revision, but no line in the log, so `versions`, `undo` and `restore` never see it. A comment on
+  what the page shows then names a tree that exists, however the files change while the person
+  writes. `prune` removes an unlisted revision no comment, job or bake names, once it is 10
+  minutes old, whatever `--keep` says. Only a framed tree is stored, not every `changed` one.
 
 - **The bridge redirects (`302`) to the runner page**, keeping the query but `s`. The runner page
   is served by the project's own Vite, on another port of 127.0.0.1, under a path that is itself a
@@ -407,6 +412,8 @@ thread, as `shaderera comments --json` gives it:
 
 - **States** are `open`, `fixed` and `resolved`. A reply with `fixed` makes it `fixed` in that
   reply's `revision` (`fixedIn`). The person's reply to a fixed comment opens it again.
+- **A deleted comment** is in no listing (`state` takes `open`, `fixed`, `resolved` or `all`).
+  Its `comment` event says `state: "deleted"`, so the page takes its marker away.
 - **`stale`** is true when the tree now is not the one the comment was made on.
 - Another `state` is `400`.
 
@@ -417,8 +424,8 @@ That guards against an agent's mistakes, not against a hostile process on your m
 that can write the project can append to `versions/comments.jsonl`.
 
 - **`revision`** is the tree the page shows (`/info`'s, a `changed` event's, or a held one's). The
-  working tree's id now is saved as a revision; any other must be a saved revision, and `t`,
-  `variant` and the frame are that revision's.
+  working tree's id now is saved as a revision. Any other must be a stored revision, listed or not
+  (a tree the page framed is stored, above), and `t`, `variant` and the frame are that revision's.
 - `t` (and `to`) must be inside the film or the variant.
 - `point` (`[x, y]`) or `box` (`[x, y, w, h]`, w and h above 0), not both, are in that variant's
   frame pixels, inside the frame.
@@ -433,8 +440,10 @@ The person's reply. To a `fixed` comment, it opens the comment again. An unknown
 
 ### `POST /comments/<id>/state {state}` → thread
 
-`resolved` resolves it; `open` opens it again. Only the person resolves, so only the page does.
-Another `state` is `400`; an unknown id is `404`.
+`resolved` resolves it; `open` opens it again; `deleted` takes it back. Only the person resolves
+or deletes, so only the page does. A deleted comment is for good: a reply or another state for it
+is `400`, and `shaderera comments show <id>` still says it was deleted. Another `state` is `400`;
+an unknown id is `404`.
 
 ### `GET /activity[?limit=200]` → `[entry]`
 
@@ -467,8 +476,9 @@ The entry's still, `image/png`. None is `404`.
 - `head`: as in `/info`.
 - `log`: what was saved, restored and undone, oldest first, as `shaderera versions --json` gives
   it (`{at, action, id, by, label?, pruned?}`).
-- `revisions`: every saved revision, oldest first, without its files:
-  `{id, parent, created, by, label?, note?}`.
+- `revisions`: every stored revision, oldest first, without its files:
+  `{id, parent, created, by, label?, note?, unlisted?}`. `unlisted` is a tree a page framed,
+  which no log line names.
 
 ### `GET /file?path=<path>`
 

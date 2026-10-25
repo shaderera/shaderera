@@ -50,6 +50,7 @@ Two facts shape the answer:
 
 5. **Compare uses the revisions comments name, not every edit.**
    - **Which revisions are saved.** The bridge saves the shown tree as a revision when a comment is made on it, and the fix saves one too. Edits in between are not stored.
+   - The bridge also stores, unlisted, each tree a page framed, so a comment always names a tree that exists; prune drops the unnamed ones.
    - **Compare** shows a comment's `revision` against its `fixedIn` on one clock. It uses `GET /runner?revision=<id>` from the frozen copy, with two at most besides the working tree's, or two stills through the relay.
    - **Prune never removes a revision an open or fixed comment names.** Pruning the revisions nobody names is a separate issue.
 

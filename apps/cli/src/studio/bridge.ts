@@ -62,6 +62,7 @@ import {
   save,
   scan,
   slash,
+  store,
   treeId,
   validPath,
 } from '../project/revisions.ts'
@@ -195,8 +196,9 @@ const missing = (root: string, id: string): BridgeReply | undefined => {
   }
 }
 
-/** The saved revisions, oldest first, without their files. */
+/** The stored revisions, oldest first, without their files; `unlisted` when no log line names it. */
 const revisionsOf = (root: string) => {
+  const listed = new Set(revisionLog(root).map((e) => e.id))
   const dir = join(root, 'versions', 'revisions')
   let names: string[] = []
   try {
@@ -214,6 +216,7 @@ const revisionsOf = (root: string) => {
             by: r.by,
             ...(r.label ? { label: r.label } : {}),
             ...(r.note ? { note: r.note } : {}),
+            ...(listed.has(r.id) ? {} : { unlisted: true }),
           },
         ]
       } catch {
@@ -732,7 +735,14 @@ export const startBridge = async (o: {
         if (found) return found
         variants = manifestAt(root, id).variants ?? {}
         page = (await frozenRunner(id)).page
-      }
+      } else
+        try {
+          // The tree the page frames is stored, unlisted, so a comment on it names a tree that
+          // exists however the files change while the person writes (decision 0025, point 5).
+          store(root, { by: 'studio' })
+        } catch (error) {
+          log('warn', `the framed tree was not stored: ${(error as Error).message}`)
+        }
       if (variant !== null && !Object.hasOwn(variants, variant))
         return json(400, { error: `shaderera.json has no variant "${variant}"` })
       const query = new URLSearchParams(url.search)
@@ -769,8 +779,8 @@ export const startBridge = async (o: {
       try {
         if (op === 'reply')
           return json(200, await replyTo(root, id, body.text as string, { by: 'person' }))
-        if (body.state !== 'open' && body.state !== 'resolved')
-          return json(400, { error: 'state is open or resolved' })
+        if (body.state !== 'open' && body.state !== 'resolved' && body.state !== 'deleted')
+          return json(400, { error: 'state is open, resolved or deleted' })
         return json(200, await setState(root, id, body.state, 'person'))
       } catch (error) {
         return json(400, { error: (error as Error).message })

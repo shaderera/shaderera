@@ -118,7 +118,7 @@ export const isSecret = (file: string, name: string): boolean =>
 /** writeAtomic's temporary files, which another process may be about to move into place. */
 const TEMPORARY = /\.\d+\.tmp$/
 
-const store = (root: string) => join(root, 'versions')
+const versionsOf = (root: string) => join(root, 'versions')
 const sha256 = (data: Uint8Array) => createHash('sha256').update(data).digest('hex')
 export const slash = (p: string) => p.split(sep).join('/')
 
@@ -221,7 +221,7 @@ export const treeId = (files: Files): string =>
 
 /** The ids `shaderera prune` removed, from `versions/pruned.jsonl` (a torn line is skipped). */
 export const prunedIds = (root: string): Set<string> => {
-  const file = join(store(root), 'pruned.jsonl')
+  const file = join(versionsOf(root), 'pruned.jsonl')
   const ids = new Set<string>()
   if (!existsSync(file)) return ids
   for (const line of readFileSync(file, 'utf8').split('\n'))
@@ -240,7 +240,7 @@ const wasPruned = (id: string) =>
 /** A revision, checked: its id is the hash of its files, and every path and hash is well formed. */
 export const readRevision = (root: string, id: string): Revision => {
   if (!/^[0-9a-f]{16}$/.test(id)) throw new Error(`No revision ${id}.`)
-  const file = join(store(root), 'revisions', `${id}.json`)
+  const file = join(versionsOf(root), 'revisions', `${id}.json`)
   let text: string
   try {
     text = readFileSync(file, 'utf8')
@@ -258,7 +258,7 @@ export const readRevision = (root: string, id: string): Revision => {
 }
 
 export const log = (root: string): LogEntry[] => {
-  const file = join(store(root), 'log.jsonl')
+  const file = join(versionsOf(root), 'log.jsonl')
   if (!existsSync(file)) return []
   return readFileSync(file, 'utf8')
     .split('\n')
@@ -270,9 +270,9 @@ export const log = (root: string): LogEntry[] => {
 export const head = (root: string): string | null => log(root).at(-1)?.id ?? null
 
 const append = (root: string, entry: Omit<LogEntry, 'at'>) => {
-  mkdirSync(store(root), { recursive: true })
+  mkdirSync(versionsOf(root), { recursive: true })
   appendFileSync(
-    join(store(root), 'log.jsonl'),
+    join(versionsOf(root), 'log.jsonl'),
     `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
   )
 }
@@ -340,17 +340,18 @@ export const scanProject = (root: string, left?: Parameters<typeof scan>[1]): Fi
 }
 
 /**
- * Saves the working tree as a revision and returns it; the same files return the revision that
- * holds them, `existing`, with its own label and note (a new label is only logged, when given or
- * when it is not already the head).
+ * Stores the working tree as a revision, its objects and its JSON, and returns it, without a line
+ * in the log: `versions`, `undo` and `restore` never see it, and `prune` removes it unless a
+ * comment, a job or a bake names it. The studio stores so each tree a page frames, for a comment
+ * to name (decision 0025, point 5). The same files return the revision that holds them, `existing`.
  */
-export const save = (
+export const store = (
   root: string,
   o: { by: By; label?: string; note?: string } = { by: 'person' },
 ): Revision & { existing: boolean } => {
   const files = scanProject(root)
   const id = treeId(files)
-  const objects = join(store(root), 'objects')
+  const objects = join(versionsOf(root), 'objects')
   mkdirSync(objects, { recursive: true })
   for (const [path, hash] of Object.entries(files)) {
     const object = join(objects, hash)
@@ -368,30 +369,41 @@ export const save = (
     }
     renameSync(tmp, object)
   }
-  const file = join(store(root), 'revisions', `${id}.json`)
+  const file = join(versionsOf(root), 'revisions', `${id}.json`)
   const parent = head(root)
   const existing = existsSync(file)
-  let revision: Revision
-  if (existing) revision = readRevision(root, id)
-  else {
-    revision = {
-      id,
-      parent: parent === id ? null : parent,
-      created: new Date().toISOString(),
-      by: o.by,
-      ...(o.label ? { label: o.label } : {}),
-      ...(o.note ? { note: o.note } : {}),
-      files,
-    }
-    writeAtomic(file, `${JSON.stringify(revision, null, 1)}\n`)
+  if (existing) return { ...readRevision(root, id), existing }
+  const revision: Revision = {
+    id,
+    parent: parent === id ? null : parent,
+    created: new Date().toISOString(),
+    by: o.by,
+    ...(o.label ? { label: o.label } : {}),
+    ...(o.note ? { note: o.note } : {}),
+    files,
   }
-  if (parent !== id || o.label) append(root, { action: 'save', id, by: o.by, label: o.label })
+  writeAtomic(file, `${JSON.stringify(revision, null, 1)}\n`)
   return { ...revision, existing }
+}
+
+/**
+ * Saves the working tree as a revision and returns it: stores it, and logs it. The same files
+ * return the revision that holds them, `existing`, with its own label and note (a new label is
+ * only logged, when given or when it is not already the head).
+ */
+export const save = (
+  root: string,
+  o: { by: By; label?: string; note?: string } = { by: 'person' },
+): Revision & { existing: boolean } => {
+  const revision = store(root, o)
+  if (head(root) !== revision.id || o.label)
+    append(root, { action: 'save', id: revision.id, by: o.by, label: o.label })
+  return revision
 }
 
 /** A stored file's contents, checked against its hash. */
 export const readObject = (root: string, hash: string): Buffer => {
-  const data = readFileSync(join(store(root), 'objects', hash))
+  const data = readFileSync(join(versionsOf(root), 'objects', hash))
   if (sha256(data) !== hash) throw new Error(`versions/objects/${hash} is corrupt.`)
   return data
 }
@@ -417,7 +429,7 @@ const checkout = (root: string, target: Revision, dir = root) => {
   const writes = Object.entries(target.files)
     .filter(([path, hash]) => now[path] !== hash)
     .map(([path, hash]) => {
-      const object = join(store(root), 'objects', hash)
+      const object = join(versionsOf(root), 'objects', hash)
       if (!intact(object, hash)) throw corrupt(hash)
       return [inside(dir, path), object, hash] as const
     })
@@ -518,7 +530,7 @@ const complete = (root: string, revision: Revision, dir: string) =>
     try {
       return (
         statSync(join(dir, ...path.split('/'))).size ===
-        statSync(join(store(root), 'objects', hash)).size
+        statSync(join(versionsOf(root), 'objects', hash)).size
       )
     } catch {
       return false

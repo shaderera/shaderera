@@ -369,7 +369,9 @@ removes the revisions nobody needs and every object no remaining revision names.
 - every revision whose files a bake stamp (`versions/bakes/`) was made from;
 - every revision `versions/comments.jsonl` names;
 - every revision whose frozen copy a live process is using (a render may be running from it);
-- the last `n` saves (`--keep`, 10 by default).
+- an unlisted revision (a tree the studio page framed, never in the log) stored in the last 10
+  minutes;
+- the last `n` saves (`--keep`, 10 by default), which never count an unlisted revision.
 
 `--dry-run` prints what it would remove and the bytes it would free, and removes nothing; without
 it, prune prints the same and removes them. Removing is for good: run `--dry-run` first. A pruned
@@ -399,7 +401,7 @@ folder, a git push. `share`, `fork` and `handoff` never send them.
 | Command | Does |
 |---|---|
 | `comments [list] [--state open\|fixed\|resolved\|all] [--json]` | the comments in that state (`open` by default) |
-| `comments show <id> [--json]` | one comment, with its replies |
+| `comments show <id> [--json]` | one comment, with its replies; a comment the person deleted says `deleted`, and is in no list |
 | `comments add --at <t>[-<t2>] [--variant v] [--point x,y \| --box x,y,w,h] <text>` | files a comment at t (or the range t to t2) on the tree as it is, which it saves as a revision. `--point` and `--box` are in that variant's frame pixels |
 | `comments reply <id> [--fixed] <text>` | replies. `--fixed` saves the tree as a revision labelled `fix <id>: <text>` (cut to 60 characters) and marks the comment fixed in it; when nothing changed since the revision the comment was made on, it refuses (exit 2) |
 | `comments reopen <id>` | opens it again. `comments resolve <id>` exits 2: "Resolve it in the studio: only the person resolves" |
