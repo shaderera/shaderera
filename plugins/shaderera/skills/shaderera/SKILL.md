@@ -52,9 +52,11 @@ CLI shows the same things (step 3).
    `{ id: 'title', text: 'Hello', box: [160, 236, 420, 84] }`. Review skips any other shape with
    no warning (`node_modules/shaderera/docs/protocol.md`, "Text runs").
 3. Check after every edit: `npx shaderera check`. `render(t)` must stay a function of `t`.
-4. Look: `npx shaderera still <t>... --sheet`, a detail with `--region x,y,w,h --scale 8`, or
-   MCP `still` (a contact sheet) or `render_frame` with `image: true` (scaled to 1024 px; `full`
-   or a `region` for detail). Read motion as a curve: `npx shaderera inspect --track <path>`.
+4. Look, through MCP whenever its tools are there: each CLI call starts the film cold (seconds
+   on a real film), where an MCP call reuses the open one (tens of milliseconds). MCP `still`
+   (a contact sheet) or `render_frame` with `image: true` (scaled to 1024 px; `full` or a
+   `region` for detail); without MCP, `npx shaderera still <t>... --sheet`, a detail with
+   `--region x,y,w,h --scale 8`. Read motion as a curve: `npx shaderera inspect --track <path>`.
    Compare the frames a change should affect with the ones it should not.
    A film made in several ratios (`16:9` and `9:16` variants) lays out by `host.variant`. Look
    at them on one sheet, `npx shaderera still <t>... --variant 16:9,9:16 --sheet` (MCP `still`
@@ -133,7 +135,8 @@ needs no sign-in. The fork keeps the owner's licence; with `UNLICENSED` the owne
 right, so ask before sharing or reusing any of it.
 
 **The studio** is a page on shaderera.com that previews, renders and shares the project on this
-machine. When the person wants to watch, render or share from a page:
+machine. When the person wants to review the film with you, or watch, render or share it from a
+page:
 
 1. Run `npx shaderera studio --json` in the background (`--connect <id>` when the page gave the
    person a command with an id).
@@ -144,6 +147,13 @@ machine. When the person wants to watch, render or share from a page:
 4. On a `mismatch` event, relay its `text`: the page and the CLI speak different studio
    protocols (this CLI speaks v1). `update: "page"` means reload the page; `update: "cli"` means
    `npm i shaderera@latest` and run `studio` again (the command ends with exit 2).
+
+Reviewing there is a loop with the person. The page reloads the frame on each of your edits (a
+`changed` event), so they see every change without asking. Their notes come through the chat
+(until the page has comments), naming a moment: "the title at 2.4 s", "the
+logo in the corner". Read that moment yourself before you change anything: MCP `render_frame` at
+that `t` (with a `region` or the object's id), `inspect` for its state, `pick` at the point they
+name for the object and its line. Then edit, check, and say what changed.
 
 The code and renders stay on this machine: the page reads them from a bridge on 127.0.0.1. Only
 a share sends the project. The relay on shaderera.com pairs the two and carries sealed traffic
