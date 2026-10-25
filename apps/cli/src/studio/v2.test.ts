@@ -79,6 +79,8 @@ test('/info gives the tree, the head and whether an agent waits for comments', a
   assert.equal(info.revision, treeId(scanProject(root)))
   assert.equal(info.head, saved)
   assert.equal(info.listening, false)
+  // The films API is said only when it is not the default.
+  assert.equal(info.api, SITE)
   // A waiter touches its file every second: a file younger than 5 s is an agent waiting.
   const waits = join(root, '.shaderera', 'comments.wait')
   mkdirSync(waits, { recursive: true })
@@ -518,4 +520,28 @@ test('the person deletes a comment: listings drop it, the event and show still s
   const other = jsonOf(await post('/comments', { revision: shown, t: 0.2, text: 'keep' }))
   await assert.rejects(setState(root, other.id, 'deleted', 'agent'), /Only the person deletes/)
   sse.close()
+})
+
+test('/info leaves out the default films API', async () => {
+  const other = tempDir('studio-api')
+  cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), other, {
+    recursive: true,
+  })
+  const b = await startBridge({
+    root: other,
+    api: 'https://api.shaderera.com',
+    site: SITE,
+    origins: [SITE],
+  })
+  try {
+    const info = jsonOf(
+      await call(b.port, {
+        path: '/info',
+        headers: { Origin: SITE, Authorization: `Bearer ${b.secret}` },
+      }),
+    )
+    assert.equal('api' in info, false)
+  } finally {
+    await b.close()
+  }
 })

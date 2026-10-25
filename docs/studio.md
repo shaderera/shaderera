@@ -241,7 +241,8 @@ the bridge closes that connection after it.
   "telemetry": true,
   "revision": "…",
   "head": "…",
-  "listening": false
+  "listening": false,
+  "api": "…"
 }
 ```
 
@@ -258,6 +259,8 @@ the bridge closes that connection after it.
 - `head` is the revision last saved or restored, or `null`.
 - `listening` is true while an agent waits for comments (`shaderera comments --wait`): some
   waiter's file in `.shaderera/comments.wait/` was touched in the last 5 s.
+- `api` is the films API Share sends to (`--api`), there only when it is not the default
+  `https://api.shaderera.com`: a command the page shows to run the studio again keeps it.
 - Each request reads the project again, so an agent's edit to shaderera.json shows.
 
 ### `GET /runner?s=<secret>&parent=<page origin>[&variant=<name>][&revision=<id>]`
