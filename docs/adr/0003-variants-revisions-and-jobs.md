@@ -28,6 +28,10 @@ A creative IR or timeline would freeze everything but is exactly what the archit
 - A job's `id` hashes everything it renders with; its `name` is the file. A name never changes
   meaning: different inputs under a taken name are refused unless replaced explicitly, and a job
   or revision edited by hand no longer matches its id and is refused.
+- (Amended 2026-10-25, #387: revisions can be pruned. `shaderera prune` removes the revisions
+  nobody names and the objects only they held. It keeps the head, labelled revisions, those a job,
+  a bake stamp or a comment names, those with a frozen copy, and the last n saves; a pruned
+  revision's log lines stay, marked pruned.)
 - Revisions never follow or store links and never write through one (an in-progress review on
   2026-10-08 showed a junction to an outside folder being saved and then restored over).
 

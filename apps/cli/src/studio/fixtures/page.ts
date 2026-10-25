@@ -1,7 +1,7 @@
 // The two sides a studio test talks to the CLI with: the bridge over HTTP, and the studio
 // page over the relay, as the page does it, with WebCrypto.
 import assert from 'node:assert/strict'
-import { request as httpRequest } from 'node:http'
+import { type Agent, request as httpRequest } from 'node:http'
 import { keyPair, makeNonce, PROTOCOL, relayUrl, seal, sessionKey, unseal } from '../pairing.ts'
 
 /** The nonce the in-process CLIs pair with; the CLI makes one of its own each run. */
@@ -10,7 +10,13 @@ export const nonce = makeNonce()
 /** One request to the bridge, with the headers given (Node's fetch would not set Origin). */
 export const call = (
   port: number,
-  o: { method?: string; path: string; headers?: Record<string, string>; body?: unknown },
+  o: {
+    method?: string
+    path: string
+    headers?: Record<string, string>
+    body?: unknown
+    agent?: Agent
+  },
 ) =>
   new Promise<{ status: number; headers: Record<string, unknown>; body: Buffer }>((done, fail) => {
     const req = httpRequest(
@@ -19,6 +25,7 @@ export const call = (
         port,
         method: o.method ?? 'GET',
         path: o.path,
+        ...(o.agent ? { agent: o.agent } : {}),
         headers: {
           ...o.headers,
           ...(o.body === undefined ? {} : { 'Content-Type': 'application/json' }),

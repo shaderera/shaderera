@@ -44,6 +44,17 @@ _Avoid_: editor, IDE, dev server
 One pairing of a studio page with a local CLI, named by a one-time id in the page's address.
 _Avoid_: room, connection
 
+**Comment**:
+What the person leaves on the film at a time or a range, on a variant, sometimes at a point or
+box in the frame, and on the revision they were watching. The agent fixes it; only the person
+resolves it ([0025](docs/adr/0025-comments-and-activity-in-the-studio.md)).
+_Avoid_: review, note, annotation, feedback
+
+**Activity**:
+What the agent and the CLI did in a project, in order: commands, tool calls, edits, renders,
+replies to comments and the agent's own lines. The studio shows it as a feed.
+_Avoid_: log, history, audit
+
 **render(t)**:
 The one function every film has: it takes a time in seconds and returns the frame at that time.
 The same `t` always gives the same frame.
