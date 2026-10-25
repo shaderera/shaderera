@@ -9,7 +9,7 @@ import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { addressOf, call, nonce, page } from './fixtures/page.ts'
 import { startRelay } from './fixtures/relay.ts'
-import { makeId } from './pairing.ts'
+import { keyPair, makeId, PROTOCOL } from './pairing.ts'
 
 // The user's tokens (share) live in a home of the tests' own.
 const home = tempDir('home')
@@ -359,6 +359,118 @@ test("shaderera studio --json: the page's console comes as log events, without a
     cli.kill('SIGINT')
     await exited
     p.ws.close()
+    await slow.close()
+  }
+})
+
+/** `shaderera studio --json --no-open` on a project, and its events as they come. */
+const studioJson = (site: string, args: readonly string[] = []) => {
+  const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+  const cli = spawn(
+    process.execPath,
+    [main, 'studio', '--site', site, '--no-open', '--json', '--root', fixture(), ...args],
+    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+  )
+  let out = ''
+  cli.stdout.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  cli.stderr.on('data', (d: Buffer) => {
+    out += d.toString()
+  })
+  // 'close', not 'exit': stdout has been read to its end.
+  const exited = new Promise<number>((done) => cli.on('close', (code) => done(code ?? -1)))
+  const events = () =>
+    out
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
+  const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
+    for (let i = 0; i < 400; i++) {
+      const e = events().find(match)
+      if (e) return e
+      if (cli.exitCode !== null) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
+    throw new Error(`no such event in: ${out}`)
+  }
+  return { cli, exited, events, event, out: () => out }
+}
+
+test('shaderera studio ends cleanly when its stdin closes or on a stop line', async () => {
+  for (const stop of ['close', 'line'] as const) {
+    const slow = await startRelay()
+    const id = makeId()
+    const p = page(slow.origin, id)
+    const s = studioJson(slow.origin, ['--connect', id])
+    try {
+      const url = await s.event((e) => e.event === 'url')
+      await p.pair(new URL(url.url as string).hash.slice(1))
+      await s.event((e) => e.event === 'paired')
+      if (stop === 'close') s.cli.stdin.end()
+      else s.cli.stdin.write('{"stop":true}\n')
+      assert.equal(await s.exited, 0, s.out())
+      const last = s.events().at(-1)
+      assert.deepEqual(last, { event: 'ended', exitCode: 0 }, stop)
+      // The session ended at the relay: the page is told so.
+      assert.equal(await p.closed, 4004, stop)
+    } finally {
+      s.cli.kill('SIGINT')
+      await s.exited
+      p.ws.close()
+      await slow.close()
+    }
+  }
+})
+
+test('shaderera studio: an id no page came for gives a new id and url, and goes on', async () => {
+  const short = await startRelay({ ttlMs: 1500, alarm: true })
+  const s = studioJson(short.origin)
+  try {
+    const first = await s.event((e) => e.event === 'url')
+    const second = await s.event((e) => e.event === 'url' && e.id !== first.id)
+    assert.equal(second.expired, first.id)
+    assert.match(String(second.text), /No studio page came/)
+    assert.equal(second.opened, false)
+    assert.ok(!s.events().some((e) => e.event === 'ended'), s.out())
+    // The new id pairs.
+    const p = page(short.origin, second.id as string)
+    await p.pair(new URL(second.url as string).hash.slice(1))
+    await s.event((e) => e.event === 'paired')
+    p.ws.close()
+  } finally {
+    s.cli.stdin.end()
+    await s.exited
+    await short.close()
+  }
+})
+
+test('shaderera studio: a page that leaves before pairing is no reload', async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  // A page that says hello and closes, then another that pairs.
+  const first = page(slow.origin, id)
+  await first.opened
+  const s = studioJson(slow.origin, ['--connect', id])
+  try {
+    const url = await s.event((e) => e.event === 'url')
+    await first.next('cli-joined')
+    first.send({ type: 'page-hello', pub: (await keyPair()).pub, protocol: PROTOCOL })
+    await first.next('cli-hello')
+    first.ws.close()
+    await first.closed
+    await new Promise((r) => setTimeout(r, 200))
+    const p = page(slow.origin, id)
+    await p.pair(new URL(url.url as string).hash.slice(1))
+    await s.event((e) => e.event === 'paired')
+    await new Promise((r) => setTimeout(r, 200))
+    const names = s.events().map((e) => e.event)
+    assert.ok(!names.includes('resumed'), names.join(' '))
+    assert.ok(!names.includes('page-closed'), names.join(' '))
+    p.ws.close()
+  } finally {
+    s.cli.stdin.end()
+    await s.exited
     await slow.close()
   }
 })

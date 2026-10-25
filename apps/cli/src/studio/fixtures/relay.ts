@@ -1,7 +1,9 @@
 // A stand-in for the site's studio relay (docs/studio.md, "The relay"), in memory, for tests: a
 // WebSocket server of its own (RFC 6455, text and close frames only) at
 // /studio/relay/<id>?role=page|cli, with the relay's rules:
-// - an id not paired within `ttlMs` of its first connection is expired: a CLI gets 4001;
+// - an id not paired within `ttlMs` of its first connection is expired: a CLI gets 4001; with
+//   `alarm`, the sockets still on it then get 4001 too, and the id is forgotten, as the Worker's
+//   alarm does;
 // - once the page sends `paired` (taken only after the CLI there has sent `bridge`), the id is
 //   used: a CLI gets 4002 and a page 4003;
 // - before that, a second CLI gets 4002 too, and a second page replaces the first (a reload);
@@ -128,7 +130,9 @@ const peer = (
   }
 }
 
-export const startRelay = async (o: { ttlMs?: number; maxMessage?: number } = {}) => {
+export const startRelay = async (
+  o: { ttlMs?: number; maxMessage?: number; alarm?: boolean } = {},
+) => {
   const ttl = o.ttlMs ?? 10 * 60_000
   const sessions = new Map<string, Session>()
   /** Every frame the relay forwarded, as text: what it saw. */
@@ -154,8 +158,16 @@ export const startRelay = async (o: { ttlMs?: number; maxMessage?: number } = {}
     const id = match[1] as string
     let s = sessions.get(id)
     if (!s) {
-      s = { created: Date.now(), paired: false }
+      const fresh: Session = { created: Date.now(), paired: false }
+      s = fresh
       sessions.set(id, s)
+      if (o.alarm)
+        setTimeout(() => {
+          if (fresh.paired) return
+          sessions.delete(id)
+          fresh.cli?.close(4001, 'expired')
+          fresh.page?.close(4001, 'expired')
+        }, ttl).unref()
     }
     const session = s
     const other = () => (role === 'page' ? session.cli : session.page)

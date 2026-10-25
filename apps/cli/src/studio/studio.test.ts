@@ -320,7 +320,7 @@ test('a page that reloads is not closed; one that does not come back is', async 
   // Closed, and nothing comes back in time.
   first.ws.close()
   assert.deepEqual(await hear(1), ['closed'])
-  // Before pairing, a reload says hello again in time.
+  // Before pairing, a page that says hello in time is no reload: it pairs.
   const second = page(relay.origin, id)
   closeAtEnd(t, second)
   await second.opened
@@ -329,7 +329,8 @@ test('a page that reloads is not closed; one that does not come back is', async 
   const third = page(relay.origin, id)
   closeAtEnd(t, third)
   const { bridge: got } = await third.pair()
-  assert.deepEqual(await hear(2), ['closed', 'reloaded'])
+  await new Promise((r) => setTimeout(r, 100))
+  assert.deepEqual(heard, ['closed'])
   // Paired, a reload resumes without a hello: its request to the bridge is the page back.
   third.ws.close()
   await third.closed
@@ -339,10 +340,10 @@ test('a page that reloads is not closed; one that does not come back is', async 
     headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
   })
   assert.equal(info.status, 200)
-  assert.deepEqual(await hear(3), ['closed', 'reloaded', 'reloaded'])
+  assert.deepEqual(await hear(2), ['closed', 'reloaded'])
   // And no `closed` follows it.
   await new Promise((r) => setTimeout(r, 1200))
-  assert.deepEqual(heard, ['closed', 'reloaded', 'reloaded'])
+  assert.deepEqual(heard, ['closed', 'reloaded'])
 })
 
 test('a page of another protocol is told which side to update, and never gets the bridge', async (t) => {

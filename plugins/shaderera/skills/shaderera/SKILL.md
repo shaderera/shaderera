@@ -144,6 +144,12 @@ machine. When the person wants to watch, render or share from a page:
 4. On a `mismatch` event, relay its `text`: the page and the CLI speak different studio
    protocols (this CLI speaks v1). `update: "page"` means reload the page; `update: "cli"` means
    `npm i shaderera@latest` and run `studio` again (the command ends with exit 2).
+5. A second `url` event means no page came for the first address in 10 minutes: give the person
+   the new one.
+6. To stop it, write `{"stop":true}` and a newline to its stdin, or close its stdin: it ends with
+   `ended` and the page is told. Start it with stdin as a pipe for that. If you cannot reach its
+   stdin, send SIGTERM (macOS, Linux), or kill it as your tools stop a command; the page then
+   hears only that the CLI left.
 
 The code and renders stay on this machine: the page reads them from a bridge on 127.0.0.1. Only
 a share sends the project. The relay on shaderera.com pairs the two and carries sealed traffic

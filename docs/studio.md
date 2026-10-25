@@ -33,13 +33,24 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
 - **`--root`, `--host`, `--trusted` and `--timeout`** are the common flags. The last three apply
   to the renders the page asks for, and to a share's poster and loop.
 
-It runs until Ctrl-C. Once paired, it keeps serving the page even if the relay closes, and
-rejoins the relay when it was dropped (below). Ctrl-C ends the session: the page says the CLI
-disconnected.
+It runs until you stop it. Once paired, it keeps serving the page even if the relay closes, and
+rejoins the relay when it was dropped (below). Stopping it ends the session: the page says the CLI
+disconnected. It stops, cleanly, on:
+- Ctrl-C, or SIGTERM;
+- when its stdin is a pipe (an agent's): stdin closing, or the line `{"stop":true}` on it.
 
-When the page closes, the CLI says so only if no page comes back within 10 seconds. A reload comes
-back sooner (a new `page-hello`, or a request to the bridge, directly or through the relay), and
-the CLI says "the studio page reloaded" instead.
+Killing the process (on Windows, any signal from another process kills it) skips all that: the
+page hears only that the CLI left, and the relay keeps the session for a while in case it comes
+back.
+
+An id the CLI made itself that no page pairs with in 10 minutes expires (below). The CLI then
+makes a new id and prints its address (a second `url` event, not opened), and goes on waiting. An
+id from `--connect` belongs to the page that made it: when it expires, the command ends.
+
+When the page closes, the CLI says so only if no page comes back within 10 seconds. Once paired,
+a reload comes back sooner (a new `page-hello`, or a request to the bridge, directly or through
+the relay), and the CLI says "the studio page reloaded" instead. Before pairing, a page that comes
+back is simply the page that pairs.
 
 **For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
 `url` event's address (or let the command open it), and read the events. stdout is one JSON object
@@ -48,17 +59,22 @@ a line, `{event, ...}`:
 | Event | Fields | When |
 |---|---|---|
 | `notice` | `text` | the first `studio` on this machine: the telemetry notice |
-| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api` | the bridge is up; `opened` is false with `--no-open` |
+| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api`; `expired`, `text` on a new id | the bridge is up; `opened` is false with `--no-open`. Again, with a new id, when no page came for the last one in 10 minutes: `expired` is that id |
 | `paired` | | the page the CLI opened paired |
 | `page-closed` | | the page closed and did not come back within 10 s |
-| `resumed` | | the page came back within 10 s (a reload) |
+| `resumed` | | once paired, the page came back within 10 s (a reload) |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
 | `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events |
-| `ended` | `exitCode`, `error?` | the command ends: Ctrl-C (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
+| `ended` | `exitCode`, `error?` | the command ends: stopped (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
 
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,
 with exit code 2, before any event.
+
+**To stop it**, close its stdin or write `{"stop":true}` and a newline to it: it sends `ended`
+and exits 0, and the page is told the session ended. Start it with stdin as a pipe for that.
+Where stdin is not a pipe (a shell's background job gets none), stop it with SIGTERM on macOS and
+Linux. Otherwise you can only kill it (above).
 
 **Against a local site.** Run the site's dev server, for example on `http://127.0.0.1:5197`,
 then, in a project:
@@ -141,7 +157,7 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
     8, 16 and then every 30 s, for as long as it runs. Its keys stay, so the page goes on.
   - A side with its token replaces that side's socket, if one is still there, and gets
     `{type:"resumed"}`; a CLI's return sends the page `cli-joined`.
-- **The session ends** when the paired CLI closes with 1000 (Ctrl-C): the relay closes the page
+- **The session ends** when the paired CLI closes with 1000 (stopped): the relay closes the page
   with `4004`. A paired CLI that dropped and does not come back within 10 minutes ends it too.
 - **An id that expired or ended is forgotten**: the relay deletes what it stored, so the id then
   starts as a new one.

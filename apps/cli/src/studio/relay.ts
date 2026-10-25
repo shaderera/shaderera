@@ -51,7 +51,7 @@ export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000
 /** What a close code means, for the person. */
 export const closeText = (code: number, site: string, id: string): string =>
   code === CLOSE.expired
-    ? `Studio session ${id} expired: no CLI paired with it within 10 minutes. Open ${site}/studio for a new one.`
+    ? `Studio session ${id} expired: the page and the CLI did not pair within 10 minutes. Open ${site}/studio for a new one.`
     : code === CLOSE.used
       ? `Studio session ${id} is already paired with another CLI. Open ${site}/studio for a new one.`
       : code === CLOSE.taken
@@ -76,8 +76,8 @@ export const connectRelay = (o: {
   hello: { version: string; os: string; telemetry: boolean }
   onPaired?: () => void
   /**
-   * The page left and did not come back within `pageBackMs` (`closed`), or came back within it
-   * (`reloaded`): a reload is not a close.
+   * The page left and did not come back within `pageBackMs` (`closed`), or, once paired, came
+   * back within it (`reloaded`): a reload is not a close.
    */
   onPage?: (state: 'closed' | 'reloaded') => void
   /**
@@ -116,7 +116,8 @@ export const connectRelay = (o: {
     if (!away) return
     clearTimeout(away)
     away = undefined
-    o.onPage?.('reloaded')
+    // Before pairing, a page that says hello is a page that pairs, not one that reloaded.
+    if (paired) o.onPage?.('reloaded')
   }
   const stopVisits = o.bridge.onVisit(pageBack)
   const send = (m: Message) => {
