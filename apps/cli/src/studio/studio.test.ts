@@ -348,6 +348,40 @@ test('a reload whose request reaches the bridge before the page-left is resumed,
   assert.deepEqual(heard, ['reloaded'])
 })
 
+test('a page said closed that comes back later (15 s, waiting for Connect) is back', async (t) => {
+  const id = makeId()
+  const heard: string[] = []
+  const p = page(relay.origin, id)
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+    onPage: (state) => heard.push(state),
+  })
+  closeAtEnd(t, cli, p)
+  const { bridge: got } = await p.pair()
+  p.ws.close()
+  await p.closed
+  // Longer than the 10 s a reload has: closed.
+  await new Promise((r) => setTimeout(r, 15_000))
+  assert.deepEqual(heard, ['closed'])
+  // The page is back (Connect pressed): its request to the bridge.
+  const info = await call(got.port, {
+    path: '/info',
+    headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
+  })
+  assert.equal(info.status, 200)
+  assert.deepEqual(heard, ['closed', 'reloaded'])
+  // Said once: the page's next request says nothing more.
+  await call(got.port, {
+    path: '/info',
+    headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
+  })
+  assert.deepEqual(heard, ['closed', 'reloaded'])
+})
+
 test('a page of another protocol is told which side to update, and never gets the bridge', async (t) => {
   const id = makeId()
   const said: { update: string; text: string }[] = []

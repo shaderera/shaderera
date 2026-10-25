@@ -204,7 +204,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       onPage: (state) =>
         state === 'closed'
           ? say('page-closed', {}, 'the studio page closed')
-          : say('resumed', {}, 'the studio page reloaded'),
+          : say('resumed', {}, 'the studio page is back'),
       onRelay: (back) =>
         say(
           'relay',

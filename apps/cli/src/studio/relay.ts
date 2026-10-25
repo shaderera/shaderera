@@ -83,7 +83,7 @@ export const connectRelay = (o: {
   onPaired?: () => void
   /**
    * The page left and did not come back within `pageBackMs` (`closed`), or, once paired, came
-   * back within it (`reloaded`): a reload is not a close.
+   * back (`reloaded`): within it, so a reload is not a close, or after a `closed`.
    */
   onPage?: (state: 'closed' | 'reloaded') => void
   /**
@@ -116,12 +116,15 @@ export const connectRelay = (o: {
   let error: string | undefined
   // The protocol of the last page that said a mismatched hello: said once, not on every hello.
   let told: number | undefined
-  // A page that left: closed when this runs out, reloaded when it is seen again before.
+  // A page that left: closed when this runs out, reloaded when it is seen again before. One said
+  // closed that is seen again later (a reload that waited for Connect) is back too.
   let away: NodeJS.Timeout | undefined
+  let gone = false
   const pageBack = () => {
-    if (!away) return
+    if (!away && !gone) return
     clearTimeout(away)
     away = undefined
+    gone = false
     // Before pairing, a page that says hello is a page that pairs, not one that reloaded.
     if (paired) o.onPage?.('reloaded')
   }
@@ -270,6 +273,7 @@ export const connectRelay = (o: {
       }
       away = setTimeout(() => {
         away = undefined
+        gone = true
         o.onPage?.('closed')
       }, o.pageBackMs ?? PAGE_BACK_MS)
     } else if (m.type === 'rpc' && key && typeof m.iv === 'string' && typeof m.box === 'string') {

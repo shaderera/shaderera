@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { cli } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
+import { tail } from '../project/activity.ts'
 import { addComment, waitDir } from '../project/comments.ts'
 import { createServer } from './mcp.ts'
 
@@ -108,6 +109,12 @@ test('reply --fixed on an unchanged tree exits 2 with the refusal; only the pers
     const fixed = await call('comment_reply', { id: c.id, text: 'brighter now', fixed: true })
     assert.equal(fixed.comments[0].state, 'fixed')
     assert.match(fixed.comments[0].fixedIn, /^[0-9a-f]{16}$/)
+    // The fix is its own record: no tool entry for it; the refused calls have one each.
+    const tools = tail(root, 100).filter((e) => e.kind === 'tool' && e.tool === 'comment_reply')
+    assert.deepEqual(
+      tools.map((e) => e.kind === 'tool' && e.ok),
+      [false],
+    )
     // Fixed again with nothing changed since that fix: refused.
     await assert.rejects(
       call('comment_reply', { id: c.id, text: 'again', fixed: true }),
