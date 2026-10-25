@@ -26,6 +26,7 @@ Versions and jobs:
   undo                                       back to the previous revision
   restore <revision>                         make the project that revision
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
+  prune [--dry-run] [--keep 10]              remove the revisions nobody names, and the objects only they held
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems] [--hdr10]   freeze a render job
 
 shaderera.com: the films API is --api <origin>, else SHADERERA_API, else https://api.shaderera.com;
@@ -65,6 +66,7 @@ const commands = [
   'undo',
   'restore',
   'diff',
+  'prune',
   'job',
   'login',
   'logout',

@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -158,6 +167,49 @@ test('render saves the revision it renders and tags the file; render --job saves
   assert.equal(frozen.status, 0, frozen.stderr)
   assert.equal((await versions()).log.length, saves)
   assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
+})
+
+test('after prune --keep 0, render --job and restore still work, and diff says the pruned one was', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = copy('./fixtures/mcp/')
+  const cli = (...args: string[]) => run(...args, '--root', root)
+  const saveWith = async (text: string, ...flags: string[]) => {
+    writeFileSync(join(root, 'asset.bin'), text)
+    const r = await cli('save', ...flags)
+    assert.equal(r.status, 0, r.stderr)
+    return r.stdout.split(' ')[0] as string
+  }
+  const a = await saveWith('A only')
+  assert.equal((await cli('job', '--name', 'final', '--to', '0.5', '--revision', a)).status, 0)
+  const b = await saveWith('B only')
+  await saveWith('C only', '--label', 'client round 1')
+  // Older than the minutes a save beside the prune may still be using them.
+  const objects = join(root, 'versions', 'objects')
+  const old = new Date(Date.now() - 24 * 3600_000)
+  for (const o of readdirSync(objects)) utimesSync(join(objects, o), old, old)
+  const before = readdirSync(objects).length
+
+  const dry = await cli('prune', '--dry-run', '--keep', '0')
+  assert.equal(dry.status, 0, dry.stderr)
+  assert.match(dry.stdout, new RegExp(`would remove ${b}`))
+  assert.match(dry.stdout, /would remove 1 revision\(s\) and 1 object\(s\).*dry run/)
+  assert.equal(readdirSync(objects).length, before)
+
+  const pruned = await cli('prune', '--keep', '0')
+  assert.equal(pruned.status, 0, pruned.stderr)
+  assert.match(pruned.stdout, new RegExp(`removed ${b}`))
+  assert.equal(readdirSync(objects).length, before - 1)
+  assert.match((await cli('versions')).stdout, new RegExp(`${b} .*\\(pruned\\)`))
+  const diff = await cli('diff', b)
+  assert.equal(diff.status, 2)
+  assert.match(diff.stderr, new RegExp(`Revision ${b} was pruned`))
+
+  const render = await cli('render', '--job', 'final')
+  assert.equal(render.status, 0, render.stderr)
+  assert.equal(probe(join(root, 'out', 'final.mp4')).revision, a)
+  assert.equal((await cli('restore', a)).status, 0)
+  assert.equal(readFileSync(join(root, 'asset.bin'), 'utf8'), 'A only')
 })
 
 // The mix's rules are tested in mix.it.ts; this proves render reaches them.
