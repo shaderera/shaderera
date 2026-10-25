@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import { Socket } from 'node:net'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createCanvas, GlobalFonts, ImageData } from '@napi-rs/canvas'
@@ -36,6 +37,7 @@ import {
 import { type Ask, extraIo } from '../runner/io.ts'
 import { adapterLine, softwareAdapter } from './adapter.ts'
 import { fixFullTurns } from './arcs.ts'
+import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
 import { insideForRead } from './inside.ts'
 import type { ServiceRequest } from './services.ts'
 
@@ -48,14 +50,23 @@ fixFullTurns()
  */
 let asked = 0
 const replies = new Map<number, { done: (v: unknown) => void; fail: (e: Error) => void }>()
-process.on('message', (m: { serviceReply?: { id: number; result?: unknown; error?: string } }) => {
-  const r = m.serviceReply
-  if (!r) return
-  const waiting = replies.get(r.id)
-  replies.delete(r.id)
-  if (r.error === undefined) waiting?.done(r.result)
-  else waiting?.fail(new Error(r.error))
-})
+// Frames both ways, beside IPC (bulk.ts): video and bake frames in, rendered frames out.
+const pipe = new Socket({ fd: BULK_FD, readable: true, writable: true })
+pipe.on('error', () => {})
+const bulk = bulkReader(pipe)
+process.on(
+  'message',
+  (m: { serviceReply?: { id: number; result?: unknown; bulk?: number; error?: string } }) => {
+    const r = m.serviceReply
+    if (!r) return
+    const waiting = replies.get(r.id)
+    replies.delete(r.id)
+    // Asked for in this turn, so in the order the parent wrote them.
+    if (r.bulk !== undefined) bulk.next(r.bulk).then(waiting?.done, waiting?.fail)
+    else if (r.error === undefined) waiting?.done(r.result)
+    else waiting?.fail(new Error(r.error))
+  },
+)
 const askParent = <T>(request: ServiceRequest) =>
   new Promise<T>((done, fail) => {
     const id = asked++
@@ -531,7 +542,16 @@ process.on('message', async ({ id, request }: { id: number; request: Request }) 
       throw new Error(
         `WebGPU reported ${gpuErrors.length} error(s) during this call, so its result is not trusted: ${gpuErrors[0]}`,
       )
-    process.send?.({ id, result: result ?? null })
+    const pixels = (result as { pixels?: unknown } | null | undefined)?.pixels
+    if (isBulk(pixels)) {
+      // Announced and written in one turn: the parent takes them off the pipe in this order.
+      process.send?.({
+        id,
+        result: { ...(result as object), pixels: undefined },
+        bulk: pixels.byteLength,
+      })
+      pipe.write(pixels)
+    } else process.send?.({ id, result: result ?? null })
   } catch (e) {
     // Dawn rejects a call on a lost device (an AbortError) before `lost` resolves: let it, so
     // the error says why.

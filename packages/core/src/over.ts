@@ -103,6 +103,22 @@ export const matte = (data: Uint8Array | Uint8ClampedArray): Uint8Array => {
   return out
 }
 
+const LITTLE_ENDIAN = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1
+
+/**
+ * Whether every pixel of straight RGBA has alpha 255: then `matte` gives the same bytes, and a
+ * sink can pass the frame on as it is. Read a word a pixel where the bytes allow it.
+ */
+export const opaque = (data: Uint8Array | Uint8ClampedArray): boolean => {
+  if (LITTLE_ENDIAN && data.byteOffset % 4 === 0) {
+    const words = new Uint32Array(data.buffer, data.byteOffset, data.length >> 2)
+    for (let i = 0; i < words.length; i++) if ((words[i] as number) < 0xff000000) return false
+    return true
+  }
+  for (let i = 3; i < data.length; i += 4) if (data[i] !== 255) return false
+  return true
+}
+
 /** `round(c × a / 255)` for every alpha `a` and channel `c`, at `a << 8 | c`: matte's arithmetic. */
 const MATTED = (() => {
   const t = new Uint8Array(65536)

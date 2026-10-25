@@ -15,11 +15,11 @@ import {
   hasEditList,
   hdr10Args,
   masteringDisplayArg,
-  matte64,
   probe,
   requireFrames,
   requireHdr10,
 } from './ffmpeg.ts'
+import { matte64 } from './matte64.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 

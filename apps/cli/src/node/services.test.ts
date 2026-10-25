@@ -91,6 +91,32 @@ test("one decoder serves every host's frames of a clip, and keeps the last few i
   }
 })
 
+test('a jump far ahead starts a new decoder at the frame, a short one reads on; the bytes are the same', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = tempDir('video')
+  const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '90']
+  spawnSync('ffmpeg', [...args, '-pix_fmt', 'yuv420p', join(root, 'v.mp4')])
+  const v = videoReader(join(root, 'v.mp4'))
+  const fresh = videoReader(join(root, 'v.mp4'))
+  try {
+    await v.frame(2)
+    const first = v.pid
+    // 2 → 20: read on through the frames between.
+    await v.frame(20)
+    assert.equal(v.pid, first)
+    // 20 → 80: past half of where it is, so ffmpeg skips the frames before 80 itself.
+    const far = await v.frame(80)
+    assert.notEqual(v.pid, first)
+    assert.deepEqual(far, await fresh.frame(80))
+    assert.deepEqual(await v.frame(81), await fresh.frame(81))
+  } finally {
+    await v.close()
+    await fresh.close()
+  }
+})
+
 const key = (c: string) => c.repeat(64)
 const bytes = (n: number, fill: number) => new Uint8Array(n).fill(fill)
 

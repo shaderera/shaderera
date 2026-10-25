@@ -319,7 +319,7 @@ const renderClaimed = async (
     partial,
   ]
   // Not matted: the bytes the host hands over are the bytes stored.
-  const sink = ffmpegSink(args, plan.input, false)
+  const sink = ffmpegSink(args, plan.input, false, { handOver: true })
   let next = 0
   // An hdr10 chunk's light: every frame's, the determinism re-check's renders too (the same).
   const light: LightLevels[] = []

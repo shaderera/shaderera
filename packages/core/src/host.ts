@@ -25,7 +25,7 @@ export {
 export { type HdrCompositor, type HdrOutput, hdrCompositor, p010Fits } from './hdr-compositor.ts'
 export { checkManifest, GRAPHICS_WHITE, withVariant } from './manifest.ts'
 export { openSource } from './open.ts'
-export { matte, over, type RgbaLayer, straight } from './over.ts'
+export { matte, opaque, over, type RgbaLayer, straight } from './over.ts'
 export { paramDefaults } from './params.ts'
 export {
   type Prepare,
