@@ -540,8 +540,11 @@ sends nothing itself.
   - `render`: format, seconds, wall time;
   - `export`;
   - `share`;
+  - `comment` (`kind`: `new|reply|resolve|reopen|delete`): what the person did to a comment;
+  - `compare`: a Compare opened;
   - `error`: a code only.
-- **What it never sends:** code, file names, params values, frames or titles.
+- **What it never sends:** code, file names, params values, frames or titles, nor a comment's
+  text, ids, times, revisions or points (ADR 0025 point 10).
 - **Turning it off.** Either of these makes `telemetry` false in `cli-hello` and `/info`, and the
   page then sends nothing:
   - `SHADERERA_TELEMETRY=0`;
