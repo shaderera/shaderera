@@ -477,10 +477,12 @@ export const materialize = (root: string, id: string): string => {
 
 /**
  * Who uses a frozen copy: one empty file per process, `.shaderera/revisions/<id>.using/<pid>`,
- * and this process's own uses counted here, so the copy outlives every render made from it.
+ * and this process's own uses counted here, so a copy is never removed while a render uses it.
+ * A copy's modification time is its last use.
  */
 const uses = new Map<string, { root: string; id: string; n: number }>()
-const usingDir = (root: string, id: string) => join(root, '.shaderera', 'revisions', `${id}.using`)
+const copiesDir = (root: string) => join(root, '.shaderera', 'revisions')
+const usingDir = (root: string, id: string) => join(copiesDir(root), `${id}.using`)
 const alive = (pid: number) => {
   try {
     process.kill(pid, 0)
@@ -488,6 +490,12 @@ const alive = (pid: number) => {
   } catch (e) {
     return (e as NodeJS.ErrnoException).code === 'EPERM'
   }
+}
+const touch = (dir: string) => {
+  try {
+    const now = new Date()
+    utimesSync(dir, now, now)
+  } catch {}
 }
 let hooked = false
 const use = (root: string, id: string) => {
@@ -502,18 +510,50 @@ const use = (root: string, id: string) => {
   if (!hooked) process.once('exit', releaseAll)
   hooked = true
 }
-/** Removes this process's mark on a copy and, when no live process marks it, the copy. */
-const drop = (root: string, id: string) => {
-  const dir = usingDir(root, id)
+
+/** How many frozen copies nobody uses are kept after a render: see `releaseFrozen`. */
+export const KEEP_FROZEN = 3
+
+/**
+ * The frozen copies no live process uses, most recently used first, with their last use (ms).
+ */
+export const unusedFrozen = (root: string): { id: string; used: number }[] => {
+  const dir = copiesDir(root)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((n) => /^[0-9a-f]{16}$/.test(n))
+    .filter((id) => {
+      const marks = usingDir(root, id)
+      return !existsSync(marks) || !readdirSync(marks).some((p) => alive(Number(p)))
+    })
+    .flatMap((id) => {
+      try {
+        return [{ id, used: statSync(join(dir, id)).mtimeMs }]
+      } catch {
+        return []
+      }
+    })
+    .sort((a, b) => b.used - a.used)
+}
+
+/** Removes a frozen copy and its marks; false when a file in it is held open (Windows). */
+export const removeFrozen = (root: string, id: string): boolean => {
   try {
-    rmSync(join(dir, String(process.pid)), { force: true })
-    const others = existsSync(dir) ? readdirSync(dir).filter((p) => alive(Number(p))) : []
-    if (others.length > 0) return
-    rmSync(join(root, '.shaderera', 'revisions', id), { recursive: true, force: true })
-    rmSync(dir, { recursive: true, force: true })
+    rmSync(join(copiesDir(root), id), { recursive: true, force: true })
+    rmSync(usingDir(root, id), { recursive: true, force: true })
+    return true
   } catch {
-    // A file a host still holds open (Windows): the copy stays, and the next release takes it.
+    return false
   }
+}
+
+/** Removes this process's mark on a copy, marks it used now, and trims the unused copies. */
+const drop = (root: string, id: string) => {
+  try {
+    rmSync(join(usingDir(root, id), String(process.pid)), { force: true })
+  } catch {}
+  touch(join(copiesDir(root), id))
+  for (const old of unusedFrozen(root).slice(KEEP_FROZEN)) removeFrozen(root, old.id)
 }
 const releaseAll = () => {
   for (const { root, id } of uses.values()) drop(root, id)
@@ -521,9 +561,10 @@ const releaseAll = () => {
 }
 
 /**
- * Ends one use of a revision's frozen copy (a render from it ended): when it was this process's
- * last and no other live process uses it, the copy is removed. `materialize` makes it again when a
- * render needs it. A process that exits with uses left removes its copies the same way.
+ * Ends one use of a revision's frozen copy (a render from it ended). The copy stays, so the next
+ * render of the revision rewrites only what differs; of the copies no live process uses, the
+ * `KEEP_FROZEN` most recently used are kept and the older ones removed (`materialize` makes one
+ * again when a render needs it). A process that exits with uses left releases them the same way.
  */
 export const releaseFrozen = (root: string, id: string) => {
   const key = `${root}\0${id}`
