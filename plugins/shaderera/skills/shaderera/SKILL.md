@@ -150,7 +150,7 @@ page:
 3. Read the events as they come: `paired`, `job`, `share`, `relay`, `page-closed`, `resumed`,
    `ended`.
 4. On a `mismatch` event, relay its `text`: the page and the CLI speak different studio
-   protocols (this CLI speaks v1). `update: "page"` means reload the page; `update: "cli"` means
+   protocols (this CLI speaks v2). `update: "page"` means reload the page; `update: "cli"` means
    `npm i shaderera@latest` and run `studio` again (the command ends with exit 2).
 5. A second `url` event means no page came for the first address in 10 minutes: give the person
    the new one.

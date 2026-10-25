@@ -128,7 +128,7 @@ export const connectRelay = (o: {
   let chain: Promise<void> = Promise.resolve()
 
   /**
-   * A file through the relay (v1): its head in the rpc-result, `{status, type, name, size,
+   * A file through the relay (since v1): its head in the rpc-result, `{status, type, name, size,
    * chunks}`, then `chunks` frames `{type:"rpc-chunk", id, seq, iv, box}`, each up to CHUNK bytes
    * sealed as they are under `<id>:<seq>`. Read and sent a chunk at a time, waiting while the
    * socket's buffer is full, so a large file never sits in memory whole. A file that cannot be

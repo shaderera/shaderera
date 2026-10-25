@@ -30,6 +30,22 @@ export type EntryInput =
     }
   | { kind: 'tool'; tool: string; ok: boolean; ms: number; summary?: Summary }
   | { kind: 'note'; text: string; comment?: string }
+  /** The studio's: the files an edit changed (at most EDIT_FILES names each). */
+  | { kind: 'edit'; files: { added: string[]; removed: string[]; changed: string[] } }
+  /** The studio's: a render the page asked for, done or failed. */
+  | {
+      kind: 'render'
+      job: string
+      ok: boolean
+      format: string
+      variant?: string
+      revision?: string
+      /** The file, relative to the project. */
+      file?: string
+      error?: string
+    }
+  /** The studio's: a share the page asked for. */
+  | { kind: 'share'; ok: boolean; film?: string; version?: string; url?: string; error?: string }
 
 export type Entry = EntryInput & {
   id: string
@@ -40,6 +56,8 @@ export type Entry = EntryInput & {
   image?: string
 }
 
+/** How many file names an edit's entry keeps of each list. */
+export const EDIT_FILES = 50
 /** The log rotates past this many bytes, so it and its one older file hold at most twice it. */
 export const ROTATE = 1 << 20
 /**

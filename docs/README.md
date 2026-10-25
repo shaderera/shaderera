@@ -26,7 +26,7 @@ These ship in the `shaderera` package, so an installed project reads them in
 - [player.md](player.md): the web player `share` builds, how a site serves and frames it, and its
   bridge's messages.
 - [studio.md](studio.md): `shaderera studio`, the local bridge of the studio page: pairing, the
-  bridge's routes, the relay fallback and telemetry (protocol v1).
+  bridge's routes (comments, activity, versions), the relay fallback and telemetry (protocol v2).
 - [api.md](api.md): what each package exports, and how stable it is.
 - [licences.md](licences.md): what the packages depend on and vendor.
 - Participants, one per technology: [Canvas2D](participants/canvas.md) ·

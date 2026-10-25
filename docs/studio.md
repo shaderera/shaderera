@@ -5,8 +5,11 @@ project is on your own machine. It drives `shaderera studio`, the local bridge, 
 your machine for as long as the command runs. The project, its code and its renders stay on your
 machine until you share the film.
 
-This is protocol v1: the contract between the studio page and the bridge. v1 sends a file
-through the relay in chunks; v0 sent it in one frame, and the two do not pair (the key's `info`).
+This is protocol v2: the contract between the studio page and the bridge. v2 adds the comments
+on the film, the activity, the versions and runners on saved revisions
+([ADR 0025](adr/0025-comments-and-activity-in-the-studio.md)). v1 had none of them, and v0 sent a
+file through the relay in one frame. Pages and CLIs of different versions never pair (the key's
+`info`): each says which side to update.
 
 ```
 npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--origin <dev origin>]...
@@ -68,7 +71,7 @@ a line, `{event, ...}`:
 | `resumed` | | once paired, the page came back within 10 s (a reload) |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
-| `changed`, `job`, `log`, `share` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start. A running job's progress comes at most every 10 % and 2 s, and every state change comes |
+| `changed`, `job`, `log`, `share`, `comment`, `agent` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start. A running job's progress comes at most every 10 % and 2 s, and every state change comes. `activity` is not sent: it is the agent's own record |
 | `ended` | `exitCode`, `error?` | the command ends: stopped (`0`), or the relay refused an id never paired, or the page is newer than the CLI (`2`, with why) |
 
 A flag the command does not take, or a folder that is not a project, is still an error on stderr,
@@ -231,7 +234,10 @@ the bridge closes that connection after it.
 {
   "version": "…",
   "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
-  "telemetry": true
+  "telemetry": true,
+  "revision": "…",
+  "head": "…",
+  "listening": false
 }
 ```
 
@@ -244,9 +250,13 @@ the bridge closes that connection after it.
   `{ width, height, duration, fps }` (`{}` when there are none), for a page that lays out one
   frame a variant.
 - `schema` is shaderera.json's `params` schema, or `null`.
+- `revision` is the working tree's id now: the 16-hex id `shaderera save` would give it.
+- `head` is the revision last saved or restored, or `null`.
+- `listening` is true while an agent waits for comments (`shaderera comments --wait`): some
+  waiter's file in `.shaderera/comments.wait/` was touched in the last 5 s.
 - Each request reads the project again, so an agent's edit to shaderera.json shows.
 
-### `GET /runner?s=<secret>&parent=<page origin>[&variant=<name>]`
+### `GET /runner?s=<secret>&parent=<page origin>[&variant=<name>][&revision=<id>]`
 
 The project's runner page, for the page to frame with packages/ui's `connect({ runnerUrl })`. That
 frame is sandboxed with `allow-scripts` alone, and the page talks to the runner worker over the
@@ -257,6 +267,12 @@ port the frame posts, as with the web player.
   the runner opens the film itself. An unknown name is `400`. A page that shows several variants
   frames one runner a variant and drives them on one timeline itself; each frame is a runner of
   its own.
+- **`revision`** names a saved revision (from `/versions` or a comment): the runner plays that
+  revision's files, from its frozen copy under `.shaderera/revisions/<id>/`, however the tree
+  changed since. This is how the page compares a comment's revision with its fix. Its `variant`
+  is one of that revision's. At most 2 such runners run besides the working tree's: a third
+  closes the least recently used. An id that is not 16 hex digits is `400`; one the project does
+  not keep (unknown, or pruned) is `404`. The working tree's runner never reloads for them.
 
 - **The bridge redirects (`302`) to the runner page**, keeping the query but `s`. The runner page
   is served by the project's own Vite, on another port of 127.0.0.1, under a path that is itself a
@@ -287,11 +303,17 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
 
 | Event | When |
 |---|---|
-| `{type:"changed", revision}` | the project's files changed: the 16-hex revision id `shaderera save` would give them |
+| `{type:"changed", revision, files:{added, removed, changed}}` | the project's files changed: the tree's new id, and the files (paths as a revision names them) that changed since the last `changed` |
 | `{type:"job", id, state, progress, error?}` | a render was queued, started, progressed or ended |
-| `{type:"log", level, text}` | `info`, `warn` or `error`: a render's start and end, share lines, watcher problems, the runner's build errors, and the framed film's console warnings and errors (not a browser extension's) |
+| `{type:"log", level, text}` | `info`, `warn` or `error`: a render's or a share's error, a share's warnings, watcher problems, the runner's build errors, and the framed film's console warnings and errors (not a browser extension's) |
 | `{type:"share", film, version, url}` | a share sent the film: its id, the new version and its page |
+| `{type:"activity", entry}` | an activity entry was added, by any process: the CLI, MCP or the bridge (`GET /activity`) |
+| `{type:"comment", comment}` | a comment was made or changed, by any process: the whole thread, folded (`GET /comments`) |
+| `{type:"agent", listening}` | an agent started or stopped waiting for comments (`/info`'s `listening`) |
 
+- **The files are the channel.** The CLI and MCP write `versions/comments.jsonl` and
+  `.shaderera/activity.jsonl` themselves, with or without a studio running. The bridge watches
+  both and sends what was added, within a second.
 - **What counts as a change.** A change counts only when it touches the files a revision holds:
   not `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, and not `node_modules/` or
   `.git/` anywhere, and not a file that holds secrets (`.env`, `.npmrc`, … as `save` lists them in
@@ -300,7 +322,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
   `progress` runs from 0 to 1. A frame that never settles (no sign of work for a minute) fails its job
   (`--timeout`, [cli.md](cli.md#common-flags)), its error naming t, and the next job runs.
 
-### `POST /render {variant? | variants?, params?, format, t?}` → `{job}` or `{jobs}`
+### `POST /render {variant? | variants?, params?, format, t?, revision?}` → `{job}` or `{jobs}`
 
 Renders on your machine, with the CLI's own hosts and ffmpeg, one job at a time in the order
 asked. Every field is checked first: a bad one is `400`, and nothing is queued or saved.
@@ -318,8 +340,14 @@ asked. Every field is checked first: a bad one is `400`, and nothing is queued o
   - `"mov"`: ProRes 422 HQ;
   - `"png"`: one still, at `t` seconds (`0` by default). `t` must be inside the film (and inside
     each variant asked), from 0 up to its length: one outside is `400`.
-- **The project is saved as a revision first**, and a video is tagged with it, as `render` does.
-- **The file stays in the project**, as `out/studio/<project>[-<variant>]-<job>.<mp4|mov|png>`.
+- **`revision`** renders a saved revision instead of the tree, from its frozen copy, on one host.
+  Its own variants, params and length apply. An id that is not 16 hex digits is `400`; one the
+  project does not keep is `404`.
+- **The project is saved as a revision first** (without `revision`), and a video is tagged with
+  its revision, as `render` does.
+- **Its end is an activity entry** (`render`), done or failed.
+- **The file stays in the project**, as
+  `out/studio/<project>[-<variant>][-<revision>]-<job>.<mp4|mov|png>`.
   In the variant's name, anything but letters and digits (in any script), `_`, `.` and `-`
   becomes `_` (`16:9` is `16_9`, `tête` stays `tête`).
 - **Only the newest export is kept** for each variant and format: when a job is done, the older
@@ -356,6 +384,94 @@ Share in the page is the confirmation. A new film is titled `title`, else as `sh
 - **Anything else** that stops the share (no licence, a player that does not build, a film that
   does not render, a version over the API's limits, the API unreachable): `500` with `{error}`.
 
+A share's end, sent or not, is an activity entry (`share`). Its steps are not sent.
+
+### `GET /comments[?state=open|fixed|resolved|all]` → `[thread]`
+
+The comments on the film, in the order they were made, `all` by default. Each is the folded
+thread, as `shaderera comments --json` gives it:
+
+```json
+{
+  "id": "k3x9q2", "by": "person", "at": "…", "updated": "…", "state": "open",
+  "revision": "…", "t": 1.5, "frame": 45, "to": 2, "toFrame": 60, "variant": "9:16",
+  "point": [120, 300], "size": [1080, 1920], "object": "…", "shot": { "id": "…", "offset": 0.5 },
+  "params": { … }, "text": "…",
+  "replies": [{ "at": "…", "by": "agent", "text": "…", "fixed": true, "revision": "…" }],
+  "fixedIn": "…", "stale": false
+}
+```
+
+- **States** are `open`, `fixed` and `resolved`. A reply with `fixed` makes it `fixed` in that
+  reply's `revision` (`fixedIn`). The person's reply to a fixed comment opens it again.
+- **`stale`** is true when the tree now is not the one the comment was made on.
+- Another `state` is `400`.
+
+### `POST /comments {t, to?, variant?, point? | box?, object?, shot?, params?, text}` → thread
+
+The person's comment, at `t` seconds (to `to`). Only the bridge writes comments `by: person`.
+
+- **The tree the person saw is saved first**, as a revision: the comment's `revision`.
+- `t` (and `to`) must be inside the film or the variant. `point` (`[x, y]`) or `box`
+  (`[x, y, w, h]`) are in that variant's frame pixels, not both. `params` keeps only those that
+  differ from the defaults. `text` is at most 4000 characters.
+- A field that is wrong is `400`, and nothing is saved.
+
+### `POST /comments/<id>/reply {text}` → thread
+
+The person's reply. To a `fixed` comment, it opens the comment again. An unknown id is `404`.
+
+### `POST /comments/<id>/state {state}` → thread
+
+`resolved` resolves it; `open` opens it again. Only the person resolves, so only the page does.
+Another `state` is `400`; an unknown id is `404`.
+
+### `GET /activity[?limit=200]` → `[entry]`
+
+The project's activity, oldest first: the last `limit` entries (1 to 1000).
+
+```json
+{ "id": "…", "at": "…", "by": "cli|agent|studio", "kind": "…", "image": true }
+```
+
+| `kind` | By | Fields |
+|---|---|---|
+| `command` | `cli` | `command`, `args`, `exitCode`, `ok`, `summary` |
+| `tool` | `agent` | `tool`, `ok`, `ms`, `summary?` |
+| `note` | `agent`, `cli` | `text`, `comment?`: what the agent means to do (`activity add`) |
+| `edit` | `studio` | `files: {added, removed, changed}`, at most 50 names each |
+| `render` | `studio` | `job`, `ok`, `format`, `variant?`, `revision?`, `file` or `error` |
+| `share` | `studio` | `ok`, and `film`, `version`, `url`, or `error` |
+
+- `summary` is `{error, warning, info, messages}`: the findings' counts by severity, and the
+  first three messages.
+- `image` is there, and true, when the entry has a still: `GET /activity/<id>/image`.
+- The activity is this machine's, and lossy: it rotates past 1 MB.
+
+### `GET /activity/<id>/image`
+
+The entry's still, `image/png`. None is `404`.
+
+### `GET /versions` → `{head, log, revisions}`
+
+- `head`: as in `/info`.
+- `log`: what was saved, restored and undone, oldest first, as `shaderera versions --json` gives
+  it (`{at, action, id, by, label?, pruned?}`).
+- `revisions`: every saved revision, oldest first, without its files:
+  `{id, parent, created, by, label?, note?}`.
+
+### `GET /file?path=<path>`
+
+A file of the project, streamed, for the page to play the film's sound. `path` is as a revision
+names it (`audio/score.wav`), and the bridge checks it as a revision does:
+- a path outside the project, through a link, or one a revision never holds (`out/`,
+  `versions/`, `.shaderera/`, `node_modules/`, …) is `400`;
+- a file that holds secrets (`.env`, `.npmrc`, keys, …) is `400`;
+- a missing file is `404`.
+
+`Content-Type` is the file's: `audio/wav`, `audio/mpeg`, `audio/ogg`, `audio/flac`, `audio/mp4`,
+`audio/aac`, and the common image and video types. Any other is `application/octet-stream`.
+
 ## The relay fallback
 
 When the direct `GET /info` fails (Safari and Brave block a public page from calling 127.0.0.1,
@@ -382,18 +498,11 @@ blocks local access)".
   move one to another request. The page joins them in order; their length is `size`. A file that
   cannot be read is `{status:500, body:{error}}` with no chunks. A page that hears no chunk for a
   while gives up on the file.
-- **`/runner` is not available through the relay**: a frame cannot go through it. It answers
-  `400`. The preview needs the direct connection to 127.0.0.1; the page says so, and Export (any
-  size, in chunks) and Share still work.
+- **`/runner` is not available through the relay**, with or without `revision`: a frame cannot
+  go through it. It answers `400`. The preview needs the direct connection to 127.0.0.1; the page
+  says so, and Export (any size, in chunks), Share, the comments and the activity still work.
+  Compare through the relay uses two stills (`POST /render {format:"png", revision, t}`).
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
-
-## Planned: protocol v2
-
-Not built yet. [ADR 0025](adr/0025-comments-and-activity-in-the-studio.md) decides it: comments on
-the film, kept in the project's `versions/comments.jsonl`; the agent's activity, recorded in
-`.shaderera/activity.jsonl`; and compare between the revisions comments name. They come as
-protocol v2, so a v1 page and a v2 CLI (or the reverse) never pair and each says which to
-update, as above. This page describes v1 until then.
 
 ## Telemetry
 

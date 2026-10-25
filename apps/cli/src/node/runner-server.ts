@@ -41,6 +41,8 @@ type RunnerOptions = {
    * browser host reads the page's console itself).
    */
   log?: (level: 'warn' | 'error', text: string) => void
+  /** More folders Vite may serve from: the project's, for a runner on a frozen copy inside it. */
+  allow?: readonly string[]
 }
 
 /**
@@ -143,7 +145,7 @@ const listen = async (project: Project, o: RunnerOptions & { port: number }) => 
       host: HOST,
       port: o.port,
       strictPort: true,
-      fs: { allow: [vite.searchForWorkspaceRoot(project.root), o.pkgDir] },
+      fs: { allow: [vite.searchForWorkspaceRoot(project.root), o.pkgDir, ...(o.allow ?? [])] },
       // A framed runner's requests come from an opaque origin: the plugin answers them itself.
       ...(o.base ? { cors: false } : {}),
       hmr: o.base ? false : { host: HOST, port: o.port, clientPort: o.port },

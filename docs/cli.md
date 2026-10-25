@@ -915,14 +915,14 @@ asks for.
   out of `out/studio/` stays ([studio.md](studio.md)).
 - **What leaves the machine.** The page reads the code and renders from the bridge, so they stay
   here until you share. The relay pairs the page and the bridge with a key it never sees, and
-  carries the page's requests sealed when the browser blocks 127.0.0.1 (protocol v1 sends a file
-  in chunks).
+  carries the page's requests sealed when the browser blocks 127.0.0.1 (a file in chunks).
 - **Another protocol.** A page and a CLI that speak different studio protocols never pair, and
-  the CLI says which to update in one line, for example `The studio page speaks protocol v2 and
-  this CLI v1: update the CLI (npm i shaderera@latest) and run shaderera studio again.` (it then
+  the CLI says which to update in one line, for example `The studio page speaks protocol v3 and
+  this CLI v2: update the CLI (npm i shaderera@latest) and run shaderera studio again.` (it then
   ends, exit 2), or, for an older page, to reload it.
 - **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
-  `paired`, `page-closed`, `resumed`, `mismatch`, `relay`, `job`, `share`, `ended`, …), listed
+  `paired`, `page-closed`, `resumed`, `mismatch`, `relay`, `job`, `share`, `comment`, `agent`,
+  `ended`, …), listed
   in [studio.md](studio.md). A render's `job` progress comes about every 10 %, not every frame.
 - **The protocol** is [studio.md](studio.md).
 

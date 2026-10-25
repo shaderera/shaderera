@@ -112,6 +112,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (e.type === 'log') say(type, fields, e.text, e.level !== 'info')
     else if (e.type === 'changed') say(type, fields, `changed: revision ${e.revision}`)
     else if (e.type === 'job' && tooSoon(e)) return
+    // The activity is the agent's own record (decision 0025, point 7): not sent back to it.
+    else if (e.type === 'activity') return
+    else if (e.type === 'comment')
+      say(
+        type,
+        fields,
+        `comment ${e.comment.id} (${e.comment.state}) at ${e.comment.t} s: ${e.comment.text}`,
+      )
     else say(type, fields)
   })
   // It stops on `shaderera studio --stop` (POST /stop), Ctrl-C or SIGTERM, and, when stdin is a
