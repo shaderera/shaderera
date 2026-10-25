@@ -32,6 +32,7 @@ import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { valueAt } from './inspect.ts'
 import { exportVideo, extensionOf } from './render.ts'
+import { revisionHosts } from './revision-host.ts'
 import { stillTimes } from './still.ts'
 import { nameOf, sameAsMain, variantList } from './variants.ts'
 
@@ -158,7 +159,7 @@ const SEVERAL =
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
     'render_frame',
-    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version.',
+    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version. revision (a saved revision id, from versions or a comment) renders that revision from its frozen copy instead of the files as they are now.',
     {
       t: num,
       final: { type: 'boolean' },
@@ -168,14 +169,15 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
       region: { type: 'array', items: num },
       object: str,
       scale: num,
+      revision: str,
       ...looks,
     },
     ['t'],
   ],
   [
     'still',
-    `Like \`shaderera still <t>... --sheet\`: renders each of times (seconds), or every \`every\` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant and params as render_frame. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. ${SEVERAL}`,
-    { times: { type: 'array', items: num }, every: num, ...looks, ...several },
+    `Like \`shaderera still <t>... --sheet\`: renders each of times (seconds), or every \`every\` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant, params and revision as render_frame. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. ${SEVERAL}`,
+    { times: { type: 'array', items: num }, every: num, revision: str, ...looks, ...several },
     [],
   ],
   [
@@ -308,6 +310,12 @@ export const createServer = (
   flags: { trusted?: boolean; timeout?: string; variant?: string; host?: string } = {},
 ) => {
   const sessions = new Map<string, NodeSession>()
+  // render_frame and still with a revision: its frozen copy in its own host, kept for the next call.
+  const frozen = revisionHosts({
+    host: flags.host,
+    trusted: flags.trusted === true,
+    ...(flags.timeout ? { timeoutMs: Number(flags.timeout) * 1000 } : {}),
+  })
   const sessionOf = (root: string) => {
     let session = sessions.get(root)
     if (!session) {
@@ -446,6 +454,21 @@ export const createServer = (
       return a.stat === true ? { added: d.added, removed: d.removed, changed: d.changed } : d
     },
   }
+  /** A call's revision, opened (render_frame and still only). */
+  const revisionOf = async (
+    root: string,
+    name: string,
+    // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+    a: { [k: string]: any },
+    params: Obj | undefined,
+  ) => {
+    if (a.revision === undefined) return undefined
+    if (name !== 'render_frame' && name !== 'still') throw new Error(`${name} takes no revision.`)
+    if (typeof a.revision !== 'string') throw new Error('revision is a revision id, from versions.')
+    if (a.variants !== undefined) throw new Error('Give revision or variants, not both.')
+    const variant = typeof a.variant === 'string' ? a.variant : flags.variant
+    return frozen.get(root, a.revision, variant, params)
+  }
   // The low-level Server does not check arguments against a tool's input schema: they come as
   // the client sent them, and each tool reads what it needs.
   const call = async (
@@ -459,14 +482,15 @@ export const createServer = (
     // server's own variant (`--variant`), with the defaults.
     if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
     const params = a.params && typeof a.params === 'object' ? (a.params as Obj) : undefined
+    const revision = await revisionOf(root, name, a, params)
     if (a.variants !== undefined && ['still', 'check', 'review'].includes(name))
       return forVariants(root, name, a, params)
     const variant = typeof a.variant === 'string' ? a.variant : flags.variant
     const own =
-      LOOKS.has(name) && (typeof a.variant === 'string' || params)
+      !revision && LOOKS.has(name) && (typeof a.variant === 'string' || params)
         ? await open({ ...flags, root, variant, param: paramFlags(params) })
         : undefined
-    const opened = own ?? (await session.open())
+    const opened = revision ?? own ?? (await session.open())
     const { manifest } = opened.project
     const c = opened.child
     const at = (key: string, fallback?: number) =>
@@ -685,6 +709,10 @@ export const createServer = (
         }
       }
       throw new Error(`Unknown tool ${name}.`)
+    } catch (e) {
+      // A revision's host that died or hung is not kept for the next call.
+      if (revision && /exited|took longer/.test(String(e))) await frozen.drop()
+      throw e
     } finally {
       await own?.child.close()
     }
@@ -724,6 +752,7 @@ export const createServer = (
   })
   server.onclose = () => {
     for (const session of sessions.values()) session.close()
+    void frozen.drop()
   }
   return server
 }

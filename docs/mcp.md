@@ -42,6 +42,14 @@ carries only MCP.
 
 ## Tools
 
+`render_frame` and `still` also take `revision?`, a saved revision's id (from `versions`, or the
+one a comment names): the call renders that revision from its frozen copy
+(`.shaderera/revisions/<id>/`) in its own child, with its own `shaderera.json`, `variant?` and
+`params?`, whatever the files are now. The server keeps that child open for the next call on the
+same revision, variant and params, closes it when another revision is asked for or the server
+ends, and the copy then stays in the pool `shaderera prune` and each render trim. An unknown
+revision is `No revision <id>.`, a pruned one `Revision <id> was pruned`. Not with `variants`.
+
 Every tool returns one JSON text block, except `render_frame`, `still` and `review`. Every tool
 also takes `root?` (see [Which project](#which-project)). `render_frame`, `still`, `inspect` and
 `compare` also take `variant?` (a variant of `shaderera.json`) and `params?` (an object over the
@@ -60,8 +68,8 @@ with the message.
 
 | Tool | Input | Output |
 |---|---|---|
-| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`, or a text run with its `box`), `scale?` 1–16; `variant?`, `params?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side unless `full: true`; a region is enlarged `scale` times, never scaled down |
-| `still` | `times?` (seconds), `every?`; `variant?` or `variants?`, `params?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. With `variants`, `{ times, variants: [{ variant, width, height }] }` and one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area `requirements.json` declares dashed. At most 64 frames in all; no file is written |
+| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`, or a text run with its `box`), `scale?` 1–16; `variant?`, `params?`; `revision?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side unless `full: true`; a region is enlarged `scale` times, never scaled down |
+| `still` | `times?` (seconds), `every?`; `variant?` or `variants?`, `params?`; `revision?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. With `variants`, `{ times, variants: [{ variant, width, height }] }` and one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area `requirements.json` declares dashed. At most 64 frames in all; no file is written |
 | `inspect` | `t`; `path?`; or `track` (a path), `from?`, `to?`; `variant?`, `params?` | the inspect JSON at `t`, or the value at `path`. With `track`, like `shaderera inspect --track --json` ([cli.md](cli.md#inspect)): `[{ t, value, speed? }]` at every frame from `from` (default 0) to `to` (default the duration), `speed` per second for numbers and arrays of numbers |
 | `compare` | `a`, `b`; `path?`; `variant?`, `params?` | `{ changes, pixels }`: `diffJson` of the inspects at the two times (under `path`) and `diffPixels` of the two final frames. Not `shaderera diff`, which compares two revisions |
 | `pick` | `t`, `x`, `y` | `{ pick, object, source }`: the `Pick`, the inspected object with that `id`, its `source` |

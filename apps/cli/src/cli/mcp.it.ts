@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -491,6 +500,51 @@ test('restore, undo and diff go back and compare revisions; the next call sees t
   } finally {
     await close()
   }
+})
+
+test('render_frame and still take a revision: they render it, not the tree as it is now', async () => {
+  const root = copy('./fixtures/mcp/')
+  const { call, close } = await connect(root)
+  const sha = async (args: { [k: string]: unknown }) =>
+    JSON.parse((await call('render_frame', args)).content[0].text).sha256
+  try {
+    const file = join(root, 'src', 'composition.ts')
+    const r = (await call('save', { label: 'what they saw' })).id
+    const was = await sha({ t: 0.5 })
+    writeFileSync(file, readFileSync(file, 'utf8').replace('rgb(255, 0, 0)', 'rgb(0, 0, 255)'))
+    const now = await sha({ t: 0.5 })
+    assert.notEqual(now, was)
+    // R's frame, twice (the second from the same open copy), and the tree's again after.
+    assert.equal(await sha({ t: 0.5, revision: r }), was)
+    assert.equal(await sha({ t: 0.5, revision: r }), was)
+    assert.equal(await sha({ t: 0.5 }), now)
+    const sheet = await call('still', { times: [0, 0.5], revision: r })
+    assert.equal(sheet.content[1].mimeType, 'image/png')
+    // While the server keeps R open, its frozen copy is marked in use by this process.
+    assert.deepEqual(readdirSync(join(root, '.shaderera', 'revisions', `${r}.using`)), [
+      String(process.pid),
+    ])
+
+    await assert.rejects(
+      call('render_frame', { t: 0.5, revision: 'feedfacefeedface' }),
+      /No revision feedfacefeedface/,
+    )
+    // A revision a prune removed says so.
+    const gone = (await call('save', { label: 'gone' })).id
+    rmSync(join(root, 'versions', 'revisions', `${gone}.json`))
+    appendFileSync(join(root, 'versions', 'pruned.jsonl'), `${JSON.stringify({ id: gone })}\n`)
+    await assert.rejects(
+      call('still', { times: [0], revision: gone }),
+      new RegExp(`Revision ${gone} was pruned`),
+    )
+  } finally {
+    await close()
+  }
+  // Closing the server released it: the copy stays in the pool, unmarked.
+  await sleep(100)
+  const copies = join(root, '.shaderera', 'revisions')
+  const kept = readdirSync(copies).filter((n) => n.endsWith('.using'))
+  for (const m of kept) assert.deepEqual(readdirSync(join(copies, m)), [], m)
 })
 
 test('restore puts back a clip the open child is decoding: the child closes first', async () => {
