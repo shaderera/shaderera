@@ -28,6 +28,8 @@ export type Pruned = {
   removed: string[]
   /** The objects removed (or that would be), by hash. */
   objects: string[]
+  /** The revisions that could not be removed now (a file held open): the next prune removes them. */
+  left: string[]
   /** The bytes those revisions and objects held. */
   bytes: number
   kept: Kept[]
@@ -90,8 +92,15 @@ const size = (file: string) => {
 /** Removes (or with `dryRun`, lists) the revisions nobody names and the objects only they held. */
 export const prune = (
   root: string,
-  o: { keep: number; dryRun?: boolean; now?: () => number },
+  o: {
+    keep: number
+    dryRun?: boolean
+    now?: () => number
+    /** Removes one file (a test's stands in for a file held open). */
+    remove?: (file: string) => void
+  },
 ): Pruned => {
+  const remove = o.remove ?? ((file: string) => rmSync(file, { force: true }))
   if (!Number.isInteger(o.keep) || o.keep < 0)
     throw new Error(`--keep is a number of saves, 0 or more, not ${o.keep}.`)
   const now = o.now ?? Date.now
@@ -179,7 +188,7 @@ export const prune = (
     const bytes =
       removed.reduce((n, id) => n + size(revisionFile(id)), 0) +
       objects.reduce((n, h) => n + size(objectFile(h)), 0)
-    return { removed, objects, bytes, kept }
+    return { removed, objects, bytes, kept, left: [] }
   }
 
   // Anything saved, restored or undone since the prune began is kept.
@@ -197,10 +206,19 @@ export const prune = (
       removed.map((id) => `${JSON.stringify({ at, id })}\n`).join(''),
     )
   }
+  // A file held open now (an antivirus on Windows) stays; its objects stay too, and the next
+  // prune removes it.
+  const busy: string[] = []
   for (const id of removed) {
-    bytes += size(revisionFile(id))
-    rmSync(revisionFile(id), { force: true })
+    const n = size(revisionFile(id))
+    try {
+      remove(revisionFile(id))
+      bytes += n
+    } catch {
+      busy.push(id)
+    }
   }
+  removed = removed.filter((id) => !busy.includes(id))
   // The revisions there now, a save's new one too, name the objects that stay.
   const objects: string[] = []
   let left: Files[]
@@ -208,7 +226,7 @@ export const prune = (
     left = [...readAll(root).values()].map((r) => r.files)
   } catch {
     // A revision unreadable now (being written by hand?): every object stays.
-    return { removed, objects, bytes, kept }
+    return { removed, objects, bytes, kept, left: busy }
   }
   for (const hash of unnamed(left)) {
     const file = objectFile(hash)
@@ -220,5 +238,5 @@ export const prune = (
       objects.push(hash)
     } catch {}
   }
-  return { removed, objects, bytes, kept }
+  return { removed, objects, bytes, kept, left: busy }
 }
