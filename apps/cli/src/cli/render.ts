@@ -492,12 +492,18 @@ const exportFallingBack: typeof exportOnce = async (project, child, o) => {
 }
 
 /**
- * An encoder ffmpeg that exited with a code other than 0: the encoder itself may have refused (a
- * GPU or driver gone). Not a stall, a signal or an exit with 0 while frames still came (ffmpeg's
- * input ended early): those go to `--retries` only (transientEncoder).
+ * An encoder ffmpeg that exited with a code other than 0 with the GPU encoder's own words in what
+ * it said (encoderSaid): the encoder refused (a GPU or driver gone). Any other failure (an output
+ * that cannot be written, a bad option) keeps the encoder. Not a stall, a signal or an exit with
+ * 0 while frames still came (ffmpeg's input ended early): those go to `--retries` only
+ * (transientEncoder).
  */
 export const encoderRefused = (error: unknown): boolean =>
-  error instanceof FfmpegError && error.reason === 'exit' && error.code !== null && error.code !== 0
+  error instanceof FfmpegError &&
+  error.reason === 'exit' &&
+  error.code !== null &&
+  error.code !== 0 &&
+  error.encoder
 
 /**
  * An encoder failure a second try may not repeat: ffmpeg stalled, or exited with 0 while frames

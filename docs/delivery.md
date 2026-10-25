@@ -100,8 +100,10 @@ took 9.8 → 7.7 s against x264 medium, and its file was about 50% larger at a l
 46.9 dB against the x264 file, same mean luma). Only NVENC takes `--bitrate` and `--maxrate`;
 with either, a review tries NVENC alone. Whether an encoder takes a size is a test encode, kept
 in `~/.shaderera/encoders.json` for that ffmpeg (its path, mtime and version); `shaderera doctor`
-asks again. When a GPU encoder then fails on a kept yes, the yes is dropped and the render runs
-again once with the next encoder found (x264 at the last), with a warning. An HDR10 review's
+asks again. When a GPU encoder then refuses on a kept yes (ffmpeg's error names the encoder, as
+`[h264_nvenc @ …] No capable devices found`), the yes is dropped and the render runs again once
+with the next encoder found (x264 at the last), with a warning. Any other ffmpeg failure (an
+output it cannot write, a bad option) fails the render and keeps the encoder. An HDR10 review's
 HEVC NVENC is asked apart: never kept in that file, and a failed HDR10 encode is not retried.
 
 ### Rate control

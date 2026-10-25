@@ -705,17 +705,38 @@ export const requireFfmpeg = (): string => {
  * even with 0) or read nothing for the watchdog's seconds while a frame waited (`stall`). `stderr`
  * is its last lines. Retrying the render may help (it may have run out of memory).
  */
+/**
+ * A line ffmpeg prints from a GPU encoder itself (tagged with its codec, as `[h264_nvenc @ …]`
+ * or `[AMF @ …]`), or about opening it: what ffmpeg says when the encoder refuses (no GPU, no
+ * driver, a size it does not take), as this ffmpeg said it on Windows with an NVIDIA GPU. A bad
+ * option or an output that cannot be written says none of it.
+ */
+const ENCODER_SAID =
+  /\[(?:enc:)?(?:h264|hevc)_(?:nvenc|qsv|amf|videotoolbox) @|\[AMF @|No capable devices found|OpenEncodeSessionEx|InitializeEncoder failed|Error while opening encoder|Could not open encoder/
+
+/** Whether what ffmpeg said comes from a GPU encoder refusing (ENCODER_SAID). */
+export const encoderSaid = (stderr: string): boolean => ENCODER_SAID.test(stderr)
+
 export class FfmpegError extends Error {
   override name = 'FfmpegError'
   readonly reason: 'exit' | 'stall'
   /** Signed; null when a signal ended it, or for a stall. */
   readonly code: number | null
   readonly stderr: string
-  constructor(message: string, reason: 'exit' | 'stall', code: number | null, stderr: string) {
+  /** A GPU encoder spoke in what ffmpeg said (encoderSaid), maybe before `stderr`'s lines. */
+  readonly encoder: boolean
+  constructor(
+    message: string,
+    reason: 'exit' | 'stall',
+    code: number | null,
+    stderr: string,
+    encoder = encoderSaid(stderr),
+  ) {
     super(stderr ? `${message}\n${stderr}` : message)
     this.reason = reason
     this.code = code
     this.stderr = stderr
+    this.encoder = encoder
   }
 }
 
@@ -789,6 +810,7 @@ export const ffmpegSink = (
           'exit',
           code,
           lastLines(said),
+          encoderSaid(said),
         )
       failed = error
       settle(error)
