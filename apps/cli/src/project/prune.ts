@@ -12,7 +12,9 @@ import { type Files, head, log, type Revision, readRevision } from './revisions.
  * be running from it); and the last `keep` saves. Removed: the other revisions' files (their log
  * lines stay, and `versions/pruned.jsonl` says they were pruned), then every object no revision
  * still there names, unless it was used in the last `GRACE_MS` (a save beside the prune may be
- * about to name it: save marks each object it finds already stored).
+ * about to name it: save marks each object it finds already stored). There is no lock: a save
+ * that marks an object in the instant between the prune checking it and removing it loses it, and
+ * its revision is refused as corrupt when read.
  *
  * When a job, a stamp or a revision cannot be read, nothing is removed: what it names is unknown.
  */
