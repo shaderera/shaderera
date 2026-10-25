@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -400,5 +400,46 @@ test('MCP still, check and review take variants: one host each, one sheet side b
     )
   } finally {
     await close()
+  }
+})
+
+test('a call whose frame never settles fails within the timeout, naming t, and the next call runs', async () => {
+  const root = copy('./fixtures/params/')
+  const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
+  manifest.params.properties.hang = { type: 'boolean', default: false }
+  writeFileSync(join(root, 'shaderera.json'), JSON.stringify(manifest))
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io, params }) => {
+  const canvas = io.canvas(16, 16)
+  return {
+    render: async (t) => {
+      if (params.hang && t > 0.5) await new Promise(() => {})
+      canvas.getContext('2d').fillRect(0, 0, 16, 16)
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const server = createServer(root, { timeout: '5' })
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: 'test', version: '0' })
+  await Promise.all([server.connect(a), client.connect(b)])
+  try {
+    const hung = client.callTool({
+      name: 'render_frame',
+      arguments: { t: 0.6, params: { hang: true } },
+    }) as Promise<{ content: { text: string }[]; isError?: boolean }>
+    // Queued behind the hung call (MCP's calls run one at a time).
+    const next = client.callTool({ name: 'render_frame', arguments: { t: 0.6 } }) as Promise<{
+      isError?: boolean
+    }>
+    const failed = await hung
+    assert.equal(failed.isError, true)
+    assert.match(failed.content[0]?.text ?? '', /took longer than 5000 ms on render at t = 0\.6 s/)
+    assert.notEqual((await next).isError, true)
+  } finally {
+    await client.close()
   }
 })

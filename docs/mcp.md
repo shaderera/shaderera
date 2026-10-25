@@ -36,7 +36,8 @@ edit is picked up without restarting the server. `shaderera.json` is read again 
 size or fps reaches every tool.
 
 Tool calls run one at a time, whole: a `render_frame` with a `camera` never reaches a frame that
-another call renders. The project's own console output goes to the server's stderr, so stdout
+another call renders. A call whose frame never settles fails after a minute without a sign of work (`--timeout`,
+[cli.md](cli.md#common-flags)), naming its t, and the calls after it run. The project's own console output goes to the server's stderr, so stdout
 carries only MCP.
 
 ## Tools

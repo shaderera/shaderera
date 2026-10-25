@@ -101,6 +101,8 @@ export type Fonts = {
 }
 
 let source: Source | undefined
+/** The call being handled: a sequential source's steps report it alive (child.ts). */
+let calling = -1
 let manifest: Manifest
 let range: Range = 'sdr'
 // Dawn's GPU object is garbage-collected under a live device unless something holds it.
@@ -174,6 +176,27 @@ let lost: string | undefined
 let opened: Open | undefined
 /** WebGPU errors nothing caught (an invalid shader or pipeline): each fails the call it came in. */
 const gpuErrors: string[] = []
+/**
+ * Says so before each pipeline the source makes: the call that compiles it has the open's
+ * allowance (child.ts), since Dawn's compile can take minutes (a path tracer's took 185 s,
+ * decision 0006).
+ */
+const reportCompiles = (device: GPUDevice) => {
+  const d = device as unknown as { [name: string]: (descriptor: unknown) => unknown }
+  for (const name of [
+    'createRenderPipeline',
+    'createComputePipeline',
+    'createRenderPipelineAsync',
+    'createComputePipelineAsync',
+  ]) {
+    const create = (d[name] as (descriptor: unknown) => unknown).bind(device)
+    d[name] = (descriptor) => {
+      process.send?.({ alive: calling, slow: true })
+      return create(descriptor)
+    }
+  }
+}
+
 /** The compiler's own errors for the shaders the source creates (B2, decision 0011). */
 let shaders: ShaderWatch | undefined
 const fonts: Fonts = { fonts: [], failures: [] }
@@ -241,6 +264,7 @@ const gpuDevice = async (root: string): Promise<GPUDevice | undefined> => {
   // Every feature and limit the adapter has, as the browser host asks (fullDevice).
   const device = adapter ? await adapter.requestDevice(fullDevice(adapter)) : undefined
   shaders = device ? watchShaders(device, locator(root)) : undefined
+  if (device) reportCompiles(device)
   device?.addEventListener('uncapturederror', (e) => {
     gpuErrors.push((e as GPUUncapturedErrorEvent).error.message)
   })
@@ -365,7 +389,14 @@ const handle = async (m: Request): Promise<unknown> => {
     const module = await import(pathToFileURL(m.entryFile).href)
     const open = () => openSource(module, host)
     source = m.manifest.sequential
-      ? await seekable(open, m.manifest, { checkpointMs: m.checkpointMs })
+      ? await seekable(open, m.manifest, {
+          checkpointMs: m.checkpointMs,
+          // Each frame stepped on the way to t: the call is not hung (child.ts).
+          prepare: async () => {
+            process.send?.({ alive: calling })
+            return {}
+          },
+        })
       : await open()
     return {
       inspect: !!source.inspect,
@@ -469,11 +500,16 @@ const handle = async (m: Request): Promise<unknown> => {
 process.on('message', async ({ id, request }: { id: number; request: Request }) => {
   // A reply to this host's own request (askParent) is not a request.
   if (request === undefined) return
+  calling = id
+  // A software adapter (no GPU) renders 10–100× slower: every call has the open's allowance.
+  if (software && request.type !== 'open') process.send?.({ alive: id, slow: true })
   try {
     // A lost device fails the call it happened in; the next call reopens on a new device.
     if (lost !== undefined && opened && request.type !== 'open' && request.type !== 'close') {
       lost = undefined
       source?.dispose?.()
+      // The reopen has the open's allowance (child.ts).
+      process.send?.({ alive: id, slow: true })
       await handle(opened)
     }
     gpuErrors.length = 0

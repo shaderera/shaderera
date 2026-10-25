@@ -52,9 +52,18 @@ one is within two letters (`Did you mean still?`).
 - **`--trusted`**: run the project without Node's permission model
   ([where project code runs](determinism.md#where-project-code-runs)). Given by the person running
   the command; a project cannot declare it.
-- **`--timeout <s>`**: how long one call to the source may take before its process is stopped.
-  Default 600 s: a GPU source's first call compiles its pipelines, which can take minutes on Dawn
-  (a path tracer took about 165 s). In the browser host it bounds every DevTools call.
+- **`--timeout <s>`**: how long a call to the source may go without a sign of work before its
+  process is stopped, the error naming the call and its t (`took longer than 60000 ms on render at
+  t = 1 s without a sign of work`). By default the source's open may take 600 s, and a call after
+  it 60 s of silence: the clock starts again at each frame a sequential source steps through and
+  each request the source makes (a video or bake frame, the cache), so a frame that never settles
+  fails in a minute and one that keeps working does not. A call that makes a pipeline (a first
+  frame, often: Dawn's compile can take minutes, a path tracer's took about 165 s), the reopen
+  after a lost GPU device and every call on a software adapter have the 600 s, and every call at
+  least 10 times the host's slowest so far. The browser host sees no work inside the page: its
+  first call, a sequential source's calls and a software adapter's have 600 s, and the others a
+  minute or 10 times the slowest. With `--timeout`, the open and every call have that long. In the
+  browser host it bounds every DevTools call.
 
 The commands that render the source (`check`, `inspect`, `still`, `render`, `review`) also take:
 
