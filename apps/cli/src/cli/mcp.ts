@@ -154,7 +154,7 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'check',
-    `Like \`shaderera check\`: renders sampled t twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
+    `Like \`shaderera check\`: renders times sampled t (default 20, where the CLI's check takes 50) twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
     { times: num, seed: num, hdr10: { type: 'boolean' }, ...several },
     [],
   ],
