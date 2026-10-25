@@ -7,6 +7,6 @@
   "license": "MIT",
   "keywords": ["video", "motion graphics", "render", "webgpu", "three.js", "ffmpeg"],
   "mcpServers": {
-    "shaderera": { "command": "npx", "args": ["-y", "shaderera", "mcp"] }
+    "shaderera": { "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/mcp.mjs"] }
   }
 }

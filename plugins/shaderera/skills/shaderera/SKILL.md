@@ -33,6 +33,11 @@ declares it, and a new project's `.mcp.json` names it. If its tools are missing,
 server whose command is `npx -y shaderera mcp` (Claude Code:
 `claude mcp add shaderera -- npx -y shaderera mcp`).
 
+When the server is declared but failed to start (Claude Code reports `plugin:shaderera:shaderera`
+as failed, and waits 15 minutes before it tries again), keep working with the CLI (steps 3 and
+4) and tell the person once: in `/mcp`, pick the shaderera server and reconnect it. Its tools
+arrive after that.
+
 The server starts in any folder and finds the project on each call, from the folder it runs in
 and above. When the project is somewhere else (one you just made, say), pass its folder as
 `root` on every call. A call with no project says so. The tools have the CLI's names (`render`,

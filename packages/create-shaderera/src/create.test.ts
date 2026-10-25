@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse, sep } from 'node:path'
 import { after, test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 import { create, projectDir } from './create.ts'
 
 /** A new empty temp folder, removed after the test that made it. */
@@ -75,14 +85,60 @@ test('the Claude Code plugin has no version, so every change reaches users', () 
   assert.equal(read('.claude-plugin', 'marketplace.json').plugins[0].version, undefined)
 })
 
-test('the Claude Code plugin declares the MCP server', () => {
+test('the Claude Code plugin declares the MCP server, started by its launcher', () => {
   const plugin = JSON.parse(
     readFileSync(join(repo, 'plugins', 'shaderera', '.claude-plugin', 'plugin.json'), 'utf8'),
   )
   assert.deepEqual(plugin.mcpServers.shaderera, {
-    command: 'npx',
-    args: ['-y', 'shaderera', 'mcp'],
+    command: 'node',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Claude Code expands it, not JS
+    args: ['${CLAUDE_PLUGIN_ROOT}/mcp.mjs'],
   })
+  assert.match(
+    readFileSync(join(repo, 'plugins', 'shaderera', 'mcp.mjs'), 'utf8'),
+    /'-y', 'shaderera', 'mcp'/,
+  )
+})
+
+/** The plugin's MCP launcher (plain JS in the plugin, so typed here). */
+const launcher = (): Promise<{
+  npxLock: (env: Record<string, string | undefined>, platform: string) => string
+  clearStaleLock: (lock: string, staleMs?: number) => Promise<'none' | 'released' | 'removed'>
+}> => import(pathToFileURL(join(repo, 'plugins', 'shaderera', 'mcp.mjs')).href)
+
+test("the launcher finds npx's lock for shaderera in the npm cache", async () => {
+  const { npxLock } = await launcher()
+  // libnpmexec names the folder by the first 16 hex of the sha512 of the package list.
+  assert.equal(
+    npxLock({ npm_config_cache: join('c', 'cache') }, 'linux'),
+    join('c', 'cache', '_npx', '30b46d2cfb6f1c28', 'concurrency.lock'),
+  )
+  assert.equal(
+    npxLock({ LOCALAPPDATA: join('c', 'local') }, 'win32'),
+    join('c', 'local', 'npm-cache', '_npx', '30b46d2cfb6f1c28', 'concurrency.lock'),
+  )
+})
+
+test('the launcher removes a lock nothing touches, and waits for one that is held', async () => {
+  const { clearStaleLock } = await launcher()
+  const lock = join(temp(), 'concurrency.lock')
+  assert.equal(await clearStaleLock(lock), 'none')
+
+  // Left by a killed npx: untouched for longer than the stale time.
+  mkdirSync(lock)
+  const old = (Date.now() - 10_000) / 1000
+  utimesSync(lock, old, old)
+  assert.equal(await clearStaleLock(lock, 1_000), 'removed')
+  assert.equal(existsSync(lock), false)
+
+  // Held by a live npx: touched every 200 ms, then released.
+  mkdirSync(lock)
+  const touch = setInterval(() => utimesSync(lock, new Date(), new Date()), 200)
+  setTimeout(() => {
+    clearInterval(touch)
+    rmSync(lock, { recursive: true })
+  }, 1_500)
+  assert.equal(await clearStaleLock(lock, 1_000), 'released')
 })
 
 /** Runs the create-shaderera bin with these arguments in a new temp folder. */
