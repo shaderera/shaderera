@@ -10,6 +10,7 @@ import {
   readFileSync,
   readSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
   utimesSync,
@@ -488,10 +489,38 @@ export const fileAt = (root: string, id: string, path: string): Buffer | null =>
 export const materialize = (root: string, id: string): string => {
   const revision = readRevision(root, id)
   const dir = join(root, '.shaderera', 'revisions', id)
+  // Marked before it is written, so no trim or prune takes it from now on (removeFrozen).
   use(root, id)
-  checkout(root, revision, dir)
-  return dir
+  // A trim that moved the copy aside as this began (and gave it back, or could not) leaves files
+  // missing or a write failing: checked out again until every file is there.
+  let failed: unknown = new Error(`The frozen copy of ${id} could not be made.`)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      checkout(root, revision, dir)
+      if (complete(root, revision, dir)) {
+        touch(dir)
+        return dir
+      }
+    } catch (e) {
+      failed = e
+    }
+  }
+  releaseFrozen(root, id)
+  throw failed
 }
+
+/** Whether every file of a revision is in a folder at its object's size. */
+const complete = (root: string, revision: Revision, dir: string) =>
+  Object.entries(revision.files).every(([path, hash]) => {
+    try {
+      return (
+        statSync(join(dir, ...path.split('/'))).size ===
+        statSync(join(store(root), 'objects', hash)).size
+      )
+    } catch {
+      return false
+    }
+  })
 
 /**
  * Who uses a frozen copy: one empty file per process, `.shaderera/revisions/<id>.using/<pid>`,
@@ -540,10 +569,7 @@ export const unusedFrozen = (root: string): { id: string; used: number }[] => {
   if (!existsSync(dir)) return []
   return readdirSync(dir)
     .filter((n) => /^[0-9a-f]{16}$/.test(n))
-    .filter((id) => {
-      const marks = usingDir(root, id)
-      return !existsSync(marks) || !readdirSync(marks).some((p) => alive(Number(p)))
-    })
+    .filter((id) => liveMarks(root, id).length === 0)
     .flatMap((id) => {
       try {
         return [{ id, used: statSync(join(dir, id)).mtimeMs }]
@@ -555,13 +581,41 @@ export const unusedFrozen = (root: string): { id: string; used: number }[] => {
 }
 
 /** Removes a frozen copy and its marks; false when a file in it is held open (Windows). */
-export const removeFrozen = (root: string, id: string): boolean => {
+export const removeFrozen = (root: string, id: string, o: { moved?: () => void } = {}): boolean => {
+  const dir = join(copiesDir(root), id)
+  // Moved aside in one step, then the marks read again: a process that marked the copy before
+  // the move gets it back; one that marks it after finds no copy and makes it again.
+  const aside = join(copiesDir(root), `${id}.removing-${process.pid}-${Date.now()}`)
   try {
-    rmSync(join(copiesDir(root), id), { recursive: true, force: true })
-    rmSync(usingDir(root, id), { recursive: true, force: true })
-    return true
+    renameSync(dir, aside)
   } catch {
     return false
+  }
+  o.moved?.()
+  if (liveMarks(root, id).length > 0) {
+    try {
+      renameSync(aside, dir)
+      return false
+    } catch {
+      // It already began a new copy there: that one repairs itself (materialize), and this goes.
+    }
+  }
+  try {
+    rmSync(aside, { recursive: true, force: true })
+  } catch {}
+  // The marks folder goes only when empty: another process's mark is never removed.
+  try {
+    rmdirSync(usingDir(root, id))
+  } catch {}
+  return !existsSync(aside)
+}
+
+/** The processes that mark a copy and still run. */
+const liveMarks = (root: string, id: string) => {
+  try {
+    return readdirSync(usingDir(root, id)).filter((p) => alive(Number(p)))
+  } catch {
+    return []
   }
 }
 
@@ -572,6 +626,15 @@ const drop = (root: string, id: string) => {
   } catch {}
   touch(join(copiesDir(root), id))
   for (const old of unusedFrozen(root).slice(KEEP_FROZEN)) removeFrozen(root, old.id)
+  // Copies moved aside by a removal that could not finish (a file held open), when that process
+  // is gone or is this one.
+  try {
+    for (const name of readdirSync(copiesDir(root))) {
+      const m = /^[0-9a-f]{16}\.removing-(\d+)-\d+$/.exec(name)
+      if (m && (Number(m[1]) === process.pid || !alive(Number(m[1]))))
+        rmSync(join(copiesDir(root), name), { recursive: true, force: true })
+    }
+  } catch {}
 }
 const releaseAll = () => {
   for (const { root, id } of uses.values()) drop(root, id)
@@ -582,7 +645,13 @@ const releaseAll = () => {
  * Ends one use of a revision's frozen copy (a render from it ended). The copy stays, so the next
  * render of the revision rewrites only what differs; of the copies no live process uses, the
  * `KEEP_FROZEN` most recently used are kept and the older ones removed (`materialize` makes one
- * again when a render needs it). A process that exits with uses left releases them the same way.
+ * again when a render needs it). A process that exits with uses left releases them the same way:
+ * `plan`, `assemble`, `reexport`, `deliver` and `handoff` open jobs only as their own CLI process,
+ * so they release on exit; the MCP server, which lives on, releases after each export.
+ *
+ * A mark is live while a process with its pid runs. On Windows a pid can be reused: a mark whose
+ * render died and whose pid another program took holds the copy until that program ends (its
+ * start time is not read: that would mean a process listing per check).
  */
 export const releaseFrozen = (root: string, id: string) => {
   const key = `${root}\0${id}`

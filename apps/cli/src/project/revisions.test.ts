@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -18,6 +19,7 @@ import {
   materialize,
   readRevision,
   releaseFrozen,
+  removeFrozen,
   restore,
   save,
   scan,
@@ -159,6 +161,55 @@ test('a frozen copy stays after its render; past three unused ones the least rec
   // Releasing what this process never used removes nothing.
   releaseFrozen(root, one)
   assert.ok(existsSync(join(copies, two)))
+})
+
+test('a removal that races a render marking the copy gives it back, and never takes its mark', () => {
+  const root = project()
+  const id = save(root, { by: 'person' }).id
+  const copies = join(root, '.shaderera', 'revisions')
+  const dir = materialize(root, id)
+  releaseFrozen(root, id)
+  const other = join(copies, `${id}.using`, String(process.ppid))
+  // Another process marks the copy just as this one moved it aside: it is put back whole.
+  assert.equal(removeFrozen(root, id, { moved: () => writeFileSync(other, '') }), false)
+  assert.match(readFileSync(join(dir, 'src', 'a.ts'), 'utf8'), /One/)
+  assert.ok(existsSync(other))
+  rmSync(other)
+  // It marked it and began writing a new copy there: the one aside goes, its mark stays, and its
+  // materialize finishes a whole copy.
+  removeFrozen(root, id, {
+    moved: () => {
+      writeFileSync(other, '')
+      mkdirSync(join(dir, 'src'), { recursive: true })
+      writeFileSync(join(dir, 'src', 'b.ts'), 'export const color = "#fff"\n')
+    },
+  })
+  assert.deepEqual(
+    readdirSync(copies).filter((n) => n.includes('removing')),
+    [],
+  )
+  assert.ok(existsSync(other))
+  materialize(root, id)
+  assert.match(readFileSync(join(dir, 'src', 'a.ts'), 'utf8'), /One/)
+  assert.ok(existsSync(join(dir, 'shaderera.json')))
+  releaseFrozen(root, id)
+  assert.ok(existsSync(other))
+  rmSync(other)
+  // Unmarked, it goes, with its empty marks folder.
+  assert.equal(removeFrozen(root, id), true)
+  assert.deepEqual(readdirSync(copies), [])
+})
+
+test('using a copy that needs no rewrite marks it used now', () => {
+  const root = project()
+  const id = save(root, { by: 'person' }).id
+  const dir = materialize(root, id)
+  releaseFrozen(root, id)
+  const old = new Date(Date.now() - 3600_000)
+  utimesSync(dir, old, old)
+  materialize(root, id)
+  assert.ok(Date.now() - statSync(dir).mtimeMs < 60_000)
+  releaseFrozen(root, id)
 })
 
 test('a revision never stores or writes through a link, so restore cannot reach outside the project', () => {
