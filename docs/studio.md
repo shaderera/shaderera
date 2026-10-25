@@ -80,14 +80,20 @@ to end, then exits 0. It also exits 0 when no studio runs for the project, and s
 whatever stdin the running command has, on every OS. Closing a piped stdin, or writing
 `{"stop":true}` to it, does the same.
 
-**One studio a project.** The running studio writes `.shaderera/studio/bridge.json`, with its
-bridge's `port`, `secret` and `pid`, and removes it when it ends.
-- **Only you can read it.** On macOS and Linux the file is mode 0600, in a 0700 folder. On Windows
-  its inherited permissions are replaced with one entry for your account: a project outside your
-  profile (`C:\work`) would otherwise inherit read access for every user of the machine.
-- **A second `studio`** on a project whose studio runs is refused (exit 2) and names `--stop`.
+**One studio a project.** A studio claims its project before its bridge starts. It makes
+`.shaderera/studio/bridge.json` with its `pid`, adds its bridge's `port` and `secret` once the
+bridge is up, and removes the file when it ends.
+- **Only you can read it.** The folder is made private before any file is made in it, so every
+  file is private from the moment it exists:
+  - On macOS and Linux, the folder is mode 0700 and the file mode 0600.
+  - On Windows, the folder's inherited permissions are replaced with one entry for your account,
+    which the files in it inherit. A project outside your profile (`C:\work`) would otherwise
+    inherit read access for every user of the machine.
+- **A second `studio`** on a project whose studio is starting or running is refused (exit 2), and
+  names `--stop`. Two started at once never both run: the file is made only if it is not there.
+- **`--stop` on a studio still starting** waits until its bridge is up, then stops it.
 - **A stale file** (its pid has ended, or its bridge does not answer) is removed, and counts as no
-  studio.
+  studio. A file the CLI cannot read (another user's) is never removed: the command says so.
 - **The CLI's requests** to the bridge are the ones without an `Origin`, carrying the secret
   (below). Other commands reach the running studio the same way.
 

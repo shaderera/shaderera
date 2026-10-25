@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { basename, join } from 'node:path'
 import {
@@ -32,6 +40,15 @@ import {
   unsealBytes,
 } from './pairing.ts'
 import { CHUNK, chunkAad, connectRelay } from './relay.ts'
+import {
+  claim,
+  privateFolder,
+  readRunning,
+  runningFile,
+  StudioRunning,
+  stopRunning,
+  unregister,
+} from './running.ts'
 import { NOTICE, noticeOnce, setTelemetry, telemetryStatus } from './telemetry.ts'
 
 // The user's config (telemetry) and tokens (share) live in a home of the tests' own.
@@ -853,4 +870,55 @@ test('telemetry: a config that cannot be read is off, and is never overwritten',
   } finally {
     writeFileSync(file, was)
   }
+})
+
+test("the running studio's folder is private before any file is made in it", (t) => {
+  const project = tempDir('running')
+  const dir = privateFolder(project)
+  assert.deepEqual(readdirSync(dir), [])
+  const open = /BUILTIN|Everyone|Authenticated Users/
+  if (process.platform === 'win32') {
+    const acl = spawnSync('icacls', [dir], { encoding: 'utf8' }).stdout
+    // One entry, the user's, inherited by files (OI) and folders (CI) made in it.
+    assert.match(acl, /\(OI\)\(CI\)\(F\)/, acl)
+    assert.doesNotMatch(acl, open, acl)
+  } else assert.equal(statSync(dir).mode & 0o777, 0o700)
+  // A file made in it is private from the start.
+  claim(project, process.pid)
+  t.after(() => unregister(project, process.pid))
+  if (process.platform === 'win32')
+    assert.doesNotMatch(
+      spawnSync('icacls', [runningFile(project)], { encoding: 'utf8' }).stdout,
+      open,
+    )
+  else assert.equal(statSync(runningFile(project)).mode & 0o077, 0)
+})
+
+test('a studio claims its project before its bridge starts; a second claim is refused', async (t) => {
+  const project = tempDir('running')
+  // A live process of our own stands for a studio still starting.
+  const starting = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'])
+  t.after(() => starting.kill())
+  claim(project, starting.pid as number)
+  assert.deepEqual(readRunning(project), { state: 'starting', pid: starting.pid })
+  assert.throws(() => claim(project, process.pid), StudioRunning)
+  assert.throws(() => claim(project, process.pid), /is starting/)
+  // --stop waits for a starting studio's bridge.
+  assert.equal((await stopRunning(project, 300)).state, 'slow')
+  // Its process ended without a bridge: the claim is stale, and a new one is made.
+  starting.kill()
+  await new Promise((r) => starting.on('close', r))
+  assert.equal((await stopRunning(project)).state, 'none')
+  assert.equal(existsSync(runningFile(project)), false)
+  claim(project, process.pid)
+  unregister(project, process.pid)
+  assert.equal(existsSync(runningFile(project)), false)
+})
+
+test("a running studio's file that cannot be read is refused, never removed", () => {
+  const project = tempDir('running')
+  // A directory where the file goes: reading it fails, as another user's file would.
+  mkdirSync(runningFile(project), { recursive: true })
+  assert.throws(() => readRunning(project), /Cannot read .*bridge\.json/)
+  assert.ok(existsSync(runningFile(project)))
 })

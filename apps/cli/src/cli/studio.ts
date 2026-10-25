@@ -7,7 +7,7 @@ import { isOrigin } from '../player/parents.ts'
 import { startBridge } from '../studio/bridge.ts'
 import { CLOSE, ID_LENGTH, isId, makeId, makeNonce, pageUrl } from '../studio/pairing.ts'
 import { closeText, connectRelay, type RelayEnd } from '../studio/relay.ts'
-import { readRunning, register, stopRunning, unregister } from '../studio/running.ts'
+import { claim, register, StudioRunning, stopRunning, unregister } from '../studio/running.ts'
 import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
 import { common } from './args.ts'
 import { EXIT } from './findings.ts'
@@ -49,7 +49,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (v.stop) {
     const r = await stopRunning(root)
     if (r.state === 'slow') {
-      console.error(`Asked the studio for ${root} (pid ${r.pid}) to stop; it is still ending.`)
+      console.error(
+        `Asked the studio for ${root} (pid ${r.pid}) to stop; it is still starting or ending.`,
+      )
       return EXIT.failed
     }
     console.log(
@@ -59,18 +61,27 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     )
     return EXIT.ok
   }
-  // One studio a project: the one other commands reach (running.ts).
-  const other = readRunning(root)
-  if (other)
-    throw new Error(
-      `A studio is already running for ${root} (pid ${other.pid}). Stop it with shaderera studio --stop first.`,
-    )
   /** One event: a JSON line `{event, ...fields}` with --json, else `text` if any (`error`: stderr). */
   const say = (event: string, fields: object, text?: string, error = false) => {
     if (v.json) console.log(JSON.stringify({ event, ...fields }))
     else if (text !== undefined) (error ? console.error : console.log)(text)
   }
   noticeOnce((text) => say('notice', { text }, `${text}\n`))
+  const unreachable = (error: unknown) => {
+    const text = `studio --stop cannot reach this studio: ${(error as Error).message}`
+    say('log', { level: 'warn', text }, text, true)
+  }
+
+  // One studio a project, the one other commands reach (running.ts): claimed before the bridge
+  // starts, so two started at once never both run.
+  let claimed = false
+  try {
+    claim(root, process.pid)
+    claimed = true
+  } catch (error) {
+    if (error instanceof StudioRunning) throw error
+    unreachable(error)
+  }
 
   let stopNow = () => {}
   const bridge = await startBridge({
@@ -80,6 +91,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     site,
     origins: [site, ...(v.origin ?? []).filter((o) => o !== site)],
     hostFlags: { host: v.host, trusted: v.trusted, timeout: v.timeout },
+  }).catch((error: unknown) => {
+    unregister(root, process.pid)
+    throw error
   })
   bridge.onEvent((e) => {
     const { type, ...fields } = e
@@ -106,19 +120,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   })
 
   // `shaderera studio --stop` (and later commands) reach this bridge through the file.
-  try {
-    register(root, { port: bridge.port, secret: bridge.secret, pid: process.pid })
-  } catch (error) {
-    say(
-      'log',
-      {
-        level: 'warn',
-        text: `studio --stop cannot reach this studio: ${(error as Error).message}`,
-      },
-      `studio --stop cannot reach this studio: ${(error as Error).message}`,
-      true,
-    )
-  }
+  if (claimed)
+    try {
+      register(root, { port: bridge.port, secret: bridge.secret, pid: process.pid })
+    } catch (error) {
+      unregister(root, process.pid)
+      unreachable(error)
+    }
 
   let id = v.connect ?? makeId()
   let expired: string | undefined
