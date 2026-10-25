@@ -326,6 +326,14 @@ blocks local access)".
   size, in chunks) and Share still work.
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
 
+## Planned: protocol v2
+
+Not built yet. [ADR 0025](adr/0025-comments-and-activity-in-the-studio.md) decides it: comments on
+the film, kept in the project's `versions/comments.jsonl`; the agent's activity, recorded in
+`.shaderera/activity.jsonl`; and compare between the revisions comments name. They come as
+protocol v2, so a v1 page and a v2 CLI (or the reverse) never pair and each says which to
+update, as above. This page describes v1 until then.
+
 ## Telemetry
 
 The studio page reports usage counts to shaderera.com, which stores them in PostHog. The CLI

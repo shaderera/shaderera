@@ -41,5 +41,8 @@ One file per decision, in the order they were made.
 - [0024](0024-a-player-origin-per-version.md): a version's web player on its own origin,
   `<label>.shadererausercontent.com`, so Chrome keeps its WebGPU shaders; the domain on the Public
   Suffix List against a cookie bomb, and the deploy waiting on the owner.
+- [0025](0025-comments-and-activity-in-the-studio.md): comments on the film in the project's
+  `versions/`, the agent's activity recorded by the CLI and MCP, compare from the revisions
+  comments name, and studio protocol v2 (amends 0003 and 0021).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
