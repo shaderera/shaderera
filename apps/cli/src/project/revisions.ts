@@ -540,7 +540,7 @@ const complete = (root: string, revision: Revision, dir: string) =>
 /**
  * Who uses a frozen copy: one empty file per process, `.shaderera/revisions/<id>.using/<pid>`,
  * and this process's own uses counted here, so a copy is never removed while a render uses it.
- * A copy's modification time is its last use.
+ * The folder goes with its last user (`sweepMarks`). A copy's modification time is its last use.
  */
 const uses = new Map<string, { root: string; id: string; n: number }>()
 const copiesDir = (root: string) => join(root, '.shaderera', 'revisions')
@@ -559,14 +559,46 @@ const touch = (dir: string) => {
     utimesSync(dir, now, now)
   } catch {}
 }
+/** This process's mark on a copy, its folder made again if a sweep took it just then. */
+const mark = (root: string, id: string) => {
+  for (let attempt = 0; ; attempt++) {
+    mkdirSync(usingDir(root, id), { recursive: true })
+    try {
+      writeFileSync(join(usingDir(root, id), String(process.pid)), '')
+      return
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT' || attempt >= 2) throw e
+    }
+  }
+}
+/**
+ * Removes every marks folder whose users have all gone: their dead marks, then the folder. A
+ * folder a live process marks stays, and so does one marked between the read and the removal
+ * (it is not empty then); a mark written just after finds no folder and makes it again (`mark`).
+ */
+const sweepMarks = (root: string) => {
+  let names: string[]
+  try {
+    names = readdirSync(copiesDir(root))
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!/^[0-9a-f]{16}\.using$/.test(name)) continue
+    const dir = join(copiesDir(root), name)
+    try {
+      const marks = readdirSync(dir)
+      if (marks.some((p) => alive(Number(p)))) continue
+      for (const p of marks) rmSync(join(dir, p), { force: true })
+      rmdirSync(dir)
+    } catch {}
+  }
+}
 let hooked = false
 const use = (root: string, id: string) => {
   const key = `${root}\0${id}`
   const u = uses.get(key) ?? { root, id, n: 0 }
-  if (u.n === 0) {
-    mkdirSync(usingDir(root, id), { recursive: true })
-    writeFileSync(join(usingDir(root, id), String(process.pid)), '')
-  }
+  if (u.n === 0) mark(root, id)
   u.n++
   uses.set(key, u)
   if (!hooked) process.once('exit', releaseAll)
@@ -640,6 +672,7 @@ const drop = (root: string, id: string) => {
     rmSync(join(usingDir(root, id), String(process.pid)), { force: true })
   } catch {}
   touch(join(copiesDir(root), id))
+  sweepMarks(root)
   for (const old of unusedFrozen(root).slice(KEEP_FROZEN)) removeFrozen(root, old.id)
   // Copies moved aside by a removal that could not finish (a file held open), when that process
   // is gone or is this one.
