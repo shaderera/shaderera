@@ -632,15 +632,15 @@ export const createServer = (
         session = sessionOf(root)
         const onVersions = revisions[params.name]
         if (!onVersions) return call(root, session, params.name, a)
-        const r = onVersions(root, a)
-        // The files changed under the child: the next call opens it again.
-        if (params.name !== 'diff') session.drop()
-        return r
+        // restore and undo replace files the child (and its clips' ffmpeg) may hold open, which
+        // Windows refuses: close it first. The next call opens it again on the new files.
+        if (params.name !== 'diff') await session.drop()
+        return onVersions(root, a)
       })
       const content = IMAGES.has(params.name) ? r : [{ type: 'text', text: JSON.stringify(r) }]
       return { content }
     } catch (e) {
-      if (/exited|took longer/.test(String(e))) session?.drop()
+      if (/exited|took longer/.test(String(e))) void session?.drop()
       return { content: [{ type: 'text', text: (e as Error).message }], isError: true }
     }
   })

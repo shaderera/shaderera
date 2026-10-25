@@ -255,6 +255,7 @@ export const createServices = (root: string, bakes: BakeFrames = {}) => {
       }
     }
   }
-  return { handle, close: () => [...mine].forEach((f) => void release(f)) }
+  // close resolves once every decoder this host was the last user of has exited.
+  return { handle, close: () => Promise.all([...mine].map(release)).then(() => {}) }
 }
 export type Services = ReturnType<typeof createServices>

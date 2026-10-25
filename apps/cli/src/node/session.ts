@@ -5,7 +5,12 @@ import type { Child } from './child.ts'
 import type { Project } from './project.ts'
 
 export type Opened = { project: Project; child: Child }
-export type NodeSession = { open(): Promise<Opened>; drop(): void; close(): void }
+export type NodeSession = {
+  open(): Promise<Opened>
+  /** Closes the child (resolved once it and its clip decoders have exited); the next open reopens. */
+  drop(): Promise<void>
+  close(): void
+}
 
 /**
  * Paths under the root that are not the project's: installs, builds, renders, saved revisions
@@ -27,9 +32,10 @@ export const createNodeSession = (
 ): NodeSession => {
   let opened: Promise<Opened> | null = null
   let since = 0
-  const drop = () => {
-    opened?.then(({ child }) => child.close()).catch(() => {})
+  const drop = async () => {
+    const was = opened
     opened = null
+    await was?.then(({ child }) => child.close()).catch(() => {})
   }
   // On Windows a read reports `change` too, once it moves the access time (NTFS updates it when
   // the last one is an hour old), so a change counts only when the file was modified since the
@@ -43,7 +49,7 @@ export const createNodeSession = (
     }
   }
   const watcher: FSWatcher = watch(root, { recursive: true }, (event, file) => {
-    if (file && !notProject(file) && edited(event, file)) drop()
+    if (file && !notProject(file) && edited(event, file)) void drop()
   })
   return {
     open: () => {
@@ -60,7 +66,7 @@ export const createNodeSession = (
     drop,
     close: () => {
       watcher.close()
-      drop()
+      void drop()
     },
   }
 }

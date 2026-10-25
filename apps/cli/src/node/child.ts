@@ -204,7 +204,11 @@ export const openChild = async (
         }),
     )
   })
-  child.once('exit', () => services.close())
+  // Its clips' decoders end after it exits; close() waits for them too.
+  let released: Promise<void> = Promise.resolve()
+  child.once('exit', () => {
+    released = services.close()
+  })
   // A send to a process that died fails here; the call fails through its exit or its timeout.
   child.on('error', () => {})
   let next = 0
@@ -273,13 +277,14 @@ export const openChild = async (
     text: async () => [],
     identity: () => call({ type: 'identity' }),
     close: async () => {
-      if (child.exitCode !== null || child.killed || !child.connected) return
+      if (child.exitCode !== null || child.killed || !child.connected) return released
       const exited = new Promise((done) => child.once('exit', done))
       child.send({ id: -1, request: { type: 'close' } })
       // A source stuck in a loop never reads the message: stop its process instead.
       const stuck = setTimeout(() => child.kill(), 5000)
       await exited
       clearTimeout(stuck)
+      await released
     },
   }
 }
