@@ -146,10 +146,10 @@ machine. When the person wants to watch, render or share from a page:
    `npm i shaderera@latest` and run `studio` again (the command ends with exit 2).
 5. A second `url` event means no page came for the first address in 10 minutes: give the person
    the new one.
-6. To stop it, write `{"stop":true}` and a newline to its stdin, or close its stdin: it ends with
-   `ended` and the page is told. Start it with stdin as a pipe for that. If you cannot reach its
-   stdin, send SIGTERM (macOS, Linux), or kill it as your tools stop a command; the page then
-   hears only that the CLI left.
+6. To stop it, run `npx shaderera studio --stop` in the project. Don't kill it: then the page
+   only hears that the CLI left. The running command ends with `ended`, and the page is told the
+   session ended. One studio runs a project at a time: a second `studio` there is refused until
+   you stop the first.
 
 The code and renders stay on this machine: the page reads them from a bridge on 127.0.0.1. Only
 a share sends the project. The relay on shaderera.com pairs the two and carries sealed traffic

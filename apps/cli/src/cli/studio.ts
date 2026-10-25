@@ -7,6 +7,7 @@ import { isOrigin } from '../player/parents.ts'
 import { startBridge } from '../studio/bridge.ts'
 import { CLOSE, ID_LENGTH, isId, makeId, makeNonce, pageUrl } from '../studio/pairing.ts'
 import { closeText, connectRelay, type RelayEnd } from '../studio/relay.ts'
+import { readRunning, register, stopRunning, unregister } from '../studio/running.ts'
 import { noticeOnce, telemetryStatus } from '../studio/telemetry.ts'
 import { common } from './args.ts'
 import { EXIT } from './findings.ts'
@@ -31,6 +32,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       origin: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
       json: { type: 'boolean' },
+      stop: { type: 'boolean' },
       ...common,
     },
   })
@@ -44,6 +46,25 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `Not a studio session id: ${v.connect} (${ID_LENGTH} letters and digits, from ${site}/studio).`,
     )
   const { root } = await findProject(v.root ?? process.cwd())
+  if (v.stop) {
+    const r = await stopRunning(root)
+    if (r.state === 'slow') {
+      console.error(`Asked the studio for ${root} (pid ${r.pid}) to stop; it is still ending.`)
+      return EXIT.failed
+    }
+    console.log(
+      r.state === 'none'
+        ? `No studio is running for ${root}.`
+        : `Stopped the studio for ${root} (pid ${r.pid}).`,
+    )
+    return EXIT.ok
+  }
+  // One studio a project: the one other commands reach (running.ts).
+  const other = readRunning(root)
+  if (other)
+    throw new Error(
+      `A studio is already running for ${root} (pid ${other.pid}). Stop it with shaderera studio --stop first.`,
+    )
   /** One event: a JSON line `{event, ...fields}` with --json, else `text` if any (`error`: stderr). */
   const say = (event: string, fields: object, text?: string, error = false) => {
     if (v.json) console.log(JSON.stringify({ event, ...fields }))
@@ -51,7 +72,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
   noticeOnce((text) => say('notice', { text }, `${text}\n`))
 
+  let stopNow = () => {}
   const bridge = await startBridge({
+    onStop: () => stopNow(),
     root,
     api,
     site,
@@ -64,10 +87,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     else if (e.type === 'changed') say(type, fields, `changed: revision ${e.revision}`)
     else say(type, fields)
   })
-  // It stops on Ctrl-C or SIGTERM, and, when stdin is a pipe (an agent's), when stdin closes or
-  // sends the line {"stop":true}: an agent can stop it on any OS without killing it.
+  // It stops on `shaderera studio --stop` (POST /stop), Ctrl-C or SIGTERM, and, when stdin is a
+  // pipe (an agent's), when stdin closes or sends the line {"stop":true}: an agent can stop it on
+  // any OS without killing it.
   const piped = !process.stdin.isTTY && process.stdin instanceof Socket
   const stop = new Promise<void>((done) => {
+    stopNow = done
     process.once('SIGINT', () => done())
     process.once('SIGTERM', () => done())
     if (!piped) return
@@ -79,6 +104,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     })
     lines.on('close', () => done())
   })
+
+  // `shaderera studio --stop` (and later commands) reach this bridge through the file.
+  try {
+    register(root, { port: bridge.port, secret: bridge.secret, pid: process.pid })
+  } catch (error) {
+    say(
+      'log',
+      {
+        level: 'warn',
+        text: `studio --stop cannot reach this studio: ${(error as Error).message}`,
+      },
+      `studio --stop cannot reach this studio: ${(error as Error).message}`,
+      true,
+    )
+  }
 
   let id = v.connect ?? makeId()
   let expired: string | undefined
@@ -163,6 +203,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
   await relay.close()
   await bridge.close()
+  unregister(root, process.pid)
   say('ended', { exitCode: code, ...(error ? { error } : {}) }, error, true)
   if (piped) process.stdin.destroy()
   return code

@@ -137,6 +137,8 @@ export const startBridge = async (o: {
   hostFlags?: { host?: unknown; trusted?: unknown; timeout?: unknown }
   /** Debounce for the watcher, in ms. */
   settleMs?: number
+  /** `POST /stop` from the CLI (`studio --stop`): the command should end. Without it, no route. */
+  onStop?: () => void
 }): Promise<Bridge> => {
   const project = await findProject(o.root)
   const { root } = project
@@ -422,11 +424,20 @@ export const startBridge = async (o: {
       })
       return res.end()
     }
+    const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+    // The CLI's own request (`studio --stop`): no Origin, the secret, on 127.0.0.1 as every
+    // request here. Never through the relay: a page cannot send one.
+    if (origin === undefined && req.method === 'POST' && url.pathname === '/stop' && o.onStop) {
+      if (!sameSecret(bearer, secret)) return refuse(403, 'secret')
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ stopping: true }))
+      o.onStop()
+      return
+    }
     // A frame's navigation to /runner carries no Origin: its secret is in the query, and the
     // runner page itself may be framed only by the allowed origins.
     const framing = origin === undefined && req.method === 'GET' && url.pathname === '/runner'
     if (!allowed && !framing) return refuse(403, 'origin')
-    const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
     if (!sameSecret(bearer ?? url.searchParams.get('s'), secret)) return refuse(403, 'secret')
 
     if (req.method === 'GET' && url.pathname === '/events') {

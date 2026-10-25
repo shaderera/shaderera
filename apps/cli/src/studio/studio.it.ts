@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
-import { cpSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { saveToken } from '../cli/site.ts'
@@ -364,18 +364,26 @@ test("shaderera studio --json: the page's console comes as log events, without a
 })
 
 /** `shaderera studio --json --no-open` on a project, and its events as they come. */
-const studioJson = (site: string, args: readonly string[] = []) => {
+const studioJson = (
+  site: string,
+  args: readonly string[] = [],
+  o: { root?: string; stdin?: 'pipe' | 'ignore' } = {},
+) => {
   const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
   const cli = spawn(
     process.execPath,
-    [main, 'studio', '--site', site, '--no-open', '--json', '--root', fixture(), ...args],
-    { env: { ...process.env, HOME: home, USERPROFILE: home } },
+    [main, 'studio', '--site', site, '--no-open', '--json', '--root', o.root ?? fixture(), ...args],
+    // `ignore`: stdin is the null device, as an agent's shell gives a command.
+    {
+      env: { ...process.env, HOME: home, USERPROFILE: home },
+      stdio: [o.stdin ?? 'pipe', 'pipe', 'pipe'],
+    },
   )
   let out = ''
-  cli.stdout.on('data', (d: Buffer) => {
+  cli.stdout?.on('data', (d: Buffer) => {
     out += d.toString()
   })
-  cli.stderr.on('data', (d: Buffer) => {
+  cli.stderr?.on('data', (d: Buffer) => {
     out += d.toString()
   })
   // 'close', not 'exit': stdout has been read to its end.
@@ -407,8 +415,8 @@ test('shaderera studio ends cleanly when its stdin closes or on a stop line', as
       const url = await s.event((e) => e.event === 'url')
       await p.pair(new URL(url.url as string).hash.slice(1))
       await s.event((e) => e.event === 'paired')
-      if (stop === 'close') s.cli.stdin.end()
-      else s.cli.stdin.write('{"stop":true}\n')
+      if (stop === 'close') s.cli.stdin?.end()
+      else s.cli.stdin?.write('{"stop":true}\n')
       assert.equal(await s.exited, 0, s.out())
       const last = s.events().at(-1)
       assert.deepEqual(last, { event: 'ended', exitCode: 0 }, stop)
@@ -439,7 +447,7 @@ test('shaderera studio: an id no page came for gives a new id and url, and goes 
     await s.event((e) => e.event === 'paired')
     p.ws.close()
   } finally {
-    s.cli.stdin.end()
+    s.cli.stdin?.end()
     await s.exited
     await short.close()
   }
@@ -469,8 +477,78 @@ test('shaderera studio: a page that leaves before pairing is no reload', async (
     assert.ok(!names.includes('page-closed'), names.join(' '))
     p.ws.close()
   } finally {
-    s.cli.stdin.end()
+    s.cli.stdin?.end()
     await s.exited
     await slow.close()
   }
+})
+
+/** `shaderera studio --stop --root <root>`: its exit code and what it printed. */
+const stopStudio = (root: string) =>
+  new Promise<{ code: number; out: string }>((done) => {
+    const main = fileURLToPath(new URL('../cli/main.ts', import.meta.url))
+    const c = spawn(process.execPath, [main, 'studio', '--stop', '--root', root], {
+      env: { ...process.env, HOME: home, USERPROFILE: home },
+    })
+    let out = ''
+    c.stdout.on('data', (d: Buffer) => {
+      out += d.toString()
+    })
+    c.stderr.on('data', (d: Buffer) => {
+      out += d.toString()
+    })
+    c.on('close', (code) => done({ code: code ?? -1, out }))
+  })
+
+test('shaderera studio --stop ends the running studio cleanly, with no stdin to reach', async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const root = fixture()
+  const s = studioJson(slow.origin, ['--connect', id], { root, stdin: 'ignore' })
+  const file = join(root, '.shaderera', 'studio', 'bridge.json')
+  try {
+    const url = await s.event((e) => e.event === 'url')
+    await p.pair(new URL(url.url as string).hash.slice(1))
+    await s.event((e) => e.event === 'paired')
+    // The running studio is registered, for the user only.
+    const running = JSON.parse(readFileSync(file, 'utf8'))
+    assert.equal(running.pid, s.cli.pid)
+    assert.equal(running.port, Number(new URL(url.bridge as string).port))
+    if (process.platform === 'win32') {
+      const acl = spawnSync('icacls', [file], { encoding: 'utf8' }).stdout
+      assert.doesNotMatch(acl, /BUILTIN|Everyone|Authenticated Users/, acl)
+    } else assert.equal(statSync(file).mode & 0o077, 0)
+
+    // A second studio on the project is refused while this one runs.
+    const second = studioJson(slow.origin, [], { root })
+    assert.equal(await second.exited, 2)
+    assert.match(second.out(), /studio --stop/)
+
+    const stopped = await stopStudio(root)
+    assert.equal(stopped.code, 0, stopped.out)
+    assert.equal(await s.exited, 0, s.out())
+    assert.deepEqual(s.events().at(-1), { event: 'ended', exitCode: 0 })
+    assert.equal(await p.closed, 4004)
+    assert.equal(existsSync(file), false)
+  } finally {
+    s.cli.kill('SIGINT')
+    await s.exited
+    p.ws.close()
+    await slow.close()
+  }
+})
+
+test('shaderera studio --stop removes a stale file, and says no studio runs', async () => {
+  const root = fixture()
+  // The pid of a process that has ended.
+  const gone = spawn(process.execPath, ['-e', ''])
+  await new Promise((r) => gone.on('close', r))
+  const file = join(root, '.shaderera', 'studio', 'bridge.json')
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify({ port: 9, secret: 'x'.repeat(32), pid: gone.pid }))
+  const r = await stopStudio(root)
+  assert.equal(r.code, 0, r.out)
+  assert.match(r.out, /No studio is running/)
+  assert.equal(existsSync(file), false)
 })

@@ -37,6 +37,7 @@ the site (film pages, the studio page, plugins) is --site <origin>, else SHADERE
   share [--film id] [--title t] [--no-media] [--dry-run] [--host h] [--trusted] [--timeout s] [--yes] [--api origin] [--site origin] [--json]   send the project's files as a new film or version (--dry-run: send nothing)
   fork <film|url>[@version] [dir] [--api origin] [--site origin] [--json]   copy a published version into a new folder
   studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]   the local bridge of the studio page (--json: one JSON line per event)
+  studio --stop                              stop the studio running for this project, cleanly
   telemetry off|on|status                    whether the studio page counts how the studio is used
 
 ${pluginUsage}
