@@ -35,8 +35,12 @@ import {
 } from '@shaderera/core/host'
 import { type Ask, extraIo } from '../runner/io.ts'
 import { adapterLine, softwareAdapter } from './adapter.ts'
+import { fixFullTurns } from './arcs.ts'
 import { insideForRead } from './inside.ts'
 import type { ServiceRequest } from './services.ts'
+
+// The browser draws a full-turn arc whole; @napi-rs/canvas often drops it (#405).
+fixFullTurns()
 
 /**
  * The CLI's process does what this sandboxed one may not (write the cache, run ffmpeg): asked over
