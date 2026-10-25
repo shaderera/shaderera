@@ -312,6 +312,8 @@ blocks local access)".
 | CLI | `{type:"event", iv, box}` | the same event JSON as on `/events` |
 
 - **`id`** is the page's own string, echoed in the result.
+- **Each request is answered on its own**, as a direct one is: results come in any order, and a
+  long one (a share) holds back no other.
 - **Events** go through the relay once the page has sent its first `rpc`.
 - **A file comes in chunks.** The Worker takes WebSocket messages of 32 MiB at most, and a film's
   mp4 or mov is often larger. After the head, the CLI sends `chunks` frames `rpc-chunk`, in order,

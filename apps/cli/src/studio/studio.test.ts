@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { request as httpRequest } from 'node:http'
+import { createServer, request as httpRequest } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { basename, join } from 'node:path'
 import {
   after,
@@ -13,6 +14,7 @@ import {
   type TestOptions,
 } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
@@ -807,6 +809,54 @@ test('through the relay: sealed requests, sealed events and a file', async (t) =
   assert.ok(large.bytes.equals(big))
   // The CLI is still on the relay: nothing it sent was over the limit.
   assert.equal((await rpc('6', { method: 'GET', path: '/info' })).status, 200)
+})
+
+test('through the relay, a share holds back no other request', async (t) => {
+  // A films API that holds its health check: the share waits on it.
+  const films = createServer(() => {})
+  await new Promise<void>((done) => films.listen(0, '127.0.0.1', done))
+  const api = `http://127.0.0.1:${(films.address() as AddressInfo).port}`
+  saveToken(api, 'films-token')
+  const project = fixture()
+  writeFileSync(join(project, 'package.json'), JSON.stringify({ license: 'MIT' }))
+  const sharing = await startBridge({ root: project, api, site: SITE, origins: [SITE] })
+  t.after(async () => {
+    await sharing.close()
+    films.closeAllConnections()
+    await new Promise((done) => films.close(done))
+  })
+  const id = makeId()
+  const p = page(relay.origin, id)
+  const pairing = p.pair()
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge: sharing,
+    hello: { version: '0', os: 'test', telemetry: true },
+  })
+  closeAtEnd(t, cli, p)
+  const { key } = await pairing
+  const results = new Map<string, (m: Record<string, unknown>) => void>()
+  p.ws.addEventListener('message', (e) => {
+    const m = JSON.parse(String(e.data)) as { type: string; id: string; iv: string; box: string }
+    if (m.type === 'rpc-result')
+      void unseal<Record<string, unknown>>(key, m).then((r) => results.get(m.id)?.(r))
+  })
+  const rpc = async (rid: string, request: unknown) => {
+    const answer = new Promise<Record<string, unknown>>((done) => results.set(rid, done))
+    p.send({ type: 'rpc', id: rid, ...(await seal(key, request)) })
+    return answer
+  }
+  const shared = rpc('1', { method: 'POST', path: '/share', body: {} })
+  await new Promise((r) => setTimeout(r, 300))
+  const asked = Date.now()
+  const info = await rpc('2', { method: 'GET', path: '/info' })
+  assert.equal(info.status, 200)
+  assert.ok(Date.now() - asked < 1000, `/info took ${Date.now() - asked} ms`)
+  // The films API goes away: the share ends, refused.
+  films.closeAllConnections()
+  assert.equal((await shared).status, 500)
 })
 
 test('the relay closes a socket that sends a message over the Worker limit', async (t) => {
