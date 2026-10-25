@@ -26,6 +26,7 @@ import {
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
+import { plainError } from '../node/build.ts'
 import type { Project } from '../node/project.ts'
 import { runnerModules } from '../node/runner-plugin.ts'
 import { checkBakes } from '../project/bakes.ts'
@@ -136,7 +137,7 @@ export const buildPlayer = async (project: Project, o: PlayerOptions): Promise<P
           },
         },
       },
-    })
+    }).catch(plainError)
     writeFileSync(join(outDir, 'runner.html'), page(parents))
     for (const file of o.files) {
       const to = join(outDir, 'files', file)
