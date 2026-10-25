@@ -27,6 +27,8 @@ export const videoDecoder = (
   let asked = 0
   let waiting: (() => void) | undefined
   let ended = false
+  // Why the decoder could not start (no ffmpeg): every read of it fails with it.
+  let failed: Error | undefined
   const trim = () => {
     const oldest = asked - Math.max(1, keep()) + 1
     if ((frames[0]?.index ?? oldest) < oldest) frames = frames.filter((f) => f.index >= oldest)
@@ -63,8 +65,15 @@ export const videoDecoder = (
     filling = undefined
     filled = 0
     ended = false
+    failed = undefined
     // Events of a decoder that was replaced (a jump back) are ignored.
     const mine = proc
+    mine.on('error', (error) => {
+      if (proc !== mine) return
+      failed = new Error(`ffmpeg could not decode ${file}: ${error.message}`)
+      ended = true
+      waiting?.()
+    })
     mine.stdout?.on('data', (d: Buffer) => {
       if (proc !== mine) return
       // Copied once, into the frame's own buffer, as the bytes come.
@@ -93,19 +102,28 @@ export const videoDecoder = (
   const read = async (index: number): Promise<Uint8Array> => {
     if (!Number.isInteger(index) || index < 0 || index >= info.frames)
       throw new Error(`${file} has frames 0 to ${info.frames - 1}, not ${index}.`)
-    // A jump back restarts the decoder, and so does one far ahead: a new decoder skips the frames
-    // before `index` inside ffmpeg, where this one would convert and pipe every one of them
-    // (decoding is about a third of that work, so the restart is cheaper past half of `next`).
-    if (!proc || index < (frames[0]?.index ?? next) || index - next > Math.max(30, next / 2))
-      start(index)
+    // A jump far ahead restarts the decoder: a new one skips the frames before `index` inside
+    // ffmpeg, where this one would convert and pipe every one of them (decoding is about a third of
+    // that work, so the restart is cheaper past half of `next`).
+    if (proc && index - next > Math.max(30, next / 2)) start(index)
+    // Raised and trimmed first, so the frames looked in are the ones kept from now on (a `keep()`
+    // that shrank since, a host gone, drops some).
     asked = Math.max(asked, index)
     trim()
     for (;;) {
+      if (!proc) start(index)
       const found = frames.find((f) => f.index === index)
       if (found) {
         if (!full()) proc?.stdout?.resume()
         return found.bytes
       }
+      // Behind what is kept (a jump back) or behind where it decodes: only a new decoder reaches
+      // it, never this one reading on.
+      if (index < (frames[0]?.index ?? next)) {
+        start(index)
+        continue
+      }
+      if (failed) throw failed
       if (ended) throw new Error(`${file} ended before frame ${index}.`)
       proc?.stdout?.resume()
       await new Promise<void>((done) => {

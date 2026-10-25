@@ -66,6 +66,9 @@ export const probeVideo = (file: string): VideoInfo => {
   }
 }
 
+/** How many bytes of frames a clip's decoder runs ahead at most: 64 MiB (one frame if larger). */
+export const AHEAD_BYTES = 64 * 1024 * 1024
+
 /**
  * One file's frames as `io.video` gives them, decoded in a thread of its own (video-worker.ts,
  * videoDecoder): the decoder's pipe and the copy of every frame out of it stay off this thread,
@@ -97,18 +100,25 @@ export const videoReader = (
     if (m.error !== undefined) a?.fail(new Error(m.error))
     else a?.done(m.bytes ?? null)
   })
+  // Set once the thread is gone: every request from then on fails with it at once.
+  let dead: Error | undefined
   const gone = (error: Error) => {
+    dead ??= error
     for (const a of asked.values()) a.fail(error)
     asked.clear()
   }
   worker.on('error', gone)
   worker.on('exit', () => gone(new Error(`The decoder of ${file} has stopped.`)))
+  // Frames decoded ahead, at most AHEAD_BYTES of them and never fewer than one.
+  const size = info.width * info.height * 4
+  const capped = () => Math.max(1, Math.min(ahead(), Math.floor(AHEAD_BYTES / size)))
   const ask = (m: VideoAsk) =>
     new Promise<Uint8Array | null>((done, fail) => {
+      if (dead) return fail(dead)
       const id = next++
       asked.set(id, { done, fail })
       worker.ref()
-      worker.postMessage({ ...m, id, keep: keep(), ahead: ahead() } as ToVideo)
+      worker.postMessage({ ...m, id, keep: keep(), ahead: capped() } as ToVideo)
     })
   return {
     info,
@@ -119,8 +129,12 @@ export const videoReader = (
     },
     /** Ends the decoder and its thread: the reader is not used again. */
     dispose: async () => {
-      await ask({ type: 'close' })
+      if (!dead) await ask({ type: 'close' })
       await worker.terminate()
+    },
+    /** Why the thread is gone, once it is: the reader is then of no use. */
+    get dead() {
+      return dead
     },
     /** The decoder's process id, while one runs. */
     get pid() {
@@ -218,9 +232,14 @@ export const createServices = (
       checked.set(path, file)
     }
     let v = shared.get(file)
+    // A reader whose thread died is dropped: the next request opens a fresh one.
+    if (v?.reader.dead) {
+      shared.delete(file)
+      v = undefined
+    }
     if (!v) {
       const users = new Set<object>()
-      // Two kept a host and one; decoded ahead, one a host and one.
+      // Two kept a host and one; decoded ahead, one a host and one (at most AHEAD_BYTES).
       v = {
         users,
         reader: videoReader(
