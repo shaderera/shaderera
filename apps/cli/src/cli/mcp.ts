@@ -287,7 +287,7 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'comment_resolve',
-    'Like `shaderera comments reopen <id>` with reopen: true. Without it, refused: only the person resolves a comment (in the studio or their own terminal), never the agent.',
+    'Like `shaderera comments reopen <id>` with reopen: true. Without it, refused: only the person resolves a comment, in the studio.',
     { id: str, reopen: { type: 'boolean' } },
     ['id'],
   ],
@@ -506,17 +506,18 @@ export const createServer = (
       )
       return listing(root, { id: c.id })
     },
-    comment_reply: (root, a) =>
-      listing(root, {
-        id: replyTo(root, String(a.id), String(a.text ?? ''), {
-          by: 'agent',
-          fixed: a.fixed === true,
-        }).id,
-      }),
-    comment_resolve: (root, a) =>
-      listing(root, {
-        id: setState(root, String(a.id), a.reopen === true ? 'open' : 'resolved', 'agent').id,
-      }),
+    comment_reply: async (root, a) => {
+      const c = await replyTo(root, String(a.id), String(a.text ?? ''), {
+        by: 'agent',
+        fixed: a.fixed === true,
+      })
+      return listing(root, { id: c.id })
+    },
+    comment_resolve: async (root, a) => {
+      const state = a.reopen === true ? 'open' : 'resolved'
+      const c = await setState(root, String(a.id), state, 'agent')
+      return listing(root, { id: c.id })
+    },
   }
   // The low-level Server does not check arguments against a tool's input schema: they come as
   // the client sent them, and each tool reads what it needs.

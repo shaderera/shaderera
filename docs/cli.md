@@ -401,13 +401,13 @@ folder, a git push. `share`, `fork` and `handoff` never send them.
 | `comments show <id> [--json]` | one comment, with its replies |
 | `comments add --at <t>[-<t2>] [--variant v] [--point x,y \| --box x,y,w,h] <text>` | files a comment at t (or the range t to t2) on the tree as it is, which it saves as a revision. `--point` and `--box` are in that variant's frame pixels |
 | `comments reply <id> [--fixed] <text>` | replies. `--fixed` saves the tree as a revision labelled `fix <id>: <text>` (cut to 60 characters) and marks the comment fixed in it; when nothing changed since the revision the comment was made on, it refuses (exit 2) |
-| `comments resolve <id>`, `comments reopen <id>` | resolves or reopens it. Only the person resolves: from a terminal that isn't theirs (an agent's), `resolve` exits 2 |
-| `comments --wait [--json]` | waits until a new comment is open, or a reply or `reopen` opens one again, prints it and exits 0. While it waits, `.shaderera/comments.wait` holds its pid (the studio says the agent is listening) |
+| `comments reopen <id>` | opens it again. `comments resolve <id>` exits 2: "Resolve it in the studio: only the person resolves" |
+| `comments --wait [--json]` | waits until the person leaves a comment, or reopens one (their reply to a fixed one), prints it and exits 0. The agent's own comments and replies never wake it. While it waits it keeps `.shaderera/comments.wait/<pid>` (`{pid, started}`) fresh, touched every second; the studio says the agent is listening while one is under 5 s old |
 
-A comment is `open`, then `fixed` (an agent's `reply --fixed`), then `resolved` by the person. The
-person's reply to a fixed comment opens it again. Text is at most 4000 characters. A comment run
-from the person's own terminal is theirs (`by: person`); from anywhere else it is `cli`, and MCP's
-is `agent`.
+A comment is `open`, then `fixed` (an agent's `reply --fixed`), then `resolved` by the person,
+in the studio. The person's reply to a fixed comment opens it again. Text is at most 4000
+characters. Only the studio page writes as the person (`by: person`); the CLI writes `cli` and MCP
+`agent`, so a fix on a resolved comment, or a resolve from either, changes nothing.
 
 `--json` prints what MCP `comments` gives, `{revision, head, comments}`: `revision` is the working
 tree's id now, and each comment has `id` (6 characters), `state`, `revision` (the tree it was made

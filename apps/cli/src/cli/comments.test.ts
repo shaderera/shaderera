@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { cli } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
-import { addComment, waitFile } from '../project/comments.ts'
+import { addComment, waitDir } from '../project/comments.ts'
 import { createServer } from './mcp.ts'
 
 const bin = fileURLToPath(new URL('../../bin/shaderera.js', import.meta.url))
@@ -112,8 +112,11 @@ test('reply --fixed on an unchanged tree exits 2 with the refusal; only the pers
     // This CLI runs off a terminal: an agent's, so it may not resolve. Nor may MCP.
     const resolve = await cli('comments', 'resolve', c.id, '--root', root)
     assert.equal(resolve.status, 2)
-    assert.match(resolve.stderr, /Only the person resolves/)
-    await assert.rejects(call('comment_resolve', { id: c.id }), /Only the person resolves/)
+    assert.match(resolve.stderr, /Resolve it in the studio: only the person resolves/)
+    await assert.rejects(
+      call('comment_resolve', { id: c.id }),
+      /Resolve it in the studio: only the person resolves/,
+    )
     assert.equal(
       (await call('comment_resolve', { id: c.id, reopen: true })).comments[0].state,
       'open',
@@ -137,8 +140,8 @@ test('--wait keeps comments.wait, and exits within 1 s of a comment another proc
   const exited = new Promise<number>((resolve) => child.on('exit', (code) => resolve(code ?? -1)))
   try {
     const until = Date.now() + 20_000
-    while (!existsSync(waitFile(root))) {
-      assert.ok(Date.now() < until, 'comments.wait never appeared')
+    while (!existsSync(join(waitDir(root), String(child.pid)))) {
+      assert.ok(Date.now() < until, "the waiter's file never appeared")
       await new Promise((r) => setTimeout(r, 50))
     }
     await new Promise((r) => setTimeout(r, 300))
@@ -152,7 +155,7 @@ test('--wait keeps comments.wait, and exits within 1 s of a comment another proc
       result.comments.map((x: { id: string }) => x.id),
       [c.id],
     )
-    assert.equal(existsSync(waitFile(root)), false)
+    assert.equal(existsSync(join(waitDir(root), String(child.pid))), false)
   } finally {
     child.kill()
   }

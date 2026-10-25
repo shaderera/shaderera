@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
@@ -8,14 +16,18 @@ import {
   addComment,
   commentsFile,
   fold,
+  LISTENING_MS,
+  listening,
   listing,
   MAX_TEXT,
   newId,
   type Op,
+  openedByPerson,
   parseOps,
   readThreads,
   replyTo,
   setState,
+  waitDir,
   waitForComments,
 } from './comments.ts'
 import { prune } from './prune.ts'
@@ -181,12 +193,15 @@ test('add: t, frame, range, variant size, point, params that differ; text capped
 test('reply --fixed: refused on the tree commented on; then saves a labelled revision prune keeps', async () => {
   const root = project()
   const c = await addComment(root, { t: 1, text: 'too dark' }, 'person')
-  assert.throws(
-    () => replyTo(root, c.id, 'brighter', { by: 'agent', fixed: true }),
+  await assert.rejects(
+    replyTo(root, c.id, 'brighter', { by: 'agent', fixed: true }),
     /nothing changed since/,
   )
   writeFileSync(join(root, 'src', 'c.ts'), '// brighter\n')
-  const fixed = replyTo(root, c.id, 'made the background brighter', { by: 'agent', fixed: true })
+  const fixed = await replyTo(root, c.id, 'made the background brighter', {
+    by: 'agent',
+    fixed: true,
+  })
   assert.equal(fixed.state, 'fixed')
   assert.match(fixed.fixedIn ?? '', /^[0-9a-f]{16}$/)
   const log = readFileSync(join(root, 'versions', 'log.jsonl'), 'utf8')
@@ -202,18 +217,33 @@ test('reply --fixed: refused on the tree commented on; then saves a labelled rev
     )
 })
 
-test('only the person resolves; stale when the tree is not the one commented on', async () => {
+test('only the person resolves, in the studio; stale when the tree is not the one commented on', async () => {
   const root = project()
   const c = await addComment(root, { t: 1, text: 'x' }, 'person')
-  assert.throws(() => setState(root, c.id, 'resolved', 'agent'), /Only the person resolves/)
+  for (const by of ['agent', 'cli'] as const)
+    await assert.rejects(
+      setState(root, c.id, 'resolved', by),
+      /Resolve it in the studio: only the person resolves \(ADR 0025\)/,
+    )
   assert.equal(listing(root, { state: 'all' }).comments[0]?.stale, false)
   writeFileSync(join(root, 'src', 'c.ts'), '// edited\n')
   const now = listing(root, { state: 'all' })
   assert.equal(now.comments[0]?.stale, true)
   assert.notEqual(now.revision, c.revision)
-  assert.equal(setState(root, c.id, 'resolved', 'person').state, 'resolved')
+  // What the bridge will write for the studio page.
+  assert.equal((await setState(root, c.id, 'resolved', 'person')).state, 'resolved')
   assert.deepEqual(listing(root).comments, [])
-  assert.throws(() => replyTo(root, 'nonono', 'x', { by: 'agent' }), /No comment nonono/)
+  await assert.rejects(replyTo(root, 'nonono', 'x', { by: 'agent' }), /No comment nonono/)
+})
+
+test('the fold ignores a fix on a resolved comment, whoever writes it', () => {
+  const [t] = fold([
+    comment('aaaaaa', 'a'),
+    { op: 'state', at: 'b', by: 'person', id: 'aaaaaa', state: 'resolved' },
+    { op: 'reply', at: 'c', by: 'person', id: 'aaaaaa', text: 'x', fixed: true, revision: 'r' },
+  ])
+  assert.equal(t?.state, 'resolved')
+  assert.equal(t?.fixedIn, undefined)
 })
 
 test('two processes appending at once lose no operation', async () => {
@@ -222,12 +252,13 @@ test('two processes appending at once lose no operation', async () => {
   const script = `
 import { appendOp } from ${JSON.stringify(new URL('./comments.ts', import.meta.url).href)}
 import { existsSync, writeFileSync } from 'node:fs'
+import { setTimeout as delay } from 'node:timers/promises'
 const [root, tag, n] = process.argv.slice(2)
 // Ready, then both start together when the test says go.
 writeFileSync(root + '/ready-' + tag, '')
-while (!existsSync(root + '/go')) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2)
+while (!existsSync(root + '/go')) await delay(2)
 for (let i = 0; i < Number(n); i++)
-  appendOp(root, { op: 'reply', at: new Date().toISOString(), by: 'agent', id: 'aaaaaa', text: tag + i + ' ' + 'x'.repeat(i % 3 === 0 ? 3000 : 10) })
+  await appendOp(root, { op: 'reply', at: new Date().toISOString(), by: 'agent', id: 'aaaaaa', text: tag + i + ' ' + 'x'.repeat(i % 3 === 0 ? 3000 : 10) })
 `
   const file = join(root, 'append.mjs')
   writeFileSync(file, script)
@@ -252,6 +283,52 @@ for (let i = 0; i < Number(n); i++)
   assert.ok((order.match(/ab|ba/g) ?? []).length > 10, order)
 })
 
+test('two takers racing for one stale lock: only one holds it at a time', async () => {
+  const root = project()
+  const lock = join(root, 'versions', 'comments.lock')
+  mkdirSync(lock, { recursive: true })
+  writeFileSync(join(lock, 'owner'), 'a writer that died')
+  const old = new Date(Date.now() - 60_000)
+  utimesSync(lock, old, old)
+  const script = `
+import { withCommentsLock } from ${JSON.stringify(new URL('./comments.ts', import.meta.url).href)}
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+import { setTimeout as delay } from 'node:timers/promises'
+const [root, tag] = process.argv.slice(2)
+writeFileSync(root + '/ready-' + tag, '')
+while (!existsSync(root + '/go')) await delay(1)
+await withCommentsLock(root, async () => {
+  appendFileSync(root + '/held', tag + ' in ' + Date.now() + '\\n')
+  await delay(300)
+  appendFileSync(root + '/held', tag + ' out ' + Date.now() + '\\n')
+}, { staleMs: 1000 })
+`
+  const file = join(root, 'take.mjs')
+  writeFileSync(file, script)
+  const tags = ['a', 'b', 'c']
+  const ran = Promise.all(
+    tags.map(
+      (tag) =>
+        new Promise<number | null>((resolve) =>
+          spawn(process.execPath, [file, root, tag], { stdio: 'inherit' }).on('exit', resolve),
+        ),
+    ),
+  )
+  while (!tags.every((t) => existsSync(join(root, `ready-${t}`))))
+    await new Promise((r) => setTimeout(r, 20))
+  writeFileSync(join(root, 'go'), '')
+  assert.deepEqual(await ran, [0, 0, 0])
+  const events = readFileSync(join(root, 'held'), 'utf8').trim().split('\n')
+  // Never two inside at once: each "in" is followed by its own "out".
+  assert.equal(events.length, 6)
+  for (let i = 0; i < events.length; i += 2) {
+    const [who, what] = (events[i] as string).split(' ')
+    const [who2, what2] = (events[i + 1] as string).split(' ')
+    assert.deepEqual([what, who2, what2], ['in', who, 'out'], events.join('\n'))
+  }
+  assert.equal(existsSync(lock), false)
+})
+
 test('a line written by hand without a newline at the end is still read', () => {
   const root = project()
   mkdirSync(join(root, 'versions'), { recursive: true })
@@ -259,19 +336,59 @@ test('a line written by hand without a newline at the end is still read', () => 
   assert.equal(readThreads(root).length, 1)
 })
 
-test('waiting wakes on a reply that reopens a fixed comment, not on the fix itself', async () => {
+test("only the person wakes a waiter: their comment, or their reply reopening one; never the agent's", async () => {
   const root = project()
   const c = await addComment(root, { t: 1, text: 'x' }, 'person')
   writeFileSync(join(root, 'src', 'c.ts'), '// fixed\n')
-  replyTo(root, c.id, 'done', { by: 'agent', fixed: true })
+  await replyTo(root, c.id, 'done', { by: 'agent', fixed: true })
   const woke = waitForComments(root, { pollMs: 100 })
-  replyTo(root, c.id, 'thanks, but no', { by: 'agent' })
+  // The agent's own comment and reply: still waiting.
+  await addComment(root, { t: 2, text: 'filed from chat' }, 'agent')
+  await replyTo(root, c.id, 'thanks', { by: 'cli' })
   const late = await Promise.race([woke, new Promise((r) => setTimeout(() => r('still'), 400))])
   assert.equal(late, 'still')
-  replyTo(root, c.id, 'still too dark', { by: 'person' })
+  await replyTo(root, c.id, 'still too dark', { by: 'person' })
   const { comments } = await woke
   assert.deepEqual(
     comments.map((x) => [x.id, x.state]),
     [[c.id, 'open']],
   )
+  assert.deepEqual(
+    openedByPerson(parseOps(readFileSync(commentsFile(root), 'utf8')), 0).length,
+    1,
+    'only the first comment, by the person, and its reopening',
+  )
+})
+
+test('listening: a waiter keeps its own file fresh; a killed one stops listening within 5 s', async () => {
+  const root = project()
+  const script = `
+import { waitForComments } from ${JSON.stringify(new URL('./comments.ts', import.meta.url).href)}
+await waitForComments(process.argv[2], { pollMs: 200 })
+`
+  const file = join(root, 'wait.mjs')
+  writeFileSync(file, script)
+  const waiters = [0, 1].map(() => spawn(process.execPath, [file, root], { stdio: 'ignore' }))
+  const until = Date.now() + 20_000
+  while (!waiters.every((w) => existsSync(join(waitDir(root), String(w.pid))))) {
+    assert.ok(Date.now() < until, 'the waiters never wrote their files')
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  assert.equal(listening(root), true)
+  const { pid, started } = JSON.parse(
+    readFileSync(join(waitDir(root), String(waiters[0]?.pid)), 'utf8'),
+  )
+  assert.equal(pid, waiters[0]?.pid)
+  assert.ok(Date.parse(started) > 0)
+  // Killed (TerminateProcess on Windows: no handler runs), the files stay but go stale.
+  for (const w of waiters) w.kill('SIGKILL')
+  await Promise.all(waiters.map((w) => new Promise((r) => w.once('exit', r))))
+  const killed = Date.now()
+  while (listening(root)) {
+    assert.ok(Date.now() - killed < LISTENING_MS + 1500, 'still listening after the waiters died')
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  assert.ok(Date.now() - killed <= LISTENING_MS + 1000)
+  // Whoever saw them stale removed them.
+  assert.deepEqual(readdirSync(waitDir(root)), [])
 })

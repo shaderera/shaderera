@@ -6,15 +6,18 @@ import {
   fstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   readSync,
-  rmdirSync,
+  renameSync,
   rmSync,
   statSync,
+  utimesSync,
   watch,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { type Json, type Manifest, parseFps } from '@shaderera/core'
 import { withVariant } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
@@ -129,8 +132,11 @@ export const fold = (ops: readonly Op[]): Thread[] => {
       const { op: _, id: __, ...reply } = o
       t.replies.push(reply)
       if (o.fixed) {
-        t.state = 'fixed'
-        if (o.revision) t.fixedIn = o.revision
+        // A resolved comment is the person's to reopen: a fix on it, by anyone, changes nothing.
+        if (t.state !== 'resolved') {
+          t.state = 'fixed'
+          if (o.revision) t.fixedIn = o.revision
+        }
       } else if (o.by === 'person' && t.state === 'fixed') t.state = 'open'
     } else if (o.state === 'resolved') {
       if (o.by !== 'person') continue
@@ -164,32 +170,62 @@ export const newId = (
   }
 }
 
-const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 /** An append takes milliseconds: a lock older than this was left by a writer that died holding it. */
 const STALE_MS = 10_000
 
-/** Holds `versions/comments.lock` (a folder: mkdir is atomic everywhere) while `run` runs. */
-const locked = <T>(root: string, run: () => T): T => {
+/** The token in a lock folder, or null when it has none (yet) or is gone. */
+const ownerOf = (lock: string) => {
+  try {
+    return readFileSync(join(lock, 'owner'), 'utf8')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Holds `versions/comments.lock` while `run` runs. The lock is a folder (mkdir is atomic
+ * everywhere) holding `owner`, this taker's token. A lock untouched for `STALE_MS` was left by a
+ * writer that died: it is taken over by renaming it to a name of this taker's own (only one
+ * rename of a folder succeeds), then making a new one; if what was renamed turns out to be
+ * another taker's fresh lock, it is put back. The lock is removed at the end only while it still
+ * holds this taker's token. Waits without blocking the event loop.
+ */
+export const withCommentsLock = async <T>(
+  root: string,
+  run: () => T | Promise<T>,
+  o: { staleMs?: number } = {},
+): Promise<T> => {
+  const staleMs = o.staleMs ?? STALE_MS
   const lock = join(root, 'versions', 'comments.lock')
   mkdirSync(join(root, 'versions'), { recursive: true })
-  const until = Date.now() + 2 * STALE_MS
+  const token = `${process.pid}-${randomBytes(8).toString('hex')}`
+  const until = Date.now() + 3 * staleMs
   for (;;) {
     try {
       mkdirSync(lock)
+      writeFileSync(join(lock, 'owner'), token)
       break
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > STALE_MS) rmdirSync(lock)
-      } catch {}
-      if (Date.now() > until) throw new Error(`${lock} is held: is another shaderera stuck?`)
-      sleep(5)
     }
+    try {
+      const seen = ownerOf(lock)
+      if (Date.now() - statSync(lock).mtimeMs > staleMs) {
+        const aside = `${lock}.${token}`
+        renameSync(lock, aside)
+        if (ownerOf(aside) === seen) rmSync(aside, { recursive: true, force: true })
+        // Another taker's lock, made after the stale one was judged: give it back.
+        else renameSync(aside, lock)
+        continue
+      }
+    } catch {}
+    if (Date.now() > until) throw new Error(`${lock} is held: is another shaderera stuck?`)
+    await delay(5)
   }
   try {
-    return run()
+    return await run()
   } finally {
-    rmSync(lock, { recursive: true, force: true })
+    if (ownerOf(lock) === token) rmSync(lock, { recursive: true, force: true })
   }
 }
 
@@ -211,8 +247,8 @@ const endsWithNewline = (file: string) => {
  * Appends one operation, under the lock. A comment without an id gets a new one, checked against
  * every id in the file. Returns the operation as written.
  */
-export const appendOp = <O extends Op>(root: string, op: O): O =>
-  locked(root, () => {
+export const appendOp = <O extends Op>(root: string, op: O): Promise<O> =>
+  withCommentsLock(root, () => {
     const file = commentsFile(root)
     const exists = existsSync(file)
     let written = op
@@ -295,7 +331,7 @@ export const addComment = async (root: string, c: NewComment, by: By): Promise<T
   const box = c.box ? (numbers(c.box, 4, 'box') as Box) : undefined
   const revision = save(root, { by }).id
   const params = c.params ? changedParams(manifest, c.params) : undefined
-  const op = appendOp(root, {
+  const op = await appendOp(root, {
     op: 'comment',
     at: new Date().toISOString(),
     by,
@@ -324,12 +360,12 @@ export const currentTree = (root: string) => treeId(scanProject(root))
  * `fix <id>: <text>` and the comment is fixed in it; refused when the tree is still the one the
  * comment was made on (nothing was changed to fix it).
  */
-export const replyTo = (
+export const replyTo = async (
   root: string,
   id: string,
   text: string,
   o: { by: By; fixed?: boolean },
-): Thread => {
+): Promise<Thread> => {
   checkText(text)
   const t = threadOf(root, id)
   let revision: string | undefined
@@ -342,7 +378,7 @@ export const replyTo = (
       )
     revision = save(root, { by: o.by, label: `fix ${id}: ${[...text].slice(0, 60).join('')}` }).id
   }
-  appendOp(root, {
+  await appendOp(root, {
     op: 'reply',
     at: new Date().toISOString(),
     by: o.by,
@@ -353,14 +389,17 @@ export const replyTo = (
   return threadOf(root, id)
 }
 
-/** Resolves (only the person) or reopens a comment. */
-export const setState = (root: string, id: string, state: 'open' | 'resolved', by: By): Thread => {
+/** Resolves (the person only: the studio writes it) or reopens a comment. */
+export const setState = async (
+  root: string,
+  id: string,
+  state: 'open' | 'resolved',
+  by: By,
+): Promise<Thread> => {
   if (state === 'resolved' && by !== 'person')
-    throw new Error(
-      `Only the person resolves a comment: they resolve ${id} in the studio, or with \`shaderera comments resolve ${id}\` in their own terminal.`,
-    )
+    throw new Error('Resolve it in the studio: only the person resolves (ADR 0025).')
   threadOf(root, id)
-  appendOp(root, { op: 'state', at: new Date().toISOString(), by, id, state })
+  await appendOp(root, { op: 'state', at: new Date().toISOString(), by, id, state })
   return threadOf(root, id)
 }
 
@@ -395,49 +434,100 @@ export const listing = (
   }
 }
 
-export const waitFile = (root: string) => join(root, '.shaderera', 'comments.wait')
+/** The folder of waiters' files: one `<pid>` file each, `{pid, started}`, touched every poll. */
+export const waitDir = (root: string) => join(root, '.shaderera', 'comments.wait')
+/** A waiter's file untouched for longer than this is a waiter that died (or a reused pid's). */
+export const LISTENING_MS = 5000
 
 /**
- * Resolves with the comments that became open after it started (a new one, or one reopened by a
- * reply or a state), as `listing` gives them. While it waits, `.shaderera/comments.wait` holds
- * this process's pid, so the bridge can say the agent is listening; it is removed when it ends.
- * fs.watch wakes it at once; a poll every `pollMs` catches what a watch misses.
+ * Whether an agent waits on comments now: some waiter's file was touched in the last
+ * `LISTENING_MS`. Files older than that are removed. For the bridge's `listening`.
+ */
+export const listening = (root: string, now = Date.now()): boolean => {
+  let any = false
+  let names: string[] = []
+  try {
+    names = readdirSync(waitDir(root))
+  } catch {
+    return false
+  }
+  for (const name of names) {
+    const file = join(waitDir(root), name)
+    try {
+      if (now - statSync(file).mtimeMs <= LISTENING_MS) any = true
+      else rmSync(file, { force: true })
+    } catch {}
+  }
+  return any
+}
+
+/**
+ * The comments the person opened since `before` operations: a new comment by the person, or the
+ * person's reply or reopen that makes one open again. The agent's own comments and replies never
+ * wake it (decision 0025, point 7).
+ */
+export const openedByPerson = (ops: readonly Op[], before: number): string[] => {
+  const woke = new Set<string>()
+  for (let i = before; i < ops.length; i++) {
+    const o = ops[i] as Op
+    if (o.by !== 'person') continue
+    const was = fold(ops.slice(0, i)).find((t) => t.id === o.id)?.state
+    const now = fold(ops.slice(0, i + 1)).find((t) => t.id === o.id)?.state
+    if (now === 'open' && was !== 'open') woke.add(o.id)
+  }
+  return [...woke]
+}
+
+/**
+ * Resolves with the comments the person opened after it started (`openedByPerson`), as
+ * `listing` gives them. While it waits it keeps `.shaderera/comments.wait/<pid>` and touches it
+ * on every poll, so the bridge can say the agent is listening; the file goes when it ends, and a
+ * killed waiter's goes stale in `LISTENING_MS`. fs.watch wakes it at once; the poll (every
+ * `pollMs`, at most 1 s) catches what a watch misses.
  */
 export const waitForComments = (
   root: string,
   o: { pollMs?: number; signal?: AbortSignal } = {},
 ): Promise<Listing> => {
-  const was = new Map(readThreads(root).map((t) => [t.id, t.state]))
-  const marker = waitFile(root)
-  mkdirSync(join(root, '.shaderera'), { recursive: true })
+  const file = commentsFile(root)
+  const opsNow = () => (existsSync(file) ? parseOps(readFileSync(file, 'utf8')) : [])
+  const start = opsNow().length
+  const mine = join(waitDir(root), String(process.pid))
+  mkdirSync(waitDir(root), { recursive: true })
   mkdirSync(join(root, 'versions'), { recursive: true })
-  writeFileSync(marker, `${process.pid}\n`)
+  writeFileSync(mine, JSON.stringify({ pid: process.pid, started: new Date().toISOString() }))
   return new Promise((resolve, reject) => {
     let watcher: ReturnType<typeof watch> | undefined
     const end = () => {
       clearInterval(poll)
       watcher?.close()
-      rmSync(marker, { force: true })
+      rmSync(mine, { force: true })
     }
     const look = () => {
       try {
-        const now = readThreads(root)
-        const woke = now.filter((t) => t.state === 'open' && was.get(t.id) !== 'open')
-        for (const t of now) was.set(t.id, t.state)
+        const woke = openedByPerson(opsNow(), start)
         if (woke.length === 0) return
         end()
         const all = listing(root, { state: 'all' })
-        const ids = new Set(woke.map((t) => t.id))
-        resolve({ ...all, comments: all.comments.filter((t) => ids.has(t.id)) })
+        resolve({ ...all, comments: all.comments.filter((t) => woke.includes(t.id)) })
       } catch (e) {
         end()
         reject(e)
       }
     }
-    const poll = setInterval(look, o.pollMs ?? 1000)
+    const poll = setInterval(
+      () => {
+        try {
+          const now = new Date()
+          utimesSync(mine, now, now)
+        } catch {}
+        look()
+      },
+      Math.min(o.pollMs ?? 1000, 1000),
+    )
     try {
-      watcher = watch(join(root, 'versions'), (_, file) => {
-        if (!file || file === 'comments.jsonl') look()
+      watcher = watch(join(root, 'versions'), (_, name) => {
+        if (!name || name === 'comments.jsonl') look()
       })
       watcher.on('error', () => {})
     } catch {}

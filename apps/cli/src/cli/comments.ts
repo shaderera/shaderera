@@ -22,8 +22,8 @@ const USAGE = `Usage: shaderera comments [list] [--state open|fixed|resolved|all
        shaderera comments resolve <id> | reopen <id>
        shaderera comments --wait [--json]`
 
-/** Who writes from this CLI: the person at their own terminal, else an agent or a script. */
-const writer = (): By => (process.stdin.isTTY && process.stdout.isTTY ? 'person' : 'cli')
+/** The CLI never writes as the person: only the studio page does (decision 0025). */
+const BY: By = 'cli'
 
 const numbers = (v: string | undefined, n: number, flag: string) => {
   if (v === undefined) return undefined
@@ -131,19 +131,19 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           ...(v.box ? { box: numbers(v.box, 4, 'box') as Box } : {}),
           text: positionals.slice(1).join(' '),
         },
-        writer(),
+        BY,
       )
       print(listing(root, { id: c.id }), true)
       return EXIT.ok
     }
     case 'reply': {
-      const c = replyTo(root, id(), text(1), { by: writer(), fixed: v.fixed === true })
+      const c = await replyTo(root, id(), text(1), { by: BY, fixed: v.fixed === true })
       print(listing(root, { id: c.id }), true)
       return EXIT.ok
     }
     case 'resolve':
     case 'reopen': {
-      const c = setState(root, id(), what === 'resolve' ? 'resolved' : 'open', writer())
+      const c = await setState(root, id(), what === 'resolve' ? 'resolved' : 'open', BY)
       print(listing(root, { id: c.id }), true)
       return EXIT.ok
     }
