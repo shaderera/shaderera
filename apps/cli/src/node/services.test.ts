@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { clipDecoders, createServices, videoReader } from './services.ts'
+import { cacheLimit, clipDecoders, createServices, videoReader } from './services.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const clip = () => {
@@ -88,4 +89,46 @@ test("one decoder serves every host's frames of a clip, and keeps the last few i
     b.close()
     await alone.close()
   }
+})
+
+const key = (c: string) => c.repeat(64)
+const bytes = (n: number, fill: number) => new Uint8Array(n).fill(fill)
+
+test('past its limit the cache drops the least recently used entries, a get counting as a use', async () => {
+  const root = tempDir('cache')
+  const s = createServices(root, {}, { cacheLimit: 3000 })
+  const dir = join(root, '.shaderera', 'cache')
+  const put = (c: string) => s.handle({ op: 'cache-put', hash: key(c), bytes: bytes(1000, 1) })
+  const get = (c: string) => s.handle({ op: 'cache-get', hash: key(c) })
+  // a, b and c put in that order, a minute apart: a is the oldest.
+  for (const [i, c] of ['a', 'b', 'c'].entries()) {
+    await put(c)
+    const at = new Date(Date.now() - (3 - i) * 60_000)
+    utimesSync(join(dir, key(c)), at, at)
+  }
+  // Another host is writing an entry: its temporary file is never counted or removed.
+  writeFileSync(join(dir, `${key('e')}.99999`), bytes(5000, 2))
+  // Using a makes b the least recently used.
+  assert.deepEqual(await get('a'), bytes(1000, 1))
+  await put('d')
+  assert.equal(await get('b'), null)
+  for (const c of ['a', 'c', 'd']) assert.deepEqual(await get(c), bytes(1000, 1), c)
+  assert.ok(existsSync(join(dir, `${key('e')}.99999`)))
+  // The film makes b again, and it is kept: the newest are kept, the total stays under the limit.
+  await put('b')
+  assert.deepEqual(await get('b'), bytes(1000, 1))
+  const kept = readdirSync(dir).filter((n) => /^[0-9a-f]{64}$/.test(n))
+  assert.equal(kept.length, 3)
+})
+
+test('an entry larger than the limit is kept alone, and the limit comes from the environment', async () => {
+  const root = tempDir('cache')
+  const s = createServices(root, {}, { cacheLimit: 1500 })
+  await s.handle({ op: 'cache-put', hash: key('a'), bytes: bytes(1000, 1) })
+  await s.handle({ op: 'cache-put', hash: key('b'), bytes: bytes(2000, 1) })
+  assert.equal(await s.handle({ op: 'cache-get', hash: key('a') }), null)
+  assert.deepEqual(await s.handle({ op: 'cache-get', hash: key('b') }), bytes(2000, 1))
+  assert.equal(cacheLimit({}), 1024 * 1024 * 1024)
+  assert.equal(cacheLimit({ SHADERERA_FILM_CACHE_MB: '200' }), 200 * 1024 * 1024)
+  assert.throws(() => cacheLimit({ SHADERERA_FILM_CACHE_MB: 'lots' }), /SHADERERA_FILM_CACHE_MB/)
 })
