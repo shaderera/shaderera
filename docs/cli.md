@@ -23,7 +23,10 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
-`shaderera` alone, or `--help` / `-h` anywhere, prints the usage.
+`shaderera` alone, `shaderera help` or `shaderera --help` prints the usage; `shaderera help <command>`
+or `shaderera <command> --help` (or `-h`) prints that command's lines of it. A name that is no
+command exits 2 with `shaderera: Unknown command: <name>.` on stderr, and the nearest command when
+one is within two letters (`Did you mean still?`).
 
 ## Common flags
 
