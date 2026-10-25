@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
 import { isOrigin } from '../player/parents.ts'
+import { seconds } from '../project/comments.ts'
 import { type StudioEvent, startBridge } from '../studio/bridge.ts'
 import { CLOSE, ID_LENGTH, isId, makeId, makeNonce, pageUrl } from '../studio/pairing.ts'
 import { closeText, connectRelay, type RelayEnd } from '../studio/relay.ts'
@@ -122,7 +123,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       say(
         type,
         fields,
-        `comment ${e.comment.id} (${e.comment.state}) at ${e.comment.t} s: ${e.comment.text}`,
+        `comment ${e.comment.id} (${e.comment.state}) at ${seconds(e.comment.t)} (frame ${e.comment.frame}): ${e.comment.text}`,
       )
     else say(type, fields)
   })

@@ -352,8 +352,9 @@ A job holds execution inputs and references, never the film.
 
 A revision's frozen copy (`.shaderera/revisions/<id>/`, a whole copy of the project) is made when
 a job is made or rendered, and kept for the next render, which then rewrites only what differs.
-Each process using one marks it in `.shaderera/revisions/<id>.using/`. When a render ends, at most
-3 copies no live process uses are kept, the most recently used; older ones are removed, and
+Each process using one marks it in `.shaderera/revisions/<id>.using/`; the folder goes with its
+last user, and one whose users have all died goes when the next use ends. When a render ends, at
+most 3 copies no live process uses are kept, the most recently used; older ones are removed, and
 `shaderera prune` removes every unused one. `render --job` makes a removed copy again from
 `versions/`.
 
@@ -414,10 +415,10 @@ characters. Only the studio page writes as the person (`by: person`); the CLI wr
 
 `--json` prints what MCP `comments` gives, `{revision, head, comments}`: `revision` is the working
 tree's id now, and each comment has `id` (6 characters), `state`, `revision` (the tree it was made
-on), `t` and `frame`, `to` and `toFrame` for a range, `variant`, `point` or `box` with the frame's
-`size`, `object`, `params` (those that differ from the defaults), `text`, `by`, `at`, `replies`,
-`fixedIn` (the fix's revision), `updated`, and `stale` (true when the tree is no longer the one it
-was made on). `point` and `box` go straight into MCP `pick` and `render_frame`'s `region`.
+on), `t` and `frame` (the frame that shows at t: floor(t·fps + 1e-6)), `to` and `toFrame` for a
+range, `variant`, `point` or `box` with the frame's `size`, `object`, `params` (those that differ
+from the defaults), `text`, `by`, `at`, `replies`, `fixedIn` (the fix's revision), `updated`, and
+`stale` (true when the tree is no longer the one it was made on). `point` and `box` go straight into MCP `pick` and `render_frame`'s `region`.
 
 ```
 $ shaderera comments

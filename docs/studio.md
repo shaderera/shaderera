@@ -37,8 +37,8 @@ npx shaderera studio [--connect <id>] [--site <origin>] [--api <origin>] [--orig
   to the renders the page asks for, and to a share's poster and loop.
 
 It runs until you stop it. Once paired, it keeps serving the page even if the relay closes, and
-rejoins the relay when it was dropped (below). Stopping it ends the session: the page says the CLI
-disconnected. It stops, cleanly, on:
+rejoins the relay when it was dropped (below). Stopping it ends the session: the page says "The
+CLI stopped". It stops, cleanly, on:
 - `shaderera studio --stop`, run in the same project (below);
 - Ctrl-C, or SIGTERM;
 - when its stdin is a pipe (an agent's): stdin closing, or the line `{"stop":true}` on it.
@@ -133,11 +133,11 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
 1. **The page connects** with `role=page`.
 2. **The CLI connects** with `role=cli`. The relay forwards `{type:"cli-joined"}` to the page.
 3. **The page sends `{type:"page-hello", pub, protocol}`**: an ECDH P-256 public key, raw
-   (uncompressed, 65 bytes), base64url, and the protocol it speaks, `1`. It sends it when it
+   (uncompressed, 65 bytes), base64url, and the protocol it speaks, `2`. It sends it when it
    connects and again on every `cli-joined`. A page with no nonce sends nothing and waits.
 4. **The CLI replies `{type:"cli-hello", pub, protocol, version, os, telemetry}`** to every
    `page-hello`.
-   - `protocol` is the protocol it speaks, `1`. A hello without one is v0.
+   - `protocol` is the protocol it speaks, `2`. A hello without one is v0.
    - `pub` is its own key, the same for the life of the command.
    - `version` is the CLI's version.
    - `os` is Node's `process.platform`: `win32`, `darwin`, `linux`.
@@ -151,7 +151,8 @@ The relay is a WebSocket on the site, one per id, with JSON text frames:
        the page, and stops.
 5. **Both sides derive one key.** ECDH gives 256 bits, which go through HKDF-SHA-256 with:
    - `salt` = the id's UTF-8 bytes;
-   - `info` = `"shaderera-studio-v1"`.
+   - `info` = `"shaderera-studio-v2"`, the protocol's version, so a key of one version never
+     opens another's box.
 
    The result is an AES-256-GCM key.
 6. **The page proves the nonce: `{type:"page-proof", iv, box}`.**
@@ -259,7 +260,10 @@ the bridge closes that connection after it.
 - `revision` is the working tree's id now: the 16-hex id `shaderera save` would give it.
 - `head` is the revision last saved or restored, or `null`.
 - `listening` is true while an agent waits for comments (`shaderera comments --wait`): some
-  waiter's file in `.shaderera/comments.wait/` was touched in the last 5 s.
+  waiter's file in `.shaderera/comments.wait/` was touched in the last 5 s. The waiter touches its
+  file every second, and the bridge looks every second, so a waiter that stopped or was killed
+  reads as not listening within 5 s. The bridge alone decides it: the page has no timer of its
+  own, and shows what `/info` and the `agent` events say.
 - `api` is the films API Share sends to (`--api`), there only when it is not the default
   `https://api.shaderera.com`: a command the page shows to run the studio again keeps it.
 - Each request reads the project again, so an agent's edit to shaderera.json shows.
@@ -432,7 +436,9 @@ that can write the project can append to `versions/comments.jsonl`.
 - **`revision`** is the tree the page shows (`/info`'s, a `changed` event's, or a held one's). The
   working tree's id now is saved as a revision. Any other must be a stored revision, listed or not
   (a tree the page framed is stored, above), and `t`, `variant` and the frame are that revision's.
-- `t` (and `to`) must be inside the film or the variant.
+- `t` (and `to`) must be inside the film or the variant. The bridge keeps them as sent, and
+  `frame` (and `toFrame`) is the frame that shows then, as the page's readout counts:
+  floor(t·fps + 1e-6), so 2.4608 s at 60 fps is frame 147. The CLI prints t to the millisecond.
 - `point` (`[x, y]`) or `box` (`[x, y, w, h]`, w and h above 0), not both, are in that variant's
   frame pixels, inside the frame.
 - `object` is an id of at most 200 characters; `shot` is `{id, offset}`; `params` is an object of
@@ -464,7 +470,7 @@ The project's activity, oldest first: the last `limit` entries (1 to 1000).
 | `command` | `cli` | `command`, `args`, `exitCode`, `ok`, `summary` |
 | `tool` | `agent` | `tool`, `ok`, `ms`, `summary?` |
 | `note` | `agent`, `cli` | `text`, `comment?`: what the agent means to do (`activity add`) |
-| `edit` | `studio` | `files: {added, removed, changed}`, at most 50 names each |
+| `edit` | `studio` | `revision`, the tree's id after the edit (the `changed` event's); `files: {added, removed, changed}`, at most 50 names each |
 | `render` | `studio` | `job`, `ok`, `format`, `variant?`, `revision?`, `file` or `error` |
 | `share` | `studio` | `ok`, and `film`, `version`, `url`, or `error` |
 
@@ -504,8 +510,7 @@ names it (`audio/score.wav`), and the bridge checks it as a revision does:
 
 When the direct `GET /info` fails (Safari and Brave block a public page from calling 127.0.0.1,
 and Chrome does if the person declines), the page sends the same requests through the relay,
-sealed with the session key. The page then shows "Connected through shaderera.com (your browser
-blocks local access)".
+sealed with the session key. The page then shows "Through shaderera.com".
 
 | From | Frame | The box holds |
 |---|---|---|
@@ -528,7 +533,8 @@ blocks local access)".
   while gives up on the file.
 - **`/runner` is not available through the relay**, with or without `revision`: a frame cannot
   go through it. It answers `400`. The preview needs the direct connection to 127.0.0.1; the page
-  says so, and Export (any size, in chunks), Share, the comments and the activity still work.
+  says "The preview needs the direct connection. Comments, Export and Share work." Export (any
+  size, in chunks), Share, the comments and the activity go through the relay.
   Compare through the relay uses two stills (`POST /render {format:"png", revision, t}`).
 - **A box that does not open** answers `{status:400, body:{error:"box"}}`.
 

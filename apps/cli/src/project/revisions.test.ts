@@ -132,7 +132,7 @@ test('a frozen copy stays after its render; past three unused ones the least rec
   releaseFrozen(root, one)
   releaseFrozen(root, one)
   assert.ok(existsSync(join(dir, 'src', 'a.ts')))
-  assert.deepEqual(readdirSync(join(copies, `${one}.using`)), [])
+  assert.ok(!existsSync(join(copies, `${one}.using`)))
   // Another live process (this one's parent) renders from two: it is never counted or removed.
   materialize(root, two)
   writeFileSync(join(copies, `${two}.using`, String(process.ppid)), '')
@@ -172,6 +172,7 @@ test('a removal that races a render marking the copy gives it back, and never ta
   const dir = materialize(root, id)
   releaseFrozen(root, id)
   const other = join(copies, `${id}.using`, String(process.ppid))
+  mkdirSync(join(copies, `${id}.using`))
   // Another process marks the copy just as this one moved it aside: it is put back whole.
   assert.equal(removeFrozen(root, id, { moved: () => writeFileSync(other, '') }), false)
   assert.match(readFileSync(join(dir, 'src', 'a.ts'), 'utf8'), /One/)
@@ -200,6 +201,43 @@ test('a removal that races a render marking the copy gives it back, and never ta
   // Unmarked, it goes, with its empty marks folder.
   assert.equal(removeFrozen(root, id), true)
   assert.deepEqual(readdirSync(copies), [])
+})
+
+test('a marks folder goes with its last user, and one whose users all died is swept', () => {
+  const root = project()
+  const copies = join(root, '.shaderera', 'revisions')
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const headline = "first"\n')
+  const first = save(root, { by: 'person' }).id
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const headline = "second"\n')
+  const second = save(root, { by: 'person' }).id
+  const marks = (id: string) => join(copies, `${id}.using`)
+  // The last of this process's uses leaves no folder behind; the copy stays.
+  materialize(root, first)
+  materialize(root, first)
+  releaseFrozen(root, first)
+  assert.deepEqual(readdirSync(marks(first)), [String(process.pid)])
+  releaseFrozen(root, first)
+  assert.ok(!existsSync(marks(first)))
+  assert.ok(existsSync(join(copies, first)))
+  // Left by studios that were killed: dead marks, and an empty folder. A live one (this
+  // process's parent) is kept, with its mark.
+  mkdirSync(marks(first))
+  writeFileSync(join(marks(first), '999999999'), '')
+  mkdirSync(join(copies, `${'0'.repeat(16)}.using`))
+  materialize(root, second)
+  writeFileSync(join(marks(second), String(process.ppid)), '')
+  releaseFrozen(root, second)
+  assert.deepEqual(
+    readdirSync(copies).filter((n) => n.endsWith('.using')),
+    [`${second}.using`],
+  )
+  assert.deepEqual(readdirSync(marks(second)), [String(process.ppid)])
+  // A sweep that took the folder as a render marks the copy: the mark makes it again.
+  rmSync(marks(second), { recursive: true })
+  materialize(root, second)
+  assert.deepEqual(readdirSync(marks(second)), [String(process.pid)])
+  releaseFrozen(root, second)
+  assert.ok(!existsSync(marks(second)))
 })
 
 test('using a copy that needs no rewrite marks it used now', () => {
