@@ -817,7 +817,8 @@ or null when not sent) and `warnings`; `fork`'s is `api`, `dir`, `film`, `title`
 
 | Command | What it does |
 |---|---|
-| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]` | serves the project to the studio page on the site until Ctrl-C |
+| `studio [--connect id] [--site origin] [--api origin] [--origin dev-origin]... [--no-open] [--json]` | serves the project to the studio page on the site until stopped: `studio --stop`, Ctrl-C, SIGTERM, or (stdin a pipe) stdin closing or `{"stop":true}` |
+| `studio --stop` | stops the studio running for this project cleanly, and waits for it to end; one studio runs a project at a time |
 | `telemetry off\|on\|status` | whether the studio page reports usage counts |
 
 `studio` is the local bridge of the studio, a page on shaderera.com that drives the project on your
@@ -845,7 +846,7 @@ asks for.
   ends, exit 2), or, for an older page, to reload it.
 - **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
   `paired`, `page-closed`, `resumed`, `mismatch`, `relay`, `job`, `share`, `ended`, …), listed
-  in [studio.md](studio.md).
+  in [studio.md](studio.md). A render's `job` progress comes about every 10 %, not every frame.
 - **The protocol** is [studio.md](studio.md).
 
 The studio page reports usage counts to shaderera.com, which stores them in PostHog: never code,
