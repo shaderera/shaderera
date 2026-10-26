@@ -263,16 +263,22 @@ test('the fold ignores a fix on a resolved comment, whoever writes it', () => {
 test('two processes appending at once lose no operation', async () => {
   const root = project()
   const N = 400
+  // Every 20 operations a writer waits until the other has written as many, so the two run at
+  // once however the machine schedules them (#422): no run of one writer's lines is longer than 40.
   const script = `
-import { appendOp } from ${JSON.stringify(new URL('./comments.ts', import.meta.url).href)}
-import { existsSync, writeFileSync } from 'node:fs'
+import { appendOp, commentsFile } from ${JSON.stringify(new URL('./comments.ts', import.meta.url).href)}
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
 const [root, tag, n] = process.argv.slice(2)
+const other = '"text":"' + (tag === 'a' ? 'b' : 'a')
+const written = () => (existsSync(commentsFile(root)) ? readFileSync(commentsFile(root), 'utf8').split(other).length - 1 : 0)
 // Ready, then both start together when the test says go.
 writeFileSync(root + '/ready-' + tag, '')
 while (!existsSync(root + '/go')) await delay(2)
-for (let i = 0; i < Number(n); i++)
+for (let i = 0; i < Number(n); i++) {
+  if (i > 0 && i % 20 === 0) while (written() < i) await delay(1)
   await appendOp(root, { op: 'reply', at: new Date().toISOString(), by: 'agent', id: 'aaaaaa', text: tag + i + ' ' + 'x'.repeat(i % 3 === 0 ? 3000 : 10) })
+}
 `
   const file = join(root, 'append.mjs')
   writeFileSync(file, script)

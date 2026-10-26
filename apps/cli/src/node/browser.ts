@@ -44,7 +44,12 @@ const ADAPTER = `(async () => {
 
 /** Starts Chrome with `flags` (its profile among them) on about:blank. */
 const startChrome = (chrome: string, flags: string[]) => {
-  const browser: ChildProcess = spawn(chrome, [...flags, 'about:blank'], { stdio: 'ignore' })
+  // Started from an elevated (administrator) process on Windows, Chrome starts itself again
+  // de-elevated and exits: the Chrome left running is no child of ours, killing ours closes
+  // nothing, and it keeps the profile's files open (#422). --do-not-de-elevate keeps it ours.
+  const browser: ChildProcess = spawn(chrome, [...flags, '--do-not-de-elevate', 'about:blank'], {
+    stdio: 'ignore',
+  })
   const exited = new Promise<string>((done) =>
     browser.once('exit', (code, signal) => done(`it exited (${signal ?? code})`)),
   )

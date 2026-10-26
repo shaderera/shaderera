@@ -258,5 +258,16 @@ for (const name of ['node', 'browser'] as const) {
         /An hdr10 render comes out as rgb10 or p010, not rgba/,
       )
     })
+
+    // The runner's preview render(t) draws bitmaps in SDR: it refuses as pixels(t) does, not clips
+    // (#372; decision 0023 has no house tone map).
+    if (name === 'browser')
+      test("the runner page's preview render is refused too", async () => {
+        const { evaluate } = child as Child & { evaluate: (e: string) => Promise<unknown> }
+        await assert.rejects(
+          evaluate(`window.__shaderera.render(${HDR_T}).then(() => 'drawn')`),
+          /An hdr10 render comes out as rgb10 or p010, not a preview/,
+        )
+      })
   })
 }

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { spawn, spawnSync } from 'node:child_process'
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
-import { after, before, test } from 'node:test'
+import { after, before, test as nodeTest, type TestFn, type TestOptions } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
@@ -17,12 +17,40 @@ process.env.HOME = home
 process.env.USERPROFILE = home
 delete process.env.SHADERERA_TELEMETRY
 
+// `node --test` waits forever by default: a test that hangs (a CLI that never prints what a test
+// waits for) fails by itself, not the whole run. Generous: a loaded machine is slow, not wrong (#422).
+const test = (name: string, a: TestFn | TestOptions, b?: TestFn) =>
+  typeof a === 'function'
+    ? nodeTest(name, { timeout: 300_000 }, a)
+    : nodeTest(name, { timeout: 300_000, ...a }, b)
+
 const fixture = (root = tempDir('studio')) => {
   cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), root, {
     recursive: true,
     filter: (f) => !/[\\/](out|\.shaderera)$/.test(f),
   })
   return root
+}
+/**
+ * What `find` finds in what the CLI printed, once it has: waits on its output however long a loaded
+ * machine takes (#422), not a fixed number of polls. Undefined once its stdout ended without it; a
+ * CLI that never prints it fails at the test's timeout.
+ */
+const printed = async <T>(cli: ChildProcess, find: () => T | undefined): Promise<T | undefined> => {
+  for (;;) {
+    const found = find()
+    if (found !== undefined || !cli.stdout || cli.stdout.readableEnded) return found
+    const stdout = cli.stdout
+    await new Promise<void>((done) => {
+      const go = () => {
+        stdout.off('data', go)
+        stdout.off('end', go)
+        done()
+      }
+      stdout.on('data', go)
+      stdout.on('end', go)
+    })
+  }
 }
 const jsonOf = (r: { body: Buffer }) => JSON.parse(r.body.toString('utf8'))
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
@@ -197,12 +225,8 @@ test('shaderera studio --json: one JSON line per event, for an agent', async () 
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
   const event = async (name: string) => {
-    for (let i = 0; i < 400; i++) {
-      const e = events().find((x) => x.event === name)
-      if (e) return e
-      if (cli.exitCode !== null) break
-      await new Promise((r) => setTimeout(r, 25))
-    }
+    const e = await printed(cli, () => events().find((x) => x.event === name))
+    if (e) return e
     throw new Error(`no ${name} event in: ${out}${err}`)
   }
   try {
@@ -266,12 +290,8 @@ test('shaderera studio --json: a render sends its progress now and then, not a l
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
   const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
-    for (let i = 0; i < 2400; i++) {
-      const e = events().find(match)
-      if (e) return e
-      if (cli.exitCode !== null) break
-      await new Promise((r) => setTimeout(r, 25))
-    }
+    const e = await printed(cli, () => events().find(match))
+    if (e) return e
     throw new Error(`no such event in: ${out}`)
   }
   try {
@@ -373,12 +393,8 @@ test("shaderera studio --json: the page's console comes as log events, without a
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
   const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
-    for (let i = 0; i < 400; i++) {
-      const e = events().find(match)
-      if (e) return e
-      if (cli.exitCode !== null) break
-      await new Promise((r) => setTimeout(r, 25))
-    }
+    const e = await printed(cli, () => events().find(match))
+    if (e) return e
     throw new Error(`no such event in: ${out}${err}`)
   }
   let vite: WebSocket | undefined
@@ -471,12 +487,8 @@ const studioJson = (
       .filter((line) => line.trim())
       .map((line) => JSON.parse(line) as { event: string; [k: string]: unknown })
   const event = async (match: (e: ReturnType<typeof events>[number]) => boolean) => {
-    for (let i = 0; i < 400; i++) {
-      const e = events().find(match)
-      if (e) return e
-      if (cli.exitCode !== null) break
-      await new Promise((r) => setTimeout(r, 25))
-    }
+    const e = await printed(cli, () => events().find(match))
+    if (e) return e
     throw new Error(`no such event in: ${out}`)
   }
   return { cli, exited, events, event, out: () => out }
