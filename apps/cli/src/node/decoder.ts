@@ -285,16 +285,18 @@ export const videoDecoder = (
         if (!full()) proc?.stdout?.resume()
         return found.bytes
       }
-      // A seeked decoder that gave another frame than the one it should, or ended before this one:
-      // the file is decoded from frame 0 from now on, as it always was.
-      if (checked !== Number.POSITIVE_INFINITY && (wrong || (ended && !failed))) {
+      // A seeked decoder that gave another frame than the one it should, or ended before this one
+      // (not one it ended past, at the file's end, and a jump back now asks for): the file is
+      // decoded from frame 0 from now on, as it always was.
+      const behind = index < (frames[0]?.index ?? next)
+      if (checked !== Number.POSITIVE_INFINITY && (wrong || (ended && !failed && !behind))) {
         packets = null
         await begin(index)
         continue
       }
       // Behind what is kept (a jump back) or behind where it decodes: only a new decoder reaches
       // it, never this one reading on.
-      if (index < (frames[0]?.index ?? next)) {
+      if (behind) {
         await begin(index)
         continue
       }

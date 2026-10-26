@@ -134,3 +134,26 @@ test('a seeked decoder whose frame has another pts goes back to decoding from fr
     await d.close()
   }
 })
+
+test('a seeked decoder that reached the file end still seeks for a frame before', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 60_000,
+}, async () => {
+  const file = clip()
+  const want = await inOrder(file)
+  const d = videoDecoder(
+    file,
+    probeVideo(file),
+    () => 3,
+    () => 2,
+  )
+  try {
+    assert.deepEqual(await d.frame(59), want[59])
+    // Its ffmpeg ends after the last frame: the next read is a jump back, not a file that misled.
+    await new Promise((done) => setTimeout(done, 500))
+    assert.deepEqual(await d.frame(25), want[25])
+    assert.equal(d.seeked, true)
+  } finally {
+    await d.close()
+  }
+})
