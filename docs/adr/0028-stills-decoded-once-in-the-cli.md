@@ -1,6 +1,7 @@
 # 0028: Stills decoded once in the CLI, at the size used, and cached
 
-2026-10-27. Proposed (#453); the owner approved the direction, ADR first. Amends 0007 (parallel
+2026-10-27. Proposed (#453); the owner approved the direction, ADR first, and the maintainer
+decided its open questions the same day (PR #457). Amends 0007 (parallel
 export).
 
 **Context.** `io.image` decodes PNG and JPEG in JavaScript (fast-png, jpeg-js) inside each host
@@ -97,9 +98,9 @@ in `.shaderera/cache/`, at most 1 GiB, evicting the least recently used. Twenty 
    - **Too big to keep.** An entry larger than one eighth of the limit (128 MiB at the default)
      is not written. It would push out up to eight others on every run. Such a still is decoded
      once a command, in the CLI, not once a host, which is still better than today.
-   - **`check` warns.** It names any still decoded with a long side more than twice the film's
-     largest output long side, with its file and `maxSize`. That is the 8000×6000 photograph in a
-     1080p film.
+   - **No warning of its own.** The warning for a still decoded far larger than the film shows it
+     (the 8000×6000 photograph in a 1080p film) belongs to #454's lint for per-frame CPU pixel
+     work. There is one warning, not two.
 
 6. **GPU mips are deferred. `image-fit` keeps its CPU pyramid.**
    - `image-fit` is a Canvas2D plugin, and must run in a Node host without `webgpu` (0002, 0007).
@@ -147,18 +148,16 @@ and its uploads are unchanged: an `io.image` is still CPU bytes that a layer upl
   pixels, and it would guess wrong for any still that is zoomed.
 - **Lanczos or bicubic.** See 3.
 - **Linear-light averaging.** It is closer to how light adds, but it disagrees with every other
-  shrink in the engine and needs `pow` or a table per bit depth. It stays open (below).
+  shrink in the engine and needs `pow` or a table per bit depth. The filter averages code values
+  (maintainer, 2026-10-27).
 - **Caching every decode whatever its size.** One 384 MB 16-bit still would push out most of a
   film's cache on every run.
 
-**Open for the owner.**
-- **Linear light or code values** for the filter. This ADR decides code values, to match the rest
-  of the engine.
-- **The thresholds:** the one-eighth rule (5) and the factor of two in `check`'s warning.
-- **`io.bake`'s `image(i)`:** whether it takes `maxSize` too, and decodes in the CLI.
-- **The web player's viewer** still decodes each still at full size in their browser before
-  shrinking it. `share` could ship each still already shrunk, at the sizes a render asked for,
-  keyed as in 4.
+**Later, if a film needs it** (out of scope here; maintainer, 2026-10-27).
+- **`io.bake`'s `image(i)`** taking `maxSize` and decoding in the CLI.
+- **Stills shrunk before `share`.** The web player's viewer still decodes each still at full size
+  in their browser before shrinking it. `share` could ship each still already shrunk, at the sizes
+  a render asked for, keyed as in 4.
 
 **How to reverse.** `maxSize` is optional and the full-size decode is unchanged, so moving the
 decode back into each host means only routing `io.image` to `runner/image.ts` again. The cache
