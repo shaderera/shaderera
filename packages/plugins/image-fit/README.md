@@ -48,5 +48,10 @@ between. Skia's own `'high'` smoothing was measured the same way in
 [determinism.md](https://github.com/shaderera/shaderera/blob/main/docs/determinism.md); the
 pyramid is for a still drawn far smaller than it is, which bilinear alone would alias.
 
+On a film with `host.gpu`, footage and large stills are faster as textures sampled in a WGSL pass:
+`toCanvas` puts every footage frame through `putImageData` before it is drawn. `AUTHORING.md`,
+"Footage and stills on the GPU", has that path, with cover, contain and a blur. `cover`,
+`contain` and `crop` still give the rectangle: divide it by the picture's size for the pass's uv.
+
 It places the picture only: where the box is, how it moves (`camera-ken-burns`) and what the
 focus is (`image-regions`) are the film's.
