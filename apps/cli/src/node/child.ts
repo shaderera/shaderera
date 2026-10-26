@@ -12,7 +12,7 @@ import type { GpuOutput, HdrOutput, LightLevels, SeekStats } from '@shaderera/co
 import { paramDefaults } from '@shaderera/core/host'
 import type { TextRun } from '../review/measure.ts'
 import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
-import type { Fonts, Request } from './host.ts'
+import type { Fonts, HostProfile, Request } from './host.ts'
 import { outside } from './inside.ts'
 import type { Project } from './project.ts'
 import { type BakeFrames, createServices, type ServiceRequest } from './services.ts'
@@ -160,6 +160,11 @@ export type Child = {
   identity(): Promise<HostIdentity>
   /** How often render read the wall clock since the host opened (counted, never blocked). */
   clock(): Promise<ClockReads>
+  /**
+   * Its render calls' time and their waits on io.video since the last reset (#454); `reset`
+   * starts them again after this reply.
+   */
+  profile(reset?: boolean): Promise<HostProfile>
   /** How a `sequential` source reached its frames so far; null for any other source. */
   seeks(): Promise<SeekStats | null>
   /**
@@ -352,6 +357,7 @@ export const openChild = async (
     audio: () => call({ type: 'audio' }),
     captions: () => call({ type: 'captions' }),
     clock: () => call({ type: 'clock' }),
+    profile: (reset) => call({ type: 'profile', ...(reset ? { reset } : {}) }),
     fonts: () => call({ type: 'fonts' }),
     seeks: () => call({ type: 'seeks' }),
     text: async () => [],

@@ -27,7 +27,7 @@ import {
 import { tempDir } from '../../fixtures/temp.ts'
 import type { TextRun } from '../../review/measure.ts'
 import type { Child, ClockReads, HostIdentity, Rendered } from '../child.ts'
-import type { Fonts } from '../host.ts'
+import type { Fonts, HostProfile } from '../host.ts'
 import type { Project } from '../project.ts'
 
 export type MemoryChildOptions = {
@@ -52,6 +52,8 @@ export type MemoryChildOptions = {
   text?: (t: number) => TextRun[]
   fonts?: Fonts
   clock?: ClockReads
+  /** What `profile()` gives: no renders timed by default. */
+  profile?: HostProfile
   /**
    * The host composites on the GPU (decision 0007): `has.deep`, and `has.yuv` where the frame size
    * takes yuv420p (width divisible by 8, even height). True by default; false is the Node host
@@ -157,6 +159,7 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
       () => o.identity ?? { host: 'node' as const, node: process.version, adapter: 'in-memory' },
     ),
     clock: call(() => o.clock ?? { date: 0, performance: 0 }),
+    profile: call(() => o.profile ?? { time: { renders: 0, renderMs: 0, videoMs: 0 } }),
     seeks: call(() => null),
     text: call((t: number) => o.text?.(t) ?? []),
     close: async () => {

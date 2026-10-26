@@ -69,6 +69,7 @@ import {
   requireHdr10Ffmpeg,
 } from './ffmpeg.ts'
 import { found } from './findings.ts'
+import { type FrameTime, frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
 import { openMix } from './mix.ts'
 import { blackFrame, fileTimecode, prerollOf, prerollTimes, writePreroll } from './preroll.ts'
 
@@ -196,6 +197,8 @@ const exportOnce = async (
   captions?: string[]
   /** Wall-clock reads inside render, over every host (counted, never blocked). */
   clock: ClockReads
+  /** Where the frame time went (#454); none for frames rendered before the encode (hdr10, chunks). */
+  time?: FrameTime
 }> => {
   checkVideoOptions(o)
   const codec = o.codec ?? 'h264'
@@ -382,6 +385,13 @@ const exportOnce = async (
       black: () => blackFrame(input, width, height),
       render: async (t) => (await child.render(t, 'final', input)).pixels,
     })
+    // Where the frame time went (frameTime): counted from the first frame written, so the preroll,
+    // the hosts' earlier calls and the first frame's shader compiles are left out. Best effort: a
+    // host that cannot say leaves the figures out, never the render.
+    const timing = !rendered && (await resetProfiles(hosts))
+    let writeMs = 0
+    let exported = performance.now()
+    let timed = 0
     const { frames } = rendered
       ? // A plain HDR10 render counted its frames as it rendered them into its chunk.
         await encodeFrames(sink, rendered, o.frames ? o.onFrame : undefined, o.signal)
@@ -399,13 +409,38 @@ const exportOnce = async (
           },
           inspect: child.has.inspect ? (t, host) => (hosts[host] as Child).inspect(t) : undefined,
           sequential: Boolean(child.has.sequential),
-          sink,
-          onFrame: o.onFrame && ((i, n) => o.onFrame?.(i, n)),
+          sink: {
+            ...sink,
+            write: async (pixels) => {
+              const asked = performance.now()
+              try {
+                await sink.write(pixels)
+              } finally {
+                writeMs += performance.now() - asked
+              }
+            },
+          },
+          onFrame: (i, n) => {
+            if (timed++ === 0) {
+              exported = performance.now()
+              writeMs = 0
+            }
+            o.onFrame?.(i, n)
+          },
           onRecheck: o.onFrame && ((i, n) => o.onFrame?.(i, n, 'recheck')),
           signal: o.signal,
           ahead: hosts.length * 2,
           hosts: hosts.length,
         })
+    const profiles = timing && timed > 1 ? await profilesOf(hosts) : null
+    const time = profiles
+      ? frameTime({
+          frames: timed - 1,
+          wallMs: performance.now() - exported,
+          writeMs,
+          hosts: profiles.map((p) => p.time),
+        })
+      : undefined
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
     if (hdr10) {
@@ -452,6 +487,7 @@ const exportOnce = async (
       ...(mix.level ? { gainDb: mix.level.gainDb } : {}),
       probe: probed,
       clock,
+      ...(time ? { time } : {}),
       ...(stems ? { stems } : {}),
       ...(sidecars.length ? { captions: sidecars } : {}),
     }
@@ -467,6 +503,17 @@ const exportOnce = async (
     rmSync(chunks, { recursive: true, force: true })
   }
 }
+
+/** Starts every host's profile again; false when one cannot (its figures are then left out). */
+const resetProfiles = (hosts: readonly Child[]) =>
+  Promise.all(hosts.map((h) => h.profile(true))).then(
+    () => true,
+    () => false,
+  )
+
+/** Every host's profile, or null when one cannot give it: a finished render never fails on it. */
+const profilesOf = (hosts: readonly Child[]) =>
+  Promise.all(hosts.map((h) => h.profile())).catch(() => null)
 
 /**
  * When a GPU's H.264 encoder was picked from a kept yes (canEncode) and its ffmpeg exits with an
@@ -868,6 +915,18 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       )
     else if (loudness !== undefined) console.log('audio: none to bring to a loudness')
     console.log(`host: ${JSON.stringify(await child.identity())}`)
+    if (sound.time) {
+      const line = frameTimeLine(sound.time)
+      const hint = frameTimeHint(sound.time)
+      console.log(line)
+      if (hint) console.log(hint)
+      found({
+        code: 'frame-time',
+        severity: 'info',
+        message: hint ? `${line}. ${hint}` : line,
+        measured: JSON.stringify(sound.time),
+      })
+    }
     const warning = clockWarning(sound.clock)
     if (warning) {
       console.warn(`! ${warning}`)

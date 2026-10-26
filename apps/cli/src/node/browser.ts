@@ -488,6 +488,7 @@ export const openBrowserChild = async (
       },
       captions: () => call('captions'),
       clock: () => call('clock'),
+      profile: (reset) => call('profile', reset === true),
       fonts: async () => ({ fonts: [], failures: [] }),
       seeks: () => call('seeks'),
       text: async (t) => {

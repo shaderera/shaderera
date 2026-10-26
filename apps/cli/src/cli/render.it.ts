@@ -46,6 +46,11 @@ test('a piped render reports every frame only when asked (a parent process asks)
   const asked = render('--progress')
   assert.equal(asked.status, 0, asked.stderr)
   assert.match(asked.stderr, /frame 1\/10\b.*frame 10\/10 {2}[\d.]+ fps {2}0:00 left/s)
+  // Where the frame time went (#454), at the end.
+  assert.match(
+    asked.stdout,
+    /^time: [\d.]+ ms a frame · host render [\d.]+ ms · waiting on io\.video [\d.]+ ms · encoder (idle|busy) \(/m,
+  )
   // Unasked, and a variant: at its own length, done before a line every 10 s is due.
   const quiet = render('--variant', 'short')
   assert.equal(quiet.status, 0, quiet.stderr)
