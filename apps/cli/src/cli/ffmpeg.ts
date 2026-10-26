@@ -14,6 +14,7 @@ import { delimiter, dirname, extname, join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import type { Sink } from '@shaderera/core'
 import { fpsFraction } from '@shaderera/core/host'
+import { lendTurns } from '../node/spawn-turn.ts'
 import type { EncoderData, FromEncoder, ToEncoder } from './encoder.ts'
 
 export type Quality = 'review' | 'master'
@@ -766,7 +767,7 @@ const lastLines = (text: string, n = 5) =>
  * stdout is ignored: it may be MCP's stream. Its stderr goes on to ours, and its tail into the
  * FfmpegError a write fails with when ffmpeg exits before `end` (a clean exit too: ffmpeg takes a
  * demuxing error, such as out of memory, as the end of its input) or stops reading for
- * `stallSeconds`.
+ * `stallSeconds`; `end` fails the same way when ffmpeg has not finished within them.
  *
  * ffmpeg is fed from a thread of its own (encoder.ts), which mattes the frames and copies them into
  * the pipe; this thread only hands each frame over. With `handOver`, a frame that owns its whole
@@ -783,13 +784,16 @@ export const ffmpegSink = (
 ): Sink => {
   const [bin = 'ffmpeg', ...pre] = o.command ?? []
   // Straight RGBA is matted over black (an mp4 has no alpha); Y'CbCr and HDR10 codes came matted.
+  const { turn, transfer } = lendTurns()
   const data: EncoderData = {
     bin,
     args: [...pre, ...args],
     matte: !matted || (input !== 'rgba' && input !== 'rgba64') ? null : input,
+    turn,
   }
   const encoder = new Worker(new URL(`./encoder${extname(import.meta.url)}`, import.meta.url), {
     workerData: data,
+    transferList: transfer,
   })
   const tell = (m: ToEncoder, transfer?: ArrayBuffer[]) => encoder.postMessage(m, transfer)
   let said = ''
@@ -868,11 +872,24 @@ export const ffmpegSink = (
             : view.slice()
         tell({ type: 'frame', bytes }, [bytes.buffer as ArrayBuffer])
       }),
-    end: async () => {
-      ending = true
-      tell({ type: 'end' })
-      await exited
-    },
+    // ffmpeg flushes and exits once its input ends; one that never does (its input's end lost)
+    // fails after the watchdog's seconds, never waits for ever.
+    end: () =>
+      new Promise<void>((done, fail) => {
+        ending = true
+        const timer = setTimeout(() => {
+          failed ??= new FfmpegError(
+            `ffmpeg did not finish within ${stall} s of its last frame: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
+            'stall',
+            null,
+            lastLines(said),
+          )
+          fail(failed)
+          tell({ type: 'kill' })
+        }, stall * 1000)
+        exited.then(done, fail).finally(() => clearTimeout(timer))
+        tell({ type: 'end' })
+      }),
     abort: async () => {
       ending = true
       tell({ type: 'kill' })

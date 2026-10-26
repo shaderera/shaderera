@@ -3,11 +3,13 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
 import type { Job } from '../project/jobs.ts'
 import {
   checkChunks,
   chunkStates,
+  decodeFrames,
   makePlan,
   type Plan,
   progressOf,
@@ -171,4 +173,41 @@ test('a chunk is done only with its record; one a live render holds is claimed',
     held.release()
   }
   assert.equal(chunkStates(plan, dir)[1]?.status, 'missing')
+})
+
+// A decoder whose stdout another process holds open after it exits (#439): its end never comes.
+const heldPipe = fileURLToPath(new URL('../fixtures/held-pipe.ts', import.meta.url))
+const tinyPlan = { input: 'rgba', width: 4, height: 2 } as const
+
+test('decodeFrames gives its count of frames from a decoder whose output never ends', async () => {
+  const start = performance.now()
+  const frames: Uint8Array[] = []
+  const command = [process.execPath, heldPipe, 'out', '3', '32', '8000']
+  for await (const f of decodeFrames(tinyPlan, 'held.mkv', 3, undefined, { command }))
+    frames.push(f)
+  assert.equal(frames.length, 3)
+  assert.ok(frames.every((f) => f.length === 32 && f[0] === 7))
+  assert.ok(performance.now() - start < 5000)
+})
+
+test('decodeFrames fails, naming the decoder, when it exits short and its output never ends', async () => {
+  const command = [process.execPath, heldPipe, 'out', '1', '32', '8000']
+  const start = performance.now()
+  await assert.rejects(async () => {
+    for await (const _ of decodeFrames(tinyPlan, 'held.mkv', 3, undefined, {
+      command,
+      grace: 300,
+    }));
+  }, /ffmpeg exited \(0\) after 1 of the 3 frames of held\.mkv, and its output did not end/)
+  assert.ok(performance.now() - start < 5000)
+})
+
+test('decodeFrames fails a decoder that gives nothing for the stall seconds', async () => {
+  const command = [process.execPath, heldPipe, 'deaf']
+  await assert.rejects(async () => {
+    for await (const _ of decodeFrames(tinyPlan, 'held.mkv', 3, undefined, {
+      command,
+      stall: 0.5,
+    }));
+  }, /ffmpeg gave no frame of held.mkv for 0.5 s: it stalled/)
 })

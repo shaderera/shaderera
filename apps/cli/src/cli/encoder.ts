@@ -5,7 +5,11 @@
 import { spawn } from 'node:child_process'
 import { parentPort, workerData } from 'node:worker_threads'
 import { matte, opaque } from '@shaderera/core/host'
+import { type SpawnTurn, spawnInTurn } from '../node/spawn-turn.ts'
 import { matte64 } from './matte64.ts'
+
+/** How long after ffmpeg exits its stderr may take to end. */
+const CLOSE_GRACE_MS = 2000
 
 /** What the CLI's thread sends. */
 export type ToEncoder = { type: 'frame'; bytes: Uint8Array } | { type: 'end' } | { type: 'kill' }
@@ -23,20 +27,31 @@ export type EncoderData = {
   args: string[]
   /** How the frames are matted over black: straight RGBA at 8 or 16 bits, or not at all. */
   matte: 'rgba' | 'rgba64' | null
+  /** This thread's turns to start ffmpeg in (spawn-turn.ts). */
+  turn?: SpawnTurn
 }
 
 const port = parentPort
 if (port) {
   const o = workerData as EncoderData
   const say = (m: FromEncoder) => port.postMessage(m)
-  const ff = spawn(o.bin, o.args, { stdio: ['pipe', 'ignore', 'pipe'] })
+  // Started in this thread's turn (spawn-turn.ts): no other process of the CLI's starts with it.
+  const ff = spawnInTurn(o.turn, () => spawn(o.bin, o.args, { stdio: ['pipe', 'ignore', 'pipe'] }))
   ff.stderr.on('data', (data: Buffer) => say({ type: 'stderr', data }))
   ff.once('error', (error) => say({ type: 'error', message: error.message }))
-  // 'close', not 'exit': stderr has been read to its end.
-  ff.once('close', (code, signal) => {
+  let ended = false
+  const end = (code: number | null, signal: NodeJS.Signals | null) => {
+    if (ended) return
+    ended = true
     say({ type: 'close', code, signal })
+    // A held stderr would keep this thread alive.
+    ff.stderr.destroy()
     port.close()
-  })
+  }
+  // 'close', not 'exit': stderr has been read to its end. A stderr that another process holds
+  // open never ends, so the exit is enough a little after it.
+  ff.once('close', end)
+  ff.once('exit', (code, signal) => setTimeout(() => end(code, signal), CLOSE_GRACE_MS).unref())
   // An ffmpeg that exits early closes the pipe: the write fails with EPIPE, and `close` says why.
   ff.stdin.on('error', () => {})
   port.on('message', (m: ToEncoder) => {

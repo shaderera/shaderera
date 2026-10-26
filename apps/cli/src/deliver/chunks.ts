@@ -11,7 +11,7 @@ import {
 import { dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes } from '@shaderera/core'
 import type { LightLevels } from '@shaderera/core/host'
-import { ffmpegSink, type Input, requireFfmpeg } from '../cli/ffmpeg.ts'
+import { ffmpegSink, type Input, requireFfmpeg, stallSeconds } from '../cli/ffmpeg.ts'
 import type { Child, HostIdentity } from '../node/child.ts'
 import { frameError } from '../node/open-host.ts'
 import { type Job, safeName, videoOptionsOf } from '../project/jobs.ts'
@@ -573,21 +573,33 @@ export const progressOf = (plan: Plan, states: readonly ChunkState[]) => {
   return { done, total, eta: left === 0 ? 0 : frames > 0 ? (seconds / frames) * left : null }
 }
 
+/** How long a decoder's output may go on after it exited before it is given up. */
+const EXIT_GRACE_MS = 5000
+
 /**
  * Frames of a lossless chunk file as the bytes the host handed over, one at a time: the `count`
  * frames that `select` (an ffmpeg select expression on the frame number `n`, such as `gte(n\,12)`)
  * picks, in order.
+ *
+ * The frames are counted, not read to the pipe's end: another process can hold the pipe open
+ * after ffmpeg exits (node/spawn-turn.ts), and its end never comes. An output that goes quiet
+ * fails instead of waiting: `stall` seconds while ffmpeg runs (stallSeconds), `grace` ms once it
+ * has exited.
  */
 export async function* decodeFrames(
   plan: Pick<Plan, 'input' | 'width' | 'height'>,
   file: string,
   count: number,
   select?: string,
+  /** For tests: another program in ffmpeg's place (`command` then the args), other allowances. */
+  o: { command?: readonly string[]; stall?: number; grace?: number } = {},
 ): AsyncGenerator<Uint8Array> {
   const size = frameBytes(plan.input, plan.width, plan.height)
+  const [bin = 'ffmpeg', ...pre] = o.command ?? []
   const ff = spawn(
-    'ffmpeg',
+    bin,
     [
+      ...pre,
       '-loglevel',
       'error',
       '-i',
@@ -607,19 +619,52 @@ export async function* decodeFrames(
   let parts: Buffer[] = []
   let held = 0
   let decoded = 0
+  // Not timed while a frame is out with the caller (an encoder may take its time).
+  let waiting = false
+  let exited: string | undefined
+  let timer: NodeJS.Timeout | undefined
+  const stall = o.stall ?? stallSeconds()
+  const watch = () => {
+    clearTimeout(timer)
+    if (!waiting) return
+    const [ms, why] =
+      exited === undefined
+        ? [
+            stall * 1000,
+            `ffmpeg gave no frame of ${file} for ${stall} s: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
+          ]
+        : [
+            o.grace ?? EXIT_GRACE_MS,
+            `ffmpeg exited (${exited}) after ${decoded} of the ${count} frames of ${file}, and its output did not end.`,
+          ]
+    timer = setTimeout(() => ff.stdout?.destroy(new Error(why)), ms)
+  }
+  ff.once('exit', (code, signal) => {
+    exited = String(code ?? signal)
+    watch()
+  })
   try {
+    if (count === 0) return
+    waiting = true
+    watch()
     for await (const data of ff.stdout as AsyncIterable<Buffer>) {
+      waiting = false
+      clearTimeout(timer)
       parts.push(data)
       held += data.length
-      while (held >= size) {
+      while (held >= size && decoded < count) {
         const all = parts.length === 1 ? (parts[0] as Buffer) : Buffer.concat(parts, held)
         yield new Uint8Array(all.subarray(0, size))
         parts = held > size ? [all.subarray(size)] : []
         held -= size
         decoded++
       }
+      if (decoded === count) return
+      waiting = true
+      watch()
     }
   } finally {
+    clearTimeout(timer)
     ff.kill()
   }
   if (decoded !== count) throw new Error(`${file} decoded to ${decoded} frames, not ${count}.`)

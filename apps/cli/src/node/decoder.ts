@@ -1,6 +1,7 @@
 // The decoder behind `io.video` (services.ts), run in a thread of its own (video-worker.ts).
 import { spawn } from 'node:child_process'
 import type { VideoInfo } from './services.ts'
+import { type SpawnTurn, spawnInTurn } from './spawn-turn.ts'
 
 /**
  * Decodes one file's frames in order with ffmpeg. The last `keep()` frames up to the latest asked
@@ -14,6 +15,8 @@ export const videoDecoder = (
   info: VideoInfo,
   keep: () => number = () => 1,
   ahead: () => number = keep,
+  /** The thread's turns to start ffmpeg in (spawn-turn.ts); none in the CLI's own thread. */
+  turn?: SpawnTurn,
 ) => {
   const size = info.width * info.height * 4
   let proc: ReturnType<typeof spawn> | undefined
@@ -37,28 +40,26 @@ export const videoDecoder = (
   const full = () => next - 1 - asked >= Math.max(1, ahead())
   const start = (from: number) => {
     proc?.kill()
-    // Software decode, every frame from `from` on, converted by the file's own colour tags.
-    proc = spawn(
-      'ffmpeg',
-      [
-        '-loglevel',
-        'error',
-        '-threads',
-        '1',
-        '-i',
-        file,
-        '-map',
-        '0:v:0',
-        '-vf',
-        `select=gte(n\\,${from}),scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
-        '-fps_mode',
-        'passthrough',
-        '-f',
-        'rawvideo',
-        '-',
-      ],
-      { stdio: ['ignore', 'pipe', 'ignore'] },
-    )
+    // Software decode, every frame from `from` on, converted by the file's own colour tags, started
+    // in this thread's turn.
+    const args = [
+      '-loglevel',
+      'error',
+      '-threads',
+      '1',
+      '-i',
+      file,
+      '-map',
+      '0:v:0',
+      '-vf',
+      `select=gte(n\\,${from}),scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
+      '-fps_mode',
+      'passthrough',
+      '-f',
+      'rawvideo',
+      '-',
+    ]
+    proc = spawnInTurn(turn, () => spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'ignore'] }))
     next = from
     asked = from
     frames = []
