@@ -305,7 +305,11 @@ audio: -23.0 LUFS, true peak -20.4 dBTP, range 0.0 LU
 
 A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file. A source that is
 not deterministic is not exported: `render` deletes the file and exits 1 with the frames that
-changed ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). ffmpeg must be on
+changed ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). The frames it
+renders again are the film's frames 0, n, 2n … (n its frames a second, rounded: one a second of
+film) inside the window, the same rule for `render`, `render --from/--to`, each `render --chunk`
+and `deliver`. So the whole film and the chunk that hold a window re-check every frame the
+window re-checks, and a window shorter than a second may hold none of them. ffmpeg must be on
 the PATH:
 
 ```

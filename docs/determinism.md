@@ -49,10 +49,10 @@ A failure names the time, what came before it and what changed, and exits 1:
 ## Export refuses a source that fails
 
 A source that fails the check can play, but it cannot export. Every export (`render`, `deliver`,
-MCP's `render`) is also the first pass of a check. Before the file is finished, up to 8 of its
-frames (the first, the last and seeded picks) are rendered again in a shuffled order, with
-`inspect` compared too. If one changed, the export stops, no file is left, and the error names the
-frames:
+MCP's `render`, each chunk of a plan) is also the first pass of a check. Before the file is
+finished, its frames on the film's one-a-second grid (frames 0, n, 2n …, n the film's frames a
+second, rounded) are rendered again in a shuffled order, with `inspect` compared too. If one
+changed, the export stops, no file is left, and the error names the frames:
 
 ```
 $ shaderera render
@@ -60,9 +60,13 @@ shaderera: Not exported: the source is not deterministic (t=0.3 after t=0.9: pix
 ```
 
 (A captured run on `apps/cli/src/cli/fixtures/stateful`, whose picture counts the frames rendered
-before it.) The gate costs those 8 renders, with the params, seed, size and camera of the export;
-`check` samples more of the film. An export spread over several hosts (`render --workers`) sends
-the 8 frames round the hosts too, so they must agree with each other, not only with themselves.
+before it.) The gate costs one render a second of film (about 3 % at 30 fps), with the params,
+seed, size and camera of the export; `check` samples the whole film in two orders. The grid is the
+film's, not the export's: the whole film and the chunk of a plan that hold a window
+(`render --from/--to`) re-check every frame the window re-checks, so the two never disagree about a
+frame because one of them did not look at it. A window shorter than a second may hold no frame of
+the grid. An export spread over several hosts (`render --workers`, a chunk) sends the frames round
+the hosts too, so they must agree with each other, not only with themselves.
 
 ## What breaks it, and the fix
 
@@ -78,16 +82,22 @@ the 8 frames round the hosts too, so they must agree with each other, not only w
 Keep one pure `state(t)` or `place(t)` that `render`, `inspect`, `pick` and `camera.get` all
 call, so what is inspected is what was drawn.
 
-### Canvas2D image smoothing is not a cause
+### Canvas2D at `'high'` keeps a trace of what it draws over
 
 `imageSmoothingQuality` picks the filter, so `'low'`, `'medium'` and `'high'` draw different
-pixels, and each draws the same pixels every time. A large picture drawn scaled down at `'high'`
-was suspected of depending on what was drawn before (Skia keeps the mipmaps it builds in a cache
-that large pictures evict), and measured: with `@napi-rs/canvas` 1.0.10 on Windows 11 it does not.
-Pictures up to 8000 px wide, up to 24 of them (more than the cache holds), drawn scaled down into
-1920×1080 as canvases, decoded images and canvases redrawn in between, in shuffled orders, and the
-same drawn by a source under `shaderera check` (40 times, two orders), gave the same pixels every
-time, at every quality.
+pixels. At `'low'` and `'medium'` an opaque picture drawn scaled covers what was under it. At
+`'high'` it does not quite: with `@napi-rs/canvas` 1.0.10 (the Node host), the scaled picture's
+alpha comes out a hair under 1 inside Skia, so a draw with the default `source-over` keeps a
+trace of the canvas's old pixels, up to 1 in a channel. A canvas kept across frames still holds the
+previous frame, so the frame depends on which t came before it: `still` alone and after another t
+differ, and the export's re-check refuses it. A picture drawn up from 192 px to 1280×720 over a
+white canvas and over a clear one differs in about 52 000 bytes, each by 1; at `'low'` and
+`'medium'`, in none.
+
+Draw at `'high'` over a known background each frame: `clearRect` (or fill) the canvas first, or
+draw with `globalCompositeOperation = 'copy'`: then the same picture gives the same pixels
+whatever the canvas held. The host does not clear a film's canvases for it, since a canvas drawn
+once in `open` and kept is the film's to keep.
 
 ## Pure and sequential sources
 

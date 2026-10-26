@@ -137,6 +137,50 @@ test('exportFrames with skip writes from the first frame the sink lacks, and re-
   assert.deepEqual(seen, [12, 13, 14, 15, 16, 17, 18, 19])
   // Frame 0 is always re-checked: rendered once on the way and once more in the re-check.
   assert.equal(rendered.filter((i) => i === 0).length, 2)
-  // Only the re-checked skipped frames were rendered: at most 8, twice each.
-  assert.ok(rendered.filter((i) => i < 12).length <= 16)
+  // Only the re-checked skipped frames were rendered: 0 and 10 (one a second), twice each.
+  assert.deepEqual(
+    rendered.filter((i) => i < 12).sort((a, b) => a - b),
+    [0, 0, 10, 10],
+  )
+})
+
+test('exportFrames re-checks one frame each second of the film, so a window it refuses is refused inside any longer range', async () => {
+  // Pixels that depend on the frame rendered before, only in a half-second shot at 10 s (a canvas
+  // drawn over at 'high' without clearing, #447): the rest of the film is pure.
+  const film = () => {
+    let last = -1
+    let rendered = 0
+    return {
+      count: () => rendered,
+      render: async (t: number) => {
+        rendered++
+        const out = new Uint8Array([Math.round(t * 30) % 256, t >= 10 && t < 10.5 ? last % 256 : 0])
+        last = Math.round(t * 30)
+        return out
+      },
+    }
+  }
+  const sink = { write: async () => {}, end: async () => {}, abort: async () => {} }
+  const verdict = async (from: number, to: number) => {
+    const f = film()
+    try {
+      await exportFrames({ fps: 30, from, to, render: f.render, sink })
+      return { accepted: true, rendered: f.count() }
+    } catch (error) {
+      assert.ok(error instanceof NotDeterministic)
+      return { accepted: false, rendered: f.count() }
+    }
+  }
+  const window = await verdict(9.8, 10.6)
+  assert.equal(window.accepted, false)
+  // The whole film and its chunks that hold the shot refuse too, as `render --from/--to` does.
+  for (const [from, to] of [
+    [0, 20],
+    [5, 15],
+    [0, 10.2],
+    [10, 20],
+  ] as const)
+    assert.equal((await verdict(from, to)).accepted, false, `${from}–${to}`)
+  // The re-check costs one render each second of the window: frames 0, 30, 60 … rendered again.
+  assert.equal((await verdict(11, 20)).rendered, 270 + 9)
 })

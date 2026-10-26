@@ -1,7 +1,7 @@
-import { type DeterminismFailure, revisit, samples, type Visit } from './determinism.ts'
+import { type DeterminismFailure, revisit, type Visit } from './determinism.ts'
 import { sha256 } from './hash.ts'
 import type { Json } from './protocol.ts'
-import { frameTimes } from './time.ts'
+import { frameAt, frameTimes } from './time.ts'
 
 /** Where exported frames go, one RGBA buffer at a time. */
 export type Sink = {
@@ -11,8 +11,16 @@ export type Sink = {
   abort?(): Promise<void>
 }
 
-/** How many exported frames are rendered again, in another order, before the sink may end. */
-const RECHECKED = 8
+/**
+ * The frames of `times` rendered again before the sink may end: the film's frames 0, n, 2n …, n its
+ * frames a second (rounded), so one a second of film. They are picked by the film's frame number,
+ * not by the window, so every frame a window re-checks is re-checked by any render that holds it
+ * (the whole film, a chunk of a plan): a render and a window of it check the same frames (#447).
+ */
+const rechecked = (times: readonly number[], fps: number): number[] => {
+  const every = Math.max(1, Math.round(fps))
+  return times.filter((t) => frameAt(t, fps) % every === 0)
+}
 
 const describe = (failures: readonly DeterminismFailure[]): string =>
   failures
@@ -34,8 +42,8 @@ export class NotDeterministic extends Error {
 
 /**
  * Renders every frame in [from, to) in order into a sink, waiting on each write. The export is also
- * the first pass of a determinism check: before the sink ends, up to 8 of its frames (the first, the
- * last and seeded picks) are rendered again in a shuffled order. If any changed, the sink is
+ * the first pass of a determinism check: before the sink ends, its frames on the film's one-a-second
+ * grid (`rechecked`) are rendered again in a shuffled order. If any changed, the sink is
  * aborted and this throws, because a source that fails the check may play but cannot export.
  */
 export const exportFrames = async (o: {
@@ -62,7 +70,7 @@ export const exportFrames = async (o: {
   skip?: number
 }): Promise<{ readonly frames: number }> => {
   const times = frameTimes(o.fps, o.from, o.to)
-  const checked = new Set(samples(times, RECHECKED))
+  const checked = new Set(rechecked(times, o.fps))
   const first = new Map<number, Visit>()
   const ahead = Math.max(1, Math.floor(o.ahead ?? 1))
   const skip = Math.max(0, Math.floor(o.skip ?? 0))

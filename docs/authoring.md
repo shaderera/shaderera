@@ -125,10 +125,12 @@ The CLI and MCP can only show and change what the source exposes.
 
 `render(t)` is a function of `t`, the params and `host.seed`: no clocks, no `Math.random()` in
 `render`, every asset awaited in `open`. `npx shaderera check` renders sampled frames in two
-orders and compares them; export repeats the check on 8 of its own frames. The causes and fixes
-are in `docs/determinism.md`; each renderer's traps (three.js's frame clock, readback rows padded
-to 256 bytes, multisampling with blending on Dawn) are in its `docs/participants/` page. Canvas2D
-pixels differ slightly between the browser and Node: export a film from one host.
+orders and compares them; export repeats the check on one frame a second of film. The causes
+and fixes are in `docs/determinism.md`; each renderer's traps (three.js's frame clock, readback
+rows padded to 256 bytes, multisampling with blending on Dawn) are in its `docs/participants/`
+page. Canvas2D pixels differ slightly between the browser and Node: export a film from one host.
+A canvas kept across frames and drawn on at `imageSmoothingQuality = 'high'` keeps a trace of
+the previous frame: clear it first.
 
 ## Expensive films
 

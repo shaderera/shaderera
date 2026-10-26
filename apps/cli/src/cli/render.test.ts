@@ -18,7 +18,8 @@ test('render refuses a source that is not deterministic and leaves no file', {
   let n = 0
   const child = memoryChild({
     size: { width: 64, height: 36 },
-    frame: () => new Uint8Array(64 * 36 * 4).fill(n++ % 256),
+    // Opaque: a grey this dark at its own alpha is black, the same every time.
+    frame: () => new Uint8Array(64 * 36 * 4).fill(n++ % 256).map((v, i) => (i % 4 === 3 ? 255 : v)),
   })
   const out = join(project.root, 'out', 'refused.mp4')
   // An explicit encoder: no GPU probe, which would write the real ~/.shaderera/encoders.json.
