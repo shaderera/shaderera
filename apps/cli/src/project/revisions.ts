@@ -606,7 +606,7 @@ const use = (root: string, id: string) => {
 }
 
 /** How many frozen copies nobody uses are kept after a render: see `releaseFrozen`. */
-export const KEEP_FROZEN = 3
+export const KEEP_FROZEN = 1
 
 /**
  * The frozen copies no live process uses, most recently used first, with their last use (ms).

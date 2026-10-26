@@ -444,8 +444,8 @@ A job holds execution inputs and references, never the film.
 A revision's frozen copy (`.shaderera/revisions/<id>/`, a whole copy of the project) is made when
 a job is made or rendered, and kept for the next render, which then rewrites only what differs.
 Each process using one marks it in `.shaderera/revisions/<id>.using/`; the folder goes with its
-last user, and one whose users have all died goes when the next use ends. When a render ends, at
-most 3 copies no live process uses are kept, the most recently used; older ones are removed, and
+last user, and one whose users have all died goes when the next use ends. When a render ends, of
+the copies no live process uses only the most recently used is kept; older ones are removed, and
 `shaderera prune` removes every unused one. `render --job` makes a removed copy again from
 `versions/`.
 

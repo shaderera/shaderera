@@ -114,14 +114,14 @@ test('materialize writes a frozen copy that later edits do not touch', () => {
   assert.equal(materialize(root, one.id), dir)
 })
 
-test('a frozen copy stays after its render; past three unused ones the least recently used go', () => {
+test('a frozen copy stays after its render; past one unused, the least recently used go', () => {
   const root = project()
   const copies = join(root, '.shaderera', 'revisions')
-  const ids = ['one', 'two', 'three', 'four', 'five'].map((t) => {
+  const ids = ['one', 'two', 'three', 'four'].map((t) => {
     writeFileSync(join(root, 'src', 'a.ts'), `export const headline = "${t}"\n`)
     return save(root, { by: 'person' }).id
   })
-  const [one, two, three, four, five] = ids as [string, string, string, string, string]
+  const [one, two, three, four] = ids as [string, string, string, string]
   const ago = (id: string, minutes: number) => {
     const at = new Date(Date.now() - minutes * 60_000)
     utimesSync(join(copies, id), at, at)
@@ -137,24 +137,22 @@ test('a frozen copy stays after its render; past three unused ones the least rec
   materialize(root, two)
   writeFileSync(join(copies, `${two}.using`, String(process.ppid)), '')
   releaseFrozen(root, two)
-  // three was used by a process that died: unused.
+  assert.ok(existsSync(join(copies, one)))
+  ago(one, 40)
+  ago(two, 50)
+  // three was used by a process that died: unused, and newer than one, which goes.
   materialize(root, three)
   writeFileSync(join(copies, `${three}.using`, '999999999'), '')
   releaseFrozen(root, three)
+  assert.ok(!existsSync(join(copies, one)))
+  ago(three, 30)
   materialize(root, four)
   releaseFrozen(root, four)
-  ago(one, 40)
-  ago(two, 50)
-  ago(three, 30)
-  ago(four, 20)
-  // A fifth render: one, three, four and five are unused; one, the oldest of them, goes.
-  materialize(root, five)
-  releaseFrozen(root, five)
   const left = readdirSync(copies).filter((n) => /^[0-9a-f]{16}$/.test(n))
-  assert.deepEqual(left.sort(), [two, three, four, five].sort())
+  assert.deepEqual(left.sort(), [two, four].sort())
   assert.deepEqual(
     unusedFrozen(root).map((c) => c.id),
-    [five, four, three],
+    [four],
   )
   // A copy kept is still checked: an edit to it is repaired on the next use.
   writeFileSync(join(copies, four, 'src', 'a.ts'), 'edited\n')
