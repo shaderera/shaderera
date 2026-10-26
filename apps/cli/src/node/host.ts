@@ -35,6 +35,7 @@ import {
   yuvFits,
 } from '@shaderera/core/host'
 import { type Ask, extraIo } from '../runner/io.ts'
+import { type RenderTime, renderTime, resetRenderTime, timeRender } from '../runner/render-time.ts'
 import { adapterLine, softwareAdapter } from './adapter.ts'
 import { fixFullTurns } from './arcs.ts'
 import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
@@ -105,6 +106,8 @@ export type Request =
   | { type: 'pick'; t: number; x: number; y: number }
   | { type: 'override'; matrices: Matrices | null }
   | { type: 'audio' | 'captions' | 'clock' | 'close' | 'fonts' | 'seeks' | 'identity' }
+  /** The profile so far; `reset` starts it again after (an export, after its preroll). */
+  | { type: 'profile'; reset?: boolean }
 
 /** The fonts registered through `io.font` and the `io.read`/`io.font` calls that failed. */
 export type Fonts = {
@@ -150,15 +153,19 @@ export const clock = { date: 0, performance: 0, rendering: false }
   }
 }
 
-/** Runs a render with the clock counted. */
-const counted = async <T>(run: () => Promise<T>): Promise<T> => {
-  clock.rendering = true
-  try {
-    return await run()
-  } finally {
-    clock.rendering = false
-  }
-}
+/** Runs a render with the clock counted, timed (render-time.ts). */
+const counted = async <T>(run: () => Promise<T>): Promise<T> =>
+  timeRender(async () => {
+    clock.rendering = true
+    try {
+      return await run()
+    } finally {
+      clock.rendering = false
+    }
+  })
+
+/** Where the render calls' time went since the last reset (render-time.ts): what `render` prints. */
+export type HostProfile = { time: RenderTime }
 
 /**
  * One Dawn per process: a second native Dawn (a library that installs its own `webgpu`, such as a
@@ -491,6 +498,11 @@ const handle = async (m: Request): Promise<unknown> => {
       return s.captions ? s.captions() : null
     case 'clock':
       return { date: clock.date, performance: clock.performance }
+    case 'profile': {
+      const profile: HostProfile = { time: renderTime() }
+      if (m.reset) resetRenderTime()
+      return profile
+    }
     case 'fonts':
       return fonts
     case 'identity':

@@ -42,6 +42,7 @@ import {
 import * as Comlink from 'comlink'
 import { type PcmForm, packClips, toPage } from './audio.ts'
 import { type Ask, extraIo } from './io.ts'
+import { type RenderTime, renderTime, resetRenderTime, timeRender } from './render-time.ts'
 
 export type Capabilities = {
   inspect: boolean
@@ -84,14 +85,15 @@ const clock = { date: 0, performance: 0, rendering: false }
     return perf()
   }
 }
-const counted = async <T>(run: () => Promise<T>): Promise<T> => {
-  clock.rendering = true
-  try {
-    return await run()
-  } finally {
-    clock.rendering = false
-  }
-}
+const counted = async <T>(run: () => Promise<T>): Promise<T> =>
+  timeRender(async () => {
+    clock.rendering = true
+    try {
+      return await run()
+    } finally {
+      clock.rendering = false
+    }
+  })
 
 let source: Source | undefined
 let manifest: Manifest
@@ -596,6 +598,12 @@ const api = {
     }),
   /** How often render read the wall clock since the worker started (counted, never blocked). */
   clock: async () => ({ date: clock.date, performance: clock.performance }),
+  /** Where render's time went (render-time.ts), `reset` starting it again; no Canvas2D check here. */
+  profile: async (reset = false): Promise<{ time: RenderTime }> => {
+    const time = renderTime()
+    if (reset) resetRenderTime()
+    return { time }
+  },
   /** The source's captions, as it returns them; null without captions(). */
   captions: () =>
     enqueue(

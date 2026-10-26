@@ -313,6 +313,28 @@ file: h264 High yuv420p 1920×1080 30 fps, 8.40 Mb/s, aac 48 kHz 2 ch, edit list
 audio: -23.0 LUFS, true peak -20.4 dBTP, range 0.0 LU
 ```
 
+### Where the time went
+
+At its end a render says where each frame's time went: the wall time a frame, the host's render
+call (the source's own `render`, compositing and the copy back not included), how much of that
+waited on `io.video` frames, and whether the encoder kept up (it took each frame in at most a
+quarter of the time: idle) or set the pace (busy). With several hosts the render time is each
+host's. When the film's own drawing (render less its `io.video` waits) fills at least half of
+each host's share of the time while the encoder is idle, a second line points to the authoring
+guide's [Footage and stills on the GPU](authoring.md#footage-and-stills-on-the-gpu). The figures start at the first frame written: the
+preroll, what the hosts rendered before and the first frame (which compiles the shaders) are left
+out. The wall time does include the determinism re-check at the end and ffmpeg's flush. A host
+that cannot give its figures leaves them out, never the render:
+
+```
+time: 92.3 ms a frame · host render 72.1 ms · waiting on io.video 0.0 ms · encoder idle (it took each frame in 2.4 ms and waited for the next)
+The film's own drawing takes most of each frame while the encoder waits: footage and stills drawn on the CPU are the usual cause. See AUTHORING.md, "Footage and stills on the GPU".
+```
+
+With `--json` it is the `frame-time` finding (`info`), whose `measured` holds the figures as JSON:
+`frames`, `hosts`, `frameMs`, `renderMs`, `videoMs`, `encoderMs`, `encoderIdle` and `drawing`.
+A render of frames made before the encode (`--hdr10`, `assemble`) has none.
+
 A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file. A source that is
 not deterministic is not exported: `render` deletes the file and exits 1 with the frames that
 changed ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). The frames it

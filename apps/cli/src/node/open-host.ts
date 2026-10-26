@@ -192,6 +192,7 @@ export const reopening = (
     fonts: async () => (await current()).fonts(),
     identity: async () => (await current()).identity(),
     clock: async () => (await current()).clock(),
+    profile: async (reset) => (await current()).profile(reset),
     seeks: async () => (await current()).seeks(),
     text: async (t) => (await current()).text(t),
     close: async () => {

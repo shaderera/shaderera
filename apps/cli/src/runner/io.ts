@@ -3,6 +3,7 @@
 import type { Baked, DecodedImage, Footage, Io } from '@shaderera/core'
 import { sha256 } from '@shaderera/core'
 import { decodeImage } from './image.ts'
+import { timeVideo } from './render-time.ts'
 
 /** What a host asks of the CLI's process (node/services.ts). */
 export type Ask = {
@@ -17,7 +18,10 @@ export type Ask = {
 
 const text = new TextEncoder()
 
-/** The ports over a host's `read` and its way to the CLI's process. */
+/**
+ * The ports over a host's `read` and its way to the CLI's process. The waits on `io.video` frames
+ * inside render are timed (render-time.ts).
+ */
 export const extraIo = (
   read: (path: string) => Promise<Uint8Array>,
   ask: Ask,
@@ -36,7 +40,7 @@ export const extraIo = (
       const info = await ask.videoOpen(path)
       return {
         ...info,
-        frame: (index) => ask.videoFrame(path, index),
+        frame: (index) => timeVideo(() => ask.videoFrame(path, index)),
         close: () => ask.videoClose(path),
       }
     },

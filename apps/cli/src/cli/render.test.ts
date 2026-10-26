@@ -357,3 +357,50 @@ test('progress: the determinism re-check says how far it is, not 0:00 left', () 
     `\r${'re-checking 2/2'.padEnd('frame 30/30  29.0 fps  0:00 left'.length)}`,
   ])
 })
+
+test("a render says where its frame time went, from the hosts' render times and its encoder waits", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject()
+  const child = memoryChild({
+    size: { width: 64, height: 36 },
+    profile: { time: { renders: 10, renderMs: 50, videoMs: 20 } },
+  })
+  const out = join(project.root, 'out', 'timed.mp4')
+  const done = await exportVideo(project, child, {
+    out,
+    revision: 'test',
+    to: 0.3,
+    encoder: 'x264',
+    audio: false,
+  })
+  assert.ok(done.time)
+  // Counted from the first frame written: its shader compiles are left out.
+  assert.equal(done.time.frames, done.frames - 1)
+  assert.deepEqual([done.time.renderMs, done.time.videoMs], [5, 2])
+  assert.ok(done.time.frameMs > 0 && done.time.encoderMs >= 0)
+})
+
+test('a host that cannot give its profile leaves the frame time out, never the finished render', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject()
+  const child = memoryChild({ size: { width: 64, height: 36 } })
+  const silent = {
+    ...child,
+    profile: async () => {
+      throw new Error('The source process has exited.')
+    },
+  }
+  const out = join(project.root, 'out', 'untimed.mp4')
+  const done = await exportVideo(project, silent, {
+    out,
+    revision: 'test',
+    to: 0.3,
+    encoder: 'x264',
+    audio: false,
+  })
+  assert.equal(done.frames, 3)
+  assert.equal(done.time, undefined)
+  assert.ok(existsSync(out))
+})
