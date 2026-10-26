@@ -1,6 +1,6 @@
 # Authoring a Shaderera film
 
-For the person and the agent making or revising a film in this project (Shaderera 0.1.7). The
+For the person and the agent making or revising a film in this project (Shaderera 0.2.0). The
 project is ordinary code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
 ids, params and requirements in its `README.md`. There is no scene format to fill in: the film is
 the source. The reference is in `node_modules/shaderera/docs/` (below, `docs/`: the protocol,

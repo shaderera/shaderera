@@ -1,6 +1,6 @@
 # Shaderera docs
 
-Shaderera 0.1.7. A film is `render(t)` in a project; the terms are defined in
+Shaderera 0.2.0. A film is `render(t)` in a project; the terms are defined in
 [GLOSSARY.md](../GLOSSARY.md).
 
 ## Reference
