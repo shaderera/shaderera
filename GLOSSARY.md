@@ -163,6 +163,11 @@ runs it too and refuses a source that fails.
 A saved copy of the project's files, named by their hash.
 _Avoid_: commit, snapshot
 
+**Frozen copy**:
+A revision's files laid out for a job to render from. Nothing edits it; an edit found in it is put
+back from the revision before it renders.
+_Avoid_: checkout, snapshot
+
 **Job**:
 A frozen render: a revision, a variant, the full params, the seed, the time window, the delivery
 settings and the packages the source runs with. The same job always renders the same file.

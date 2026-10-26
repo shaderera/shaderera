@@ -50,5 +50,8 @@ One file per decision, in the order they were made.
 - [0028](0028-stills-decoded-once-in-the-cli.md): `io.image` decoded once in the CLI for every
   host by one Rust→WASM module (zune-jpeg, zune-png), shrunk to `maxSize` with one fixed
   area-average filter, and cached at the decoded size; GPU mips deferred (amends 0007).
+- [0029](0029-large-files-stored-once.md): a stored file placed once, by clone, then read-only
+  link, then copy, for frozen copies (never a link into the working tree); footage still stored
+  whole in the project, with no shared store and no external references (amends 0003).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
