@@ -167,10 +167,10 @@ test('render saves the revision it renders and tags the file; render --job saves
   assert.equal(frozen.status, 0, frozen.stderr)
   assert.equal((await versions()).log.length, saves)
   assert.equal(probe(join(root, 'out', 'final.mp4')).revision, id)
-  // Its frozen copy stays for the next render, unmarked: no process uses it now.
+  // Its frozen copy stays for the next render, unmarked: its marks folder went with its last user.
   const frozenCopy = join(root, '.shaderera', 'revisions', id as string)
   assert.ok(existsSync(join(frozenCopy, 'shaderera.json')))
-  assert.deepEqual(readdirSync(`${frozenCopy}.using`), [])
+  assert.equal(existsSync(`${frozenCopy}.using`), false)
   assert.equal((await cli('render', '--job', 'final')).status, 0)
   assert.ok(existsSync(join(frozenCopy, 'shaderera.json')))
 })
