@@ -1,6 +1,6 @@
 # API surface
 
-What each package exports at version 0.1.7, and how stable it is. The shapes themselves are in
+What each package exports at version 0.2.0, and how stable it is. The shapes themselves are in
 [protocol.md](protocol.md).
 
 | Package | What |
