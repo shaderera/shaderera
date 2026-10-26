@@ -4,6 +4,7 @@
 import { parentPort, workerData } from 'node:worker_threads'
 import { videoDecoder } from './decoder.ts'
 import type { VideoInfo } from './services.ts'
+import type { SpawnTurn } from './spawn-turn.ts'
 
 /** What a reader asks: a frame, or the decoder's end. */
 export type VideoAsk = { type: 'frame'; index: number } | { type: 'close' }
@@ -16,7 +17,7 @@ export type FromVideo = { id: number; pid: number | undefined; bytes?: Uint8Arra
 
 const port = parentPort
 if (port) {
-  const { file, info } = workerData as { file: string; info: VideoInfo }
+  const { file, info, turn } = workerData as { file: string; info: VideoInfo; turn?: SpawnTurn }
   let keep = 1
   let ahead = 1
   const decoder = videoDecoder(
@@ -24,6 +25,7 @@ if (port) {
     info,
     () => keep,
     () => ahead,
+    turn,
   )
   port.on('message', async (m: ToVideo) => {
     keep = m.keep

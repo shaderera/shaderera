@@ -54,6 +54,7 @@ const replies = new Map<number, { done: (v: unknown) => void; fail: (e: Error) =
 const pipe = new Socket({ fd: BULK_FD, readable: true, writable: true })
 pipe.on('error', () => {})
 const bulk = bulkReader(pipe)
+const dropFrames = process.env.SHADERERA_TEST_DROP_FRAMES === '1'
 process.on(
   'message',
   (m: { serviceReply?: { id: number; result?: unknown; bulk?: number; error?: string } }) => {
@@ -550,7 +551,8 @@ process.on('message', async ({ id, request }: { id: number; request: Request }) 
         result: { ...(result as object), pixels: undefined },
         bulk: pixels.byteLength,
       })
-      pipe.write(pixels)
+      // For tests (child.it.ts): a frame announced whose bytes never come.
+      if (!dropFrames) pipe.write(pixels)
     } else process.send?.({ id, result: result ?? null })
   } catch (e) {
     // Dawn rejects a call on a lost device (an AbortError) before `lost` resolves: let it, so

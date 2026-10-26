@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import type { Probe } from './ffmpeg.ts'
 import {
   bitsPerSecond,
@@ -161,6 +162,28 @@ test('an ffmpeg that stops reading fails the write after the watchdog, naming th
   )
   assert.ok(performance.now() - start < 1000)
   await sink.abort?.()
+})
+
+test('an ffmpeg that never finishes after its input ended fails end after the watchdog (#439)', async () => {
+  const sink = fake('process.stdin.resume(); setInterval(() => {}, 1000)', 0.5)
+  const start = performance.now()
+  await assert.rejects(
+    sink.end(),
+    (e: unknown) =>
+      e instanceof FfmpegError &&
+      e.reason === 'stall' &&
+      /did not finish within 0.5 s of its last frame: it stalled/.test(e.message),
+  )
+  assert.ok(performance.now() - start < 2000)
+})
+
+test('an ffmpeg whose stderr another process holds after it exits ends all the same (#439)', async () => {
+  const held = fileURLToPath(new URL('../fixtures/held-pipe.ts', import.meta.url))
+  const sink = ffmpegSink([], 'rgba', false, { command: [process.execPath, held, 'in', '8000'] })
+  const start = performance.now()
+  await sink.write(new Uint8Array(1 << 20))
+  await sink.end()
+  assert.ok(performance.now() - start < 5000)
 })
 
 test('an exit code is printed signed', async () => {

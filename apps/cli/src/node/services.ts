@@ -15,6 +15,7 @@ import {
 import { extname, join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { insideForRead } from './inside.ts'
+import { lendTurns } from './spawn-turn.ts'
 import type { FromVideo, ToVideo, VideoAsk } from './video-worker.ts'
 
 /** The frames a host may read, by bake: absolute files, in order, checked against their stamps. */
@@ -83,7 +84,8 @@ export const videoReader = (
   thread: URL = new URL(`./video-worker${extname(import.meta.url)}`, import.meta.url),
 ) => {
   const info = probeVideo(file)
-  const worker = new Worker(thread, { workerData: { file, info } })
+  const { turn, transfer } = lendTurns()
+  const worker = new Worker(thread, { workerData: { file, info, turn }, transferList: transfer })
   // Only while it answers a request: an idle decoder does not keep the CLI running.
   worker.unref()
   let pid: number | undefined

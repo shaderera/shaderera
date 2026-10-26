@@ -294,14 +294,24 @@ export const openChild = async (
             timer = setTimeout(expire, limit)
           }
           if (m.id !== id) return
-          clearTimeout(timer)
           child.off('message', onMessage).off('exit', onExit)
           if (request.type !== 'open') slowest = Math.max(slowest, performance.now() - start)
           if (m.bulk !== undefined) {
-            // Asked for in this turn, so in the order the host wrote them.
+            // Asked for in this turn, so in the order the host wrote them; still timed: bytes
+            // that never come (the pipe's end lost) fail the call like a silent host.
             const result = m.result as { pixels?: Uint8Array }
-            return void bulk.next(m.bulk).then((pixels) => done({ ...result, pixels } as T), fail)
+            return void bulk.next(m.bulk).then(
+              (pixels) => {
+                clearTimeout(timer)
+                done({ ...result, pixels } as T)
+              },
+              (error: Error) => {
+                clearTimeout(timer)
+                fail(error)
+              },
+            )
           }
+          clearTimeout(timer)
           if (m.error === undefined) return done(m.result as T)
           const error = new Error(m.error)
           error.stack = m.stack

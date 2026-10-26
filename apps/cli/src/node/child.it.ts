@@ -32,6 +32,38 @@ test('a hung source fails the call after timeoutMs and closes without a crash', 
   await assert.rejects(child.render(0, 'final'), /has exited/)
 })
 
+test('a frame announced whose bytes never come on the pipe fails the call after timeoutMs (#439)', async () => {
+  const root = tempDir('dropped')
+  cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
+  // Big enough to go on the pipe (BULK_MIN), not in the IPC message.
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({
+      entry: './src/composition.ts',
+      fps: 10,
+      duration: 1,
+      width: 256,
+      height: 144,
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    'export default ({ io }) => { const c = io.canvas(256, 144); return { render: async () => [{ color: c }] } }\n',
+  )
+  const project = await findProject(root)
+  process.env.SHADERERA_TEST_DROP_FRAMES = '1'
+  const child = await openChild(project, {
+    entryFile: await buildForNode(project),
+    timeoutMs: 500,
+    openTimeoutMs: TIMEOUT,
+  }).finally(() => delete process.env.SHADERERA_TEST_DROP_FRAMES)
+  await assert.rejects(
+    child.render(0, 'final'),
+    /took longer than 500 ms on render at t = 0 s without a sign of work/,
+  )
+  await child.close()
+})
+
 test("a sequential source's call outlasts timeoutMs while each frame it steps through is in time", async () => {
   const root = tempDir('steps')
   cpSync(fileURLToPath(new URL('./fixtures/sequential/', import.meta.url)), root, {
