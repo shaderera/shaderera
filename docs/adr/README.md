@@ -44,5 +44,8 @@ One file per decision, in the order they were made.
 - [0025](0025-comments-and-activity-in-the-studio.md): comments on the film in the project's
   `versions/`, the agent's activity recorded by the CLI and MCP, compare from the revisions
   comments name, and studio protocol v2 (amends 0003 and 0021).
+- [0027](0027-video-frames-as-ycbcr.md): `io.video` frames as Y'CbCr 4:2:0 planes on request, and
+  core's `videoTexture` converting them in integer WGSL so both hosts give the same bytes; RGBA
+  stays the default (amends 0007).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
