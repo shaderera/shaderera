@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { copyFileSync, existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import { cacheLimit, clipDecoders, createServices, videoReader } from './services.ts'
@@ -88,6 +88,109 @@ test("one decoder serves every host's frames of a clip, and keeps the last few i
     a.close()
     b.close()
     await alone.close()
+  }
+})
+
+test('a jump far ahead starts a new decoder at the frame, a short one reads on; the bytes are the same', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = tempDir('video')
+  const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '90']
+  spawnSync('ffmpeg', [...args, '-pix_fmt', 'yuv420p', join(root, 'v.mp4')])
+  const v = videoReader(join(root, 'v.mp4'))
+  const fresh = videoReader(join(root, 'v.mp4'))
+  try {
+    await v.frame(2)
+    const first = v.pid
+    // 2 → 20: read on through the frames between.
+    await v.frame(20)
+    assert.equal(v.pid, first)
+    // 20 → 80: past half of where it is, so ffmpeg skips the frames before 80 itself.
+    const far = await v.frame(80)
+    assert.notEqual(v.pid, first)
+    assert.deepEqual(far, await fresh.frame(80))
+    assert.deepEqual(await v.frame(81), await fresh.frame(81))
+  } finally {
+    await v.close()
+    await fresh.close()
+  }
+})
+
+test('a frame kept when one of two hosts let the clip go is still given, not decoded past', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = tempDir('video')
+  const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '60']
+  spawnSync('ffmpeg', [...args, '-pix_fmt', 'yuv420p', join(root, 'v.mp4')])
+  const a = createServices(root)
+  const b = createServices(root)
+  const alone = videoReader(join(root, 'v.mp4'))
+  const frame = (s: ReturnType<typeof createServices>, index: number) =>
+    s.handle({ op: 'video-frame', path: 'v.mp4', index }) as Promise<Uint8Array>
+  try {
+    // Two hosts in turn keep 5 frames; then one closes the clip, and the other keeps 3.
+    for (let i = 0; i <= 20; i++) await frame(i % 2 ? a : b, i)
+    await b.handle({ op: 'video-close', path: 'v.mp4' })
+    // 16 was kept under 5 and is not under 3: a new decoder reaches it (it never read on to the end).
+    assert.deepEqual(await frame(a, 16), await alone.frame(16))
+    assert.deepEqual(await frame(a, 21), await alone.frame(21))
+  } finally {
+    await a.close()
+    await b.close()
+    await alone.close()
+  }
+})
+
+test('a decoder that cannot start fails each frame at once, and a gone thread fails the next request', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async (t) => {
+  // A PATH with ffprobe and no ffmpeg: the clip is probed, its decoder cannot start.
+  const which = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ffprobe'], {
+    encoding: 'utf8',
+  })
+  const probe = which.stdout.split(/\r?\n/)[0]?.trim()
+  const bin = tempDir('bin')
+  if (!probe) return t.skip('no ffprobe path')
+  copyFileSync(probe, join(bin, basename(probe)))
+  if (spawnSync(join(bin, basename(probe)), ['-version']).status !== 0)
+    return t.skip('ffprobe needs files beside it')
+  const file = join(clip(), 'v.mp4')
+  const path = process.env.PATH
+  process.env.PATH = bin
+  let v: ReturnType<typeof videoReader>
+  try {
+    v = videoReader(file)
+  } finally {
+    process.env.PATH = path
+  }
+  await assert.rejects(v.frame(0), /could not decode/)
+  const start = performance.now()
+  await assert.rejects(v.frame(1), /could not decode/)
+  assert.ok(performance.now() - start < 2000)
+  await v.dispose()
+  await assert.rejects(v.frame(2), /has stopped/)
+})
+
+test('a decoder thread that dies while it is disposed fails nothing, and leaves nothing unhandled', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const unhandled: unknown[] = []
+  const note = (e: unknown) => unhandled.push(e)
+  process.on('unhandledRejection', note)
+  try {
+    const dying = new URL('./fixtures/dying-video-worker.ts', import.meta.url)
+    const v = videoReader(join(clip(), 'v.mp4'), undefined, undefined, dying)
+    await v.frame(0)
+    await v.dispose()
+    assert.match(String(v.dead), /has stopped/)
+    await new Promise((done) => setTimeout(done, 100))
+    assert.deepEqual(unhandled, [])
+  } finally {
+    process.off('unhandledRejection', note)
   }
 })
 

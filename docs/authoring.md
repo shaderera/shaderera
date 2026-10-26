@@ -158,9 +158,12 @@ command that prints nothing looks frozen.
   `open`, in the film's draw or waiting.
 - **Check with fewer frames.** `check` renders every timestamp twice; at 5 s a frame, the default
   50 take over eight minutes. `npx shaderera check --times 4` still compares two orders.
-- **Render in the background with progress.** `npx shaderera render --progress 2> render.log`
-  writes `frame 120/360  2.1 fps` to stderr as it goes; read the end of the log to say how far
-  it is, instead of guessing.
+- **Render in the background with progress.** `npx shaderera render 2> render.log` writes
+  `frame 120/360  2.1 fps  1:53 left` to stderr every 10 s (`--progress`: every frame); read the
+  end of the log to say how far it is, instead of guessing.
+- **More hosts on a big machine.** `render` opens at most 4 hosts. When each host process uses
+  well under a core and the machine has idle cores, `--workers` up to its cores less two renders
+  faster; chunks (`plan`, `render --chunk`) are for several machines, not for one.
 - **Bake what the host cannot run.** When a frame needs a program project code may not start (a
   native denoiser that keeps history, a simulation in another tool), or minutes of work that
   another program does better, make those frames a bake: declare it in `shaderera.json` `bakes`

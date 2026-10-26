@@ -33,7 +33,7 @@ const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
 // The other CLI tests run it in their own process (fixtures/cli.ts); this one starts it as a user
 // does, through bin/shaderera.js, piped.
-test('a piped render reports progress only when asked (a parent process asks); a variant renders at its own length', {
+test('a piped render reports every frame only when asked (a parent process asks); a variant renders at its own length', {
   skip: !ffmpeg && 'no ffmpeg',
 }, () => {
   const bin = fileURLToPath(new URL('../../bin/shaderera.js', import.meta.url))
@@ -45,8 +45,8 @@ test('a piped render reports progress only when asked (a parent process asks); a
     })
   const asked = render('--progress')
   assert.equal(asked.status, 0, asked.stderr)
-  assert.match(asked.stderr, /frame 1\/10 .*frame 10\/10/s)
-  // Unasked, and a variant: at its own length.
+  assert.match(asked.stderr, /frame 1\/10\b.*frame 10\/10 {2}[\d.]+ fps {2}0:00 left/s)
+  // Unasked, and a variant: at its own length, done before a line every 10 s is due.
   const quiet = render('--variant', 'short')
   assert.equal(quiet.status, 0, quiet.stderr)
   assert.doesNotMatch(quiet.stderr, /frame \d+\//)
