@@ -217,13 +217,18 @@ export const withCommentsLock = async <T>(
   mkdirSync(join(root, 'versions'), { recursive: true })
   const token = `${process.pid}-${randomBytes(8).toString('hex')}`
   const until = Date.now() + 3 * staleMs
+  let refused: unknown
   for (;;) {
     try {
       mkdirSync(lock)
       writeFileSync(join(lock, 'owner'), token)
       break
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      const code = (e as NodeJS.ErrnoException).code
+      // On Windows a lock its holder is removing is pending delete, and mkdir fails with EPERM
+      // until it has gone: held a moment longer, not an error (#422).
+      if (process.platform === 'win32' && code === 'EPERM') refused = e
+      else if (code !== 'EEXIST') throw e
     }
     try {
       const seen = ownerOf(lock)
@@ -236,7 +241,8 @@ export const withCommentsLock = async <T>(
         continue
       }
     } catch {}
-    if (Date.now() > until) throw new Error(`${lock} is held: is another shaderera stuck?`)
+    if (Date.now() > until)
+      throw new Error(`${lock} is held: is another shaderera stuck?`, { cause: refused })
     await delay(5)
   }
   try {
