@@ -519,6 +519,12 @@ const api = {
     latest = new AbortController()
     const { signal } = latest
     return enqueue(true, async () => {
+      // The preview draws bitmaps in SDR, which would clip the light: refused as pixels(t) is.
+      // The engine has no tone map; the film's SDR version is an open with range 'sdr' (0023).
+      if (range === 'hdr10')
+        throw new Error(
+          "An hdr10 render comes out as rgb10 or p010, not a preview: nothing of it is composited in SDR. Open with range 'sdr' for the film's own SDR version.",
+        )
       const { width, height } = manifest
       const dom = await domAt(t)
       const layers: RenderedLayer[] = []
