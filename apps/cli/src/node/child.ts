@@ -4,12 +4,14 @@
 import { type ChildProcess, fork } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import type { Socket } from 'node:net'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Caption, Json, Matrices, Pick, Range, SampledClip } from '@shaderera/core'
 import type { GpuOutput, HdrOutput, LightLevels, SeekStats } from '@shaderera/core/host'
 import { paramDefaults } from '@shaderera/core/host'
 import type { TextRun } from '../review/measure.ts'
+import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
 import type { Fonts, Request } from './host.ts'
 import { outside } from './inside.ts'
 import type { Project } from './project.ts'
@@ -213,16 +215,26 @@ export const openChild = async (
     execArgv,
     serialization: 'advanced',
     // The project's console output goes to stderr: stdout may be the CLI's result or MCP's stream,
-    // and stdin may be MCP's too.
-    stdio: ['ignore', 2, 2, 'ipc'],
+    // and stdin may be MCP's too. Frames go both ways on a pipe of their own (bulk.ts).
+    stdio: ['ignore', 2, 2, 'ipc', 'overlapped'],
   })
+  const pipe = child.stdio[BULK_FD] as Socket
+  // A host that dies takes its end with it: the call fails through its exit.
+  pipe.on('error', () => {})
+  const bulk = bulkReader(pipe)
   // What the host asks of this process (the cache, video frames): answered as it comes.
   const services = createServices(project.root, o.bakes)
   child.on('message', (m: { service?: { id: number; request: ServiceRequest } }) => {
     const s = m.service
     if (!s) return
     services.handle(s.request).then(
-      (result) => child.connected && child.send({ serviceReply: { id: s.id, result } }),
+      (result) => {
+        if (!child.connected) return
+        if (!isBulk(result)) return child.send({ serviceReply: { id: s.id, result } })
+        // Announced and written in one turn: the host takes them off the pipe in this order.
+        child.send({ serviceReply: { id: s.id, bulk: result.byteLength } })
+        pipe.write(result)
+      },
       (e: unknown) =>
         child.connected &&
         child.send({
@@ -233,7 +245,8 @@ export const openChild = async (
   // Its clips' decoders end after it exits; close() waits for them too.
   let released: Promise<void> = Promise.resolve()
   child.once('exit', () => {
-    released = services.close()
+    // Never awaited when the CLI does not close the host: a failure must not go unhandled.
+    released = services.close().catch(() => {})
   })
   // A send to a process that died fails here; the call fails through its exit or its timeout.
   child.on('error', () => {})
@@ -269,6 +282,8 @@ export const openChild = async (
           slow?: boolean
           service?: unknown
           result?: T
+          /** The length of the result's `pixels`, which come on the pipe. */
+          bulk?: number
           error?: string
           stack?: string
         }) => {
@@ -282,6 +297,11 @@ export const openChild = async (
           clearTimeout(timer)
           child.off('message', onMessage).off('exit', onExit)
           if (request.type !== 'open') slowest = Math.max(slowest, performance.now() - start)
+          if (m.bulk !== undefined) {
+            // Asked for in this turn, so in the order the host wrote them.
+            const result = m.result as { pixels?: Uint8Array }
+            return void bulk.next(m.bulk).then((pixels) => done({ ...result, pixels } as T), fail)
+          }
           if (m.error === undefined) return done(m.result as T)
           const error = new Error(m.error)
           error.stack = m.stack

@@ -1,7 +1,7 @@
 // What the hosts ask of the CLI's own process, which may write files and run ffmpeg where a
 // project's code may not: the derived-data cache, decoded video frames and baked frames. The Node host asks
 // over IPC (child.ts), the browser host's worker over the runner server (runner-plugin.ts).
-import { spawn, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import {
   mkdirSync,
   readdirSync,
@@ -12,8 +12,10 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
+import { Worker } from 'node:worker_threads'
 import { insideForRead } from './inside.ts'
+import type { FromVideo, ToVideo, VideoAsk } from './video-worker.ts'
 
 /** The frames a host may read, by bake: absolute files, in order, checked against their stamps. */
 export type BakeFrames = { readonly [name: string]: readonly string[] }
@@ -64,117 +66,82 @@ export const probeVideo = (file: string): VideoInfo => {
   }
 }
 
+/** How many bytes of frames a clip's decoder runs ahead at most: 64 MiB (one frame if larger). */
+export const AHEAD_BYTES = 64 * 1024 * 1024
+
 /**
- * Decodes one file's frames in order with ffmpeg. The last `keep()` frames decoded are kept, so a
- * frame asked a little out of order is given again without decoding; one before them restarts it.
+ * One file's frames as `io.video` gives them, decoded in a thread of its own (video-worker.ts,
+ * videoDecoder): the decoder's pipe and the copy of every frame out of it stay off this thread,
+ * which takes every host's frames (#434). Each frame comes as bytes of its own. `keep()` and
+ * `ahead()` are videoDecoder's, asked at each frame.
  */
-export const videoReader = (file: string, keep: () => number = () => 1) => {
+export const videoReader = (
+  file: string,
+  keep: () => number = () => 1,
+  ahead: () => number = keep,
+  /** For tests: another thread in video-worker.ts's place. */
+  thread: URL = new URL(`./video-worker${extname(import.meta.url)}`, import.meta.url),
+) => {
   const info = probeVideo(file)
-  const size = info.width * info.height * 4
-  let proc: ReturnType<typeof spawn> | undefined
+  const worker = new Worker(thread, { workerData: { file, info } })
+  // Only while it answers a request: an idle decoder does not keep the CLI running.
+  worker.unref()
+  let pid: number | undefined
   let next = 0
-  // The decoded bytes not taken yet, joined once per frame.
-  let chunks: Buffer[] = []
-  let bytes = 0
-  let waiting: (() => void) | undefined
-  let ended = false
-  let ring: { index: number; bytes: Uint8Array }[] = []
-  const start = (from: number) => {
-    proc?.kill()
-    // Software decode, every frame from `from` on, converted by the file's own colour tags.
-    proc = spawn(
-      'ffmpeg',
-      [
-        '-loglevel',
-        'error',
-        '-threads',
-        '1',
-        '-i',
-        file,
-        '-map',
-        '0:v:0',
-        '-vf',
-        `select=gte(n\\,${from}),scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
-        '-fps_mode',
-        'passthrough',
-        '-f',
-        'rawvideo',
-        '-',
-      ],
-      { stdio: ['ignore', 'pipe', 'ignore'] },
-    )
-    next = from
-    chunks = []
-    bytes = 0
-    ended = false
-    // Events of a decoder that was replaced (a jump back) are ignored.
-    const mine = proc
-    mine.stdout?.on('data', (d: Buffer) => {
-      if (proc !== mine) return
-      chunks.push(d)
-      bytes += d.length
-      // A frame is held: ffmpeg waits until the next one is asked for.
-      if (bytes >= size) mine.stdout?.pause()
-      waiting?.()
+  const asked = new Map<
+    number,
+    { done: (v: Uint8Array | null) => void; fail: (e: Error) => void }
+  >()
+  worker.on('message', (m: FromVideo) => {
+    pid = m.pid
+    const a = asked.get(m.id)
+    asked.delete(m.id)
+    if (asked.size === 0) worker.unref()
+    if (m.error !== undefined) a?.fail(new Error(m.error))
+    else a?.done(m.bytes ?? null)
+  })
+  // Set once the thread is gone: every request from then on fails with it at once.
+  let dead: Error | undefined
+  const gone = (error: Error) => {
+    dead ??= error
+    for (const a of asked.values()) a.fail(error)
+    asked.clear()
+  }
+  worker.on('error', gone)
+  worker.on('exit', () => gone(new Error(`The decoder of ${file} has stopped.`)))
+  // Frames decoded ahead, at most AHEAD_BYTES of them and never fewer than one.
+  const size = info.width * info.height * 4
+  const capped = () => Math.max(1, Math.min(ahead(), Math.floor(AHEAD_BYTES / size)))
+  const ask = (m: VideoAsk) =>
+    new Promise<Uint8Array | null>((done, fail) => {
+      if (dead) return fail(dead)
+      const id = next++
+      asked.set(id, { done, fail })
+      worker.ref()
+      worker.postMessage({ ...m, id, keep: keep(), ahead: capped() } as ToVideo)
     })
-    mine.stdout?.on('end', () => {
-      if (proc !== mine) return
-      ended = true
-      waiting?.()
-    })
-  }
-  const take = () => {
-    const all = Buffer.concat(chunks, bytes)
-    chunks = bytes > size ? [all.subarray(size)] : []
-    bytes -= size
-    return new Uint8Array(all.subarray(0, size))
-  }
-  const read = async (index: number): Promise<Uint8Array> => {
-    if (!Number.isInteger(index) || index < 0 || index >= info.frames)
-      throw new Error(`${file} has frames 0 to ${info.frames - 1}, not ${index}.`)
-    const kept = ring.find((f) => f.index === index)
-    if (kept) return kept.bytes
-    if (!proc || index < next) start(index)
-    for (;;) {
-      while (bytes >= size) {
-        const out = take()
-        ring = [{ index: next, bytes: out }, ...ring].slice(0, Math.max(1, keep()))
-        if (next++ === index) return out
-      }
-      if (ended) throw new Error(`${file} ended before frame ${index}.`)
-      proc?.stdout?.resume()
-      await new Promise<void>((done) => {
-        waiting = done
-      })
-      waiting = undefined
-    }
-  }
-  // Ends the decoder and drops what it decoded; the next read starts another.
-  const stop = async () => {
-    const mine = proc
-    proc = undefined
-    ring = []
-    chunks = []
-    bytes = 0
-    if (!mine || mine.exitCode !== null || mine.signalCode !== null) return
-    const exited = new Promise((done) => mine.once('exit', done))
-    mine.kill()
-    await exited
-  }
-  // One request at a time: they share the decoder.
-  let queue: Promise<unknown> = Promise.resolve()
-  const inTurn = <T>(run: () => Promise<T>): Promise<T> => {
-    const result = queue.then(run)
-    queue = result.catch(() => {})
-    return result
-  }
   return {
     info,
-    frame: (index: number) => inTurn(() => read(index)),
-    close: () => inTurn(stop),
+    frame: async (index: number) => (await ask({ type: 'frame', index })) as Uint8Array,
+    /** Ends the decoder and drops what it decoded; the next frame starts another. */
+    close: async () => {
+      await ask({ type: 'close' })
+    },
+    /**
+     * Ends the decoder and its thread: the reader is not used again. Never fails: a thread that
+     * dies before it answers is gone all the same (and a host's exit awaits nothing of it).
+     */
+    dispose: async () => {
+      if (!dead) await ask({ type: 'close' }).catch(() => {})
+      await worker.terminate()
+    },
+    /** Why the thread is gone, once it is: the reader is then of no use. */
+    get dead() {
+      return dead
+    },
     /** The decoder's process id, while one runs. */
     get pid() {
-      return proc?.pid
+      return pid
     },
   }
 }
@@ -183,7 +150,8 @@ export const videoReader = (file: string, keep: () => number = () => 1) => {
  * The clips open in this process, each with the hosts using it. Several hosts of one render ask
  * frames in turn, so one decoder serves them all, keeping two frames a host and one: a frame is
  * decoded once, not once a host, and one asked a little late (another host's, or the frame a
- * re-check inspects after the next was asked for) is still there.
+ * re-check inspects after the next was asked for) is still there. It decodes a frame a host and one
+ * ahead of the latest asked, so a host's next frame is usually there when it asks.
  */
 const shared = new Map<string, { reader: ReturnType<typeof videoReader>; users: Set<object> }>()
 /** The process ids of this process's clip decoders that run now. */
@@ -257,12 +225,32 @@ export const createServices = (
   // This host, and the clips it opened.
   const me = {}
   const mine = new Set<string>()
+  // The file each clip path named, checked once while the clip is open: the check reads the real
+  // path of every folder above it, which on every frame cost the CLI's process more than the frame.
+  const checked = new Map<string, string>()
   const video = (path: string) => {
-    const file = insideForRead(root, path)
+    let file = checked.get(path)
+    if (file === undefined) {
+      file = insideForRead(root, path)
+      checked.set(path, file)
+    }
     let v = shared.get(file)
+    // A reader whose thread died is dropped: the next request opens a fresh one.
+    if (v?.reader.dead) {
+      shared.delete(file)
+      v = undefined
+    }
     if (!v) {
       const users = new Set<object>()
-      v = { users, reader: videoReader(file, () => 2 * users.size + 1) }
+      // Two kept a host and one; decoded ahead, one a host and one (at most AHEAD_BYTES).
+      v = {
+        users,
+        reader: videoReader(
+          file,
+          () => 2 * users.size + 1,
+          () => users.size + 1,
+        ),
+      }
       shared.set(file, v)
     }
     v.users.add(me)
@@ -272,11 +260,12 @@ export const createServices = (
   const release = async (file: string) => {
     const v = shared.get(file)
     mine.delete(file)
+    for (const [path, f] of checked) if (f === file) checked.delete(path)
     if (!v) return
     v.users.delete(me)
     if (v.users.size === 0) {
       shared.delete(file)
-      await v.reader.close()
+      await v.reader.dispose()
     }
   }
   const handle = async (r: ServiceRequest): Promise<unknown> => {

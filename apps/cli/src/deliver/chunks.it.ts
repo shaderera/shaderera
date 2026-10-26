@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -74,6 +82,50 @@ test('chunks rendered apart and assembled give the very file one render gives', 
   assert.match(all.stderr, /3 problems in the plan/)
   for (const i of [0, 1, 2])
     assert.match(all.stderr, new RegExp(`shaderera render --job p --chunk ${i} --plan`))
+})
+
+test('chunks of one job started at the same moment all render (#433)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('chunk-together')
+  cpSync(fileURLToPath(new URL('../cli/fixtures/deliver/', import.meta.url)), root, {
+    recursive: true,
+  })
+  writeFileSync(join(root, 'requirements.json'), JSON.stringify({ version: 1 }))
+  // As children, as the issue ran them: each leaves its build in the frozen copy when it exits.
+  assert.equal(spawned(root, 'job', '--name', 'j').status, 0)
+  const planned = spawned(root, 'plan', '--job', 'j', '--chunks', '4')
+  assert.equal(planned.status, 0, planned.stderr)
+  // The build the plan left in the frozen copy, made as large as a real film's: every chunk
+  // finds it there and removes it at the same moment.
+  const node = join(root, '.shaderera', 'revisions')
+  const copy = readdirSync(node).find((n) => /^[0-9a-f]{16}$/.test(n)) as string
+  const left = join(node, copy, '.shaderera', 'node')
+  const dead = readdirSync(left).find((n) => /^\d+-\d+$/.test(n)) as string
+  assert.ok(dead, 'plan left its build')
+  for (let d = 0; d < 20; d++) {
+    mkdirSync(join(left, dead, 'assets', String(d)), { recursive: true })
+    for (let f = 0; f < 50; f++) writeFileSync(join(left, dead, 'assets', String(d), `${f}.js`), '')
+  }
+  const chunk = (i: number) =>
+    new Promise<{ status: number | null; stderr: string }>((done) => {
+      const child = spawn(process.execPath, [
+        main,
+        'render',
+        '--job',
+        'j',
+        '--chunk',
+        String(i),
+        '--root',
+        root,
+      ])
+      let stderr = ''
+      child.stderr.on('data', (d) => (stderr += d))
+      child.on('close', (status) => done({ status, stderr }))
+    })
+  const ran = await Promise.all([0, 1, 2, 3].map(chunk))
+  for (const [i, r] of ran.entries()) assert.equal(r.status, 0, `chunk ${i}: ${r.stderr}`)
+  assert.equal(existsSync(join(left, dead)), false, "plan's build was removed")
 })
 
 test('a chunk rendered again, on one host or several, is the same file', {

@@ -374,7 +374,7 @@ const exportOnce = async (
           revision: o.revision,
         })
     let next = 0
-    const sink = ffmpegSink(args, input, codec !== 'prores-4444')
+    const sink = ffmpegSink(args, input, codec !== 'prores-4444', { handOver: true })
     await writePreroll(sink, {
       ...preroll,
       from,
@@ -738,16 +738,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
   const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
-  // The progress line goes to a terminal, or to a reader that asks (--progress);
-  // piped into a log, it would be one line per frame.
+  // A terminal, or a reader that asks (--progress), gets the line at every frame; a pipe (a
+  // background run, --json) one line every 10 s, so a log of a long render says how far it is.
   const progress = process.stderr.isTTY || v.progress === true
-  const start = performance.now()
-  const onFrame = progress
-    ? (i: number, n: number) => {
-        const fps = ((i + 1) * 1000) / (performance.now() - start)
-        process.stderr.write(`\rframe ${i + 1}/${n}  ${fps.toFixed(1)} fps`)
-      }
-    : undefined
+  const onFrame = progressLines({
+    every: progress ? 0 : 10_000,
+    write: (s) => process.stderr.write(s),
+  })
   try {
     if (reusing) {
       // A plan of the job that renders only the changed spans and reuses an earlier plan's frames.
@@ -882,6 +879,42 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     await child.close()
     // The job's frozen copy goes once its hosts closed, unless another render uses it.
     if (job) releaseFrozen(root, job.revision)
+  }
+}
+
+/** Seconds as `m:ss`, or `h:mm:ss` from an hour. */
+const clockTime = (seconds: number) => {
+  const s = Math.max(0, Math.round(seconds))
+  const two = (x: number) => String(x).padStart(2, '0')
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  return h > 0 ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`
+}
+
+/**
+ * A render's progress for `onFrame`: `frame 120/600  23.4 fps  0:21 left`, at the pace since its
+ * first frame (what came before it, the open or a decoder seeking to a chunk's start, is not the
+ * pace). With `every` 0 the line is rewritten in place at each frame (a terminal); otherwise one
+ * line is written at most every `every` ms, the first once `every` has passed (a pipe).
+ */
+export const progressLines = (o: {
+  every: number
+  write: (line: string) => void
+  now?: () => number
+}) => {
+  const now = o.now ?? (() => performance.now())
+  let said = now()
+  let first: { t: number; i: number } | undefined
+  return (i: number, n: number) => {
+    const t = now()
+    first ??= { t, i }
+    if (o.every > 0 && t - said < o.every) return
+    said = t
+    const done = i - first.i
+    const fps = done > 0 && t > first.t ? (done * 1000) / (t - first.t) : 0
+    const pace = fps > 0 ? `  ${fps.toFixed(1)} fps  ${clockTime((n - i - 1) / fps)} left` : ''
+    const line = `frame ${i + 1}/${n}${pace}`
+    o.write(o.every > 0 ? `${line}\n` : `\r${line}`)
   }
 }
 

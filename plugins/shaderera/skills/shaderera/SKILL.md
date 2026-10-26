@@ -100,8 +100,8 @@ in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case come
   `assemble --plan <dir>`. For a film whose frames take seconds, or that is
 rendered partly outside the host (a bake), follow `AUTHORING.md`, "Expensive films": `open`
 kept light (sound built in `audio()`, derived bytes in `io.cache`), clips closed when their shot
-ends, per-pixel work on the GPU, a CPU profile before guessing, fewer `check --times`,
-`render --progress` in the background, `shaderera bake`, and `still --compare` against the
+ends, per-pixel work on the GPU, a CPU profile before guessing, fewer `check --times`, a render
+in the background with its progress log, `shaderera bake`, and `still --compare` against the
 approved variant before a final.
 
 ## 5. shaderera.com: share, fork, studio
