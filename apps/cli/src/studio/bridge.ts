@@ -8,32 +8,81 @@ import {
   createReadStream,
   existsSync,
   type FSWatcher,
+  lstatSync,
   mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
   statSync,
   watch,
   writeFileSync,
 } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { basename, join, relative } from 'node:path'
+import { basename, extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { frameTimes, type Manifest } from '@shaderera/core'
+import { frameTimes, type Json, type Manifest } from '@shaderera/core'
 import { withVariant } from '@shaderera/core/host'
-import { insideFilm, open } from '../cli/args.ts'
+import { childOptions, insideFilm, open } from '../cli/args.ts'
 import { defaultWorkers, exportVideo } from '../cli/render.ts'
 import { LoginNeeded, shareProject, titleOf } from '../cli/share.ts'
+import { DEFAULT_API } from '../cli/site.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
 import { RUNNER_PATH } from '../node/runner-plugin.ts'
 import { HOST, startRunner } from '../node/runner-server.ts'
-import { checkBakes } from '../project/bakes.ts'
-import { hashFile, save, scan, slash, treeId, validPath } from '../project/revisions.ts'
+import { EDIT_FILES, type Entry, record, tail } from '../project/activity.ts'
+import { checkBakes, checkJobBakes, pinBakes } from '../project/bakes.ts'
+import {
+  addComment,
+  type CommentState,
+  commentsFile,
+  fold,
+  listening,
+  listing,
+  type NewComment,
+  parseOps,
+  readThreads,
+  replyTo,
+  setState,
+  type Thread,
+} from '../project/comments.ts'
+import { manifestAt, openRevision } from '../project/jobs.ts'
+import {
+  changedFiles,
+  type Files,
+  hashFile,
+  head,
+  isSecret,
+  materialize,
+  prunedIds,
+  type Revision,
+  readRevision,
+  releaseFrozen,
+  log as revisionLog,
+  save,
+  scan,
+  slash,
+  store,
+  treeId,
+  validPath,
+} from '../project/revisions.ts'
 import { toPng } from '../review/review.ts'
 import { keepNewestExport } from './exports.ts'
 import { telemetryStatus } from './telemetry.ts'
 
+/** An activity entry as the page gets it: `image` is true when `/activity/<id>/image` has one. */
+export type ShownEntry = Omit<Entry, 'image'> & { image?: true }
+
 export type StudioEvent =
-  | { type: 'changed'; revision: string }
+  | {
+      type: 'changed'
+      revision: string
+      files: { added: string[]; removed: string[]; changed: string[] }
+    }
+  | { type: 'activity'; entry: ShownEntry }
+  | { type: 'comment'; comment: Thread & { stale: boolean } }
+  | { type: 'agent'; listening: boolean }
   | {
       type: 'job'
       id: string
@@ -81,6 +130,102 @@ export type Bridge = {
 }
 
 const json = (status: number, value: unknown): BridgeReply => ({ status, json: value })
+
+/** How many runners on revisions' frozen copies are open at once, besides the working tree's. */
+export const FROZEN_RUNNERS = 2
+
+/** An entry as the page gets it: its image's path is the bridge's business. */
+const shown = (e: Entry): ShownEntry => {
+  const { image, ...rest } = e
+  return image ? { ...rest, image: true } : rest
+}
+
+/** The types of the files a film plays (`GET /file`); any other is `application/octet-stream`. */
+const FILE_TYPES: Record<string, string> = {
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.webm': 'audio/webm',
+  '.mp4': 'video/mp4',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+}
+
+/**
+ * A file of the working tree a revision may hold, for `GET /file`: a path `save` would keep, not
+ * through a link, and not a file that holds secrets.
+ */
+const projectFile = (root: string, path: string | null): BridgeReply => {
+  if (!path || !validPath(path))
+    return json(400, { error: 'path is a file of the project, as a revision names it' })
+  let at = root
+  let named = realpathSync.native(root)
+  for (const part of path.split('/')) {
+    at = join(at, part)
+    named = join(named, part)
+    try {
+      if (lstatSync(at).isSymbolicLink()) return json(400, { error: `${path} goes through a link` })
+    } catch {
+      return json(404, { error: `${path} is not in the project` })
+    }
+    // Each part as the disk names it: another case (`.ENV` for `.env` on NTFS and APFS), an 8.3
+    // short name (`ENV~1`) or any other alias is refused, so no rule above is passed by a spelling.
+    if (realpathSync.native(at) !== named)
+      return json(400, { error: `${path} is not the name the project gives that file` })
+  }
+  if (isSecret(at, basename(at))) return json(400, { error: `${path} holds secrets` })
+  if (!statSync(at).isFile()) return json(404, { error: `${path} is not a file` })
+  const type = FILE_TYPES[extname(at).toLowerCase()] ?? 'application/octet-stream'
+  return { status: 200, file: { path: at, type, name: basename(at) } }
+}
+
+const REVISION = /^[0-9a-f]{16}$/
+/** The 404 that says why a revision is not kept (unknown, or pruned); none when it is. */
+const missing = (root: string, id: string): BridgeReply | undefined => {
+  try {
+    readRevision(root, id)
+    return undefined
+  } catch (error) {
+    return json(404, { error: (error as Error).message })
+  }
+}
+
+/** The stored revisions, oldest first, without their files; `unlisted` when no log line names it. */
+const revisionsOf = (root: string) => {
+  const listed = new Set(revisionLog(root).map((e) => e.id))
+  const dir = join(root, 'versions', 'revisions')
+  let names: string[] = []
+  try {
+    names = readdirSync(dir)
+  } catch {}
+  return names
+    .flatMap((name) => {
+      try {
+        const r = JSON.parse(readFileSync(join(dir, name), 'utf8')) as Revision
+        return [
+          {
+            id: r.id,
+            parent: r.parent,
+            created: r.created,
+            by: r.by,
+            ...(r.label ? { label: r.label } : {}),
+            ...(r.note ? { note: r.note } : {}),
+            ...(listed.has(r.id) ? {} : { unlisted: true }),
+          },
+        ]
+      } catch {
+        return []
+      }
+    })
+    .sort((a, b) => a.created.localeCompare(b.created))
+}
 
 /** Each variant's output as a host opens it: its size, length and rate, with the film's filled in. */
 const sizesOf = (manifest: Manifest) =>
@@ -146,6 +291,12 @@ export const startBridge = async (o: {
   settleMs?: number
   /** `POST /stop` from the CLI (`studio --stop`): the command should end. Without it, no route. */
   onStop?: () => void
+  /** The token `POST /stop` carries: not the secret, and good for nothing else. */
+  stopToken?: string
+  /** How long a revision's runner whose frame was just sent is kept past the cap, in ms. */
+  runnerKeepMs?: number
+  /** For tests: false leaves the comments and the activity to the poll alone. */
+  tailOnWatch?: boolean
 }): Promise<Bridge> => {
   const project = await findProject(o.root)
   const { root } = project
@@ -190,25 +341,208 @@ export const startBridge = async (o: {
     hashes.set(file, { size: s.size, mtime: s.mtimeMs, sha })
     return sha
   }
-  const revisionNow = () => treeId(scan(root, undefined, undefined, hashCached))
-  let revision = revisionNow()
+  const filesNow = () => scan(root, undefined, undefined, hashCached)
+  let files: Files = filesNow()
+  let revision = treeId(files)
   let settle: NodeJS.Timeout | undefined
-  const watcher: FSWatcher = watch(root, { recursive: true }, (_, name) => {
-    if (name && !validPath(slash(String(name)))) return
+  const scanSoon = () => {
     clearTimeout(settle)
     settle = setTimeout(() => {
       try {
-        const now = revisionNow()
-        if (now !== revision) {
-          revision = now
-          emit({ type: 'changed', revision })
-        }
+        const now = filesNow()
+        const id = treeId(now)
+        if (id === revision) return
+        const changed = changedFiles(files, now)
+        files = now
+        revision = id
+        emit({ type: 'changed', revision, files: changed })
+        // The edit, for the activity (the tail sends it on).
+        const cap = (names: string[]) => names.slice(0, EDIT_FILES)
+        record(root, {
+          by: 'studio',
+          kind: 'edit',
+          revision,
+          files: {
+            added: cap(changed.added),
+            removed: cap(changed.removed),
+            changed: cap(changed.changed),
+          },
+        })
+        tailActivity()
       } catch (error) {
         // A file removed mid-scan: the next event scans again.
         log('warn', `watch: ${(error as Error).message}`)
       }
     }, o.settleMs ?? 150)
+  }
+
+  // The files other processes write while the studio runs (decision 0025): the comments and the
+  // activity, sent on as they grow. The CLI and MCP need no channel to the bridge.
+  // The activity by id, not by time: two processes may append their lines out of their ids'
+  // order. All of it is read (two files of at most 1 MB), so a burst is never cut short.
+  let seenEntries = new Set(tail(root, Number.MAX_SAFE_INTEGER).map((e) => e.id))
+  const tailActivity = () => {
+    const now = tail(root, Number.MAX_SAFE_INTEGER)
+    for (const e of now) if (!seenEntries.has(e.id)) emit({ type: 'activity', entry: shown(e) })
+    seenEntries = new Set(now.map((e) => e.id))
+  }
+  // The comments by operation: the threads the new lines touch, folded with all the lines.
+  const opsNow = () => {
+    try {
+      return parseOps(readFileSync(commentsFile(root), 'utf8'))
+    } catch {
+      return []
+    }
+  }
+  let opsSeen = opsNow().length
+  const tailComments = () => {
+    const ops = opsNow()
+    // Fewer lines than before: the file was replaced, and every thread is sent again.
+    const fresh = ops.length >= opsSeen ? ops.slice(opsSeen) : ops
+    opsSeen = ops.length
+    if (fresh.length === 0) return
+    const touched = new Set(fresh.map((op) => op.id))
+    const tree = treeId(filesNow())
+    for (const t of fold(ops))
+      if (touched.has(t.id))
+        emit({ type: 'comment', comment: { ...t, stale: t.revision !== tree } })
+  }
+  const sizeOf = (file: string) => {
+    try {
+      const s = statSync(file)
+      return `${s.size}:${s.mtimeMs}`
+    } catch {
+      return ''
+    }
+  }
+  const activityFile = join(root, '.shaderera', 'activity.jsonl')
+  const sizes = { activity: sizeOf(activityFile), comments: sizeOf(commentsFile(root)) }
+  /** Each file on its own: one that fails is read again next time, and never holds up the other. */
+  const tails = () => {
+    for (const [which, file, read] of [
+      ['activity', activityFile, tailActivity],
+      ['comments', commentsFile(root), tailComments],
+    ] as const) {
+      const now = sizeOf(file)
+      if (now === sizes[which]) continue
+      try {
+        read()
+        sizes[which] = now
+      } catch (error) {
+        log('warn', `watch: ${(error as Error).message}`)
+      }
+    }
+  }
+  // One watcher: the comments and the activity before the filter that keeps to a revision's files.
+  const watcher: FSWatcher = watch(root, { recursive: true }, (_, name) => {
+    const path = name ? slash(String(name)) : ''
+    if (path === 'versions/comments.jsonl' || path.startsWith('.shaderera/activity')) {
+      if (o.tailOnWatch !== false) tails()
+      return
+    }
+    if (name && !validPath(path)) return
+    scanSoon()
   })
+
+  // Runners on revisions' frozen copies (/runner?revision=), for compare: at most FROZEN_RUNNERS
+  // besides the working tree's, the least recently used closed first, but never one whose frame
+  // was sent in the last `runnerKeepMs` (it is still loading in the page). Each has a Vite cache
+  // of its own, reused only once the runner that had it has closed.
+  type Frozen = { page: string; slot: number; close: () => Promise<void> }
+  const frozen = new Map<string, Promise<Frozen>>()
+  const sentAt = new Map<string, number>()
+  const slots = new Set<number>()
+  const closing = new Set<Promise<void>>()
+  const keepMs = o.runnerKeepMs ?? 30_000
+  const trimRunners = () => {
+    for (const [id, f] of frozen) {
+      if (frozen.size <= FROZEN_RUNNERS) return
+      if (Date.now() - (sentAt.get(id) ?? 0) < keepMs) continue
+      frozen.delete(id)
+      sentAt.delete(id)
+      const done = f.then((x) => x.close().finally(() => slots.delete(x.slot))).catch(() => {})
+      closing.add(done)
+      void done.finally(() => closing.delete(done))
+    }
+  }
+  const frozenRunner = (id: string) => {
+    sentAt.set(id, Date.now())
+    const known = frozen.get(id)
+    if (known) {
+      frozen.delete(id)
+      frozen.set(id, known)
+      return known
+    }
+    const opening = (async (): Promise<Frozen> => {
+      // After the trim below: the runners it closes free their caches first.
+      await Promise.resolve()
+      await Promise.all([...closing])
+      const revision = readRevision(root, id)
+      const dir = materialize(root, id)
+      let slot: number | undefined
+      try {
+        const declared = manifestAt(root, id)
+        let pinned: ReturnType<typeof checkJobBakes> | undefined
+        try {
+          pinned = checkJobBakes({
+            name: `revision ${id}`,
+            revision: id,
+            inputs: { bakes: pinBakes(root, declared, id, revision.files) },
+          })
+        } catch (error) {
+          log('warn', (error as Error).message)
+        }
+        slot = 0
+        while (slots.has(slot)) slot++
+        slots.add(slot)
+        const secretBase = `/runner/${randomBytes(16).toString('hex')}/`
+        const server = await startRunner(
+          { root: dir, manifest: declared },
+          {
+            pkgDir: fileURLToPath(new URL('../..', import.meta.url)),
+            studioOrigins: o.origins,
+            cacheDir: join(root, '.shaderera', `studio-vite-${slot + 1}`),
+            base: secretBase,
+            allow: [root],
+            ...(pinned ? { bakes: pinned } : {}),
+            log,
+          },
+        )
+        return {
+          page: `http://${HOST}:${server.port}${secretBase}${RUNNER_PATH.slice(1)}`,
+          slot,
+          close: async () => {
+            await server.server.close()
+            releaseFrozen(root, id)
+          },
+        }
+      } catch (error) {
+        if (slot !== undefined) slots.delete(slot)
+        releaseFrozen(root, id)
+        throw error
+      }
+    })()
+    frozen.set(id, opening)
+    opening.catch(() => {
+      if (frozen.get(id) === opening) frozen.delete(id)
+    })
+    trimRunners()
+    return opening
+  }
+
+  // Every second: what a watch missed, the runners past the cap whose frames have loaded, and
+  // whether an agent waits for comments (its waiter's file is touched every second, so a stale
+  // one means it stopped).
+  let waiting = listening(root)
+  const poll = setInterval(() => {
+    tails()
+    trimRunners()
+    const now = listening(root)
+    if (now === waiting) return
+    waiting = now
+    emit({ type: 'agent', listening: now })
+  }, 1000)
+  poll.unref()
 
   // Renders, one at a time, in the order asked; closing the bridge stops the one running.
   const jobs = new Map<string, Job>()
@@ -226,7 +560,7 @@ export const startBridge = async (o: {
     })
   const render = async (
     job: Job,
-    r: { variant?: string; params: object; t: number },
+    r: { variant?: string; params: object; t: number; revision?: string },
     signal: AbortSignal,
   ) => {
     const flags = {
@@ -235,10 +569,23 @@ export const startBridge = async (o: {
       ...(r.variant ? { variant: r.variant } : {}),
       param: Object.entries(r.params).map(([k, v]) => `${k}=${JSON.stringify(v)}`),
     }
-    const { project: opened, child, more: opener } = await open(flags)
+    // A revision renders from its frozen copy, on one host; the tree, on as many as it takes.
+    const {
+      project: opened,
+      child,
+      more: opener,
+    } = r.revision
+      ? await openRevision(root, r.revision, {
+          ...(r.variant ? { variant: r.variant } : {}),
+          params: r.params as { [key: string]: Json },
+          host: o.hostFlags?.host,
+          ...childOptions(o.hostFlags ?? {}),
+        }).then((x) => ({ ...x, more: undefined }))
+      : await open(flags)
     // A cancelled job's hosts are closed, every one: a frame that never settles ends with them.
     const hosts = [child]
     const more = async () => {
+      if (!opener) throw new Error('A revision renders on one host.')
       const host = await opener()
       hosts.push(host)
       if (signal.aborted) void host.close()
@@ -250,7 +597,7 @@ export const startBridge = async (o: {
     signal.addEventListener('abort', closeChild, { once: true })
     try {
       signal.throwIfAborted()
-      const traced = save(root, { by: 'studio' }).id
+      const traced = r.revision ?? save(root, { by: 'studio' }).id
       mkdirSync(join(root, 'out', 'studio'), { recursive: true })
       const { manifest } = opened
       if (job.format === 'png') {
@@ -263,8 +610,10 @@ export const startBridge = async (o: {
       await exportVideo(opened, child, {
         codec: job.format === 'mov' ? 'prores-hq' : 'h264',
         out: job.file,
-        workers: defaultWorkers(manifest, frameTimes(manifest.fps, 0, manifest.duration).length),
-        more,
+        workers: opener
+          ? defaultWorkers(manifest, frameTimes(manifest.fps, 0, manifest.duration).length)
+          : 1,
+        ...(opener ? { more } : {}),
         revision: traced,
         signal,
         onFrame: (i, n) => {
@@ -282,11 +631,33 @@ export const startBridge = async (o: {
     }
   }
 
+  /** A render's end, for the activity (the tail sends it on). */
+  const rendered = (job: Job, variant?: string, revision?: string) => {
+    record(root, {
+      by: 'studio',
+      kind: 'render',
+      job: job.id,
+      ok: job.state === 'done',
+      format: job.format,
+      ...(variant ? { variant } : {}),
+      ...(revision ? { revision } : {}),
+      ...(job.state === 'done' ? { file: slash(relative(root, job.file)) } : {}),
+      ...(job.error ? { error: job.error } : {}),
+    })
+    tailActivity()
+  }
+
   /** Queues one render job; its id. */
-  const queueJob = (format: Format, variant: string | undefined, params: object, t: number) => {
+  const queueJob = (
+    format: Format,
+    variant: string | undefined,
+    params: object,
+    t: number,
+    revision?: string,
+  ) => {
     const id = randomBytes(6).toString('hex')
     // A variant's name may hold what a file name cannot (`16:9`), as in project/jobs.ts.
-    const name = `${basename(root)}${variant ? `-${variant.replace(/[^\p{L}\p{M}\p{N}_.-]/gu, '_')}` : ''}-${id}.${format}`
+    const name = `${basename(root)}${variant ? `-${variant.replace(/[^\p{L}\p{M}\p{N}_.-]/gu, '_')}` : ''}${revision ? `-${revision}` : ''}-${id}.${format}`
     const job: Job = {
       id,
       state: 'queued',
@@ -303,11 +674,14 @@ export const startBridge = async (o: {
       if (cancel.signal.aborted) return
       job.state = 'running'
       report(job)
-      log('info', `render ${id}: ${format}${variant ? ` of ${variant}` : ''}`)
       const signal = AbortSignal.any([stop.signal, cancel.signal])
       try {
         // The queue goes on at a cancel, while the render winds down (its host closing).
-        const rendering = render(job, { ...(variant ? { variant } : {}), params, t }, signal)
+        const rendering = render(
+          job,
+          { ...(variant ? { variant } : {}), params, t, ...(revision ? { revision } : {}) },
+          signal,
+        )
         rendering.catch(() => {})
         await Promise.race([
           rendering,
@@ -318,7 +692,6 @@ export const startBridge = async (o: {
         job.state = 'done'
         job.progress = 1
         keepNewestExport(job.file)
-        log('info', `render ${id}: ${slash(relative(root, job.file))}`)
       } catch (error) {
         job.state = 'failed'
         job.error = error instanceof Error ? error.message : String(error)
@@ -327,6 +700,7 @@ export const startBridge = async (o: {
         cancels.delete(id)
       }
       report(job)
+      rendered(job, variant, revision)
     })
     return id
   }
@@ -346,20 +720,101 @@ export const startBridge = async (o: {
           schema: manifest.params ?? null,
         },
         telemetry: telemetryStatus().on,
+        revision: treeId(filesNow()),
+        head: head(root),
+        listening: listening(root),
+        // Only another films API than the default, for the page's command to run this again.
+        ...(o.api !== DEFAULT_API ? { api: o.api } : {}),
       })
     }
     if (route === 'GET /runner') {
       const variant = url.searchParams.get('variant')
-      if (
-        variant !== null &&
-        !Object.hasOwn((await findProject(root)).manifest.variants ?? {}, variant)
-      )
+      const id = url.searchParams.get('revision')
+      if (id !== null && !REVISION.test(id))
+        return json(400, { error: 'revision is a revision id, 16 hex digits' })
+      let page = runnerPage
+      let variants = (await findProject(root)).manifest.variants ?? {}
+      if (id !== null) {
+        const found = missing(root, id)
+        if (found) return found
+        variants = manifestAt(root, id).variants ?? {}
+        page = (await frozenRunner(id)).page
+      } else
+        try {
+          // The tree the page frames is stored, unlisted, so a comment on it names a tree that
+          // exists however the files change while the person writes (decision 0025, point 5).
+          store(root, { by: 'studio' })
+        } catch (error) {
+          log('warn', `the framed tree was not stored: ${(error as Error).message}`)
+        }
+      if (variant !== null && !Object.hasOwn(variants, variant))
         return json(400, { error: `shaderera.json has no variant "${variant}"` })
       const query = new URLSearchParams(url.search)
       query.delete('s')
       const rest = query.toString()
-      return { status: 302, location: `${runnerPage}${rest ? `?${rest}` : ''}` }
+      return { status: 302, location: `${page}${rest ? `?${rest}` : ''}` }
     }
+    if (route === 'GET /comments') {
+      try {
+        const state = (url.searchParams.get('state') ?? 'all') as CommentState | 'all'
+        return json(200, listing(root, { state }).comments)
+      } catch (error) {
+        return json(400, { error: (error as Error).message })
+      }
+    }
+    if (route === 'POST /comments') {
+      // The page's comments are the person's: only the bridge writes `person` (decision 0025).
+      const body = (r.body ?? {}) as NewComment
+      // The tree the page shows, which the comment points at (decision 0025, point 3).
+      if (typeof body.revision !== 'string')
+        return json(400, { error: 'revision is the revision id of the tree the page shows' })
+      try {
+        return json(200, await addComment(root, body, 'person'))
+      } catch (error) {
+        return json(400, { error: (error as Error).message })
+      }
+    }
+    const thread = /^POST \/comments\/([^/]+)\/(reply|state)$/.exec(route)
+    if (thread) {
+      const [, id, op] = thread as unknown as [string, string, 'reply' | 'state']
+      const body = (r.body ?? {}) as { text?: unknown; state?: unknown }
+      if (!readThreads(root).some((t) => t.id === id))
+        return json(404, { error: `no comment ${id}` })
+      try {
+        if (op === 'reply')
+          return json(200, await replyTo(root, id, body.text as string, { by: 'person' }))
+        if (body.state !== 'open' && body.state !== 'resolved' && body.state !== 'deleted')
+          return json(400, { error: 'state is open, resolved or deleted' })
+        return json(200, await setState(root, id, body.state, 'person'))
+      } catch (error) {
+        return json(400, { error: (error as Error).message })
+      }
+    }
+    if (route === 'GET /activity') {
+      const limit = Number(url.searchParams.get('limit') ?? 200)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000)
+        return json(400, { error: 'limit is a whole number from 1 to 1000' })
+      return json(200, tail(root, limit).map(shown))
+    }
+    const image = /^GET \/activity\/([^/]+)\/image$/.exec(route)
+    if (image) {
+      const id = image[1] as string
+      const file = join(root, '.shaderera', 'activity', `${id}.png`)
+      if (!/^[0-9a-z]+-[0-9a-f]{8}$/.test(id) || !existsSync(file))
+        return json(404, { error: `no image for entry ${id}` })
+      return { status: 200, file: { path: file, type: 'image/png', name: `${id}.png` } }
+    }
+    if (route === 'GET /versions') {
+      const pruned = prunedIds(root)
+      const gone = (id: string) =>
+        pruned.has(id) && !existsSync(join(root, 'versions', 'revisions', `${id}.json`))
+      return json(200, {
+        head: head(root),
+        log: revisionLog(root).map((e) => (gone(e.id) ? { ...e, pruned: true } : e)),
+        revisions: revisionsOf(root),
+      })
+    }
+    if (route === 'GET /file') return projectFile(root, url.searchParams.get('path'))
     if (route === 'POST /render') {
       const body = (r.body ?? {}) as {
         variant?: unknown
@@ -367,6 +822,7 @@ export const startBridge = async (o: {
         params?: unknown
         format?: unknown
         t?: unknown
+        revision?: unknown
       }
       // Every field is checked before a job is queued: a bad one opens no host, saves nothing.
       const format = body.format as Format
@@ -392,7 +848,16 @@ export const startBridge = async (o: {
         return json(400, { error: 't is a time in seconds' })
       const params = (body.params ?? {}) as object
       const t = (body.t as number | undefined) ?? 0
-      const { manifest } = await findProject(root)
+      const revision = body.revision
+      if (revision !== undefined && (typeof revision !== 'string' || !REVISION.test(revision)))
+        return json(400, { error: 'revision is a revision id, 16 hex digits' })
+      if (revision !== undefined) {
+        const gone = missing(root, revision)
+        if (gone) return gone
+      }
+      // A revision's own variants and length: the ones it renders with.
+      const manifest =
+        revision === undefined ? (await findProject(root)).manifest : manifestAt(root, revision)
       const names: (string | undefined)[] =
         many === undefined ? [body.variant as string | undefined] : [...new Set(many as string[])]
       const unknown = names.find(
@@ -408,7 +873,7 @@ export const startBridge = async (o: {
               error: `t ${t} is outside the film${v === undefined ? '' : ` "${v}"`} (0 to ${duration} s)`,
             })
         }
-      const queued = names.map((v) => queueJob(format, v, params, t))
+      const queued = names.map((v) => queueJob(format, v, params, t, revision))
       return json(200, many === undefined ? { job: queued[0] } : { jobs: queued })
     }
     const cancel = /^POST \/render\/([0-9a-f]+)\/cancel$/.exec(route)
@@ -423,8 +888,8 @@ export const startBridge = async (o: {
         cancels.delete(job.id)
         job.state = 'failed'
         job.error = 'cancelled'
-        log('info', `render ${job.id}: cancelled`)
         report(job)
+        rendered(job)
       }
       return json(200, { job: job.id })
     }
@@ -449,18 +914,23 @@ export const startBridge = async (o: {
           site: o.site,
           ...(o.hostFlags ? { hostFlags: o.hostFlags } : {}),
           ...(typeof body.title === 'string' && body.title.trim() ? { title: body.title } : {}),
-          say: (line) => log('info', line),
+          // Its steps are not the page's log: the share's end is in the activity.
+          say: () => {},
           warn: (line) => log('warn', line),
         })
         if (!shared) throw new Error('Nothing was sent.')
-        log('info', `shared ${shared.url}`)
-        emit({ type: 'share', film: shared.film, version: shared.version, url: shared.url })
-        return json(200, { film: shared.film, version: shared.version, url: shared.url })
+        const { film, version, url } = shared
+        emit({ type: 'share', film, version, url })
+        record(root, { by: 'studio', kind: 'share', ok: true, film, version, url })
+        tailActivity()
+        return json(200, { film, version, url })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         if (error instanceof LoginNeeded || / 401 /.test(message))
           return json(401, { error: 'login', command: 'npx shaderera login' })
         log('error', `share: ${message}`)
+        record(root, { by: 'studio', kind: 'share', ok: false, error: message })
+        tailActivity()
         return json(500, { error: message })
       }
     }
@@ -505,8 +975,14 @@ export const startBridge = async (o: {
     const bearer = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
     // The CLI's own request (`studio --stop`): no Origin, the secret, on 127.0.0.1 as every
     // request here. Never through the relay: a page cannot send one.
-    if (origin === undefined && req.method === 'POST' && url.pathname === '/stop' && o.onStop) {
-      if (!sameSecret(bearer, secret)) return refuse(403, 'secret')
+    if (
+      origin === undefined &&
+      req.method === 'POST' &&
+      url.pathname === '/stop' &&
+      o.onStop &&
+      o.stopToken
+    ) {
+      if (!sameSecret(bearer, o.stopToken)) return refuse(403, 'secret')
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ stopping: true }))
       o.onStop()
@@ -595,6 +1071,7 @@ export const startBridge = async (o: {
     },
     close: async () => {
       clearInterval(heartbeat)
+      clearInterval(poll)
       clearTimeout(settle)
       watcher.close()
       stop.abort(new Error('The studio closed.'))
@@ -603,6 +1080,10 @@ export const startBridge = async (o: {
       await new Promise<void>((done) => server.close(() => done()))
       await queue
       await runner.server.close()
+      await Promise.all([
+        ...[...frozen.values()].map((f) => f.then((x) => x.close()).catch(() => {})),
+        ...closing,
+      ])
     },
   }
 }

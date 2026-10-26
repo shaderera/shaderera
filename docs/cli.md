@@ -336,7 +336,7 @@ A project's saved revisions and render jobs live in `versions/` (keep it with th
 
 | Command | What it does |
 |---|---|
-| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and any `.mcp.json` other than a new project's, at any depth. A `.mcp.json` is stored only when it parses and every server in it is exactly `npx -y shaderera mcp` (or `shaderera@<version>`), with no other fields but an empty `env` or `headers` |
+| `save [--label text] [--note text]` | saves the project's files as a revision; the same files always get the same id, and saving them again says so (`same files as revision <id>; label added`). Links (symlinks, junctions) are never followed or stored, and files that hold secrets are never stored: `.env`, `.env.*`, `.envrc`, `.dev.vars`, `.dev.vars.*`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12` and `*.pfx`, and any `.mcp.json` other than a new project's, at any depth, each in any case (`.ENV`, `ID.PEM`). A `.mcp.json` is stored only when it parses and every server in it is exactly `npx -y shaderera mcp` (or `shaderera@<version>`), with no other fields but an empty `env` or `headers` |
 | `versions [--json]` | the log of saves, restores and undos, newest last, and the jobs |
 | `undo` | returns to the previous revision; unsaved edits are saved first, so nothing is lost |
 | `restore <revision>` | makes the project that revision (the current state is saved first) |
@@ -360,8 +360,9 @@ A job holds execution inputs and references, never the film.
 
 A revision's frozen copy (`.shaderera/revisions/<id>/`, a whole copy of the project) is made when
 a job is made or rendered, and kept for the next render, which then rewrites only what differs.
-Each process using one marks it in `.shaderera/revisions/<id>.using/`. When a render ends, at most
-3 copies no live process uses are kept, the most recently used; older ones are removed, and
+Each process using one marks it in `.shaderera/revisions/<id>.using/`; the folder goes with its
+last user, and one whose users have all died goes when the next use ends. When a render ends, at
+most 3 copies no live process uses are kept, the most recently used; older ones are removed, and
 `shaderera prune` removes every unused one. `render --job` makes a removed copy again from
 `versions/`.
 
@@ -377,7 +378,9 @@ removes the revisions nobody needs and every object no remaining revision names.
 - every revision whose files a bake stamp (`versions/bakes/`) was made from;
 - every revision `versions/comments.jsonl` names;
 - every revision whose frozen copy a live process is using (a render may be running from it);
-- the last `n` saves (`--keep`, 10 by default).
+- an unlisted revision (a tree the studio page framed, never in the log) stored in the last 10
+  minutes;
+- the last `n` saves (`--keep`, 10 by default), which never count an unlisted revision.
 
 `--dry-run` prints what it would remove and the bytes it would free, and removes nothing; without
 it, prune prints the same and removes them. Removing is for good: run `--dry-run` first. A pruned
@@ -407,7 +410,7 @@ folder, a git push. `share`, `fork` and `handoff` never send them.
 | Command | Does |
 |---|---|
 | `comments [list] [--state open\|fixed\|resolved\|all] [--json]` | the comments in that state (`open` by default) |
-| `comments show <id> [--json]` | one comment, with its replies |
+| `comments show <id> [--json]` | one comment, with its replies; a comment the person deleted says `deleted`, and is in no list |
 | `comments add --at <t>[-<t2>] [--variant v] [--point x,y \| --box x,y,w,h] <text>` | files a comment at t (or the range t to t2) on the tree as it is, which it saves as a revision. `--point` and `--box` are in that variant's frame pixels |
 | `comments reply <id> [--fixed] <text>` | replies. `--fixed` saves the tree as a revision labelled `fix <id>: <text>` (cut to 60 characters) and marks the comment fixed in it; when nothing changed since the revision the comment was made on, it refuses (exit 2) |
 | `comments reopen <id>` | opens it again. `comments resolve <id>` exits 2: "Resolve it in the studio: only the person resolves" |
@@ -420,10 +423,10 @@ characters. Only the studio page writes as the person (`by: person`); the CLI wr
 
 `--json` prints what MCP `comments` gives, `{revision, head, comments}`: `revision` is the working
 tree's id now, and each comment has `id` (6 characters), `state`, `revision` (the tree it was made
-on), `t` and `frame`, `to` and `toFrame` for a range, `variant`, `point` or `box` with the frame's
-`size`, `object`, `params` (those that differ from the defaults), `text`, `by`, `at`, `replies`,
-`fixedIn` (the fix's revision), `updated`, and `stale` (true when the tree is no longer the one it
-was made on). `point` and `box` go straight into MCP `pick` and `render_frame`'s `region`.
+on), `t` and `frame` (the frame that shows at t: floor(t·fps + 1e-6)), `to` and `toFrame` for a
+range, `variant`, `point` or `box` with the frame's `size`, `object`, `params` (those that differ
+from the defaults), `text`, `by`, `at`, `replies`, `fixedIn` (the fix's revision), `updated`, and
+`stale` (true when the tree is no longer the one it was made on). `point` and `box` go straight into MCP `pick` and `render_frame`'s `region`.
 
 ```
 $ shaderera comments
@@ -679,25 +682,29 @@ a buffer at 2 GB. `--json` carries them as `limits` on the `gpu` item.
 The project's activity is what the CLI, the agent (MCP) and the studio did in it, for the studio
 to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It fills itself:
 
-- **Every command run in a project** adds one entry: `{kind: "command", command, args, exitCode,
-  ok, summary}`, `by: "cli"`. `summary` is its findings counted by severity and the first three
-  messages: `{error, warning, info, messages}`. `still --sheet` keeps its contact sheet as the
-  entry's `image`. `mcp`, `studio`, `activity` and `--help` add none, and nothing is written outside
-  a project.
-- **Every MCP tool call** adds one: `{kind: "tool", tool, ok, ms, summary}`, `by: "agent"`
+- **Every command run in a project that changes, checks or renders** adds one entry:
+  `{kind: "command", command, args, exitCode, ok, summary}`, `by: "cli"`. `summary` is its findings
+  counted by severity and the first three messages: `{error, warning, info, messages}`.
+  `still --sheet` keeps its contact sheet as the entry's `image`. The ones that only read add
+  none: `versions`, `diff`, `doctor`, `help`, `activity`, and `comments` `list`, `show` and
+  `--wait`; nor do `mcp`, `studio` (they record their own) and `--help`. The `comments` that
+  write (`add`, `reply`, `resolve`, `reopen`) add one only when they fail: done, the comment is the
+  record. Nothing is written outside a project.
+- **Every MCP tool call** adds one (`comment_add`, `comment_reply` and `comment_resolve` only
+  when they fail): `{kind: "tool", tool, ok, ms, summary}`, `by: "agent"`
   ([mcp.md](mcp.md#tools)).
 - **Every entry** has an `id` (it sorts by time) and `at` (ISO 8601).
 
 | Command | What it does |
 |---|---|
 | `activity [--last 20] [--json]` | the last entries, oldest first: time, who, what, the image. `--json`: the entries as a list |
-| `activity add [--comment id] <text>` | adds `{kind: "note", text, comment?}`, at most 4000 characters, and prints its id. For what you mean to do; what you did is recorded already |
+| `activity add [--comment id] <text>` | adds `{kind: "note", text, comment?}`, `by: "agent"`, at most 4000 characters, and prints its id. It is the agent's channel: for what you mean to do; what you did is recorded already |
 
 ```
 $ shaderera activity
 2026-10-25 10:42:07  cli    check --times 4: exit 0
 2026-10-25 10:42:31  agent  render_frame: ok in 48 ms  .shaderera/activity/mh6x2k8q0007-3fa1c2d9.png
-2026-10-25 10:43:02  cli    Making the logo bigger (comment c7)
+2026-10-25 10:43:02  agent  Making the logo bigger (comment c7)
 ```
 
 - **Where it is kept.** `.shaderera/activity.jsonl`, one line an entry, only ever appended. Past
@@ -791,7 +798,7 @@ and `login` says so: `--token` is the way in then.
 **What `share` sends** is the project's files as a revision holds them (`save`,
 [above](#versions-and-jobs)), and nothing else:
 - never `out/`, `versions/`, `.shaderera/` or `.claude/` at the root, `node_modules/` or `.git/`
-  anywhere, or a link (symlink, junction);
+  anywhere, or a link (symlink, junction), each name in any case (`OUT/`, `.GIT/`);
 - never a file that holds secrets, which a revision never holds (`save`, above): `.env` and
   `.env.*`, `.envrc`, `.dev.vars`, `.npmrc`, `.netrc`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, and a
   `.mcp.json` unless every server in it is Shaderera's own (`npx -y shaderera mcp`, as a new
@@ -923,14 +930,14 @@ asks for.
   out of `out/studio/` stays ([studio.md](studio.md)).
 - **What leaves the machine.** The page reads the code and renders from the bridge, so they stay
   here until you share. The relay pairs the page and the bridge with a key it never sees, and
-  carries the page's requests sealed when the browser blocks 127.0.0.1 (protocol v1 sends a file
-  in chunks).
+  carries the page's requests sealed when the browser blocks 127.0.0.1 (a file in chunks).
 - **Another protocol.** A page and a CLI that speak different studio protocols never pair, and
-  the CLI says which to update in one line, for example `The studio page speaks protocol v2 and
-  this CLI v1: update the CLI (npm i shaderera@latest) and run shaderera studio again.` (it then
+  the CLI says which to update in one line, for example `The studio page speaks protocol v3 and
+  this CLI v2: update the CLI (npm i shaderera@latest) and run shaderera studio again.` (it then
   ends, exit 2), or, for an older page, to reload it.
 - **`--json`**, for an agent that runs it in the background: one JSON line per event (`url`,
-  `paired`, `page-closed`, `resumed`, `mismatch`, `relay`, `job`, `share`, `ended`, …), listed
+  `paired`, `page-closed`, `resumed`, `mismatch`, `relay`, `job`, `share`, `comment`, `agent`,
+  `ended`, …), listed
   in [studio.md](studio.md). A render's `job` progress comes about every 10 %, not every frame.
 - **The protocol** is [studio.md](studio.md).
 

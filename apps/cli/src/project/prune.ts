@@ -25,7 +25,9 @@ import {
  * Kept: the head; every revision with a label; every revision a job in `versions/jobs/` names;
  * every revision whose files a bake stamp was made from; every revision `versions/comments.jsonl`
  * names (ADR 0025); every revision whose frozen copy under `.shaderera/revisions/` a live process
- * uses or used in the last `GRACE_MS` (a render may be running from it); and the last `keep` saves.
+ * uses or used in the last `GRACE_MS` (a render may be running from it); an unlisted revision (a
+ * tree a studio page framed, revisions.ts `store`) stored in the last `GRACE_MS`; and the last
+ * `keep` saves, which never count an unlisted one.
  * Every other frozen copy is removed: a render makes it again from the revision. Removed: the other revisions' files (their log
  * lines stay, and `versions/pruned.jsonl` says they were pruned), then every object no revision
  * still there names, unless it was used in the last `GRACE_MS` (a save beside the prune may be
@@ -197,6 +199,11 @@ export const prune = (
           id,
           unused.some((c) => c.id === id) ? 'a frozen copy used just now' : 'a frozen copy in use',
         )
+  // An unlisted revision (a tree a studio page framed) stored just now: a comment on it may be
+  // being written. Older ones go unless something above names them, whatever `keep` says.
+  const logged = new Set(entries.map((e) => e.id))
+  for (const [id, r] of revisions)
+    if (!logged.has(id) && now() - Date.parse(r.created) < GRACE_MS) keep(id, 'framed just now')
   const saves: string[] = []
   for (const e of [...entries].reverse()) {
     if (saves.length >= o.keep) break

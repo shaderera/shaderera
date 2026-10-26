@@ -56,16 +56,20 @@ export type LogEntry = {
   label?: string
 }
 
+// Every name below is matched in any case, on every OS: NTFS and APFS take `.ENV` for `.env` and
+// `OUT` for `out`, and a file really named `.ENV` holds secrets as well.
 /** Never part of a revision, at the root: builds, renders, the store itself, tool folders. */
-const ROOT_ONLY = new Set(['out', '.shaderera', 'versions', '.claude', 'NVIDIA Corporation'])
+const ROOT_ONLY = new Set(['out', '.shaderera', 'versions', '.claude', 'nvidia corporation'])
 /** Never part of a revision, at any depth: installs and git's own folders. */
 const ANYWHERE = new Set(['node_modules', '.git'])
+const rootOnly = (name: string) => ROOT_ONLY.has(name.toLowerCase())
+const anywhere = (name: string) => ANYWHERE.has(name.toLowerCase())
 /**
  * Never part of a revision, at any depth: files that hold secrets (env files, direnv's, Wrangler's,
  * npm's and curl's credentials, private keys), so neither a share nor a handoff can carry one.
  */
 export const SECRET =
-  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|.+\.(pem|key|p12|pfx))$/
+  /^(\.env(\..+)?|\.envrc|\.dev\.vars(\..+)?|\.npmrc|\.netrc|.+\.(pem|key|p12|pfx))$/i
 
 /** Shaderera's own MCP server, as a new project's `.mcp.json` names it: `shaderera` or `shaderera@<version>`. */
 const SHADERERA_PACKAGE = /^shaderera(@[\w.+-]+)?$/
@@ -110,11 +114,11 @@ export const mcpIsShaderera = (file: string): boolean => {
 
 /** A file a revision never holds because it holds secrets: SECRET by name, or an MCP config other than Shaderera's own. */
 export const isSecret = (file: string, name: string): boolean =>
-  SECRET.test(name) || (name === '.mcp.json' && !mcpIsShaderera(file))
+  SECRET.test(name) || (name.toLowerCase() === '.mcp.json' && !mcpIsShaderera(file))
 /** writeAtomic's temporary files, which another process may be about to move into place. */
 const TEMPORARY = /\.\d+\.tmp$/
 
-const store = (root: string) => join(root, 'versions')
+const versionsOf = (root: string) => join(root, 'versions')
 const sha256 = (data: Uint8Array) => createHash('sha256').update(data).digest('hex')
 export const slash = (p: string) => p.split(sep).join('/')
 
@@ -156,8 +160,7 @@ export const scan = (
   const files: Files = {}
   const walk = (dir: string) => {
     for (const name of readdirSync(dir).sort()) {
-      if (ANYWHERE.has(name) || TEMPORARY.test(name) || (dir === root && ROOT_ONLY.has(name)))
-        continue
+      if (anywhere(name) || TEMPORARY.test(name) || (dir === root && rootOnly(name))) continue
       const full = join(dir, name)
       const path = slash(relative(root, full))
       const s = lstatSync(full)
@@ -176,8 +179,8 @@ export const validPath = (path: string) => {
   const parts = path.split('/')
   return (
     !/[\\:\0]/.test(path) &&
-    parts.every((p) => p !== '' && p !== '.' && p !== '..' && !ANYWHERE.has(p)) &&
-    !ROOT_ONLY.has(parts[0] as string)
+    parts.every((p) => p !== '' && p !== '.' && p !== '..' && !anywhere(p)) &&
+    !rootOnly(parts[0] as string)
   )
 }
 
@@ -218,7 +221,7 @@ export const treeId = (files: Files): string =>
 
 /** The ids `shaderera prune` removed, from `versions/pruned.jsonl` (a torn line is skipped). */
 export const prunedIds = (root: string): Set<string> => {
-  const file = join(store(root), 'pruned.jsonl')
+  const file = join(versionsOf(root), 'pruned.jsonl')
   const ids = new Set<string>()
   if (!existsSync(file)) return ids
   for (const line of readFileSync(file, 'utf8').split('\n'))
@@ -237,7 +240,7 @@ const wasPruned = (id: string) =>
 /** A revision, checked: its id is the hash of its files, and every path and hash is well formed. */
 export const readRevision = (root: string, id: string): Revision => {
   if (!/^[0-9a-f]{16}$/.test(id)) throw new Error(`No revision ${id}.`)
-  const file = join(store(root), 'revisions', `${id}.json`)
+  const file = join(versionsOf(root), 'revisions', `${id}.json`)
   let text: string
   try {
     text = readFileSync(file, 'utf8')
@@ -255,7 +258,7 @@ export const readRevision = (root: string, id: string): Revision => {
 }
 
 export const log = (root: string): LogEntry[] => {
-  const file = join(store(root), 'log.jsonl')
+  const file = join(versionsOf(root), 'log.jsonl')
   if (!existsSync(file)) return []
   return readFileSync(file, 'utf8')
     .split('\n')
@@ -267,9 +270,9 @@ export const log = (root: string): LogEntry[] => {
 export const head = (root: string): string | null => log(root).at(-1)?.id ?? null
 
 const append = (root: string, entry: Omit<LogEntry, 'at'>) => {
-  mkdirSync(store(root), { recursive: true })
+  mkdirSync(versionsOf(root), { recursive: true })
   appendFileSync(
-    join(store(root), 'log.jsonl'),
+    join(versionsOf(root), 'log.jsonl'),
     `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
   )
 }
@@ -337,17 +340,18 @@ export const scanProject = (root: string, left?: Parameters<typeof scan>[1]): Fi
 }
 
 /**
- * Saves the working tree as a revision and returns it; the same files return the revision that
- * holds them, `existing`, with its own label and note (a new label is only logged, when given or
- * when it is not already the head).
+ * Stores the working tree as a revision, its objects and its JSON, and returns it, without a line
+ * in the log: `versions`, `undo` and `restore` never see it, and `prune` removes it unless a
+ * comment, a job or a bake names it. The studio stores so each tree a page frames, for a comment
+ * to name (decision 0025, point 5). The same files return the revision that holds them, `existing`.
  */
-export const save = (
+export const store = (
   root: string,
   o: { by: By; label?: string; note?: string } = { by: 'person' },
 ): Revision & { existing: boolean } => {
   const files = scanProject(root)
   const id = treeId(files)
-  const objects = join(store(root), 'objects')
+  const objects = join(versionsOf(root), 'objects')
   mkdirSync(objects, { recursive: true })
   for (const [path, hash] of Object.entries(files)) {
     const object = join(objects, hash)
@@ -365,30 +369,41 @@ export const save = (
     }
     renameSync(tmp, object)
   }
-  const file = join(store(root), 'revisions', `${id}.json`)
+  const file = join(versionsOf(root), 'revisions', `${id}.json`)
   const parent = head(root)
   const existing = existsSync(file)
-  let revision: Revision
-  if (existing) revision = readRevision(root, id)
-  else {
-    revision = {
-      id,
-      parent: parent === id ? null : parent,
-      created: new Date().toISOString(),
-      by: o.by,
-      ...(o.label ? { label: o.label } : {}),
-      ...(o.note ? { note: o.note } : {}),
-      files,
-    }
-    writeAtomic(file, `${JSON.stringify(revision, null, 1)}\n`)
+  if (existing) return { ...readRevision(root, id), existing }
+  const revision: Revision = {
+    id,
+    parent: parent === id ? null : parent,
+    created: new Date().toISOString(),
+    by: o.by,
+    ...(o.label ? { label: o.label } : {}),
+    ...(o.note ? { note: o.note } : {}),
+    files,
   }
-  if (parent !== id || o.label) append(root, { action: 'save', id, by: o.by, label: o.label })
+  writeAtomic(file, `${JSON.stringify(revision, null, 1)}\n`)
   return { ...revision, existing }
+}
+
+/**
+ * Saves the working tree as a revision and returns it: stores it, and logs it. The same files
+ * return the revision that holds them, `existing`, with its own label and note (a new label is
+ * only logged, when given or when it is not already the head).
+ */
+export const save = (
+  root: string,
+  o: { by: By; label?: string; note?: string } = { by: 'person' },
+): Revision & { existing: boolean } => {
+  const revision = store(root, o)
+  if (head(root) !== revision.id || o.label)
+    append(root, { action: 'save', id: revision.id, by: o.by, label: o.label })
+  return revision
 }
 
 /** A stored file's contents, checked against its hash. */
 export const readObject = (root: string, hash: string): Buffer => {
-  const data = readFileSync(join(store(root), 'objects', hash))
+  const data = readFileSync(join(versionsOf(root), 'objects', hash))
   if (sha256(data) !== hash) throw new Error(`versions/objects/${hash} is corrupt.`)
   return data
 }
@@ -414,7 +429,7 @@ const checkout = (root: string, target: Revision, dir = root) => {
   const writes = Object.entries(target.files)
     .filter(([path, hash]) => now[path] !== hash)
     .map(([path, hash]) => {
-      const object = join(store(root), 'objects', hash)
+      const object = join(versionsOf(root), 'objects', hash)
       if (!intact(object, hash)) throw corrupt(hash)
       return [inside(dir, path), object, hash] as const
     })
@@ -515,7 +530,7 @@ const complete = (root: string, revision: Revision, dir: string) =>
     try {
       return (
         statSync(join(dir, ...path.split('/'))).size ===
-        statSync(join(store(root), 'objects', hash)).size
+        statSync(join(versionsOf(root), 'objects', hash)).size
       )
     } catch {
       return false
@@ -525,7 +540,7 @@ const complete = (root: string, revision: Revision, dir: string) =>
 /**
  * Who uses a frozen copy: one empty file per process, `.shaderera/revisions/<id>.using/<pid>`,
  * and this process's own uses counted here, so a copy is never removed while a render uses it.
- * A copy's modification time is its last use.
+ * The folder goes with its last user (`sweepMarks`). A copy's modification time is its last use.
  */
 const uses = new Map<string, { root: string; id: string; n: number }>()
 const copiesDir = (root: string) => join(root, '.shaderera', 'revisions')
@@ -544,14 +559,46 @@ const touch = (dir: string) => {
     utimesSync(dir, now, now)
   } catch {}
 }
+/** This process's mark on a copy, its folder made again if a sweep took it just then. */
+const mark = (root: string, id: string) => {
+  for (let attempt = 0; ; attempt++) {
+    mkdirSync(usingDir(root, id), { recursive: true })
+    try {
+      writeFileSync(join(usingDir(root, id), String(process.pid)), '')
+      return
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT' || attempt >= 2) throw e
+    }
+  }
+}
+/**
+ * Removes every marks folder whose users have all gone: their dead marks, then the folder. A
+ * folder a live process marks stays, and so does one marked between the read and the removal
+ * (it is not empty then); a mark written just after finds no folder and makes it again (`mark`).
+ */
+const sweepMarks = (root: string) => {
+  let names: string[]
+  try {
+    names = readdirSync(copiesDir(root))
+  } catch {
+    return
+  }
+  for (const name of names) {
+    if (!/^[0-9a-f]{16}\.using$/.test(name)) continue
+    const dir = join(copiesDir(root), name)
+    try {
+      const marks = readdirSync(dir)
+      if (marks.some((p) => alive(Number(p)))) continue
+      for (const p of marks) rmSync(join(dir, p), { force: true })
+      rmdirSync(dir)
+    } catch {}
+  }
+}
 let hooked = false
 const use = (root: string, id: string) => {
   const key = `${root}\0${id}`
   const u = uses.get(key) ?? { root, id, n: 0 }
-  if (u.n === 0) {
-    mkdirSync(usingDir(root, id), { recursive: true })
-    writeFileSync(join(usingDir(root, id), String(process.pid)), '')
-  }
+  if (u.n === 0) mark(root, id)
   u.n++
   uses.set(key, u)
   if (!hooked) process.once('exit', releaseAll)
@@ -625,6 +672,7 @@ const drop = (root: string, id: string) => {
     rmSync(join(usingDir(root, id), String(process.pid)), { force: true })
   } catch {}
   touch(join(copiesDir(root), id))
+  sweepMarks(root)
   for (const old of unusedFrozen(root).slice(KEEP_FROZEN)) removeFrozen(root, old.id)
   // Copies moved aside by a removal that could not finish (a file held open), when that process
   // is gone or is this one.

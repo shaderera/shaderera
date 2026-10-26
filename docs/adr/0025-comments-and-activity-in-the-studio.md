@@ -50,6 +50,7 @@ Two facts shape the answer:
 
 5. **Compare uses the revisions comments name, not every edit.**
    - **Which revisions are saved.** The bridge saves the shown tree as a revision when a comment is made on it, and the fix saves one too. Edits in between are not stored.
+   - The bridge also stores, unlisted, each tree a page framed, so a comment always names a tree that exists; prune drops the unnamed ones.
    - **Compare** shows a comment's `revision` against its `fixedIn` on one clock. It uses `GET /runner?revision=<id>` from the frozen copy, with two at most besides the working tree's, or two stills through the relay.
    - **Prune never removes a revision an open or fixed comment names.** Pruning the revisions nobody names is a separate issue.
 
@@ -62,7 +63,7 @@ Two facts shape the answer:
 
 7. **The agent waits with `shaderera comments --wait`.**
    - Run in the background, it exits when the person comments or reopens a comment. A host that tells its agent when a background command ends wakes the agent that way.
-   - While it waits, the page says "Your agent will see this now". Otherwise it says "Tell your agent you left comments".
+   - While it waits, the page says "· listening". Otherwise it says "Your agent isn't listening: tell it you left comments". The bridge decides which (the waiter's file, touched every second, is stale after 5 s); the page has no timer of its own.
    - `studio --json` also carries `comment` events. It doesn't carry `activity`, which is the agent's own record.
 
 8. **Studio protocol v2.**

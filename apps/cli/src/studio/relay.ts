@@ -45,8 +45,14 @@ export const chunkAad = (id: string, seq: number): string => `${id}:${seq}`
  */
 export const PAGE_BACK_MS = 10_000
 
+/** How long before a page-left a request of the page's still counts as the page back. */
+export const BACK_FIRST_MS = 2000
+
 /** How long the CLI waits before its nth rejoin, in ms: 1, 2, 4, 8, 16, then 30 s. */
 export const rejoinDelay = (n: number): number => Math.min(1000 * 2 ** n, 30_000)
+
+/** The answer to `/runner` through the relay: a frame cannot come through it. */
+const RUNNER_REFUSED = { status: 400, body: { error: 'The runner is framed from 127.0.0.1 only.' } }
 
 /** What a close code means, for the person. */
 export const closeText = (code: number, site: string, id: string): string =>
@@ -77,7 +83,7 @@ export const connectRelay = (o: {
   onPaired?: () => void
   /**
    * The page left and did not come back within `pageBackMs` (`closed`), or, once paired, came
-   * back within it (`reloaded`): a reload is not a close.
+   * back (`reloaded`): within it, so a reload is not a close, or after a `closed`.
    */
   onPage?: (state: 'closed' | 'reloaded') => void
   /**
@@ -110,16 +116,25 @@ export const connectRelay = (o: {
   let error: string | undefined
   // The protocol of the last page that said a mismatched hello: said once, not on every hello.
   let told: number | undefined
-  // A page that left: closed when this runs out, reloaded when it is seen again before.
+  // A page that left: closed when this runs out, reloaded when it is seen again before. One said
+  // closed that is seen again later (a reload that waited for Connect) is back too.
   let away: NodeJS.Timeout | undefined
+  let gone = false
   const pageBack = () => {
-    if (!away) return
+    if (!away && !gone) return
     clearTimeout(away)
     away = undefined
+    gone = false
     // Before pairing, a page that says hello is a page that pairs, not one that reloaded.
     if (paired) o.onPage?.('reloaded')
   }
-  const stopVisits = o.bridge.onVisit(pageBack)
+  // A reloaded page asks the bridge directly (127.0.0.1) at once, while the relay's page-left
+  // crosses the internet: its request often comes first. One just before the page-left counts.
+  let lastVisit = 0
+  const stopVisits = o.bridge.onVisit(() => {
+    lastVisit = Date.now()
+    pageBack()
+  })
   const send = (m: Message) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m))
   }
@@ -128,7 +143,7 @@ export const connectRelay = (o: {
   let chain: Promise<void> = Promise.resolve()
 
   /**
-   * A file through the relay (v1): its head in the rpc-result, `{status, type, name, size,
+   * A file through the relay (since v1): its head in the rpc-result, `{status, type, name, size,
    * chunks}`, then `chunks` frames `{type:"rpc-chunk", id, seq, iv, box}`, each up to CHUNK bytes
    * sealed as they are under `<id>:<seq>`. Read and sent a chunk at a time, waiting while the
    * socket's buffer is full, so a large file never sits in memory whole. A file that cannot be
@@ -184,9 +199,14 @@ export const connectRelay = (o: {
         ...(await seal(k, { status: 400, body: { error: 'box' } })),
       })
     }
+    const path = typeof request.path === 'string' ? request.path : '/'
+    // Refused before the bridge sees it: a runner (one on a revision opens Vite and a frozen copy)
+    // is never started for a frame that cannot come.
+    if (new URL(path, 'http://bridge').pathname === '/runner')
+      return send({ type: 'rpc-result', id, ...(await seal(k, RUNNER_REFUSED)) })
     const reply = await o.bridge.handle({
       method: typeof request.method === 'string' ? request.method : 'GET',
-      path: typeof request.path === 'string' ? request.path : '/',
+      path,
       body: request.body,
     })
     if ('json' in reply)
@@ -196,14 +216,7 @@ export const connectRelay = (o: {
         ...(await seal(k, { status: reply.status, body: reply.json })),
       })
     if ('location' in reply)
-      return send({
-        type: 'rpc-result',
-        id,
-        ...(await seal(k, {
-          status: 400,
-          body: { error: 'The runner is framed from 127.0.0.1 only.' },
-        })),
-      })
+      return send({ type: 'rpc-result', id, ...(await seal(k, RUNNER_REFUSED)) })
     // A file, in chunks: not awaited, so the page's other requests are answered meanwhile.
     void sendFile(k, id, reply.file).catch(() => {})
   }
@@ -254,8 +267,13 @@ export const connectRelay = (o: {
       o.onRelay?.(true)
     } else if (m.type === 'page-left') {
       clearTimeout(away)
+      if (paired && Date.now() - lastVisit < BACK_FIRST_MS) {
+        away = undefined
+        return o.onPage?.('reloaded')
+      }
       away = setTimeout(() => {
         away = undefined
+        gone = true
         o.onPage?.('closed')
       }, o.pageBackMs ?? PAGE_BACK_MS)
     } else if (m.type === 'rpc' && key && typeof m.iv === 'string' && typeof m.box === 'string') {

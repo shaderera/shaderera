@@ -28,6 +28,7 @@ import {
   releaseFrozen,
   restore,
   save,
+  store,
 } from './revisions.ts'
 
 const fixture = fileURLToPath(new URL('../cli/fixtures/mcp/', import.meta.url))
@@ -213,4 +214,30 @@ test('a restore that races a prune says the revision was pruned, not that an obj
   saveWith(root, 'head again')
   rmSync(join(root, 'versions', 'objects', hashOf('only in b')))
   assert.throws(() => restore(root, b), /is corrupt/)
+})
+
+test('prune drops the unlisted trees no comment names, whatever --keep says, but not one just stored', () => {
+  const root = project()
+  saveWith(root, 'saved')
+  // Trees a studio page framed: stored, never logged.
+  writeFileSync(join(root, 'asset.bin'), 'framed, commented')
+  const named = store(root, { by: 'studio' }).id
+  writeFileSync(join(root, 'asset.bin'), 'framed, unnamed')
+  const unnamed = store(root, { by: 'studio' }).id
+  assert.ok(!log(root).some((e) => e.id === named || e.id === unnamed))
+  writeFileSync(
+    join(root, 'versions', 'comments.jsonl'),
+    `${JSON.stringify({ op: 'comment', at: 'x', by: 'person', id: 'c1', revision: named, t: 0, text: 'here' })}\n`,
+  )
+  // Stored just now: a comment on it may be on its way.
+  const fresh = prune(root, { keep: 100, dryRun: true })
+  assert.ok(!fresh.removed.includes(unnamed))
+  assert.match(fresh.kept.find((k) => k.id === unnamed)?.why.join() ?? '', /framed just now/)
+  // An hour on, with every save kept, it goes; the commented one stays.
+  const later = Date.now() + 3600_000
+  const r = prune(root, { keep: 100, now: () => later })
+  assert.deepEqual(r.removed, [unnamed])
+  assert.ok(r.kept.some((k) => k.id === named && k.why.includes('a comment')))
+  assert.throws(() => readRevision(root, unnamed), /pruned/)
+  assert.equal(readRevision(root, named).id, named)
 })

@@ -86,7 +86,7 @@ test('activity add appends a note; activity prints the log', async () => {
   )
   assert.equal(added.status, 0, added.stderr)
   const listed = await cli('activity', '--root', root)
-  assert.match(listed.stdout, /cli\s+Making the logo bigger \(comment c7\)/)
+  assert.match(listed.stdout, /agent\s+Making the logo bigger \(comment c7\)/)
   const json = JSON.parse((await cli('activity', '--json', '--root', root)).stdout)
   assert.equal(json.shaderera, 'result/1')
   assert.deepEqual(

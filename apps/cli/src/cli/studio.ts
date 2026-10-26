@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto'
 import { Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 import { parseArgs } from 'node:util'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { findProject } from '../node/project.ts'
 import { isOrigin } from '../player/parents.ts'
+import { seconds } from '../project/comments.ts'
 import { type StudioEvent, startBridge } from '../studio/bridge.ts'
 import { CLOSE, ID_LENGTH, isId, makeId, makeNonce, pageUrl } from '../studio/pairing.ts'
 import { closeText, connectRelay, type RelayEnd } from '../studio/relay.ts'
@@ -84,8 +86,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
 
   let stopNow = () => {}
+  // What `studio --stop` carries, in bridge.json: it stops the studio, and opens nothing else.
+  const stopToken = randomBytes(16).toString('hex')
   const bridge = await startBridge({
     onStop: () => stopNow(),
+    stopToken,
     root,
     api,
     site,
@@ -112,6 +117,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (e.type === 'log') say(type, fields, e.text, e.level !== 'info')
     else if (e.type === 'changed') say(type, fields, `changed: revision ${e.revision}`)
     else if (e.type === 'job' && tooSoon(e)) return
+    // The activity is the agent's own record (decision 0025, point 7): not sent back to it.
+    else if (e.type === 'activity') return
+    else if (e.type === 'comment')
+      say(
+        type,
+        fields,
+        `comment ${e.comment.id} (${e.comment.state}) at ${seconds(e.comment.t)} (frame ${e.comment.frame}): ${e.comment.text}`,
+      )
     else say(type, fields)
   })
   // It stops on `shaderera studio --stop` (POST /stop), Ctrl-C or SIGTERM, and, when stdin is a
@@ -135,7 +148,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // `shaderera studio --stop` (and later commands) reach this bridge through the file.
   if (claimed)
     try {
-      register(root, { port: bridge.port, secret: bridge.secret, pid: process.pid })
+      register(root, { port: bridge.port, token: stopToken, pid: process.pid })
     } catch (error) {
       unregister(root, process.pid)
       unreachable(error)
@@ -192,7 +205,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       onPage: (state) =>
         state === 'closed'
           ? say('page-closed', {}, 'the studio page closed')
-          : say('resumed', {}, 'the studio page reloaded'),
+          : say('resumed', {}, 'the studio page is back'),
       onRelay: (back) =>
         say(
           'relay',

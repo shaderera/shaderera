@@ -12,7 +12,16 @@ import {
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { IMAGES, ROTATE, record, recordCommand, redact, summaryOf, tail } from './activity.ts'
+import {
+  IMAGES,
+  ROTATE,
+  record,
+  recordable,
+  recordCommand,
+  redact,
+  summaryOf,
+  tail,
+} from './activity.ts'
 
 const png = (n = 8) => new Uint8Array(n).fill(7)
 
@@ -197,4 +206,29 @@ test('an image no entry names (a rotation raced by another process) goes at the 
   assert.ok(existsSync(join(root, '.shaderera', 'activity.1.jsonl')))
   assert.equal(existsSync(orphan), false)
   assert.equal(existsSync(fresh), true)
+})
+
+test('read-only commands get no entry; what changes, checks or renders does', () => {
+  for (const argv of [
+    ['versions'],
+    ['diff', 'a', 'b'],
+    ['doctor'],
+    ['help'],
+    ['activity'],
+    ['activity', 'add', 'trying'],
+    ['comments'],
+    ['comments', 'list', '--state', 'all'],
+    ['comments', 'show', 'k3x9q2'],
+    ['comments', '--wait'],
+    // A comment written is its own record.
+    ['comments', 'reply', 'k3x9q2', 'done', '--fixed'],
+    ['comments', 'add', '--at', '1', 'darker'],
+    ['comments', 'reopen', 'k3x9q2'],
+  ])
+    assert.equal(recordable(argv), false, argv.join(' '))
+  // One that failed wrote none: its entry says so.
+  assert.equal(recordable(['comments', 'reply', 'k3x9q2', 'done', '--fixed'], 2), true)
+  assert.equal(recordable(['comments', 'show', 'k3x9q2'], 2), false)
+  for (const argv of [['check'], ['still', '1'], ['render'], ['save']])
+    assert.equal(recordable(argv), true, argv.join(' '))
 })

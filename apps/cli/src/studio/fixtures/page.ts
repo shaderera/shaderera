@@ -104,3 +104,55 @@ export const addressOf = async (out: () => string, site: string, id: string) => 
   }
   throw new Error(`no address in: ${out()}`)
 }
+
+type Ev = { type: string; [k: string]: unknown }
+
+/** The bridge's events as the page's EventSource gets them (`?s=`, Origin). */
+export const events = (
+  b: { port: number; secret: string },
+  origin = 'https://shaderera.example',
+) => {
+  const got: Ev[] = []
+  const waiting: { test: (e: Ev) => boolean; done: (e: Ev) => void }[] = []
+  const req = httpRequest({
+    host: '127.0.0.1',
+    port: b.port,
+    path: `/events?s=${b.secret}`,
+    headers: { Origin: origin },
+  })
+  const opened = new Promise<number>((done) =>
+    req.on('response', (res) => {
+      let text = ''
+      res.on('data', (p: Buffer) => {
+        text += p.toString('utf8')
+        for (let at = text.indexOf('\n\n'); at >= 0; at = text.indexOf('\n\n')) {
+          const block = text.slice(0, at)
+          text = text.slice(at + 2)
+          const data = /^data: (.*)$/m.exec(block)?.[1]
+          if (!data) continue
+          const e = JSON.parse(data) as Ev
+          got.push(e)
+          for (const w of [...waiting])
+            if (w.test(e)) {
+              waiting.splice(waiting.indexOf(w), 1)
+              w.done(e)
+            }
+        }
+      })
+      done(res.statusCode ?? 0)
+    }),
+  )
+  req.on('error', () => {})
+  req.end()
+  return {
+    opened,
+    got,
+    next: (t: (e: Ev) => boolean) =>
+      new Promise<Ev>((done) => {
+        const old = got.find(t)
+        if (old) done(old)
+        else waiting.push({ test: t, done })
+      }),
+    close: () => req.destroy(),
+  }
+}

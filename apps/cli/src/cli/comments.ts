@@ -8,6 +8,7 @@ import {
   listing,
   type Point,
   replyTo,
+  seconds,
   setState,
   type Thread,
   waitForComments,
@@ -34,7 +35,7 @@ const numbers = (v: string | undefined, n: number, flag: string) => {
 }
 
 const when = (c: Thread) =>
-  `${c.t} s (frame ${c.frame})${c.to !== undefined ? ` to ${c.to} s (frame ${c.toFrame})` : ''}`
+  `${seconds(c.t)} (frame ${c.frame})${c.to !== undefined ? ` to ${seconds(c.to)} (frame ${c.toFrame})` : ''}`
 const where = (c: Thread) =>
   [
     c.variant ? `variant ${c.variant}` : '',
@@ -48,10 +49,12 @@ const where = (c: Thread) =>
 const line = (c: Listing['comments'][number]) =>
   `${c.id}  ${c.state.padEnd(8)} ${when(c)}${where(c) ? `  ${where(c)}` : ''}  ${c.by}: ${c.text.split('\n')[0]}${c.replies.length ? `  (${c.replies.length} repl${c.replies.length === 1 ? 'y' : 'ies'})` : ''}${c.stale ? '  [stale]' : ''}`
 
-const thread = (c: Listing['comments'][number]) => {
+const thread = (c: Listing['comments'][number], tree: string) => {
   console.log(line(c))
+  // Changed since what the comment last saw: its fix, or the tree it was made on.
+  const changed = tree !== (c.fixedIn ?? c.revision)
   console.log(
-    `  revision ${c.revision}${c.fixedIn ? `, fixed in ${c.fixedIn}` : ''}${c.stale ? ' (the tree has changed since)' : ''}`,
+    `  revision ${c.revision}${c.fixedIn ? `, fixed in ${c.fixedIn}` : ''}${changed ? ` (the tree has changed since${c.fixedIn ? ' the fix' : ''})` : ''}`,
   )
   console.log(`  ${c.text.split('\n').join('\n  ')}`)
   for (const r of c.replies)
@@ -86,7 +89,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const print = (l: Listing, one = false) => {
     if (v.json) console.log(JSON.stringify(l, null, 2))
     else if (l.comments.length === 0) console.log('No comments.')
-    else for (const c of l.comments) (one ? thread : (x: typeof c) => console.log(line(x)))(c)
+    else for (const c of l.comments) one ? thread(c, l.revision) : console.log(line(c))
   }
   const id = () => {
     const x = rest[0]

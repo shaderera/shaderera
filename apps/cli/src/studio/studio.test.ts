@@ -11,7 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { Agent, createServer, request as httpRequest } from 'node:http'
+import { Agent, createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { basename, join } from 'node:path'
 import {
@@ -27,7 +27,7 @@ import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { scan, treeId } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
-import { call, nonce, page } from './fixtures/page.ts'
+import { call, events, nonce, page } from './fixtures/page.ts'
 import { MAX_MESSAGE, startRelay } from './fixtures/relay.ts'
 import {
   CLOSE,
@@ -82,53 +82,6 @@ const asPage = (b: Bridge, origin = SITE) => ({
   Authorization: `Bearer ${b.secret}`,
 })
 const jsonOf = (r: { body: Buffer }) => JSON.parse(r.body.toString('utf8'))
-
-/** The bridge's events as the page's EventSource gets them (`?s=`, Origin). */
-const events = (b: Bridge) => {
-  const got: StudioEvent[] = []
-  const waiting: { test: (e: StudioEvent) => boolean; done: (e: StudioEvent) => void }[] = []
-  const req = httpRequest({
-    host: '127.0.0.1',
-    port: b.port,
-    path: `/events?s=${b.secret}`,
-    headers: { Origin: SITE },
-  })
-  const opened = new Promise<number>((done) =>
-    req.on('response', (res) => {
-      let text = ''
-      res.on('data', (p: Buffer) => {
-        text += p.toString('utf8')
-        for (let at = text.indexOf('\n\n'); at >= 0; at = text.indexOf('\n\n')) {
-          const block = text.slice(0, at)
-          text = text.slice(at + 2)
-          const data = /^data: (.*)$/m.exec(block)?.[1]
-          if (!data) continue
-          const e = JSON.parse(data) as StudioEvent
-          got.push(e)
-          for (const w of [...waiting])
-            if (w.test(e)) {
-              waiting.splice(waiting.indexOf(w), 1)
-              w.done(e)
-            }
-        }
-      })
-      done(res.statusCode ?? 0)
-    }),
-  )
-  req.on('error', () => {})
-  req.end()
-  return {
-    opened,
-    got,
-    next: (t: (e: StudioEvent) => boolean) =>
-      new Promise<StudioEvent>((done) => {
-        const old = got.find(t)
-        if (old) done(old)
-        else waiting.push({ test: t, done })
-      }),
-    close: () => req.destroy(),
-  }
-}
 
 let bridge: Bridge
 let relay: Awaited<ReturnType<typeof startRelay>>
@@ -366,6 +319,69 @@ test('a page that reloads is not closed; one that does not come back is', async 
   assert.deepEqual(heard, ['closed', 'reloaded'])
 })
 
+test('a reload whose request reaches the bridge before the page-left is resumed, not closed', async (t) => {
+  const id = makeId()
+  const heard: string[] = []
+  const p = page(relay.origin, id)
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+    pageBackMs: 1000,
+    onPage: (state) => heard.push(state),
+  })
+  closeAtEnd(t, cli, p)
+  const { bridge: got } = await p.pair()
+  // The reloaded page asks 127.0.0.1 at once; the relay's page-left comes after.
+  const info = await call(got.port, {
+    path: '/info',
+    headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
+  })
+  assert.equal(info.status, 200)
+  p.ws.close()
+  await p.closed
+  for (let i = 0; i < 100 && heard.length === 0; i++) await new Promise((r) => setTimeout(r, 20))
+  // Within the 10 s a reload has, and no `closed` after it.
+  await new Promise((r) => setTimeout(r, 1200))
+  assert.deepEqual(heard, ['reloaded'])
+})
+
+test('a page said closed that comes back later (15 s, waiting for Connect) is back', async (t) => {
+  const id = makeId()
+  const heard: string[] = []
+  const p = page(relay.origin, id)
+  const cli = connectRelay({
+    site: relay.origin,
+    id,
+    nonce,
+    bridge,
+    hello: { version: '0', os: 'test', telemetry: true },
+    onPage: (state) => heard.push(state),
+  })
+  closeAtEnd(t, cli, p)
+  const { bridge: got } = await p.pair()
+  p.ws.close()
+  await p.closed
+  // Longer than the 10 s a reload has: closed.
+  await new Promise((r) => setTimeout(r, 15_000))
+  assert.deepEqual(heard, ['closed'])
+  // The page is back (Connect pressed): its request to the bridge.
+  const info = await call(got.port, {
+    path: '/info',
+    headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
+  })
+  assert.equal(info.status, 200)
+  assert.deepEqual(heard, ['closed', 'reloaded'])
+  // Said once: the page's next request says nothing more.
+  await call(got.port, {
+    path: '/info',
+    headers: { Origin: SITE, Authorization: `Bearer ${got.secret}` },
+  })
+  assert.deepEqual(heard, ['closed', 'reloaded'])
+})
+
 test('a page of another protocol is told which side to update, and never gets the bridge', async (t) => {
   const id = makeId()
   const said: { update: string; text: string }[] = []
@@ -388,7 +404,7 @@ test('a page of another protocol is told which side to update, and never gets th
   assert.equal(hello.protocol, PROTOCOL)
   assert.equal(said.length, 1)
   assert.equal(said[0]?.update, 'page')
-  assert.match(said[0]?.text ?? '', /protocol v0 and this CLI v1: reload the page/)
+  assert.match(said[0]?.text ?? '', /protocol v0 and this CLI v2: reload the page/)
   // Its proof is never taken: no bridge.
   const key = await sessionKey(mine.privateKey, hello.pub as string, id)
   p.send({ type: 'page-proof', ...(await seal(key, { nonce })) })

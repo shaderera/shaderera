@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { recordCommand } from '../project/activity.ts'
+import { recordable, recordCommand } from '../project/activity.ts'
 import { COMMANDS as PLUGIN, usage as pluginUsage } from '../registry/cli.ts'
 import { EXIT, errorFinding, findings, found } from './findings.ts'
 
@@ -106,11 +106,6 @@ const OWN_JSON = new Set([
  * own `--json` prints one JSON line per event.
  */
 const STREAMS = new Set(['mcp', 'studio'])
-/**
- * Commands with no activity entry of their own (decision 0025): mcp records each tool call, studio
- * its edits and renders, and activity is the log itself.
- */
-const UNRECORDED = new Set(['mcp', 'studio', 'activity'])
 
 /** The commands that talk to the films API or the site: they take --api and --site. */
 const ONLINE = new Set(['login', 'logout', 'whoami', 'share', 'fork', 'studio', ...PLUGIN])
@@ -225,7 +220,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
   // Activity, once per command run in a project; a write that fails changes nothing.
   const asked = given.includes('--help') || given.includes('-h')
-  if (commands.includes(command) && !UNRECORDED.has(command) && !asked)
+  if (commands.includes(command) && recordable(given, exitCode) && !asked)
     recordCommand({ argv: given, exitCode, findings })
   if (envelope) {
     let result: unknown

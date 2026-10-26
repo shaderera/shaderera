@@ -10,10 +10,17 @@ const lineOf = (e: Entry): string => {
       ? `${e.command}${e.args?.length ? ` ${e.args.join(' ')}` : ''}: exit ${e.exitCode}`
       : e.kind === 'tool'
         ? `${e.tool}: ${e.ok ? 'ok' : 'failed'} in ${Math.round(e.ms)} ms`
-        : `${e.text}${e.comment ? ` (comment ${e.comment})` : ''}`
+        : e.kind === 'note'
+          ? `${e.text}${e.comment ? ` (comment ${e.comment})` : ''}`
+          : e.kind === 'edit'
+            ? `edit: ${[...e.files.added, ...e.files.changed, ...e.files.removed].join(', ')}`
+            : e.kind === 'render'
+              ? `render ${e.format}${e.variant ? ` of ${e.variant}` : ''}: ${e.ok ? e.file : e.error}`
+              : `share: ${e.ok ? e.url : e.error}`
+  const summary = e.kind === 'command' || e.kind === 'tool' ? e.summary : undefined
   const counts =
-    e.kind !== 'note' && e.summary && e.summary.error + e.summary.warning > 0
-      ? ` (${e.summary.error} error(s), ${e.summary.warning} warning(s))`
+    summary && summary.error + summary.warning > 0
+      ? ` (${summary.error} error(s), ${summary.warning} warning(s))`
       : ''
   return `${e.at.slice(0, 19).replace('T', ' ')}  ${e.by.padEnd(6)} ${what}${counts}${e.image ? `  ${e.image}` : ''}`
 }
@@ -39,8 +46,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const text = words.join(' ').trim()
     if (!text) throw new Error('Usage: shaderera activity add [--comment <id>] <text>')
     if (text.length > NOTE) throw new Error(`A note is at most ${NOTE} characters.`)
+    // The agent's own channel (decision 0025, point 6): its notes are the agent's.
     const entry = record(root, {
-      by: 'cli',
+      by: 'agent',
       kind: 'note',
       text,
       ...(values.comment ? { comment: values.comment } : {}),

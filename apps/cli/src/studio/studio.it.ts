@@ -7,9 +7,9 @@ import { after, before, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
-import { addressOf, call, nonce, page } from './fixtures/page.ts'
+import { addressOf, call, events, nonce, page } from './fixtures/page.ts'
 import { startRelay } from './fixtures/relay.ts'
-import { keyPair, makeId, PROTOCOL } from './pairing.ts'
+import { keyPair, makeId, PROTOCOL, seal, unseal } from './pairing.ts'
 
 // The user's tokens (share) live in a home of the tests' own.
 const home = tempDir('home')
@@ -586,12 +586,27 @@ test('shaderera studio --stop ends the running studio cleanly, with no stdin to 
   const file = join(root, '.shaderera', 'studio', 'bridge.json')
   try {
     const url = await s.event((e) => e.event === 'url')
-    await p.pair(new URL(url.url as string).hash.slice(1))
+    const { bridge: got } = await p.pair(new URL(url.url as string).hash.slice(1))
     await s.event((e) => e.event === 'paired')
+    // The page's secret does not stop the studio: only the stop token does.
+    const withSecret = await call(got.port, {
+      method: 'POST',
+      path: '/stop',
+      headers: { Authorization: `Bearer ${got.secret}` },
+    })
+    assert.equal(withSecret.status, 403)
     // The running studio is registered, for the user only.
     const running = JSON.parse(readFileSync(file, 'utf8'))
     assert.equal(running.pid, s.cli.pid)
     assert.equal(running.port, Number(new URL(url.bridge as string).port))
+    // The page's secret is not in the file: its token only stops the studio.
+    assert.equal(running.secret, undefined)
+    assert.match(running.token, /^[0-9a-f]{32}$/)
+    const asPage = await call(running.port, {
+      path: '/info',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${running.token}` },
+    })
+    assert.equal(asPage.status, 403)
     if (process.platform === 'win32') {
       const acl = spawnSync('icacls', [file], { encoding: 'utf8' }).stdout
       assert.doesNotMatch(acl, /BUILTIN|Everyone|Authenticated Users/, acl)
@@ -623,7 +638,7 @@ test('shaderera studio --stop removes a stale file, and says no studio runs', as
   await new Promise((r) => gone.on('close', r))
   const file = join(root, '.shaderera', 'studio', 'bridge.json')
   mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, JSON.stringify({ port: 9, secret: 'x'.repeat(32), pid: gone.pid }))
+  writeFileSync(file, JSON.stringify({ port: 9, token: 'x'.repeat(32), pid: gone.pid }))
   const r = await stopStudio(root)
   assert.equal(r.code, 0, r.out)
   assert.match(r.out, /No studio is running/)
@@ -698,6 +713,113 @@ test('shaderera studio --stop does not wait for a render that hangs', async () =
     assert.deepEqual(s.events().at(-1), { event: 'ended', exitCode: 0 })
   } finally {
     s.cli.kill('SIGINT')
+    await s.exited
+    p.ws.close()
+    await slow.close()
+  }
+})
+
+test('shaderera studio speaks v2: a v1 page is told to reload, a v3 page to update the CLI', async () => {
+  for (const [theirs, update] of [
+    [1, 'page'],
+    [3, 'cli'],
+  ] as const) {
+    const slow = await startRelay()
+    const id = makeId()
+    const p = page(slow.origin, id)
+    await p.opened
+    const s = studioJson(slow.origin, ['--connect', id])
+    try {
+      await p.next('cli-joined')
+      p.send({ type: 'page-hello', pub: (await keyPair()).pub, protocol: theirs })
+      const hello = await p.next('cli-hello')
+      assert.equal(hello.protocol, 2)
+      const said = await s.event((e) => e.event === 'mismatch')
+      assert.equal(said.update, update)
+      assert.match(String(said.text), new RegExp(`protocol v${theirs} and this CLI v2`))
+      // The page never gets the bridge; a newer page ends the CLI.
+      if (update === 'cli') assert.equal(await s.exited, 2)
+    } finally {
+      s.cli.stdin?.end()
+      await s.exited
+      p.ws.close()
+      await slow.close()
+    }
+  }
+})
+
+test('shaderera studio v2: comments through the relay, an MCP reply on /events, no activity on --json', async () => {
+  const slow = await startRelay()
+  const id = makeId()
+  const p = page(slow.origin, id)
+  const root = fixture()
+  const s = studioJson(slow.origin, ['--connect', id], { root })
+  const { createServer } = await import('../cli/mcp.ts')
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+  const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
+  const client = new Client({ name: 'test', version: '0' })
+  let sse: ReturnType<typeof events> | undefined
+  try {
+    const url = await s.event((e) => e.event === 'url')
+    const { key, bridge } = await p.pair(new URL(url.url as string).hash.slice(1))
+    const rpc = async (rid: string, request: unknown) => {
+      p.send({ type: 'rpc', id: rid, ...(await seal(key, request)) })
+      const m = (await p.next('rpc-result')) as unknown as { id: string; iv: string; box: string }
+      assert.equal(m.id, rid)
+      return unseal<{ status: number; body: { id: string; by: string } }>(key, m)
+    }
+    const nextEvent = async (match: (e: { type: string; [k: string]: unknown }) => boolean) => {
+      for (;;) {
+        const m = (await p.next('event')) as unknown as { iv: string; box: string }
+        const e = await unseal<{ type: string; [k: string]: unknown }>(key, m)
+        if (match(e)) return e
+      }
+    }
+    // The person's comment, through the relay, comes back sealed as a `comment` event.
+    const info = (await rpc('0', { method: 'GET', path: '/info' })).body as unknown as {
+      revision: string
+    }
+    const made = await rpc('1', {
+      method: 'POST',
+      path: '/comments',
+      body: { revision: info.revision, t: 0.5, text: 'darker' },
+    })
+    assert.equal(made.status, 200, JSON.stringify(made))
+    assert.equal(made.body.by, 'person')
+    const comment = await nextEvent(
+      (e) => e.type === 'comment' && (e.comment as { id: string }).id === made.body.id,
+    )
+    assert.equal((comment.comment as { text: string }).text, 'darker')
+
+    // The agent's reply through MCP, another writer, reaches /events within 500 ms.
+    sse = events(bridge, slow.origin)
+    await sse.opened
+    const server = createServer(root)
+    const [a, b] = InMemoryTransport.createLinkedPair()
+    await Promise.all([server.connect(a), client.connect(b)])
+    const asked = Date.now()
+    const r = (await client.callTool({
+      name: 'comment_reply',
+      arguments: { id: made.body.id, text: 'on it' },
+    })) as { isError?: boolean; content: { text: string }[] }
+    assert.ok(!r.isError, r.content[0]?.text)
+    await sse.next(
+      (e) =>
+        e.type === 'comment' &&
+        (e.comment as { replies: { text: string }[] }).replies.some((x) => x.text === 'on it'),
+    )
+    assert.ok(Date.now() - asked < 500, `${Date.now() - asked} ms`)
+
+    // --json carries the comment, not the activity (a render's entry).
+    const job = await rpc('2', { method: 'POST', path: '/render', body: { format: 'png' } })
+    assert.equal(job.status, 200)
+    await nextEvent((e) => e.type === 'activity' && (e.entry as { kind: string }).kind === 'render')
+    await s.event((e) => e.event === 'comment')
+    assert.ok(!s.events().some((e) => e.event === 'activity'), s.out())
+  } finally {
+    sse?.close()
+    await client.close()
+    s.cli.stdin?.end()
     await s.exited
     p.ws.close()
     await slow.close()

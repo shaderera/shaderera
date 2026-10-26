@@ -19,10 +19,10 @@ import {
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { type Json, type Manifest, parseFps } from '@shaderera/core'
-import { withVariant } from '@shaderera/core/host'
+import { checkManifest, withVariant } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
 import { ID_ALPHABET } from '../studio/pairing.ts'
-import { type By, head, save, scanProject, treeId } from './revisions.ts'
+import { type By, fileAt, head, save, scanProject, treeId } from './revisions.ts'
 
 /**
  * Comments on the film (decision 0025): what the person leaves at a moment of it, and the replies.
@@ -39,7 +39,17 @@ import { type By, head, save, scanProject, treeId } from './revisions.ts'
 export const MAX_TEXT = 4000
 export type Point = [number, number]
 export type Box = [number, number, number, number]
-export type CommentState = 'open' | 'fixed' | 'resolved'
+/** `deleted`: the person took the comment back; listings leave it out, `show` still says so. */
+export type CommentState = 'open' | 'fixed' | 'resolved' | 'deleted'
+
+/**
+ * The frame that shows at t: floor(t·fps), with 1e-6 for t that fall just short of a frame in
+ * floating point. The product's one rule, the studio page's readout's: 2.4608 s at 60 fps is 147.
+ */
+export const frameAt = (t: number, fps: number) => Math.floor(t * fps + 1e-6)
+
+/** A time for a person to read: to the millisecond (the JSON keeps t whole). */
+export const seconds = (t: number) => `${Number(t.toFixed(3))} s`
 
 export type CommentOp = {
   op: 'comment'
@@ -74,7 +84,13 @@ export type ReplyOp = {
   fixed?: true
   revision?: string
 }
-export type StateOp = { op: 'state'; at: string; by: By; id: string; state: 'open' | 'resolved' }
+export type StateOp = {
+  op: 'state'
+  at: string
+  by: By
+  id: string
+  state: 'open' | 'resolved' | 'deleted'
+}
 export type Op = CommentOp | ReplyOp | StateOp
 
 export type Reply = Omit<ReplyOp, 'op' | 'id'>
@@ -95,7 +111,7 @@ const isOp = (o: unknown): o is Op => {
   if (x.op === 'comment')
     return typeof x.revision === 'string' && typeof x.t === 'number' && typeof x.text === 'string'
   if (x.op === 'reply') return typeof x.text === 'string'
-  if (x.op === 'state') return x.state === 'open' || x.state === 'resolved'
+  if (x.op === 'state') return x.state === 'open' || x.state === 'resolved' || x.state === 'deleted'
   return false
 }
 
@@ -114,7 +130,8 @@ export const parseOps = (text: string): Op[] =>
  * The threads the operations make, in the order their comments were made:
  * - a reply with `fixed` makes it `fixed`, in its `revision`;
  * - the person's reply to a `fixed` comment reopens it;
- * - `resolved` counts only from the person; `open` (reopen) from anyone.
+ * - `resolved` counts only from the person; `open` (reopen) from anyone;
+ * - `deleted` counts only from the person, and is final: later operations on it change nothing.
  * The first comment of an id is the one; a reply or state for no comment is skipped.
  */
 export const fold = (ops: readonly Op[]): Thread[] => {
@@ -127,7 +144,7 @@ export const fold = (ops: readonly Op[]): Thread[] => {
       continue
     }
     const t = threads.get(o.id)
-    if (!t) continue
+    if (!t || t.state === 'deleted') continue
     if (o.op === 'reply') {
       const { op: _, id: __, ...reply } = o
       t.replies.push(reply)
@@ -138,9 +155,9 @@ export const fold = (ops: readonly Op[]): Thread[] => {
           if (o.revision) t.fixedIn = o.revision
         }
       } else if (o.by === 'person' && t.state === 'fixed') t.state = 'open'
-    } else if (o.state === 'resolved') {
+    } else if (o.state === 'resolved' || o.state === 'deleted') {
       if (o.by !== 'person') continue
-      t.state = 'resolved'
+      t.state = o.state
     } else t.state = 'open'
     t.updated = o.at
   }
@@ -285,7 +302,16 @@ export type NewComment = {
   shot?: { id: string; offset: number }
   params?: { [name: string]: Json }
   text: string
+  /**
+   * The tree the person was watching (the studio page sends the one it shows): the working tree's
+   * id now, which is saved, or a saved revision's. Without it, the tree now is saved.
+   */
+  revision?: string
 }
+
+/** The longest `object` and shot id, and the most a comment's params hold (as JSON). */
+const MAX_NAME = 200
+const MAX_PARAMS = 16 * 1024
 
 const numbers = (v: unknown, n: number, what: string) => {
   if (
@@ -318,7 +344,19 @@ const changedParams = (manifest: Manifest, params: { [name: string]: Json }) => 
 export const addComment = async (root: string, c: NewComment, by: By): Promise<Thread> => {
   checkText(c.text)
   if (c.point && c.box) throw new Error('A comment has a point or a box, not both.')
-  const { manifest: base } = await findProject(root)
+  if (
+    c.revision !== undefined &&
+    (typeof c.revision !== 'string' || !/^[0-9a-f]{16}$/.test(c.revision))
+  )
+    throw new Error('revision is a revision id, 16 hex digits.')
+  // A saved revision the person was watching is checked, and its own film placed against; the
+  // tree as it is now is saved below.
+  const saved = c.revision !== undefined && c.revision !== currentTree(root)
+  const base = saved
+    ? checkManifest(
+        JSON.parse((fileAt(root, c.revision as string, 'shaderera.json') ?? '{}').toString('utf8')),
+      )
+    : (await findProject(root)).manifest
   const { manifest } = withVariant(base, c.variant)
   const fps = (parseFps(manifest.fps) as { fps: number }).fps
   const inside = (t: number) => Number.isFinite(t) && t >= 0 && t < manifest.duration
@@ -327,9 +365,35 @@ export const addComment = async (root: string, c: NewComment, by: By): Promise<T
     throw new Error(
       `to ${c.to} is not after t ${c.t} inside the film (0 to ${manifest.duration} s).`,
     )
+  const { width, height } = manifest
   const point = c.point ? (numbers(c.point, 2, 'point') as Point) : undefined
+  if (point && !(point[0] >= 0 && point[0] < width && point[1] >= 0 && point[1] < height))
+    throw new Error(`point is outside the frame (${width}×${height}).`)
   const box = c.box ? (numbers(c.box, 4, 'box') as Box) : undefined
-  const revision = save(root, { by }).id
+  const [bx, bt, bw, bh] = box ?? [0, 0, 1, 1]
+  if (box && !(bw > 0 && bh > 0 && bx >= 0 && bt >= 0 && bx + bw <= width && bt + bh <= height))
+    throw new Error(`box is [x, y, width, height] inside the frame (${width}×${height}).`)
+  if (c.object !== undefined && (typeof c.object !== 'string' || c.object.length > MAX_NAME))
+    throw new Error(`object is an id of at most ${MAX_NAME} characters.`)
+  if (
+    c.shot !== undefined &&
+    (typeof c.shot !== 'object' ||
+      c.shot === null ||
+      typeof c.shot.id !== 'string' ||
+      c.shot.id.length > MAX_NAME ||
+      typeof c.shot.offset !== 'number' ||
+      !Number.isFinite(c.shot.offset))
+  )
+    throw new Error('shot is {id, offset}: a shot id and seconds into it.')
+  if (
+    c.params !== undefined &&
+    (typeof c.params !== 'object' ||
+      c.params === null ||
+      Array.isArray(c.params) ||
+      JSON.stringify(c.params).length > MAX_PARAMS)
+  )
+    throw new Error(`params is an object, at most ${MAX_PARAMS / 1024} KB as JSON.`)
+  const revision = saved ? (c.revision as string) : save(root, { by }).id
   const params = c.params ? changedParams(manifest, c.params) : undefined
   const op = await appendOp(root, {
     op: 'comment',
@@ -339,8 +403,8 @@ export const addComment = async (root: string, c: NewComment, by: By): Promise<T
     revision,
     ...(c.variant !== undefined ? { variant: c.variant } : {}),
     t: c.t,
-    frame: Math.round(c.t * fps),
-    ...(c.to !== undefined ? { to: c.to, toFrame: Math.round(c.to * fps) } : {}),
+    frame: frameAt(c.t, fps),
+    ...(c.to !== undefined ? { to: c.to, toFrame: frameAt(c.to, fps) } : {}),
     ...(point ? { point } : {}),
     ...(box ? { box } : {}),
     ...(point || box ? { size: [manifest.width, manifest.height] as [number, number] } : {}),
@@ -357,8 +421,8 @@ export const currentTree = (root: string) => treeId(scanProject(root))
 
 /**
  * Replies to a comment. With `fixed`, the tree is saved as a revision labelled
- * `fix <id>: <text>` and the comment is fixed in it; refused when the tree is still the one the
- * comment was made on (nothing was changed to fix it).
+ * `fix <id>: <text>` and the comment is fixed in it; refused when the tree is still the one of
+ * the comment's last fix, or the one it was made on when it has none (nothing was changed to fix it).
  */
 export const replyTo = async (
   root: string,
@@ -368,13 +432,15 @@ export const replyTo = async (
 ): Promise<Thread> => {
   checkText(text)
   const t = threadOf(root, id)
+  if (t.state === 'deleted') throw new Error(`Comment ${id} was deleted.`)
   let revision: string | undefined
   if (o.fixed) {
     if (t.state === 'resolved')
       throw new Error(`Comment ${id} is resolved: the person reopens it before it is fixed again.`)
-    if (currentTree(root) === t.revision)
+    const last = t.fixedIn ?? t.revision
+    if (currentTree(root) === last)
       throw new Error(
-        `Refusing to mark ${id} fixed: nothing changed since the revision it was made on (${t.revision}).`,
+        `Refusing to mark ${id} fixed: nothing changed since ${t.fixedIn ? 'its last fix' : 'the revision it was made on'} (${last}).`,
       )
     revision = save(root, { by: o.by, label: `fix ${id}: ${[...text].slice(0, 60).join('')}` }).id
   }
@@ -389,16 +455,18 @@ export const replyTo = async (
   return threadOf(root, id)
 }
 
-/** Resolves (the person only: the studio writes it) or reopens a comment. */
+/** Resolves or deletes (the person only: the studio writes it), or reopens a comment. */
 export const setState = async (
   root: string,
   id: string,
-  state: 'open' | 'resolved',
+  state: 'open' | 'resolved' | 'deleted',
   by: By,
 ): Promise<Thread> => {
   if (state === 'resolved' && by !== 'person')
     throw new Error('Resolve it in the studio: only the person resolves (ADR 0025).')
-  threadOf(root, id)
+  if (state === 'deleted' && by !== 'person')
+    throw new Error('Only the person deletes a comment, in the studio.')
+  if (threadOf(root, id).state === 'deleted') throw new Error(`Comment ${id} was deleted.`)
   await appendOp(root, { op: 'state', at: new Date().toISOString(), by, id, state })
   return threadOf(root, id)
 }
@@ -413,7 +481,7 @@ export type Listing = {
 /**
  * What `shaderera comments --json` and MCP `comments` give: the threads in `state` (open by
  * default; `all`), or the one with `id`, each `stale` when the tree now is not the one it was
- * made on.
+ * made on. A deleted comment is in no listing; asked for by `id`, it says it was deleted.
  */
 export const listing = (
   root: string,
@@ -426,7 +494,9 @@ export const listing = (
   const threads =
     o.id !== undefined
       ? [threadOf(root, o.id)]
-      : readThreads(root).filter((t) => state === 'all' || t.state === state)
+      : readThreads(root).filter(
+          (t) => t.state !== 'deleted' && (state === 'all' || t.state === state),
+        )
   return {
     revision,
     head: head(root),

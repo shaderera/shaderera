@@ -1,7 +1,8 @@
 // The running studio of a project, for the CLI's other commands to reach (docs/studio.md, "One
 // studio a project"): `.shaderera/studio/bridge.json` holds its pid, and, once its bridge is up,
-// the bridge's port and secret, readable by the user only. A request to that port without an
-// Origin, carrying the secret, is the CLI's.
+// the bridge's port and its stop token, readable by the user only. The token is not the page's
+// secret: it stops the studio (`POST /stop`) and does nothing else, so a process that reads the
+// file cannot act as the page.
 import { execFileSync } from 'node:child_process'
 import {
   chmodSync,
@@ -18,7 +19,7 @@ import { HOST } from '../node/runner-server.ts'
 /** A studio that claimed the project and is starting, or one whose bridge is up. */
 export type Running =
   | { state: 'starting'; pid: number }
-  | { state: 'running'; pid: number; port: number; secret: string }
+  | { state: 'running'; pid: number; port: number; token: string }
 
 /** Another studio holds the project: the command refuses to start. */
 export class StudioRunning extends Error {}
@@ -76,10 +77,10 @@ const parse = (root: string): Running | null => {
     )
   }
   try {
-    const r = JSON.parse(text) as Partial<{ pid: number; port: number; secret: string }>
+    const r = JSON.parse(text) as Partial<{ pid: number; port: number; token: string }>
     if (typeof r.pid !== 'number') return null
-    return typeof r.port === 'number' && typeof r.secret === 'string'
-      ? { state: 'running', pid: r.pid, port: r.port, secret: r.secret }
+    return typeof r.port === 'number' && typeof r.token === 'string'
+      ? { state: 'running', pid: r.pid, port: r.port, token: r.token }
       : { state: 'starting', pid: r.pid }
   } catch {
     return null
@@ -141,8 +142,8 @@ export const claim = (root: string, pid: number): void => {
   }
 }
 
-/** The bridge is up: its port and secret go in the claimed file. */
-export const register = (root: string, r: { pid: number; port: number; secret: string }): void =>
+/** The bridge is up: its port and stop token go in the claimed file. */
+export const register = (root: string, r: { pid: number; port: number; token: string }): void =>
   renameSync(whole(root, r, r.pid), runningFile(root))
 
 /** Removes the file, if it still names this pid. */
@@ -171,7 +172,7 @@ export const stopRunning = async (
   if (r.state === 'starting') return { state: 'slow', pid: r.pid }
   const answer = await fetch(`http://${HOST}:${r.port}/stop`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${r.secret}` },
+    headers: { Authorization: `Bearer ${r.token}` },
     signal: AbortSignal.timeout(5000),
   }).catch(() => null)
   if (!answer) {
