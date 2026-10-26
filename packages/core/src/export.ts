@@ -11,15 +11,25 @@ export type Sink = {
   abort?(): Promise<void>
 }
 
+/** At most how many frames a sequential source's re-check renders again. */
+const SEQUENTIAL_RECHECKS = 8
+
 /**
  * The frames of `times` rendered again before the sink may end: the film's frames 0, n, 2n …, n its
  * frames a second (rounded), so one a second of film. They are picked by the film's frame number,
  * not by the window, so every frame a window re-checks is re-checked by any render that holds it
  * (the whole film, a chunk of a plan): a render and a window of it check the same frames (#447).
  */
-const rechecked = (times: readonly number[], fps: number): number[] => {
+const rechecked = (times: readonly number[], fps: number, sequential = false): number[] => {
   const every = Math.max(1, Math.round(fps))
-  return times.filter((t) => frameAt(t, fps) % every === 0)
+  const grid = times.filter((t) => frameAt(t, fps) % every === 0)
+  if (!sequential || grid.length <= SEQUENTIAL_RECHECKS) return grid
+  // A sequential source reaches an earlier frame by replaying from frame 0 (or a checkpoint), so
+  // each re-checked frame can cost the whole film: 8 of the grid, spread evenly, keep it fixed.
+  return Array.from(
+    { length: SEQUENTIAL_RECHECKS },
+    (_, i) => grid[Math.round((i * (grid.length - 1)) / (SEQUENTIAL_RECHECKS - 1))] as number,
+  )
 }
 
 const describe = (failures: readonly DeterminismFailure[]): string =>
@@ -54,7 +64,8 @@ export const exportFrames = async (o: {
   /** `host`: which of the `hosts` renders it, from 0. */
   render: (t: number, host: number) => Promise<Uint8Array | Uint8ClampedArray>
   /** Compared too, on the frames rendered again. */
-  inspect?: (t: number) => Promise<Json>
+  /** On the host that rendered the frame. */
+  inspect?: (t: number, host: number) => Promise<Json>
   sink: Sink
   signal?: AbortSignal
   onFrame?: (index: number, total: number, t: number) => void
@@ -73,6 +84,13 @@ export const exportFrames = async (o: {
    */
   hosts?: number
   /**
+   * The source reaches a frame only by stepping from an earlier one (a `sequential` manifest):
+   * its re-check is 8 frames of the grid at most, spread evenly over the window, so its cost
+   * stays fixed instead of growing with the square of the film's length. A longer range then
+   * may not re-check a frame a window inside it re-checks.
+   */
+  sequential?: boolean
+  /**
    * How many of the first frames the sink already holds (a resumed export): they are neither
    * rendered nor written, except the ones the determinism re-check samples, which are rendered so
    * the check still covers the whole window.
@@ -80,7 +98,7 @@ export const exportFrames = async (o: {
   skip?: number
 }): Promise<{ readonly frames: number }> => {
   const times = frameTimes(o.fps, o.from, o.to)
-  const checked = new Set(rechecked(times, o.fps))
+  const checked = new Set(rechecked(times, o.fps, o.sequential))
   const first = new Map<number, Visit & { host: number }>()
   const hosts = Math.max(1, Math.floor(o.hosts ?? 1))
   // The host each re-checked frame went to first, and the last frame each host was asked for.
@@ -113,8 +131,9 @@ export const exportFrames = async (o: {
       asked.delete(index)
       if (checked.has(t)) {
         const hash = await sha256(pixels)
-        const json = o.inspect ? await o.inspect(t) : undefined
-        first.set(t, { hash, json, host: hostOf.get(index) as number })
+        const host = hostOf.get(index) as number
+        const json = o.inspect ? await o.inspect(t, host) : undefined
+        first.set(t, { hash, json, host })
       }
       // After the frame's inspect: with one frame at a time, the source has not moved on.
       ask(index + ahead)

@@ -311,7 +311,10 @@ film) inside the window, the same rule for `render`, `render --from/--to`, each 
 and `deliver`. So the whole film and the chunk that hold a window re-check every frame the
 window re-checks, and a window shorter than a second may hold none of them. They are split
 between the hosts (`--workers`), each re-checking frames another host rendered first in its own
-shuffled order, all at once. ffmpeg must be on the PATH:
+shuffled order, all at once, and the first frame that changed stops them all. A `sequential`
+source re-checks 8 frames of that grid at most, spread over the window, so a longer range may not
+re-check a frame its window does
+([determinism.md](determinism.md#export-refuses-a-source-that-fails)). ffmpeg must be on the PATH:
 
 ```
 shaderera: render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html

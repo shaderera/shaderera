@@ -397,7 +397,8 @@ const exportOnce = async (
               throw frameError(error, t, manifest.fps, hosts.length)
             }
           },
-          inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
+          inspect: child.has.inspect ? (t, host) => (hosts[host] as Child).inspect(t) : undefined,
+          sequential: Boolean(child.has.sequential),
           sink,
           onFrame: o.onFrame && ((i, n) => o.onFrame?.(i, n)),
           onRecheck: o.onFrame && ((i, n) => o.onFrame?.(i, n, 'recheck')),

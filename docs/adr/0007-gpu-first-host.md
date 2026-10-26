@@ -45,7 +45,8 @@ reads back 3.1 MB. Parallel hosts gave 1.8–5× on the CPU path alone.
      ran in series, a random seek a frame on footage: 7.4 s after an 8 s render of a 20 s 1080p
      film. Spread, a footage seek is still a decode from the keyframe before it, which uses the
      CPU, so it gains what cores are idle; short-GOP footage is #450. The progress line says
-     `re-checking 12/20` meanwhile.)
+     `re-checking 12/20` meanwhile. A `sequential` source, on one host, re-checks 8 frames of
+     the grid at most: each frame out of order can cost a replay from frame 0.)
 4. **Browser host transfer.**
    - The runner worker POSTs the frame's bytes to the runner server (`'self'`), not base64
      over CDP.

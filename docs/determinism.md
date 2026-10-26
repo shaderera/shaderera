@@ -51,25 +51,34 @@ A failure names the time, what came before it and what changed, and exits 1:
 A source that fails the check can play, but it cannot export. Every export (`render`, `deliver`,
 MCP's `render`, each chunk of a plan) is also the first pass of a check. Before the file is
 finished, its frames on the film's one-a-second grid (frames 0, n, 2n …, n the film's frames a
-second, rounded) are rendered again in a shuffled order, with `inspect` compared too. If one
-changed, the export stops, no file is left, and the error names the frames:
+second, rounded) are rendered again in a shuffled order, with `inspect` compared too. At the
+first one that changed, the export stops, no file is left, and the error names the frame and the
+one rendered before it:
 
 ```
 $ shaderera render
-shaderera: Not exported: the source is not deterministic (t=0.3 after t=0.9: pixels; t=0.2 after t=0.3: pixels; t=0.8 after t=0.2: pixels).
+shaderera: Not exported: the source is not deterministic (t=0 after t=0.9: pixels).
 ```
 
 (A captured run on `apps/cli/src/cli/fixtures/stateful`, whose picture counts the frames rendered
-before it.) The gate costs one render a second of film (about 3 % at 30 fps), with the params,
-seed, size and camera of the export; `check` samples the whole film in two orders. The grid is the
-film's, not the export's: the whole film and the chunk of a plan that hold a window
-(`render --from/--to`) re-check every frame the window re-checks, so the two never disagree about a
-frame because one of them did not look at it. A window shorter than a second may hold no frame of
+before it.) For a source that renders any t, the gate costs one render a second of film (about
+3 % at 30 fps), with the params, seed, size and camera of the export; `check` samples the whole
+film in two orders. The grid is the film's, not the export's: the whole film and the chunk of a
+plan that hold a window (`render --from/--to`) re-check every frame the window re-checks, so the
+two never disagree about a frame because one of them did not look at it. A window shorter than a second may hold no frame of
 the grid. An export spread over several hosts (`render --workers`, a chunk) sends the frames round
 the hosts, and splits the re-check evenly between them, run at once: a frame is rendered again on
 a host other than the one that first rendered it, and each host shuffles its own share. So the
-hosts must agree with each other, not only with themselves. Meanwhile the progress line says
-`re-checking 12/20`.
+hosts must agree with each other, not only with themselves (with 2 hosts at an even fps, every
+frame of the grid was host 0's, so host 0 takes back half of them). Meanwhile the progress line
+says `re-checking 12/20`.
+
+A `sequential` source is different: it reaches an earlier frame by replaying from frame 0 (or
+from a checkpoint), so each frame re-checked out of order can cost a replay of the film, and one a
+second would grow with the square of the film's length. Its re-check is 8 frames of the grid at
+most, spread evenly over the window: a fixed cost of up to 8 replays. So for a sequential source
+the window guarantee is weaker: a longer range, or a chunk, may not re-check a frame a window
+inside it re-checks, and `check` is what covers the rest.
 
 ## What breaks it, and the fix
 

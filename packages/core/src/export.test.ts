@@ -271,20 +271,116 @@ test('exportFrames catches pixels a host carries from frame to frame, naming the
 })
 
 test('exportFrames shares the re-check evenly, whichever hosts rendered the frames first', async () => {
-  // At 30 fps the re-checked frames 0, 30, 60 … all went to hosts 0 and 2 of 4 the first time.
+  // At 30 fps the re-checked frames 0, 30, 60 … all went to hosts 0 and 2 of 4 the first time,
+  // and to host 0 of 2: a host takes frames it rendered itself rather than leave another idle.
+  for (const hosts of [4, 2]) {
+    let written = 0
+    const shares = Array.from({ length: hosts }, () => 0)
+    await exportFrames({
+      fps: 30,
+      from: 0,
+      to: 20,
+      hosts,
+      ahead: hosts * 2,
+      render: async (_t, host) => {
+        if (written === 600) shares[host] = (shares[host] as number) + 1
+        return new Uint8Array([1])
+      },
+      sink: { write: async () => void written++, end: async () => {} },
+    })
+    assert.deepEqual(
+      shares,
+      Array.from({ length: hosts }, () => 20 / hosts),
+      `${hosts} hosts`,
+    )
+  }
+})
+
+test('exportFrames inspects a frame on the host that rendered it', async () => {
+  const pairs: string[] = []
   let written = 0
-  const shares = [0, 0, 0, 0]
   await exportFrames({
-    fps: 30,
+    fps: 1,
     from: 0,
-    to: 20,
-    hosts: 4,
-    ahead: 8,
-    render: async (_t, host) => {
-      if (written === 600) shares[host] = (shares[host] as number) + 1
-      return new Uint8Array([1])
+    to: 6,
+    hosts: 3,
+    ahead: 6,
+    render: async (t, host) => {
+      pairs.push(`r${t}@${host}${written === 6 ? '+' : ''}`)
+      return new Uint8Array([t])
+    },
+    inspect: async (t, host) => {
+      pairs.push(`i${t}@${host}${written === 6 ? '+' : ''}`)
+      return { t }
     },
     sink: { write: async () => void written++, end: async () => {} },
   })
-  assert.deepEqual(shares, [5, 5, 5, 5])
+  // Every inspect, in both passes, on the host that rendered that t in the same pass.
+  const inspected = pairs.filter((p) => p.startsWith('i'))
+  assert.equal(inspected.length, 12)
+  for (const i of inspected) assert.ok(pairs.includes(`r${i.slice(1)}`), i)
+})
+
+test('exportFrames stops every host at the first change, and says nothing after it', async () => {
+  let written = 0
+  let rechecked = 0
+  const late: string[] = []
+  let failed = false
+  await assert.rejects(
+    exportFrames({
+      fps: 1,
+      from: 0,
+      to: 40,
+      hosts: 4,
+      ahead: 8,
+      render: async (t, host) => {
+        if (written < 40) return new Uint8Array([t])
+        if (failed) late.push(`render ${t}`)
+        // Host 1 changes its first frame at once; the others are slow.
+        if (host === 1) return new Uint8Array([255])
+        await new Promise((done) => setTimeout(done, 5))
+        return new Uint8Array([t])
+      },
+      inspect: async (t, host) => {
+        if (written < 40) return {}
+        if (failed) late.push(`inspect ${t}`)
+        if (host === 1) failed = true
+        return {}
+      },
+      sink: { write: async () => void written++, end: async () => {}, abort: async () => {} },
+      onRecheck: () => void rechecked++,
+    }),
+    NotDeterministic,
+  )
+  await new Promise((done) => setTimeout(done, 20))
+  // The other hosts drop the render they had asked for, and go no further.
+  assert.deepEqual(late, [])
+  assert.equal(rechecked, 0)
+})
+
+test('exportFrames re-checks a sequential source at 8 frames at most, so its cost stays fixed', async () => {
+  // A source that only steps forward: reaching an earlier frame replays from frame 0.
+  const fps = 30
+  let at = -1
+  let steps = 0
+  let rechecks = 0
+  let written = 0
+  const frames = 60 * fps
+  await exportFrames({
+    fps,
+    from: 0,
+    to: 60,
+    sequential: true,
+    render: async (t) => {
+      const f = Math.round(t * fps)
+      if (written === frames) rechecks++
+      steps += f > at ? f - at : f + 1
+      at = f
+      return new Uint8Array([f % 256])
+    },
+    sink: { write: async () => void written++, end: async () => {} },
+  })
+  assert.equal(rechecks, 8)
+  // One step a frame for the export, at most one replay of the film for each re-checked frame.
+  assert.ok(steps <= frames * 9, `${steps} steps for ${frames} frames`)
 })

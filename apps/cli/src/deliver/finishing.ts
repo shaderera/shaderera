@@ -214,6 +214,7 @@ export const exportFinishing = async (
       to,
       render: async (t) => (await child.render(t, 'final', bits === 16 ? 'rgba64' : 'rgba')).pixels,
       inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
+      sequential: Boolean(child.has.sequential),
       sink,
       skip: Math.max(0, kept - preroll.frames),
       onFrame: o.onFrame && ((i, n) => o.onFrame?.(i, n)),

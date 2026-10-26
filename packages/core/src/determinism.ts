@@ -51,7 +51,8 @@ const shuffle = <T>(items: readonly T[], seed: number): T[] => {
 type Probe = {
   /** The final, composited pixels of host `host` (0 when there is one). */
   render: (t: number, host: number) => Promise<Uint8Array | Uint8ClampedArray>
-  inspect?: (t: number) => Promise<Json>
+  /** The inspect JSON of host `host` at t. */
+  inspect?: (t: number, host: number) => Promise<Json>
 }
 
 /** One visit to t: its pixel hash and its inspect JSON. */
@@ -61,10 +62,14 @@ export type Visit = { hash: string; json?: Json }
  * Visits each t of `first` again, in a seeded shuffled order, and reports each t whose pixel hash
  * or inspect JSON changed. With several `hosts` the visits are split between them and run at
  * once, evenly: a t is visited again on a host other than the one that first visited it (its
- * `host`, 0 when not given), so the hosts must agree with each other too. Each host's share
- * keeps the shuffled order, never its ascending one. `after[h]` is the t host h visited just
- * before (null when not given); a failure names the t visited before it on the same host.
- * `onVisit` is called after each visit with how many are done and the total.
+ * `host`, 0 when not given) where one has room, so the hosts must agree with each other too
+ * (with 2 hosts at an even fps every t may have been host 0's: host 0 then takes back half).
+ * Each host's share keeps the shuffled order, never its ascending one, and each visit renders
+ * then inspects on that host. `after[h]` is the t host h visited just before (null when not
+ * given); a failure names the t visited before it on the same host. The first visit that
+ * changed stops every host: what they are rendering is dropped, and nothing more is visited,
+ * inspected or counted. `onVisit` is called after each visit with how many are done and the
+ * total.
  */
 export const revisit = async (
   first: ReadonlyMap<number, Visit & { host?: number }>,
@@ -78,20 +83,24 @@ export const revisit = async (
 ): Promise<DeterminismFailure[]> => {
   const hosts = Math.max(1, Math.floor(o.hosts ?? 1))
   const order = shuffle([...first.keys()], o.seed ?? 1)
-  // Each t, in that order, to the host with the fewest so far that did not visit it first.
+  // Each t, in that order, to the host with the fewest so far that did not visit it first, while
+  // one has fewer than its even share; else to the host that did.
   const shares: number[][] = Array.from({ length: hosts }, () => [])
+  const room = Math.ceil(first.size / hosts)
   for (const t of order) {
     const was = first.get(t)?.host ?? 0
-    let to = hosts > 1 && was === 0 ? 1 : 0
-    for (let h = 0; h < hosts; h++)
-      if (h !== was && (shares[h] as number[]).length < (shares[to] as number[]).length) to = h
-    ;(shares[to] as number[]).push(t)
+    let to = -1
+    for (let h = 0; h < hosts; h++) {
+      const n = (shares[h] as number[]).length
+      if (h !== was && n < room && (to < 0 || n < (shares[to] as number[]).length)) to = h
+    }
+    ;(shares[to < 0 ? was % hosts : to] as number[]).push(t)
   }
   for (const [h, share] of shares.entries())
     if (share.length >= 2 && share.every((t, i) => i === 0 || (share[i - 1] as number) < t))
       shares[h] = share.reverse()
   let done = 0
-  // One host failing stops the others at their next visit.
+  // The first visit that changed, an error or an abort stops every host.
   let stopped = false
   const visit = async (host: number, share: readonly number[]) => {
     const failures: DeterminismFailure[] = []
@@ -100,12 +109,20 @@ export const revisit = async (
       if (stopped) break
       o.signal?.throwIfAborted()
       const was = first.get(t) as Visit
-      const hash = await sha256(await o.render(t, host))
+      const pixels = await o.render(t, host)
+      if (stopped) break
+      const hash = await sha256(pixels)
       if (hash !== was.hash)
         failures.push({ kind: 'pixels', t, after: before, first: was.hash, second: hash })
       if (o.inspect) {
-        const changes = diffJson(was.json as Json, await o.inspect(t))
+        const json = await o.inspect(t, host)
+        if (stopped) break
+        const changes = diffJson(was.json as Json, json)
         if (changes.length > 0) failures.push({ kind: 'inspect', t, after: before, changes })
+      }
+      if (failures.length > 0) {
+        stopped = true
+        break
       }
       before = t
       o.onVisit?.(++done, first.size)
@@ -114,8 +131,9 @@ export const revisit = async (
   }
   try {
     return (await Promise.all(shares.map((share, h) => visit(h, share)))).flat()
-  } finally {
+  } catch (error) {
     stopped = true
+    throw error
   }
 }
 
@@ -130,7 +148,7 @@ export const checkDeterminism = async (
   const first = new Map<number, Visit>()
   for (const t of times) {
     const hash = await sha256(await o.render(t, 0))
-    first.set(t, { hash, json: o.inspect ? await o.inspect(t) : undefined })
+    first.set(t, { hash, json: o.inspect ? await o.inspect(t, 0) : undefined })
   }
   return { times, failures: await revisit(first, o) }
 }

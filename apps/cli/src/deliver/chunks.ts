@@ -340,7 +340,8 @@ const renderClaimed = async (
           throw frameError(error, t, plan.fps, hosts.length)
         }
       },
-      inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
+      inspect: child.has.inspect ? (t, host) => (hosts[host] as Child).inspect(t) : undefined,
+      sequential: Boolean(child.has.sequential),
       sink,
       onFrame: onFrame && ((i, n) => onFrame?.(i, n)),
       onRecheck: onFrame && ((i, n) => onFrame?.(i, n, 'recheck')),
