@@ -221,6 +221,14 @@ written in order. Every worker opens at once with the first, so a render pays th
 about once, not once a worker. What each format is, and what was measured:
 [delivery.md](delivery.md).
 
+The CLI's process takes every host's frames, hands each to ffmpeg from a thread of its own and
+decodes each `io.video` clip once for all hosts in another, so more hosts keep the machine busier.
+The default is at most 4: when the host processes sit far below a core each and the machine has
+idle cores, `--workers` up to its cores less two renders faster (on a 16-core machine, a 1080p
+Canvas2D film with a video: 31 fps on 4, 35 on 12). Chunks on one machine (`plan`, several
+`render --chunk`) are not faster than that: each pays its hosts' `open` and the chunks are
+assembled after; they are for several machines.
+
 The file is written as `<out>.<pid>.partial` (the render's process id, so two renders to one
 `<out>` never share it) and renamed to `<out>` only when it is complete: while a render runs,
 `<out>` is the previous film or nothing, never half a film. A render that fails or is
@@ -274,8 +282,8 @@ of footage it takes a moment, not the time to read all of it.
 | `--loudness=<LUFS>` | none. Move the mix to a target by one constant gain ([loudness](delivery.md#loudness)). Write it with `=`, since the value starts with a dash |
 | `--encoder <name>` | `x264`, `nvenc`, `qsv`, `amf` or `videotoolbox`. A review: the first GPU encoder of those that takes the frame size with this ffmpeg on this machine (with `--bitrate` or `--maxrate`, `nvenc` only), else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives a GPU encoder cq n + 1. With `--hdr10`: `x265`, `nvenc` or `videotoolbox` (HEVC), `x265` for a master |
 | `--hdr10` | off. An HDR10 mp4 (HEVC Main 10), or with `--format prores-hq\|prores-4444` an HDR10 ProRes mov, of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#hdr10)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
-| `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome |
-| `--progress` | off: the progress line goes only to a terminal; on, also to a pipe |
+| `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome. Each open `io.video` clip holds `2n + 1` frames kept plus `min(n + 1, 64 MiB / frame)` (at least 1) decoded ahead, a frame being width × height × 4 bytes: 9 kept and 5 ahead, about 116 MB, for 1080p on 4 hosts; 9 and 2, about 365 MB, for 4K on 4 hosts |
+| `--progress` | off: a terminal gets the progress line at every frame, a pipe (a background run, `--json`) one line every 10 s; on, a pipe gets it at every frame too. Each says the frame, the fps so far and the time left at that pace: `frame 120/600  23.4 fps  0:20 left` |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |

@@ -11,8 +11,10 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, dirname, extname, join } from 'node:path'
+import { Worker } from 'node:worker_threads'
 import type { Sink } from '@shaderera/core'
-import { fpsFraction, matte } from '@shaderera/core/host'
+import { fpsFraction } from '@shaderera/core/host'
+import type { EncoderData, FromEncoder, ToEncoder } from './encoder.ts'
 
 export type Quality = 'review' | 'master'
 
@@ -765,6 +767,11 @@ const lastLines = (text: string, n = 5) =>
  * FfmpegError a write fails with when ffmpeg exits before `end` (a clean exit too: ffmpeg takes a
  * demuxing error, such as out of memory, as the end of its input) or stops reading for
  * `stallSeconds`.
+ *
+ * ffmpeg is fed from a thread of its own (encoder.ts), which mattes the frames and copies them into
+ * the pipe; this thread only hands each frame over. With `handOver`, a frame that owns its whole
+ * buffer is moved there, not copied, and reads as empty after the write: for a caller that never
+ * reads a frame it wrote.
  */
 export const ffmpegSink = (
   args: readonly string[],
@@ -772,15 +779,20 @@ export const ffmpegSink = (
   /** `false`: the codec keeps alpha (ProRes 4444), so straight RGBA goes as it is. */
   matted = true,
   /** For tests: another program in ffmpeg's place (`command` then `args`), another watchdog. */
-  o: { command?: readonly string[]; stall?: number } = {},
+  o: { command?: readonly string[]; stall?: number; handOver?: boolean } = {},
 ): Sink => {
   const [bin = 'ffmpeg', ...pre] = o.command ?? []
-  const ff = spawn(bin, [...pre, ...args], { stdio: ['pipe', 'ignore', 'pipe'] })
-  let said = ''
-  ff.stderr.on('data', (d: Buffer) => {
-    process.stderr.write(d)
-    said = (said + d.toString()).slice(-4096)
+  // Straight RGBA is matted over black (an mp4 has no alpha); Y'CbCr and HDR10 codes came matted.
+  const data: EncoderData = {
+    bin,
+    args: [...pre, ...args],
+    matte: !matted || (input !== 'rgba' && input !== 'rgba64') ? null : input,
+  }
+  const encoder = new Worker(new URL(`./encoder${extname(import.meta.url)}`, import.meta.url), {
+    workerData: data,
   })
+  const tell = (m: ToEncoder, transfer?: ArrayBuffer[]) => encoder.postMessage(m, transfer)
+  let said = ''
   let ending = false
   // Set once ffmpeg is gone or given up on: every write from then on fails with it.
   let failed: Error | null = null
@@ -793,54 +805,47 @@ export const ffmpegSink = (
     error ? p.fail(error) : p.done()
   }
   const exited = new Promise<void>((done, fail) => {
-    ff.once('error', (error) => {
+    const gone = (error: Error) => {
       failed = error
       settle(error)
       fail(error)
-    })
-    // 'close', not 'exit': stderr has been read to its end, so its last lines are known.
-    ff.once('close', (raw: number | null, signal: NodeJS.Signals | null) => {
+    }
+    encoder.on('error', gone)
+    encoder.on('message', (m: FromEncoder) => {
+      if (m.type === 'written') return settle(null)
+      if (m.type === 'stderr') {
+        const d = Buffer.from(m.data.buffer, m.data.byteOffset, m.data.byteLength)
+        process.stderr.write(d)
+        said = (said + d.toString()).slice(-4096)
+        return
+      }
+      if (m.type === 'error') return gone(failed ?? new Error(m.message))
+      // 'close', not 'exit': stderr has been read to its end, so its last lines are known.
       // Windows hands -1 back as 4294967295.
-      const code = raw === null ? null : raw | 0
-      if (code === 0 && ending) return done()
-      const error =
+      const code = m.code === null ? null : m.code | 0
+      if (code === 0 && ending && !failed) return done()
+      gone(
         failed ??
-        new FfmpegError(
-          code === null
-            ? `ffmpeg was ended by ${signal}.`
-            : code === 0
-              ? 'ffmpeg exited with 0 while frames were still coming: it stopped reading its input.'
-              : `ffmpeg exited with ${code}.`,
-          'exit',
-          code,
-          lastLines(said),
-          encoderSaid(said),
-        )
-      failed = error
-      settle(error)
-      fail(error)
+          new FfmpegError(
+            code === null
+              ? `ffmpeg was ended by ${m.signal}.`
+              : code === 0
+                ? 'ffmpeg exited with 0 while frames were still coming: it stopped reading its input.'
+                : `ffmpeg exited with ${code}.`,
+            'exit',
+            code,
+            lastLines(said),
+            encoderSaid(said),
+          ),
+      )
     })
   })
   exited.catch(() => {})
-  // An ffmpeg that exits early closes the pipe: the write fails with EPIPE, and `exited` says why.
-  ff.stdin.on('error', () => {})
   const stall = o.stall ?? stallSeconds()
   return {
-    // Straight RGBA is matted over black here (an mp4 has no alpha); Y'CbCr came matted.
     write: (pixels) =>
       new Promise<void>((done, fail) => {
         if (failed) return fail(failed)
-        const bytes =
-          !matted ||
-          input === 'yuv420p' ||
-          input === 'p010' ||
-          input === 'yuv420p10le' ||
-          input === 'rgb10'
-            ? pixels
-            : input === 'rgba'
-              ? matte(pixels)
-              : matte64(pixels)
-        if (ff.stdin.write(bytes)) return done()
         const timer = setTimeout(() => {
           failed = new FfmpegError(
             `ffmpeg read nothing for ${stall} s while a frame waited: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
@@ -849,43 +854,31 @@ export const ffmpegSink = (
             lastLines(said),
           )
           settle(failed)
-          ff.kill()
+          tell({ type: 'kill' })
         }, stall * 1000)
         pending = { done, fail, timer }
-        ff.stdin.once('drain', () => settle(null))
+        const view = new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength)
+        // Moved when handed over whole; otherwise copied, only the frame's own bytes.
+        const bytes =
+          o.handOver === true &&
+          view.byteOffset === 0 &&
+          view.byteLength === view.buffer.byteLength &&
+          view.buffer instanceof ArrayBuffer
+            ? view
+            : view.slice()
+        tell({ type: 'frame', bytes }, [bytes.buffer as ArrayBuffer])
       }),
     end: async () => {
       ending = true
-      ff.stdin.end()
+      tell({ type: 'end' })
       await exited
     },
     abort: async () => {
       ending = true
-      ff.kill()
+      tell({ type: 'kill' })
       await exited.catch(() => {})
     },
   }
-}
-
-/**
- * Little-endian 16-bit words over bytes: a view at an even offset, a copy at an odd one (a Node
- * Buffer can start anywhere in its pool, and a Uint16Array cannot).
- */
-export const words16 = (data: Uint8Array | Uint8ClampedArray): Uint16Array =>
-  data.byteOffset % 2 === 0
-    ? new Uint16Array(data.buffer, data.byteOffset, data.length >> 1)
-    : new Uint16Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.length))
-
-/** `matte` at 16 bits a channel: straight little-endian RGBA over black, alpha made opaque. */
-export const matte64 = (data: Uint8Array | Uint8ClampedArray): Uint8Array => {
-  const src = words16(data)
-  const out = new Uint16Array(src.length)
-  for (let i = 0; i < src.length; i += 4) {
-    const a = src[i + 3] as number
-    for (let c = i; c < i + 3; c++) out[c] = Math.round(((src[c] as number) * a) / 65535)
-    out[i + 3] = 65535
-  }
-  return new Uint8Array(out.buffer)
 }
 
 /** What ffprobe and the file's boxes say about an output: what a placement is checked against. */

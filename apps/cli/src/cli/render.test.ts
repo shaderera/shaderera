@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import { canEncode, encoderSaid, encodersFile, FfmpegError } from './ffmpeg.ts'
-import { encoderRefused, exportVideo, transientEncoder } from './render.ts'
+import { encoderRefused, exportVideo, progressLines, transientEncoder } from './render.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
@@ -314,4 +314,29 @@ test('a stall goes to --retries, not to the GPU encoder fallback', {
   assert.equal(value.frames, 3)
   assert.equal(plan.reads, 2)
   assert.match(lines.join('\n'), /! The encode failed: ffmpeg read nothing .* Retry 1\/1/)
+})
+
+test('progress: every frame in place for a terminal, a line every 10 s with the time left for a pipe', () => {
+  let clock = 0
+  const said: string[] = []
+  const write = (line: string) => said.push(line)
+  const tty = progressLines({ every: 0, write, now: () => clock })
+  clock = 3000
+  tty(0, 100)
+  clock = 4000
+  tty(10, 100)
+  // The pace from the first frame on: the 3 s before it were the open.
+  assert.deepEqual(said, ['\rframe 1/100', '\rframe 11/100  10.0 fps  0:09 left'])
+  said.length = 0
+  clock = 0
+  const pipe = progressLines({ every: 10_000, write, now: () => clock })
+  // 2 frames a second, for an hour and a half of frames.
+  for (let i = 0; i < 50; i++) {
+    clock = (i + 1) * 500
+    pipe(i, 10_800)
+  }
+  assert.deepEqual(said, [
+    'frame 20/10800  2.0 fps  1:29:50 left\n',
+    'frame 40/10800  2.0 fps  1:29:40 left\n',
+  ])
 })

@@ -49,9 +49,9 @@ resources and passes. Stable only when consumers outside this repository need it
 ## `@shaderera/core/host`: experimental
 
 What a host needs and both of Shaderera's share (`checkManifest`, `withVariant`, `openSource`,
-`seekable`, `over`, `straight`, `matte`, `gpuCompositor`, `yuvFits`, `hdrCompositor`, `p010Fits`,
-`finalOnly`, `layerInfo`, `lightChecked`, `rangeOf`, `paramDefaults`, `fullDevice`, `timecodeOf`,
-`toSrt`, `toVtt`, …), the float64 references the HDR compositor is held to (`rgb10Reference`,
+`seekable`, `over`, `straight`, `matte`, `opaque`, `gpuCompositor`, `yuvFits`, `hdrCompositor`,
+`p010Fits`, `finalOnly`, `layerInfo`, `lightChecked`, `rangeOf`, `paramDefaults`, `fullDevice`,
+`timecodeOf`, `toSrt`, `toVtt`, …), the float64 references the HDR compositor is held to (`rgb10Reference`,
 `p010Reference`, `lightReference`) and the numbers they share with the CLI (`CODE_LIGHT`,
 `peakCode`, `whiteOf`), for another host that opens a source the way the CLI does. Usable, and
 may change in any release. A participant never imports it: a film builds on `@shaderera/core`.

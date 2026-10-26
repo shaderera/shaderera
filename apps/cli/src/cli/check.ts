@@ -5,8 +5,8 @@ import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { words16 } from './ffmpeg.ts'
 import { EXIT } from './findings.ts'
+import { words16 } from './matte64.ts'
 import { eachVariant, type Output } from './variants.ts'
 
 export type CheckResult = DeterminismReport & {

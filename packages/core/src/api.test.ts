@@ -35,6 +35,7 @@ test('the stable and experimental entries export exactly what docs/api.md lists'
     'lightChecked',
     'lightReference',
     'matte',
+    'opaque',
     'openSource',
     'over',
     'p010Fits',
