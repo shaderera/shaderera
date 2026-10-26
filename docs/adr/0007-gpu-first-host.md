@@ -38,6 +38,15 @@ reads back 3.1 MB. Parallel hosts gave 1.8–5× on the CPU path alone.
    written to ffmpeg in order. The default is `min(4, cores − 2, frames / 30)`. A `sequential`
    source always uses 1. The 8-frame revisit runs on host 0, so the hosts must agree with each
    other too.
+   - (Amended 2026-10-27, #447/#448: the revisit is one frame a second of film, spread evenly
+     over the hosts already open and run on them at once. A frame is re-checked on a host other
+     than the one that first rendered it, and each host shuffles its own share, so
+     order-dependent pixels are still caught and the hosts must still agree. On host 0 alone it
+     ran in series, a random seek a frame on footage: 7.4 s after an 8 s render of a 20 s 1080p
+     film. Spread, a footage seek is still a decode from the keyframe before it, which uses the
+     CPU, so it gains what cores are idle; short-GOP footage is #450. The progress line says
+     `re-checking 12/20` meanwhile. A `sequential` source, on one host, re-checks 8 frames of
+     the grid at most: each frame out of order can cost a replay from frame 0.)
 4. **Browser host transfer.**
    - The runner worker POSTs the frame's bytes to the runner server (`'self'`), not base64
      over CDP.

@@ -139,7 +139,7 @@ export const exportFinishing = async (
     audio?: boolean
     /** A loudness to bring the mix to, in LUFS integrated, by one constant gain (openMix). */
     loudness?: number
-    onFrame?: (i: number, n: number) => void
+    onFrame?: (i: number, n: number, phase?: 'recheck') => void
     /** 16: frames at 16 bits a channel, from the GPU compositor (a host without one refuses). */
     bits?: 8 | 16
     /** Write `stems/<group>.wav` beside audio.wav. */
@@ -214,9 +214,11 @@ export const exportFinishing = async (
       to,
       render: async (t) => (await child.render(t, 'final', bits === 16 ? 'rgba64' : 'rgba')).pixels,
       inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
+      sequential: Boolean(child.has.sequential),
       sink,
       skip: Math.max(0, kept - preroll.frames),
-      onFrame: o.onFrame,
+      onFrame: o.onFrame && ((i, n) => o.onFrame?.(i, n)),
+      onRecheck: o.onFrame && ((i, n) => o.onFrame?.(i, n, 'recheck')),
     })
     // The mix's temporary files go even on a throw; a source with nothing heard has no audio.wav.
     const mixed = mixWav(

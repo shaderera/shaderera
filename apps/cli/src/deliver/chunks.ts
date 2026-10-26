@@ -233,9 +233,9 @@ export const refuseOtherPlan = (dir: string, job: Pick<Job, 'name' | 'id'>) => {
 /**
  * Renders one chunk on this machine into `<dir>/<file>` (written beside it and moved into place),
  * with exportFrames's determinism re-check on its own frames, and records it in `<file>.json`.
- * Frames go round `hosts` (the first also re-checks and is recorded), two ahead a host; the
- * caller opens and closes them. The chunk is claimed first (claim.ts): refused while another live
- * process renders it; once claimed, the partials earlier renders of it left are removed. The old
+ * Frames go round `hosts`, two ahead a host, and the re-check is split between them (the first
+ * also inspects and is recorded); the caller opens and closes them. The chunk is claimed first
+ * (claim.ts): refused while another live process renders it; once claimed, the partials earlier renders of it left are removed. The old
  * record goes before the file is replaced and the new one is written to a temp file and renamed,
  * so a file is never paired with another render's record. `signal` (Ctrl-C) stops it between
  * frames, leaving no partial and no claim.
@@ -245,7 +245,7 @@ export const renderChunk = async (
   plan: Plan,
   index: number,
   dir: string,
-  onFrame?: (i: number, n: number) => void,
+  onFrame?: (i: number, n: number, phase?: 'recheck') => void,
   signal?: AbortSignal,
 ): Promise<ChunkRecord> => {
   requireFfmpeg()
@@ -283,7 +283,7 @@ const renderClaimed = async (
   chunk: Plan['chunks'][number],
   out: string,
   ours: () => boolean,
-  onFrame?: (i: number, n: number) => void,
+  onFrame?: (i: number, n: number, phase?: 'recheck') => void,
   signal?: AbortSignal,
 ): Promise<ChunkRecord> => {
   const child = hosts[0]
@@ -323,7 +323,6 @@ const renderClaimed = async (
   ]
   // Not matted: the bytes the host hands over are the bytes stored.
   const sink = ffmpegSink(args, plan.input, false, { handOver: true })
-  let next = 0
   // An hdr10 chunk's light: every frame's, the determinism re-check's renders too (the same).
   const light: LightLevels[] = []
   try {
@@ -331,22 +330,24 @@ const renderClaimed = async (
       fps: plan.fps,
       from: chunk.from,
       to: chunk.to,
-      // Frames go round the hosts in the order exportFrames asks for them.
-      render: async (t) => {
-        const host = hosts[next++ % hosts.length] as Child
+      // exportFrames sends the frames round the hosts, and splits its re-check between them.
+      render: async (t, host) => {
         try {
-          const r = await host.render(t, 'final', plan.input)
+          const r = await (hosts[host] as Child).render(t, 'final', plan.input)
           if (r.light) light.push(r.light)
           return r.pixels
         } catch (error) {
           throw frameError(error, t, plan.fps, hosts.length)
         }
       },
-      inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
+      inspect: child.has.inspect ? (t, host) => (hosts[host] as Child).inspect(t) : undefined,
+      sequential: Boolean(child.has.sequential),
       sink,
-      onFrame,
+      onFrame: onFrame && ((i, n) => onFrame?.(i, n)),
+      onRecheck: onFrame && ((i, n) => onFrame?.(i, n, 'recheck')),
       signal,
       ahead: hosts.length * 2,
+      hosts: hosts.length,
     })
     if (isHdr(plan.input) && light.length < frames)
       throw new Error(`Chunk ${index}'s host gave no light levels with its ${plan.input} frames.`)

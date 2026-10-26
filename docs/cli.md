@@ -294,7 +294,7 @@ of footage it takes a moment, not the time to read all of it.
 | `--encoder <name>` | `x264`, `nvenc`, `qsv`, `amf` or `videotoolbox`. A review: the first GPU encoder of those that takes the frame size with this ffmpeg on this machine (with `--bitrate` or `--maxrate`, `nvenc` only), else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives a GPU encoder cq n + 1. With `--hdr10`: `x265`, `nvenc` or `videotoolbox` (HEVC), `x265` for a master |
 | `--hdr10` | off. An HDR10 mp4 (HEVC Main 10), or with `--format prores-hq\|prores-4444` an HDR10 ProRes mov, of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#hdr10)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
 | `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome. Each open `io.video` clip holds `2n + 1` frames kept plus `min(n + 1, 64 MiB / frame)` (at least 1) decoded ahead, a frame being width × height × 4 bytes: 9 kept and 5 ahead, about 116 MB, for 1080p on 4 hosts; 9 and 2, about 365 MB, for 4K on 4 hosts |
-| `--progress` | off: a terminal gets the progress line at every frame, a pipe (a background run, `--json`) one line every 10 s; on, a pipe gets it at every frame too. Each says the frame, the fps so far and the time left at that pace: `frame 120/600  23.4 fps  0:20 left` |
+| `--progress` | off: a terminal gets the progress line at every frame, a pipe (a background run, `--json`) one line every 10 s; on, a pipe gets it at every frame too. Each says the frame, the fps so far and the time left at that pace: `frame 120/600  23.4 fps  0:20 left`; after the last frame, the determinism re-check's frames: `re-checking 12/20` |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
@@ -315,8 +315,16 @@ audio: -23.0 LUFS, true peak -20.4 dBTP, range 0.0 LU
 
 A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file. A source that is
 not deterministic is not exported: `render` deletes the file and exits 1 with the frames that
-changed ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). ffmpeg must be on
-the PATH:
+changed ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). The frames it
+renders again are the film's frames 0, n, 2n … (n its frames a second, rounded: one a second of
+film) inside the window, the same rule for `render`, `render --from/--to`, each `render --chunk`
+and `deliver`. So the whole film and the chunk that hold a window re-check every frame the
+window re-checks, and a window shorter than a second may hold none of them. They are split
+between the hosts (`--workers`), each re-checking frames another host rendered first in its own
+shuffled order, all at once, and the first frame that changed stops them all. A `sequential`
+source re-checks 8 frames of that grid at most, spread over the window, so a longer range may not
+re-check a frame its window does
+([determinism.md](determinism.md#export-refuses-a-source-that-fails)). ffmpeg must be on the PATH:
 
 ```
 shaderera: render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html

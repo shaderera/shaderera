@@ -180,7 +180,7 @@ export const renderReusing = async (
     changed: string
     fix: boolean
     dir: string
-    onFrame?: (i: number, n: number) => void
+    onFrame?: (i: number, n: number, phase?: 'recheck') => void
     /** More hosts the changed chunks' frames go round, besides `child`: the caller closes them. */
     extra?: readonly Child[]
   },
