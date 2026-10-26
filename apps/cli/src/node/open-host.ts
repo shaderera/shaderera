@@ -18,6 +18,8 @@ export type HostOptions = {
   revision?: string
   /** Overrides the manifest's frame size (review's resized reopen). */
   size?: { width: number; height: number }
+  /** A draft render's (render --draft): clips come from the decoder scaled by this much. */
+  videoScale?: number
   /** The bakes' frames, checked against their stamps: what io.bake reads. */
   bakes?: BakeFrames
   /** No permission flags on the Node host's process (`--trusted`). */
@@ -43,6 +45,7 @@ export const hostOpener = async (
     ...(o.variant ? { variant: o.variant } : {}),
     ...(o.range ? { range: o.range } : {}),
     ...(o.bakes ? { bakes: o.bakes } : {}),
+    ...(o.videoScale ? { videoScale: o.videoScale } : {}),
     ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}),
   }
   if (host === 'browser')
@@ -57,7 +60,12 @@ export const hostOpener = async (
     ? { ...built.project, manifest: { ...built.project.manifest, ...o.size } }
     : built.project
   return () =>
-    openChild(sized, { ...common, entryFile: built.entryFile, trusted: o.trusted === true })
+    openChild(sized, {
+      ...common,
+      entryFile: built.entryFile,
+      trusted: o.trusted === true,
+      ...(o.size ? { resized: true } : {}),
+    })
 }
 
 /** What a GPU says when it cannot go on: a lost or removed device, or memory it could not get. */

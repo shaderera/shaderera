@@ -84,7 +84,10 @@ has a `GPUDevice`, on the CPU otherwise. Nesting is rejected by `flattenFrame`:
 A Frame is one Layer or a flat array of Layers; nesting is not part of the protocol.
 ```
 
-- **Pixels are at the requested size** (`options.width` × `options.height`).
+- **Pixels are at the requested size** (`options.width` × `options.height`), which is
+  `host.manifest`'s: a variant or a [draft](cli.md#a-draft) opens the source at another size than
+  shaderera.json's. Bytes or a texture at another size are an error, and so is a canvas in the
+  Node host when a draft or review's readback opened the source at another size.
 - **Bytes declare their alpha.** A canvas knows how its alpha is stored; a `Uint8Array` does not.
   three's `readRenderTargetPixelsAsync` gives opaque bytes, Chromium's PNG decoded through a
   canvas gives straight alpha, a WGSL pass may write premultiplied. Saying which avoids a halo or
@@ -150,7 +153,9 @@ it, before any frame.
   and the last few decoded (two a host and one) are kept, so a frame asked a little out of order is
   not decoded again; one before them restarts the decoder. Which frame a t shows is the film's
   choice (`fps` is the file's). The same frame is the same bytes in both hosts (tested against
-  ffmpeg's own decode). A clip's decoder lives until the render ends unless `close()` stops it and
+  ffmpeg's own decode). In a draft render ([`render --draft`](cli.md#a-draft)), whose frame is
+  smaller than the film's, the decoder scales the frames by as much each side, and `width` and
+  `height` say so. A clip's decoder lives until the render ends unless `close()` stops it and
   frees its buffers, once every host that opened it closed it: a film with many clips closes each
   when its shot ends. A `frame(i)` after `close()` opens the file again and gives the same bytes.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and

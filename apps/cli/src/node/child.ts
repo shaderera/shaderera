@@ -213,6 +213,10 @@ export const openChild = async (
     checkpointMs?: number
     /** The bakes' frames, checked against their stamps (project/bakes.ts): what io.bake reads. */
     bakes?: BakeFrames
+    /** A draft render's: io.video's frames scaled by this much (createServices). */
+    videoScale?: number
+    /** `project.manifest` is sized other than the film (open-host's size): the host checks canvases. */
+    resized?: boolean
   },
 ): Promise<Child> => {
   const execArgv = o.trusted ? [] : permissionArgs(project.root, packageDirs(project.root))
@@ -228,7 +232,7 @@ export const openChild = async (
   pipe.on('error', () => {})
   const bulk = bulkReader(pipe)
   // What the host asks of this process (the cache, video frames): answered as it comes.
-  const services = createServices(project.root, o.bakes)
+  const services = createServices(project.root, o.bakes, { videoScale: o.videoScale })
   child.on('message', (m: { service?: { id: number; request: ServiceRequest } }) => {
     const s = m.service
     if (!s) return
@@ -340,6 +344,7 @@ export const openChild = async (
       ...(o.variant !== undefined ? { variant: o.variant } : {}),
       ...(o.range ? { range: o.range } : {}),
       checkpointMs: o.checkpointMs,
+      ...(o.resized ? { resized: true } : {}),
     },
     opening,
   ).catch((error: unknown) => {

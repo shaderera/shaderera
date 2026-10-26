@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
+import { draftArgs, draftSize } from './args.ts'
 import { canEncode, encoderSaid, encodersFile, FfmpegError } from './ffmpeg.ts'
 import { encoderRefused, exportVideo, progressLines, transientEncoder } from './render.ts'
 
@@ -403,4 +404,46 @@ test('a host that cannot give its profile leaves the frame time out, never the f
   assert.equal(done.frames, 3)
   assert.equal(done.time, undefined)
   assert.ok(existsSync(out))
+})
+
+test('progress: a draft says so on every line, beside the frame count', () => {
+  let clock = 0
+  const said: string[] = []
+  const draft = progressLines({
+    every: 0,
+    write: (line) => said.push(line),
+    now: () => clock,
+    label: 'draft (640×360)',
+  })
+  draft(0, 100)
+  clock = 1000
+  draft(10, 100)
+  assert.deepEqual(said, [
+    '\rframe 1/100  draft (640×360)',
+    '\rframe 11/100  draft (640×360)  10.0 fps  0:09 left',
+  ])
+})
+
+test('a draft is 360 px high by default, as wide as the film, even, and never above its size', () => {
+  assert.deepEqual(draftSize({ width: 1920, height: 1080 }), { width: 640, height: 360 })
+  assert.deepEqual(draftSize({ width: 3840, height: 2160 }), { width: 640, height: 360 })
+  assert.deepEqual(draftSize({ width: 1080, height: 1920 }), { width: 202, height: 360 })
+  assert.deepEqual(draftSize({ width: 1920, height: 1080 }, 540), { width: 960, height: 540 })
+  assert.deepEqual(draftSize({ width: 1366, height: 768 }), { width: 640, height: 360 })
+  assert.deepEqual(draftSize({ width: 1920, height: 1080 }, 2160), { width: 1920, height: 1080 })
+  assert.deepEqual(draftSize({ width: 64, height: 36 }), { width: 64, height: 36 })
+})
+
+test('--draft takes an optional height: 360 when none follows', () => {
+  assert.deepEqual(draftArgs(['--to', '1']), { argv: ['--to', '1'] })
+  assert.deepEqual(draftArgs(['--draft']), { argv: [], draft: 360 })
+  assert.deepEqual(draftArgs(['--draft', '--to', '1']), { argv: ['--to', '1'], draft: 360 })
+  assert.deepEqual(draftArgs(['--draft', '540', '--to', '1']), { argv: ['--to', '1'], draft: 540 })
+  assert.deepEqual(draftArgs(['--to', '1', '--draft=720']), { argv: ['--to', '1'], draft: 720 })
+  assert.throws(
+    () => draftArgs(['--draft', 'tall']),
+    /--draft takes a height in pixels, such as 360 or 540, not "tall"./,
+  )
+  assert.throws(() => draftArgs(['--draft', '0']), /not "0"/)
+  assert.throws(() => draftArgs(['--draft', '--draft']), /--draft is given once./)
 })

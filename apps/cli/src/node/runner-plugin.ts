@@ -74,6 +74,8 @@ export const runnerPlugin = (
    * the runner's own origin and starts its worker from a data: URL, as the web player does.
    */
   base?: string,
+  /** A draft render's: io.video's frames scaled by this much (createServices). */
+  videoScale?: number,
 ): Plugin => {
   const self = base ? `'self' http://127.0.0.1:${runnerPort}` : "'self'"
   const ancestors = studioOrigins.filter(isOrigin)
@@ -103,7 +105,7 @@ export const runnerPlugin = (
     name: 'shaderera-runner',
     ...runnerModules(entryFile, domFile, `export default ${JSON.stringify(token)}`),
     configureServer(server) {
-      const services = createServices(server.config.root, bakes)
+      const services = createServices(server.config.root, bakes, { videoScale })
       server.httpServer?.once('close', () => services.close())
       server.middlewares.use((req, res, next) => {
         res.setHeader('Content-Security-Policy', csp)

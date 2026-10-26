@@ -98,6 +98,8 @@ export type Open = {
   range?: Range
   /** A sequential source's checkpoint spacing in rendering ms (the host's default otherwise). */
   checkpointMs?: number
+  /** `manifest` is sized other than the film (render --draft, review's readback): checkSized. */
+  resized?: boolean
 }
 export type Request =
   | Open
@@ -120,6 +122,7 @@ let source: Source | undefined
 let calling = -1
 let manifest: Manifest
 let range: Range = 'sdr'
+let resized = false
 // Dawn's GPU object is garbage-collected under a live device unless something holds it.
 let gpu: unknown
 /** The adapter the device came from, for the capture record, and the software renderer it is. */
@@ -298,11 +301,24 @@ let compositor: GpuCompositor | undefined
 /** An hdr10 render's compositor in its place (decision 0023): nothing of it composites in SDR. */
 let hdr: HdrCompositor | undefined
 
-type Canvas = { getContext(kind: '2d'): CanvasRenderingContext2D }
+type Canvas = { width: number; height: number; getContext(kind: '2d'): CanvasRenderingContext2D }
 const isTexture = (color: unknown): color is GPUTexture =>
   typeof GPUTexture !== 'undefined' && color instanceof GPUTexture
 const isCanvas = (color: unknown): color is Canvas =>
   typeof (color as Partial<Canvas>).getContext === 'function'
+
+/**
+ * A canvas at the frame's size when the source was opened at another size than the film's (a
+ * draft, review's readback): one drawn at the film's size would be cropped or scaled after it
+ * rendered, which is what the smaller size is there to avoid. Any other render takes it as before.
+ */
+const checkSized = (canvas: Canvas, width: number, height: number): Canvas => {
+  if (resized && (canvas.width !== width || canvas.height !== height))
+    throw new Error(
+      `A layer's canvas is ${canvas.width}x${canvas.height}, but this render (render --draft, or review's readback) opened the source at ${width}x${height}: draw at host.manifest's width and height (options.width and options.height).`,
+    )
+  return canvas
+}
 
 /** A layer as bytes or a texture, with its depth: what the compositors take. */
 const toGpuLayer = (layer: Layer, width: number, height: number): GpuLayer => {
@@ -314,7 +330,8 @@ const toGpuLayer = (layer: Layer, width: number, height: number): GpuLayer => {
     return { color, alpha, ...depth, ...(light ? { light } : {}) }
   if (isCanvas(color))
     return {
-      color: color.getContext('2d').getImageData(0, 0, width, height).data,
+      color: checkSized(color, width, height).getContext('2d').getImageData(0, 0, width, height)
+        .data,
       alpha: 'straight',
       ...depth,
     }
@@ -346,7 +363,7 @@ const cpuComposite = (layers: readonly Layer[], width: number, height: number): 
   for (const layer of layers) {
     const color = layer.color as unknown
     if (isCanvas(color)) {
-      ctx.drawImage(color as never, 0, 0, width, height)
+      ctx.drawImage(checkSized(color, width, height) as never, 0, 0, width, height)
       continue
     }
     const { data, alpha } = asRgba(toGpuLayer(layer, width, height))
@@ -363,6 +380,7 @@ const handle = async (m: Request): Promise<unknown> => {
   if (m.type === 'open') {
     opened = m
     manifest = m.manifest
+    resized = m.resized === true
     // In Node a source may find its project files from the working directory.
     process.chdir(m.root)
     const device = await gpuDevice(m.root)

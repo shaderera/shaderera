@@ -26,12 +26,17 @@ export type FromVideo = {
 
 const port = parentPort
 if (port) {
-  const { file, info, turn } = workerData as { file: string; info: VideoInfo; turn?: SpawnTurn }
+  const { file, info, scaled, turn } = workerData as {
+    file: string
+    info: VideoInfo
+    scaled?: boolean
+    turn?: SpawnTurn
+  }
   let keep = 1
   let ahead = 1
   const decoder = videoDecoder(
     file,
-    info,
+    { ...info, scaled },
     () => keep,
     () => ahead,
     turn,

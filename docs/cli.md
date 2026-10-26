@@ -292,6 +292,7 @@ of footage it takes a moment, not the time to read all of it.
 | `--no-audio` | off. No audio stream (a png job: no `audio.wav`) |
 | `--loudness=<LUFS>` | none. Move the mix to a target by one constant gain ([loudness](delivery.md#loudness)). Write it with `=`, since the value starts with a dash |
 | `--encoder <name>` | `x264`, `nvenc`, `qsv`, `amf` or `videotoolbox`. A review: the first GPU encoder of those that takes the frame size with this ffmpeg on this machine (with `--bitrate` or `--maxrate`, `nvenc` only), else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives a GPU encoder cq n + 1. With `--hdr10`: `x265`, `nvenc` or `videotoolbox` (HEVC), `x265` for a master |
+| `--draft [height]` | off. 360 px high (or the height given, never above the film's) at the film's full fps, to `out/<name>-draft.mp4` ([below](#a-draft)); refused with a job |
 | `--hdr10` | off. An HDR10 mp4 (HEVC Main 10), or with `--format prores-hq\|prores-4444` an HDR10 ProRes mov, of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#hdr10)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
 | `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome. Each open `io.video` clip holds `2n + 1` frames kept plus `min(n + 1, 64 MiB / frame)` (at least 1) decoded ahead, a frame being width × height × 4 bytes: 9 kept and 5 ahead, about 116 MB, for 1080p on 4 hosts; 9 and 2, about 365 MB, for 4K on 4 hosts |
 | `--progress` | off: a terminal gets the progress line at every frame, a pipe (a background run, `--json`) one line every 10 s; on, a pipe gets it at every frame too. Each says the frame, the fps so far and the time left at that pace: `frame 120/600  23.4 fps  0:20 left`; after the last frame, the determinism re-check's frames: `re-checking 12/20` |
@@ -351,6 +352,47 @@ re-check a frame its window does
 ```
 shaderera: render needs ffmpeg on the PATH: install it from https://ffmpeg.org/download.html
 ```
+
+### A draft
+
+A cut is judged many times before the final. `render --draft` renders it 360 px high (a 1080p
+film's pixels cut about 9×), as wide as the film's aspect makes it, at the film's full fps, so
+flow, timing and transitions are judged at the speed they will play. `--draft <height>` takes
+another height (`--draft 540`); a height at or above the film's own renders at the film's size,
+never above it. Each side is rounded to an even number.
+
+```
+$ shaderera render --draft
+frame 180/180  draft (640×360)  36.7 fps  0:00 left
+/path/to/project/out/project-draft.mp4
+180 frames in 4.9 s on 4 host(s), nvenc, draft (640×360)
+file: h264 High yuv420p 640×360 30 fps, 1.72 Mb/s, no audio, edit list, revision 2c4bbb0ae27e
+```
+
+A draft is for flow, timing and transitions. Type sharpness, thin lines, fine texture and colour
+banding are checked with a full-size `still` at those moments, never in the draft; the full-size
+film is rendered once the cut is approved.
+
+- The source is opened at that size, as a variant of that size would open it: `host.manifest`
+  and `options` give the draft's size, and a source that lays itself out from them (as a variant
+  needs) draws the same picture, smaller. A source that draws at a size of its own is refused at
+  its first frame in the Node host (`A layer's canvas is 1920x1080, but this render (render
+  --draft, or review's readback) opened the source at 640x360: …`); the browser host draws such
+  a canvas to the frame's size, as it does in any render.
+  Nothing is scaled after the render, which would save nothing.
+- `io.video` clips come from the decoder scaled as the frame is (`width` and `height` say so), so
+  their frames cross to the hosts at the draft's share of the bytes. The decode itself is still
+  the file's full size.
+- The file is `out/<name>-draft.mp4` (`out/<name>-<variant>-draft.mp4` with `--variant`), beside
+  the review file and the final, never over them.
+- It works with `--from`, `--to`, `--variant` and the encode flags. It is never a job: `--job`
+  with `--draft` is refused.
+
+Measured on one machine (16 cores, RTX 5070 Ti, other work running on it at the same time), 6 s
+1080p films at 30 fps on 4 hosts, the median of three renders: the three.js fixture
+`3d-product` rendered its frames in 3.1 s, 1.3 s as a draft (the whole command 10.4 s and 6.6 s,
+its build and open the same); a Canvas2D film over a 1080p `testsrc2` clip in 9.0 s, 5.1 s as a
+draft (10.1 s and 6.1 s), where decoding the clip at full size is most of what is left.
 
 ### A software GPU
 

@@ -73,6 +73,16 @@ export const probeVideo = (file: string): VideoInfo => {
  */
 export const keyGaps = new Map<string, number>()
 
+/**
+ * A clip as a draft render's io.video gives it (render --draft): scaled each side as the frame is,
+ * so that it keeps its place in the smaller frame.
+ */
+export const scaledVideo = (info: VideoInfo, scale: number): VideoInfo => ({
+  ...info,
+  width: Math.max(1, Math.round(info.width * scale)),
+  height: Math.max(1, Math.round(info.height * scale)),
+})
+
 /** How many bytes of frames a clip's decoder runs ahead at most: 64 MiB (one frame if larger). */
 export const AHEAD_BYTES = 64 * 1024 * 1024
 
@@ -88,10 +98,16 @@ export const videoReader = (
   ahead: () => number = keep,
   /** For tests: another thread in video-worker.ts's place. */
   thread: URL = new URL(`./video-worker${extname(import.meta.url)}`, import.meta.url),
+  /** A draft render's: the frames scaled by this much each side, by the decoder (scaledVideo). */
+  scale = 1,
 ) => {
-  const info = probeVideo(file)
+  const scaled = scale !== 1
+  const info = scaled ? scaledVideo(probeVideo(file), scale) : probeVideo(file)
   const { turn, transfer } = lendTurns()
-  const worker = new Worker(thread, { workerData: { file, info, turn }, transferList: transfer })
+  const worker = new Worker(thread, {
+    workerData: { file, info, scaled, turn },
+    transferList: transfer,
+  })
   // Only while it answers a request: an idle decoder does not keep the CLI running.
   worker.unref()
   let pid: number | undefined
@@ -221,9 +237,12 @@ const evict = (dir: string, limit: number, keep: string) => {
 export const createServices = (
   root: string,
   bakes: BakeFrames = {},
-  o: { cacheLimit?: number } = {},
+  o: { cacheLimit?: number; videoScale?: number } = {},
 ) => {
   const limit = o.cacheLimit ?? cacheLimit()
+  // A draft's clips are decoded at another size (scaledVideo): decoders of their own.
+  const scale = o.videoScale ?? 1
+  const keyOf = (file: string) => (scale === 1 ? file : `${file}\0${scale}`)
   const baked = (name: string) => {
     const frames = bakes[name]
     if (!frames)
@@ -243,10 +262,11 @@ export const createServices = (
       file = insideForRead(root, path)
       checked.set(path, file)
     }
-    let v = shared.get(file)
+    const key = keyOf(file)
+    let v = shared.get(key)
     // A reader whose thread died is dropped: the next request opens a fresh one.
     if (v?.reader.dead) {
-      shared.delete(file)
+      shared.delete(key)
       v = undefined
     }
     if (!v) {
@@ -258,22 +278,24 @@ export const createServices = (
           file,
           () => 2 * users.size + 1,
           () => users.size + 1,
+          undefined,
+          scale,
         ),
       }
-      shared.set(file, v)
+      shared.set(key, v)
     }
     v.users.add(me)
     mine.add(file)
     return v.reader
   }
   const release = async (file: string) => {
-    const v = shared.get(file)
+    const v = shared.get(keyOf(file))
     mine.delete(file)
     for (const [path, f] of checked) if (f === file) checked.delete(path)
     if (!v) return
     v.users.delete(me)
     if (v.users.size === 0) {
-      shared.delete(file)
+      shared.delete(keyOf(file))
       await v.reader.dispose()
     }
   }

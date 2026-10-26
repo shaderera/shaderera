@@ -277,6 +277,8 @@ export const openBrowserChild = async (
     openTimeoutMs?: number
     /** The bakes' frames, checked against their stamps: what io.bake reads. */
     bakes?: BakeFrames
+    /** A draft render's: io.video's frames scaled by this much (createServices). */
+    videoScale?: number
   } = {},
 ): Promise<Child> => {
   const chrome = chromePath()
@@ -293,6 +295,7 @@ export const openBrowserChild = async (
       studioOrigins: ["'none'"],
       cacheDir: join(profile, 'vite'),
       ...(o.bakes ? { bakes: o.bakes } : {}),
+      ...(o.videoScale ? { videoScale: o.videoScale } : {}),
     })
   } catch (error) {
     release()
