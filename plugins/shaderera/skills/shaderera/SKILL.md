@@ -107,6 +107,8 @@ in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case come
 - **Only the sound or the captions changed:** `npx shaderera reexport audio --job <new> --onto
   out/<old>.mp4` puts the new mix on the delivered picture, and `reexport captions --job <j>`
   writes the sidecars, with no frame rendered.
+- **After a delivery:** run `npx shaderera prune --dry-run` and tell the person what it would
+  free and what `out/` holds. Never delete `out/`, `versions/` or jobs without asking.
 - **A long render on several machines:** `plan --job <j> --chunks n`, `render --job <j> --chunk
   i` on each machine, `plan --status --plan <dir>` for what is done, missing or stale, then
   `assemble --plan <dir>`. For a film whose frames take seconds, or that is

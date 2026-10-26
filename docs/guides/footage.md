@@ -51,6 +51,8 @@ page, stop: use another source, or ask the person for the file.
   `ffmpeg -ss <from> -t <seconds> -i source.mp4 -an -c:v libx264 -crf 18 -g <fps> assets/footage/<name>.mp4`
   A frame is decoded from the keyframe before it, so short gaps keep every jump into the clip
   cheap: `check`, `still`, the studio scrub, the start of each render chunk.
+  Trim once: every save stores a changed file whole again in `versions/`, so each re-trim of a
+  clip adds its full size to the project.
 - When the person marked the segments themselves, in LosslessCut or another editor, ask for them
   as CSV: one `start,end,label` line per segment, in seconds of the file they marked (LosslessCut's
   own CSV, per its docs, 2026-10-22). A line with no end is a marker, not a segment. Trim each
