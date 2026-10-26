@@ -110,12 +110,15 @@ export const probeIndex = (file: string, turn?: SpawnTurn) =>
     })
   })
 
+/** `n` bytes in a buffer of their own, not zeroed: they are written whole before they are read. */
+const bytes = (n: number) => new Uint8Array(Buffer.allocUnsafeSlow(n).buffer as ArrayBuffer, 0, n)
+
 /**
  * Decodes one file's frames in order with ffmpeg. The last `keep()` frames up to the latest asked
  * are kept, so a frame asked a little out of order is given again without decoding; one before
  * them restarts it, as does one far ahead. The decoder runs up to `ahead()` frames past the latest
  * asked (`keep()` by default), so the next frames are decoded while the hosts render, not when
- * they ask.
+ * they ask. Each frame is given as bytes of its own, a copy of the kept one.
  *
  * A restart at a frame past the first starts ffmpeg at the keyframe before it (`-ss` before `-i`),
  * not at frame 0 (#434): the file's packets (`frameIndex`) say which pts frame i has, and each frame
@@ -156,9 +159,15 @@ export const videoDecoder = (
   let checked = Number.POSITIVE_INFINITY
   // A seeked decoder gave a frame with a pts not its own, or ended early: it is not used.
   let wrong = false
+  // Buffers of frames dropped, filled again by the next frames (#464): a new 33 MB buffer for each
+  // 4K frame cost more than the copy into it. Frames are given as copies, so none is still in use.
+  const spare: Uint8Array[] = []
   const trim = () => {
     const oldest = asked - Math.max(1, keep()) + 1
-    if ((frames[0]?.index ?? oldest) < oldest) frames = frames.filter((f) => f.index >= oldest)
+    while ((frames[0]?.index ?? oldest) < oldest) {
+      const dropped = (frames.shift() as { bytes: Uint8Array }).bytes
+      if (spare.length < 2) spare.push(dropped)
+    }
   }
   // Decoded far enough past the latest asked: ffmpeg waits until a host catches up.
   const full = () => next - 1 - asked >= Math.max(1, ahead())
@@ -213,7 +222,7 @@ export const videoDecoder = (
       if (proc !== mine) return
       // Copied once, into the frame's own buffer, as the bytes come.
       for (let at = 0; at < d.length; ) {
-        filling ??= new Uint8Array(Buffer.allocUnsafeSlow(size).buffer, 0, size)
+        filling ??= spare.pop() ?? bytes(size)
         const n = Math.min(size - filled, d.length - at)
         filling.set(d.subarray(at, at + n), filled)
         filled += n
@@ -262,7 +271,7 @@ export const videoDecoder = (
     if (from > 0 && packets === undefined) packets = await probeIndex(file, turn)
     start(from)
   }
-  const read = async (index: number): Promise<Uint8Array> => {
+  const read = async (index: number): Promise<Uint8Array<ArrayBuffer>> => {
     if (!Number.isInteger(index) || index < 0 || index >= info.frames)
       throw new Error(`${file} has frames 0 to ${info.frames - 1}, not ${index}.`)
     // A jump far ahead restarts the decoder: a new one decodes from where it starts (the keyframe
@@ -283,7 +292,10 @@ export const videoDecoder = (
       const found = frames.find((f) => f.index === index)
       if (found && index < checked) {
         if (!full()) proc?.stdout?.resume()
-        return found.bytes
+        // A copy of its own: the kept one's buffer is filled again once it is dropped.
+        const copy = bytes(size)
+        copy.set(found.bytes)
+        return copy
       }
       // A seeked decoder that gave another frame than the one it should, or ended before this one
       // (not one it ended past, at the file's end, and a jump back now asks for): the file is

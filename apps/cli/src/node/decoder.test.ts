@@ -84,6 +84,22 @@ const inOrder = async (file: string) => {
   return frames
 }
 
+test('a frame given stays as it was while the decoder reads on and reuses its buffers', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 60_000,
+}, async () => {
+  const file = clip()
+  const d = videoDecoder(file, probeVideo(file))
+  try {
+    const first = await d.frame(0)
+    const was = first.slice()
+    for (let i = 1; i < 20; i++) await d.frame(i)
+    assert.deepEqual(first, was)
+  } finally {
+    await d.close()
+  }
+})
+
 test('frames read out of order start the decoder near them and are the bytes read in order', {
   skip: !ffmpeg && 'no ffmpeg',
   timeout: 60_000,
