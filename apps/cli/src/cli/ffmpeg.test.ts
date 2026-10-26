@@ -127,22 +127,30 @@ const fake = (script: string, stall?: number) =>
 const frame = new Uint8Array(8 << 20)
 
 test('an ffmpeg that exits 0 while a write waits for drain fails it at once, quoting its stderr', async () => {
+  // It says when it exits, so "at once" is timed from its exit, not from starting a process on a
+  // loaded machine (#422). The watchdog is far off: a write that waited for it fails as a stall.
   const sink = fake(
-    "process.stderr.write('[in#0/rawvideo] Error during demuxing: Cannot allocate memory\\n'); setTimeout(() => process.exit(0), 100)",
+    "process.stderr.write('[in#0/rawvideo] Error during demuxing: Cannot allocate memory\\n'); setTimeout(() => { process.stderr.write('exits at ' + Date.now() + '\\n'); process.exit(0) }, 100)",
+    30,
   )
-  const start = performance.now()
+  let error: FfmpegError | undefined
   await assert.rejects(
     async () => {
       for (;;) await sink.write(frame)
     },
-    (e: unknown) =>
-      e instanceof FfmpegError &&
-      e.reason === 'exit' &&
-      e.code === 0 &&
-      /exited with 0 while frames were still coming/.test(e.message) &&
-      /Cannot allocate memory/.test(e.message),
+    (e: unknown) => {
+      error = e as FfmpegError
+      return (
+        e instanceof FfmpegError &&
+        e.reason === 'exit' &&
+        e.code === 0 &&
+        /exited with 0 while frames were still coming/.test(e.message) &&
+        /Cannot allocate memory/.test(e.message)
+      )
+    },
   )
-  assert.ok(performance.now() - start < 1000)
+  const exitedAt = Number(/exits at (\d+)/.exec(error?.stderr ?? '')?.[1])
+  assert.ok(Date.now() - exitedAt < 1000, `failed ${Date.now() - exitedAt} ms after the exit`)
   // A later write fails too, never waits.
   await assert.rejects(sink.write(frame), FfmpegError)
   await sink.abort?.()
