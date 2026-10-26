@@ -50,7 +50,8 @@ one is within two letters (`Did you mean still?`).
   that fails to run is reported and the others finish; the exit code is the worst of them. A
   `review --out <dir>` puts each variant in `<dir>/<variant>/`.
 - **`--host node|browser`**: overrides the manifest's `host` for this run. A project with `dom`
-  cannot be run with `--host node`.
+  cannot be run with `--host node`. The browser host is not faster for footage: decoding 1080p
+  alone ran at 42 fps in it and 70 in Node.
 - **`--trusted`**: run the project without Node's permission model
   ([where project code runs](determinism.md#where-project-code-runs)). Given by the person running
   the command; a project cannot declare it.

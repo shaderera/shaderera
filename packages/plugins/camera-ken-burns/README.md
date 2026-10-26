@@ -25,6 +25,11 @@ in log space, so a push reads at the same speed from start to end; the centre go
 line. A view never leaves the picture: it shrinks to fit, then slides back in, so near an edge the
 box sits off its mark.
 
+`drawImage` from the full-size still costs every frame: 10–24 ms for an 8000 px still into 1080p,
+21–51 ms with `'high'` smoothing. On a film with `host.gpu`, write the still to a texture once and
+sample the view in a WGSL pass instead, its uv being the view divided by the picture's size, at
+the mip level of its scale (`AUTHORING.md`, "Footage and stills on the GPU").
+
 It gives a rectangle only. Boxes come from `image-regions` or any analyser, and drawing the crop
 and easing `p` (`motion-eases`) are the film's. Keeping the view inside the picture is
 `image-fit`'s `crop`, which `add` copies in with it.

@@ -43,9 +43,9 @@ A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture`
 |---|---|---|
 | WebGPU (WGSL) on `host.gpu` | Node (the project's `webgpu` package, Dawn) and the browser | the device is the source's own; return the frame as a texture (`docs/participants/webgpu.md`) |
 | three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` plugin does this plumbing (`docs/participants/three.md`) |
-| Canvas2D | both | `io.canvas`; text through `io.font`, loaded in `open` (`docs/participants/canvas.md`) |
+| Canvas2D | both | `io.canvas`; text through `io.font`, loaded in `open` (`docs/participants/canvas.md`); for type and small shapes, not for footage or large stills ([below](#footage-and-stills-on-the-gpu)) |
 | HTML, CSS, React, GSAP | browser host only | name a `MountDom` module in `shaderera.json` `"dom"`, set `"host": "browser"`, and use `options.dom` as a layer or a texture (`docs/participants/dom.md`) |
-| Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); a film with many clips calls a clip's `close()` when its shot ends, or each decoder holds memory to the end of the render; analysis by a model is decoded once to project files (`docs/analysis.md`) |
+| Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); on `host.gpu`, upload a still once and a footage frame once a frame, and sample them in WGSL ([below](#footage-and-stills-on-the-gpu)); a film with many clips calls a clip's `close()` when its shot ends, or each decoder holds memory to the end of the render; analysis by a model is decoded once to project files (`docs/analysis.md`) |
 
 ## Plugins
 
@@ -147,8 +147,9 @@ command that prints nothing looks frozen.
   3.5 GB a host and could not run more than three. `frame(i)` after `close()` opens it again, with
   the same bytes.
 - **Per-pixel work on the GPU.** A pass over every pixel in JavaScript (`getImageData`, a loop,
-  `putImageData`) costs about 15 ms a 1080p frame; the same levels or grade in a WGSL pass over
-  `host.gpu`, or a `look-*` plugin, costs well under one.
+  `putImageData`) cost 51 ms a 1080p frame on a quiet machine and 127 ms on a loaded one; the
+  same levels or grade in a WGSL pass over `host.gpu`, or a `look-*` plugin, costs well under one.
+  Footage and stills go on the GPU the same way ([below](#footage-and-stills-on-the-gpu)).
 - **Call a heavy WGSL function from one site.** The browser inlines every call, so a large
   function called from several places compiles once per place and a pipeline can take seconds
   before the first frame (`guides/shader-compile.md`).
@@ -176,6 +177,36 @@ command that prints nothing looks frozen.
   approved variant: `npx shaderera still 4 16.9 --variant final --compare animatic --sheet`. It
   writes each pair side by side with PSNR and mean ΔE; it measures and never judges, so look at
   the pairs and say what differs.
+
+## Footage and stills on the GPU
+
+On a film with `host.gpu`, put footage and stills on textures and draw them with a WGSL pass.
+Keep Canvas2D for type and small shapes. A footage frame put on a canvas and drawn scaled, or a
+large still drawn with `drawImage`, costs time every frame: 10–24 ms to draw an 8000 px still into
+1080p (21–51 ms with `'high'` smoothing). Measured at 1080p in Node on 4 hosts, a Canvas2D film
+ran at 49 fps on a quiet machine and 22–27 when loaded; the same picture as textures and one WGSL
+pass ran at 70 and 48.
+
+```ts
+// in open: a still is written once
+still.write(first, image.data as Uint8Array)
+
+// in render(t): the footage frame, then one pass each into the output texture
+const data = await clip.frame(Math.min(clip.frames - 1, Math.floor(t * clip.fps)))
+const encoder = device.createCommandEncoder()
+footage.write(encoder, data) // writeTexture, then its mip levels halved
+const back = fit(footage, 'cover')
+drawFootage(encoder, back.rect, back.lod + 5, 1) // cover, read 32× smaller: a blurred backdrop
+const front = fit(still, 'contain', 0.6)
+drawStill(encoder, front.rect, front.lod, 0, false) // the whole still, over it
+device.queue.submit([encoder.finish()])
+return { color: output, alpha: 'premultiplied' }
+```
+
+`docs/participants/webgpu.md`, "Footage and stills", has the whole film: the WGSL pass, `picture`
+(a texture with mip levels), `fit` (cover and contain as a uv rectangle) and `pass`. Never blur by
+drawing a frame to a tiny canvas and back up: it is slow, and with `'high'` smoothing its pixels
+can depend on what was drawn before.
 
 ## HDR10
 
