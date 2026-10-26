@@ -162,6 +162,16 @@ $ shaderera check --times 5
 
 Exit 1 when any timestamp differs. What it does: [determinism.md](determinism.md#how-check-measures-it).
 
+A clip `io.video` reads whose keyframes are more than 2 s apart gets a note (finding
+`keyframes`, `info`): every seek into it decodes from the keyframe before, so `check`, `still`,
+the studio scrub and each chunk start pay for the gap. Trim it with a short GOP (`-g <fps>`,
+[footage](guides/footage.md)). Only the project's own clips that `check` seeked in are measured,
+from the packets it read to seek; with several variants, each clip is noted once, after them.
+
+```
+! assets/footage/surf.mp4: keyframes up to 8.3 s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to 8.3 s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).
+```
+
 A shader that does not compile fails `check`, `still`, `render` and every other command that
 renders, with the compiler's own message, line and column, and the project file and line it found
 the code in:
@@ -996,7 +1006,7 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
 }
 ```
 
-- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `shader`, `gpu`,
+- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `shader`, `gpu`,
   `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and
   `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.

@@ -67,6 +67,12 @@ export const probeVideo = (file: string): VideoInfo => {
   }
 }
 
+/**
+ * The longest keyframe gap, in seconds, of each clip file a decoder of this process read the
+ * packets of to seek (decoder.ts, keyGap): `check` notes the long ones.
+ */
+export const keyGaps = new Map<string, number>()
+
 /** How many bytes of frames a clip's decoder runs ahead at most: 64 MiB (one frame if larger). */
 export const AHEAD_BYTES = 64 * 1024 * 1024
 
@@ -96,6 +102,7 @@ export const videoReader = (
   >()
   worker.on('message', (m: FromVideo) => {
     pid = m.pid
+    if (m.keyGap !== undefined) keyGaps.set(file, m.keyGap)
     const a = asked.get(m.id)
     asked.delete(m.id)
     if (asked.size === 0) worker.unref()

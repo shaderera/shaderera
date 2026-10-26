@@ -47,8 +47,10 @@ page, stop: use another source, or ask the person for the file.
   For a long film on Commons, make the sheets from a small transcode
   (`prop=videoinfo&viprop=derivatives` lists them) and download the original only for the
   segments kept.
-- Trim to the segment used, and note it:
-  `ffmpeg -ss <from> -t <seconds> -i source.mp4 -an -c:v libx264 -crf 18 assets/footage/<name>.mp4`
+- Trim to the segment used, with a keyframe every second (`-g` the clip's fps), and note it:
+  `ffmpeg -ss <from> -t <seconds> -i source.mp4 -an -c:v libx264 -crf 18 -g <fps> assets/footage/<name>.mp4`
+  A frame is decoded from the keyframe before it, so short gaps keep every jump into the clip
+  cheap: `check`, `still`, the studio scrub, the start of each render chunk.
 - When the person marked the segments themselves, in LosslessCut or another editor, ask for them
   as CSV: one `start,end,label` line per segment, in seconds of the file they marked (LosslessCut's
   own CSV, per its docs, 2026-10-22). A line with no end is a marker, not a segment. Trim each

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { frameIndex, probeIndex, seekFor, videoDecoder } from './decoder.ts'
+import { frameIndex, keyGap, probeIndex, seekFor, videoDecoder } from './decoder.ts'
 import { probeVideo } from './services.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
@@ -172,4 +172,37 @@ test('a seeked decoder that reached the file end still seeks for a frame before'
   } finally {
     await d.close()
   }
+})
+
+/** A 9 s clip at 30 fps with a keyframe every `gop` frames. */
+const gopClip = (gop: number) => {
+  const file = join(tempDir('gop'), `g${gop}.mp4`)
+  const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=64x36:rate=30', '-t', '9']
+  const x264 = ['-c:v', 'libx264', '-g', String(gop), '-sc_threshold', '0', '-pix_fmt', 'yuv420p']
+  spawnSync('ffmpeg', [...args, ...x264, file])
+  return file
+}
+
+test('the longest keyframe gap counts from each keyframe to the next, and the last to the end', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 60_000,
+}, async () => {
+  const long = await probeIndex(gopClip(250))
+  const short = await probeIndex(gopClip(30))
+  assert.ok(long && short)
+  // Keyframes at 0 and 250: 250 frames apart (the last 20 frames are nearer).
+  assert.ok(Math.abs(keyGap(long) - 250 / 30) < 1e-6, String(keyGap(long)))
+  assert.ok(Math.abs(keyGap(short) - 1) < 1e-6, String(keyGap(short)))
+  // Only the last stretch: one keyframe, 10 frames after it.
+  const one = frameIndex(
+    probe([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((pts) => ({ pts, flags: pts ? '___' : 'K__' }))),
+  )
+  assert.ok(one)
+  assert.equal(keyGap(one), 0.01)
+  // And the first stretch: frames before the first keyframe (an edit list that starts mid-GOP).
+  const late = frameIndex(
+    probe([0, 1, 2, 3, 4, 5, 6].map((pts) => ({ pts, flags: pts === 5 ? 'K__' : '___' }))),
+  )
+  assert.ok(late)
+  assert.equal(keyGap(late), 0.005)
 })
