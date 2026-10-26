@@ -1,6 +1,6 @@
 // The thread a clip's decoder runs in (services.ts, videoReader): it decodes, keeps the frames
-// videoDecoder keeps, and sends each frame asked for as a copy of its own, moved, not copied
-// again, to the CLI's thread.
+// videoDecoder keeps, and moves each frame asked for (a copy of its own) to the CLI's thread
+// without copying it again.
 import { parentPort, workerData } from 'node:worker_threads'
 import { videoDecoder } from './decoder.ts'
 import type { VideoInfo } from './services.ts'
@@ -35,8 +35,8 @@ if (port) {
         await decoder.close()
         return port.postMessage({ id: m.id, pid: decoder.pid } satisfies FromVideo)
       }
-      // A copy: the decoder keeps its own for a frame asked again.
-      const bytes = (await decoder.frame(m.index)).slice()
+      // The decoder's copy, moved: it keeps its own for a frame asked again.
+      const bytes = await decoder.frame(m.index)
       port.postMessage({ id: m.id, pid: decoder.pid, bytes } satisfies FromVideo, [bytes.buffer])
     } catch (error) {
       port.postMessage({
