@@ -141,9 +141,9 @@ it, before any frame.
   sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. Once per file in a host. Other formats
   are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with ffmpeg
-  (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over; frames
+  (four threads), by the file's own colour tags to full-range RGBA, and hands frame i over; frames
   read in order stream. A frame far from the one before (a jump back, a chunk's first frame) starts
-  the decoder (on four threads) at the keyframe before it, not at frame 0, when the file's packets
+  the decoder at the keyframe before it, not at frame 0, when the file's packets
   say which frame is which (H.264, HEVC, ProRes, DNxHD, MJPEG); each frame is checked by its
   timestamp, and any other file, or a frame that does not check, decodes from frame 0 as before. One
   decoder serves every Node host of a render: a frame is decoded once, however many hosts there are,

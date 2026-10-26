@@ -121,9 +121,9 @@ export const probeIndex = (file: string, turn?: SpawnTurn) =>
  * not at frame 0 (#434): the file's packets (`frameIndex`) say which pts frame i has, and each frame
  * that comes out is given as frame i only once its pts (showinfo, with `-copyts`) is the one frame
  * i has. A file the packets cannot index, or a frame that comes out with another pts or not at all,
- * goes back to decoding from frame 0 and counting, as before; that file is not seeked again. A
- * seeked decoder runs on 4 threads, which cuts the decode up to the frame (the same bytes as one
- * thread: ffmpeg's frame threads are exact).
+ * goes back to decoding from frame 0 and counting, as before; that file is not seeked again. Every
+ * decoder runs on 4 threads, in order or seeked (#451: 4K in order was capped at one thread's pace);
+ * the bytes are one thread's (ffmpeg's frame threads are exact).
  */
 export const videoDecoder = (
   file: string,
@@ -165,9 +165,9 @@ export const videoDecoder = (
   const start = (from: number) => {
     proc?.kill()
     const seek = packets ? seekFor(packets, from) : undefined
-    // Software decode, every frame from `from` on, converted by the file's own colour tags, started
-    // in this thread's turn. Seeked: ffmpeg starts at a keyframe before `from`, keeps the file's
-    // timestamps and picks frames by pts, printing each one's pts (showinfo) to check it.
+    // Software decode on 4 threads, every frame from `from` on, converted by the file's own colour
+    // tags, started in this thread's turn. Seeked: ffmpeg starts at a keyframe before `from`, keeps
+    // the file's timestamps and picks frames by pts, printing each one's pts (showinfo) to check it.
     const pick = seek
       ? `select=gte(pts\\,${(packets as FrameIndex).pts[from]}),showinfo=checksum=0`
       : `select=gte(n\\,${from})`
@@ -175,7 +175,7 @@ export const videoDecoder = (
       '-loglevel',
       seek ? 'info' : 'error',
       '-threads',
-      seek ? '4' : '1',
+      '4',
       ...(seek ? ['-nostats', '-ss', seek.ss, '-noaccurate_seek', '-copyts'] : []),
       '-i',
       file,

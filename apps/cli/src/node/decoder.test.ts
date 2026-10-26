@@ -84,6 +84,33 @@ const inOrder = async (file: string) => {
   return frames
 }
 
+test('frames read in order on 4 threads are the bytes of a one-thread decode (#451)', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 60_000,
+}, async () => {
+  const file = clip()
+  const r = spawnSync(
+    'ffmpeg',
+    [
+      ...['-v', 'error', '-threads', '1', '-i', file, '-map', '0:v:0'],
+      ...['-vf', 'scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba'],
+      ...['-fps_mode', 'passthrough', '-f', 'rawvideo', '-'],
+    ],
+    { maxBuffer: 64 << 20 },
+  )
+  assert.equal(r.status, 0, String(r.stderr))
+  const size = 64 * 36 * 4
+  assert.equal(r.stdout.length, 60 * size)
+  const got = await inOrder(file)
+  for (let i = 0; i < 60; i++) {
+    assert.deepEqual(
+      got[i],
+      new Uint8Array(r.stdout.subarray(i * size, (i + 1) * size)),
+      `frame ${i}`,
+    )
+  }
+})
+
 test('frames read out of order start the decoder near them and are the bytes read in order', {
   skip: !ffmpeg && 'no ffmpeg',
   timeout: 60_000,
