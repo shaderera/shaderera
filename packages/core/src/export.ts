@@ -63,8 +63,7 @@ export const exportFrames = async (o: {
   to: number
   /** `host`: which of the `hosts` renders it, from 0. */
   render: (t: number, host: number) => Promise<Uint8Array | Uint8ClampedArray>
-  /** Compared too, on the frames rendered again. */
-  /** On the host that rendered the frame. */
+  /** Compared too, on the frames rendered again, on the host that rendered the frame. */
   inspect?: (t: number, host: number) => Promise<Json>
   sink: Sink
   signal?: AbortSignal
