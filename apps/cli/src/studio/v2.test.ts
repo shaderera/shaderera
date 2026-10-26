@@ -56,7 +56,9 @@ before(async () => {
     site: SITE,
     origins: [SITE],
     settleMs: 50,
-    runnerKeepMs: 500,
+    // Long enough that three runners asked one after the other on a loaded machine are all still
+    // within it when the third is asked.
+    runnerKeepMs: 5_000,
   })
 })
 after(async () => {
@@ -398,9 +400,11 @@ test('a third revision runner closes the least recently used, once its frame had
     assert.equal(r.status, 302)
     return new URL(String(r.headers.location))
   }
+  // Its own page answers 200 at its secret path; once it has closed, another server may take the
+  // port (a parallel test, another studio) and answer 404 there.
   const alive = (at: URL) =>
     fetch(at).then(
-      () => true,
+      (r) => r.ok,
       () => false,
     )
   const pages = []
@@ -408,7 +412,7 @@ test('a third revision runner closes the least recently used, once its frame had
   // All three were just sent: none is closed under the page loading it.
   assert.deepEqual(await Promise.all(pages.map(alive)), [true, true, true])
   // Past the keep time and the next poll, the least recently used goes.
-  for (let i = 0; i < 100 && (await alive(pages[0] as URL)); i++)
+  for (let i = 0; i < 300 && (await alive(pages[0] as URL)); i++)
     await new Promise((r) => setTimeout(r, 100))
   assert.deepEqual(await Promise.all(pages.map(alive)), [false, true, true])
 })
