@@ -1,6 +1,6 @@
 # 0027: Video frames as Y'CbCr planes, converted by core in WGSL
 
-2026-10-27. The owner approved the direction (#452); this ADR comes before the implementation.
+2026-10-27. The owner approved the direction (#452), and the maintainer decided the open points on #456 (below); this ADR comes before the implementation.
 Amends [0007](0007-gpu-first-host.md) and the `Io` contract (`Footage.frame`).
 
 **Context.** `io.video` hands every frame over as straight RGBA: 8.3 MB at 1080p, 33 MB at 2160p.
@@ -128,6 +128,14 @@ what an H.264 or HEVC file decodes to. For an 8-bit 4:2:0 file ffmpeg then conve
    - **0023 is unchanged.** An `io.video` layer, from either path, stays an SDR layer of sRGB
      code values, mapped to `graphicsWhite` in an `hdr10` render.
 
+**Decided by the maintainer on #456 (2026-10-27).**
+- Integer-exact WGSL, close to the RGBA path but not byte-equal to it, is accepted. The PSNR
+  bound stays in the tests.
+- `videoTexture` starts in the experimental `@shaderera/core/gpu` entry.
+- A clip with alpha asked for as `yuv420p` is refused, and the error names `rgba`.
+- A 10- or 12-bit clip asked for as `yuv420p` is reduced to 8 bits, as RGBA is today.
+  `yuv420p10` comes with HDR footage.
+
 **Not decided here (later, each when a film asks).**
 - **`yuv420p10`.** 10-bit planes in P010's layout, the layout 0023's encoder already takes:
   6.2 MB at 1080p, still under RGBA's 8.3 MB. Together with PQ and HLG footage, this is the
@@ -147,7 +155,7 @@ what an H.264 or HEVC file decodes to. For an 8-bit 4:2:0 file ffmpeg then conve
 - **Returning planes as three buffers or an object.** The transport and `Footage.frame`'s type
   carry one `Uint8Array`, and the layout above is fixed.
 
-**Verify before implementation.**
+**Verify before implementation** (the implementation's first tasks).
 - Which matrix and range ffmpeg 8.1's `scale` with `in_color_matrix=auto:in_range=auto` uses
   for an untagged file (swscale's default has been BT.601 limited). `colour` must report that.
 - That `scale=out_range=<the file's>,format=yuv420p` keeps a full-range MJPEG (`yuvj420p`) full
