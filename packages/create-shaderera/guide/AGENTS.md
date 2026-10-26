@@ -29,6 +29,19 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
 - Look at the frames, not only the numbers: `npx shaderera still <t>... --sheet`, a detail with
   `--region x,y,w,h --scale 8`, or the MCP server (`npx shaderera mcp`, `render_frame` with
   `image: true`). Read motion as a curve: `npx shaderera inspect --track <path>`.
+- Build it so it renders fast (`AUTHORING.md`, "Expensive films" and "Footage and stills on the
+  GPU"):
+  - do decoding, baking and other one-off work in `open`, not in `render(t)`;
+  - put footage and stills on GPU textures and sample them in WGSL, a still once and a footage
+    frame once a frame; keep Canvas2D for type and small shapes, and never do per-pixel work in
+    JS at every frame;
+  - trim footage with a short GOP (`guides/footage.md`): every seek decodes from the last
+    keyframe.
+- While you iterate, look at the frames a change touched, and render only the shot that changed
+  (`render --from <s> --to <s> --out out/shot.mp4`). Render the whole film when the person asks,
+  in the background with `--progress`, and tell them the time left (`guides/review.md`).
+- Renders pile up in `out/` and revisions in `versions/`: delete the renders nobody needs, and
+  `npx shaderera prune --dry-run` shows the revisions it can remove.
 - Add `--json` to any command for one envelope to read: `ok`, `exitCode` (0 passed, 1 the film
   failed a check, 2 the command could not run) and `findings` with t, file:line and bbox. When
   something on the machine is missing, `npx shaderera doctor` says what and how to fix it.
