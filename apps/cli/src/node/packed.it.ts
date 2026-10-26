@@ -9,8 +9,8 @@ import { tempDir } from '../fixtures/temp.ts'
 /**
  * The browser host as a user gets it: `shaderera` and `@shaderera/core` packed, installed with npm
  * in a project outside the repository (docs/releasing.md), where the runner is the package's dist/
- * inside node_modules (#198). Needs the built packages (test:slow builds), npm's registry for vite,
- * and Chrome (CHROME overrides).
+ * inside node_modules (#198). Needs both packages built (test:slow and test:all build them),
+ * npm's registry for vite, and Chrome (CHROME overrides).
  */
 const cli = fileURLToPath(new URL('../..', import.meta.url))
 const core = join(cli, '../../packages/core')
