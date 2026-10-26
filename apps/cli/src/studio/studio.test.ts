@@ -93,7 +93,8 @@ after(async () => {
 const root = fixture()
 before(async () => {
   bridge = await startBridge({ root, api: SITE, site: SITE, origins: [SITE, DEV], settleMs: 50 })
-  relay = await startRelay({ ttlMs: 300 })
+  // The relay's own limit (10 min): a CLI slow to join on a loaded machine is not expired (#422).
+  relay = await startRelay()
 })
 
 test('a studio session id is 20 characters of the alphabet', () => {
@@ -120,16 +121,17 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
   const paired = p.pair()
   // The page is there first; the CLI joins after (cli-joined, page-hello again).
   await p.opened
-  let cliPaired = false
+  let cliPaired: () => void = () => {}
+  const heardPaired = new Promise<void>((done) => {
+    cliPaired = done
+  })
   const cli = connectRelay({
     site: relay.origin,
     id,
     nonce,
     bridge,
     hello: { version: '9.9.9', os: 'test', telemetry: true },
-    onPaired: () => {
-      cliPaired = true
-    },
+    onPaired: () => cliPaired(),
   })
   closeAtEnd(t, cli, p)
   const { hello, bridge: got } = await paired
@@ -142,8 +144,8 @@ test('the CLI pairs through the relay, and only the page can open the bridge it 
   assert.match(got.secret, /^[0-9a-f]{32}$/)
   // The relay saw only ciphertext.
   assert.ok(!relay.seen.some((frame) => frame.includes(bridge.secret)))
-  for (let i = 0; i < 50 && !cliPaired; i++) await new Promise((r) => setTimeout(r, 20))
-  assert.ok(cliPaired, 'the CLI hears paired')
+  // The CLI hears paired.
+  await heardPaired
   assert.equal(relay.sessions.get(id)?.paired, true)
 
   // Used: no second CLI, and no second page.
@@ -426,13 +428,15 @@ test('a page of another protocol is told which side to update, and never gets th
 })
 
 test('an id no CLI paired with in time is expired', async (t) => {
+  const hasty = await startRelay({ ttlMs: 300 })
+  t.after(() => hasty.close())
   const id = makeId()
-  const p = page(relay.origin, id)
+  const p = page(hasty.origin, id)
   closeAtEnd(t, p)
   await p.opened
   await new Promise((r) => setTimeout(r, 400))
   const cli = connectRelay({
-    site: relay.origin,
+    site: hasty.origin,
     id,
     nonce,
     bridge,

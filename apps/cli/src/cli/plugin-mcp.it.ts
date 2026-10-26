@@ -8,10 +8,20 @@ import { fileURLToPath } from 'node:url'
 
 const launcher = fileURLToPath(new URL('../../../../plugins/shaderera/mcp.mjs', import.meta.url))
 
-test('the plugin launcher starts the server, which answers initialize inside 30 s', async () => {
+const cwd = join(fileURLToPath(import.meta.url), '..')
+
+test('the plugin launcher starts the server, which answers initialize inside 30 s', {
+  timeout: 300_000,
+}, async () => {
+  // The first start after a release installs the package from the registry, as long as the
+  // network takes (#422). A start whose stdin is closed at once ends once it has: the start timed
+  // below is the one a session makes every time after that.
+  const warm = spawn(process.execPath, [launcher], { cwd, stdio: ['pipe', 'ignore', 'inherit'] })
+  warm.stdin.end()
+  assert.equal(await new Promise((resolve) => warm.on('exit', resolve)), 0)
   const t0 = Date.now()
   const child = spawn(process.execPath, [launcher], {
-    cwd: join(fileURLToPath(import.meta.url), '..'),
+    cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   let stderr = ''
