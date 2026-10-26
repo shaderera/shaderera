@@ -199,4 +199,10 @@ test('the longest keyframe gap counts from each keyframe to the next, and the la
   )
   assert.ok(one)
   assert.equal(keyGap(one), 0.01)
+  // And the first stretch: frames before the first keyframe (an edit list that starts mid-GOP).
+  const late = frameIndex(
+    probe([0, 1, 2, 3, 4, 5, 6].map((pts) => ({ pts, flags: pts === 5 ? 'K__' : '___' }))),
+  )
+  assert.ok(late)
+  assert.equal(keyGap(late), 0.005)
 })

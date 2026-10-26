@@ -82,11 +82,12 @@ export const seekFor = (
 }
 
 /**
- * The longest stretch, in seconds, a decode starts before the frame it wants: from a keyframe to
- * the next, or from the last one to the last frame. A seek into a file decodes up to that much.
+ * The longest stretch, in seconds, a decode starts before the frame it wants: from the first frame
+ * to the first keyframe, from a keyframe to the next, or from the last one to the last frame. A
+ * seek into a file decodes up to that much.
  */
 export const keyGap = (index: FrameIndex): number => {
-  const at = [...index.keys, index.pts.length - 1]
+  const at = [0, ...index.keys, index.pts.length - 1]
   let most = 0n
   for (let i = 1; i < at.length; i++) {
     const d = (index.pts[at[i] as number] as bigint) - (index.pts[at[i - 1] as number] as bigint)

@@ -1,15 +1,17 @@
-import { isAbsolute, relative, sep } from 'node:path'
+import { relative, sep } from 'node:path'
 import type { DeterminismReport, Manifest } from '@shaderera/core'
 import { checkDeterminism, diffPixels } from '@shaderera/core'
 import { type LightLevels, type SeekStats, sampleTimes } from '@shaderera/core/host'
 import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
+import { outside } from '../node/inside.ts'
+import { findProject } from '../node/project.ts'
 import { keyGaps } from '../node/services.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { EXIT } from './findings.ts'
 import { words16 } from './matte64.ts'
-import { eachVariant, type Output } from './variants.ts'
+import { direct, eachVariant, type Output } from './variants.ts'
 
 export type CheckResult = DeterminismReport & {
   times: number[]
@@ -114,23 +116,20 @@ export const checkChild = async (
   }
 }
 
-/** `file`'s path in `root`, or undefined when it is outside. */
-const inside = (root: string, file: string) => {
-  const path = relative(root, file)
-  return path.startsWith('..') || isAbsolute(path) ? undefined : path
-}
+/** Whether `file` is one of the project's own, not outside `root` nor an installed package's. */
+const ours = (root: string, file: string) =>
+  !outside(root, file) && !relative(root, file).split(sep).includes('node_modules')
 
 /**
- * A note for each clip inside `root` whose keyframes are more than 2 s apart (#450): every seek in
- * it decodes that much first. `gaps` are the files whose packets a decoder read to seek.
+ * A note for each of the project's clips whose keyframes are more than 2 s apart (#450): every seek
+ * in it decodes that much first. `gaps` are the files whose packets a decoder read to seek.
  */
 export const keyframeNotes = (root: string, gaps: ReadonlyMap<string, number> = keyGaps) =>
   [...gaps].flatMap(([file, gap]) => {
-    const path = inside(root, file)
-    if (gap <= 2 || path === undefined) return []
+    if (gap <= 2 || !ours(root, file)) return []
     const s = gap.toFixed(1)
     return [
-      `${path.split(sep).join('/')}: keyframes up to ${s} s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to ${s} s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).`,
+      `${relative(root, file).split(sep).join('/')}: keyframes up to ${s} s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to ${s} s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).`,
     ]
   })
 
@@ -150,7 +149,16 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     },
     { command: 'check', times: false },
   )
-  return eachVariant(values, checkOne)
+  // The clips are noted once, after every variant ran: their hosts share the decoders (and so
+  // the gaps), and run at once.
+  const { root } = await findProject(typeof values.root === 'string' ? values.root : process.cwd())
+  for (const file of keyGaps.keys()) if (ours(root, file)) keyGaps.delete(file)
+  const exit = await eachVariant(values, checkOne)
+  for (const note of keyframeNotes(root)) {
+    direct.log(`! ${note}`)
+    direct.found({ code: 'keyframes', severity: 'info', message: note })
+  }
+  return exit
 }
 
 const checkOne = async (
@@ -158,8 +166,6 @@ const checkOne = async (
   out: Output,
 ): Promise<number> => {
   const { project, child } = await open(v)
-  // The clips of this project are noted from what this check reads.
-  for (const file of keyGaps.keys()) if (inside(project.root, file)) keyGaps.delete(file)
   try {
     const r = await checkChild(child, project.manifest, {
       times: Number(v.times ?? 50),
@@ -213,10 +219,6 @@ const checkOne = async (
     }
     return EXIT.failed
   } finally {
-    for (const note of keyframeNotes(project.root)) {
-      out.log(`! ${note}`)
-      out.found({ code: 'keyframes', severity: 'info', message: note })
-    }
     await child.close()
   }
 }

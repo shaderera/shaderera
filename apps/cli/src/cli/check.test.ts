@@ -72,15 +72,21 @@ test('diffP010 compares P010 bytes that start at an odd offset', () => {
   assert.deepEqual(diffP010(a, new Uint8Array(b.buffer)), { mean: 5 / 4, max: 4 })
 })
 
-test('check notes the clips inside the project whose keyframes are more than 2 s apart', () => {
+test("check notes the project's own clips whose keyframes are more than 2 s apart", () => {
   const root = join('/films', 'a')
   const gaps = new Map([
     [join(root, 'assets', 'footage', 'long.mp4'), 250 / 30],
     [join(root, 'assets', 'footage', 'short.mp4'), 1],
     [join(root, 'assets', 'footage', 'two.mp4'), 2],
+    [join(root, '..clip.mp4'), 3],
+    [join(root, 'node_modules', 'pkg', 'clip.mp4'), 9],
     [join('/films', 'b', 'other.mp4'), 9],
   ])
+  const note = (path: string, s: string) =>
+    `${path}: keyframes up to ${s} s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to ${s} s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).`
+  // A file named ..clip.mp4 is inside; an installed package's clip is not the project's own.
   assert.deepEqual(keyframeNotes(root, gaps), [
-    'assets/footage/long.mp4: keyframes up to 8.3 s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to 8.3 s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).',
+    note('assets/footage/long.mp4', '8.3'),
+    note('..clip.mp4', '3.0'),
   ])
 })
