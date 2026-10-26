@@ -744,6 +744,30 @@ signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERER
 another) and whether the project can be shared (`share`: the licence it declares). Neither is
 needed, so neither fails `doctor`.
 
+Inside a project it also says what takes its disk space, in binary units (1 MiB is 2²⁰ bytes;
+`prune` prints decimal MB), one line per kind that has any: the working tree (the files a save
+stores), `versions/` (revisions and their objects), `.shaderera/revisions/` (`disk:frozen`, the
+frozen copies jobs render from), the rest of `.shaderera/` (`disk:cache`), `out/` by kind (files
+in `out/`, `*.plan` folders, a PNG job's `out/<job>/`, `review/`, `stills/`, the studio's exports
+in `studio/`, other folders), `node_modules/` and `.git/`. Then what `prune --dry-run` would free
+([pruning](#pruning), `--keep 10`), and the 3 biggest objects the revisions prune keeps name, each
+with why it is kept: the head, a label (by name, or a count when several), a job, a bake, a
+comment, a frozen copy, the last saves. It removes nothing. `--json` carries each one's `bytes`.
+
+```
+✓ disk               761.6 MiB in all
+✓ disk:working-tree  5.7 MiB (the files a save stores)
+✓ disk:versions      14.7 MiB (versions/: saved revisions and their objects)
+✓ disk:cache         439.3 MiB (.shaderera/, the rest)
+✓ disk:out:renders   27.5 MiB (files in out/)
+✓ disk:out:stills    11.9 MiB (out/stills/)
+✓ disk:node_modules  262.4 MiB (node_modules/)
+✓ disk:prune         prune --dry-run would free 0 B: 0 revision(s), 0 object(s), 0 frozen copy(ies)
+✓ disk:kept          regions/falcon/check.png 1.3 MiB: 3 labels, one of the last 10 saves, the head
+✓ disk:kept          assets/footage/plume.mp4 757.8 KiB: 5 labels, one of the last 10 saves
+✓ disk:kept          assets/footage/falcon.mp4 609.5 KiB: 2 labels, one of the last 10 saves
+```
+
 A software adapter (SwiftShader, llvmpipe, lavapipe, WARP, or the fallback adapter) is a `gpu`
 warning, not `ok`: the fix says what to check, the GPU driver, that a container is given the GPU
 (`--gpus all`, `/dev/dri`), a Vulkan ICD on Linux, and nothing turning off Chrome's GPU.

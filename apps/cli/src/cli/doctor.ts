@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { type Dirent, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { shadereraVersion } from '../deliver/environment.ts'
@@ -7,6 +7,8 @@ import { type AdapterInfo, adapterLine, softwareAdapter } from '../node/adapter.
 import { browserAdapter, chromePath } from '../node/browser.ts'
 import { hostOf } from '../node/host-of.ts'
 import { findProject } from '../node/project.ts'
+import { folderSize, prune } from '../project/prune.ts'
+import { log, readRevision } from '../project/revisions.ts'
 import { hardwareEncoder, hasHevcNvenc, hdr10Problem } from './ffmpeg.ts'
 import { EXIT, found } from './findings.ts'
 import { dayOf } from './login.ts'
@@ -24,6 +26,8 @@ export type DoctorItem = {
   fix?: string
   /** The `gpu` item: the adapter's limits a film runs into, as the Node host's device gets them. */
   limits?: { [name: string]: number }
+  /** The `disk` items: the bytes the item names. */
+  bytes?: number
 }
 
 /**
@@ -313,6 +317,7 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
       detail: 'fonts/ (registered by the source with io.font)',
       needed: false,
     })
+  items.push(...diskItems(project.root))
   return items
 }
 
@@ -423,4 +428,159 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         `${{ ok: '✓', missing: '✗', warn: '!' }[i.status]} ${i.id.padEnd(18)} ${i.detail}${i.fix ? `\n  ${''.padEnd(18)} ${i.fix}` : ''}`,
       )
   return failed ? EXIT.failed : EXIT.ok
+}
+
+/** Bytes in binary units: `512 B`, `1.5 KiB`, `236.2 MiB`, `1.4 GiB`. */
+export const binary = (bytes: number) => {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let i = 0
+  let n = bytes
+  for (; n >= 1024 && i < units.length - 1; i++) n /= 1024
+  return i === 0 ? `${n} B` : `${n.toFixed(1)} ${units[i]}`
+}
+
+/** The `disk` items, in this order, and what each holds. */
+const DISK = {
+  'disk:working-tree': 'the files a save stores',
+  'disk:versions': 'versions/: saved revisions and their objects',
+  'disk:frozen': '.shaderera/revisions: frozen copies jobs render from',
+  'disk:cache': '.shaderera/, the rest',
+  'disk:out:renders': 'files in out/',
+  'disk:out:plans': 'out/*.plan',
+  'disk:out:png-jobs': 'out/<job>/',
+  'disk:out:review': 'out/review/',
+  'disk:out:stills': 'out/stills/',
+  'disk:out:studio': 'out/studio/: studio exports',
+  'disk:out:other': 'out/, other folders',
+  'disk:node_modules': 'node_modules/',
+  'disk:git': '.git/',
+} as const
+type Disk = keyof typeof DISK
+
+/**
+ * What takes the project's disk space, one item per kind that has any; what `prune --dry-run`
+ * would free (project/prune.ts, its default `--keep 10`); and the 3 biggest objects the revisions
+ * prune keeps name, with why each is kept. Sizes only: it removes nothing.
+ */
+export const diskItems = (root: string): DoctorItem[] => {
+  const fileSize = (file: string) => {
+    try {
+      return statSync(file).size
+    } catch {
+      return 0
+    }
+  }
+  const sizes = new Map<Disk, number>()
+  const list = (dir: string): Dirent[] => {
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return []
+    }
+  }
+  const add = (id: Disk, dir: string, e: Dirent) => {
+    const path = join(dir, e.name)
+    const n = e.isDirectory() ? folderSize(path) : e.isFile() ? fileSize(path) : 0
+    sizes.set(id, (sizes.get(id) ?? 0) + n)
+  }
+  const OUT: { [name: string]: Disk } = {
+    review: 'disk:out:review',
+    stills: 'disk:out:stills',
+    studio: 'disk:out:studio',
+  }
+  for (const e of list(root)) {
+    const dir = join(root, e.name)
+    if (e.name === 'out' && e.isDirectory())
+      for (const o of list(dir))
+        add(
+          !o.isDirectory()
+            ? 'disk:out:renders'
+            : o.name.endsWith('.plan')
+              ? 'disk:out:plans'
+              : (OUT[o.name] ??
+                (existsSync(join(root, 'versions', 'jobs', `${o.name}.json`))
+                  ? 'disk:out:png-jobs'
+                  : 'disk:out:other')),
+          dir,
+          o,
+        )
+    else if (e.name === '.shaderera' && e.isDirectory())
+      for (const s of list(dir)) add(s.name === 'revisions' ? 'disk:frozen' : 'disk:cache', dir, s)
+    else
+      add(
+        e.name === 'versions'
+          ? 'disk:versions'
+          : e.name === 'node_modules'
+            ? 'disk:node_modules'
+            : e.name === '.git'
+              ? 'disk:git'
+              : 'disk:working-tree',
+        root,
+        e,
+      )
+  }
+  const item = (id: string, detail: string, bytes?: number): DoctorItem => ({
+    id,
+    status: 'ok',
+    detail,
+    needed: false,
+    ...(bytes === undefined ? {} : { bytes }),
+  })
+  const total = [...sizes.values()].reduce((a, b) => a + b, 0)
+  const items = [item('disk', `${binary(total)} in all`, total)]
+  for (const id of Object.keys(DISK) as Disk[]) {
+    const n = sizes.get(id)
+    if (n) items.push(item(id, `${binary(n)} (${DISK[id]})`, n))
+  }
+  let r: ReturnType<typeof prune>
+  try {
+    r = prune(root, { keep: 10, dryRun: true })
+  } catch (e) {
+    return [...items, { ...item('disk:prune', (e as Error).message), status: 'warn' }]
+  }
+  items.push(
+    item(
+      'disk:prune',
+      `prune --dry-run would free ${binary(r.bytes)}: ${r.removed.length} revision(s), ${r.objects.length} object(s), ${r.copies.length} frozen copy(ies)`,
+      r.bytes,
+    ),
+  )
+  // Each object the kept revisions name, with every reason they are kept; a label by its name.
+  const labels = new Map(log(root).flatMap((e) => (e.label ? [[e.id, e.label]] : [])))
+  const pins = new Map<string, { path: string; why: string[] }>()
+  for (const k of r.kept) {
+    let revision: ReturnType<typeof readRevision>
+    try {
+      revision = readRevision(root, k.id)
+    } catch {
+      continue
+    }
+    const label = revision.label ?? labels.get(k.id)
+    const why = k.why.map((w) => (w === 'a label' && label ? `label "${label}"` : w))
+    for (const [path, hash] of Object.entries(revision.files)) {
+      const pin = pins.get(hash) ?? { path, why: [] }
+      for (const w of why) if (!pin.why.includes(w)) pin.why.push(w)
+      pins.set(hash, pin)
+    }
+  }
+  const biggest = [...pins]
+    .map(([hash, pin]) => ({ ...pin, bytes: fileSize(join(root, 'versions', 'objects', hash)) }))
+    .sort((a, b) => b.bytes - a.bytes)
+    .slice(0, 3)
+  // One label by its name (cut at 40 characters), more as a count: labels run long.
+  const short = (why: string[]) => {
+    const named = why.filter((w) => w.startsWith('label "'))
+    const rest = why.filter((w) => !named.includes(w))
+    const one = named[0]?.length && named[0].length > 48 ? `${named[0].slice(0, 47)}…"` : named[0]
+    return [...(named.length > 1 ? [`${named.length} labels`] : one ? [one] : []), ...rest]
+  }
+  for (const pin of biggest)
+    items.push(
+      item(
+        'disk:kept',
+        `${pin.path} ${binary(pin.bytes)}: ${short(pin.why).join(', ')}`,
+        pin.bytes,
+      ),
+    )
+  return items
 }
