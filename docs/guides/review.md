@@ -23,5 +23,22 @@ Before you call a draft finished, look at it and check it.
    positive; a separate reviewer with criteria from the brief is stricter (Anthropic, "Harness
    design for long-running apps", 2026-03-24).
 
+While you iterate, look before you render. Look at the frames a change touched (MCP `still` or
+`render_frame`, or `npx shaderera still <t>... --sheet`). When you need to see it move, render
+only the shot that changed: `npx shaderera render --from <s> --to <s> --out out/shot.mp4`. Render
+the whole film when the person asks for it, or for a review round.
+
+Say how long a full render will take. Run it in the background with `--progress`, read the first
+progress lines (`frame 120/600  23.4 fps  0:20 left`) and tell the person the time left. Don't
+wait in silence. When a render is slow, say why and what helps, in this order:
+
+- A software GPU. `render` refuses it unless `--software-gpu`; `npx shaderera doctor` says what
+  to check.
+- Footage or stills drawn through Canvas2D, which costs CPU work on every frame.
+- Long-GOP footage (few keyframes): reaching a frame decodes every frame since the last keyframe.
+  Encode it again with more keyframes.
+
+Keep `--workers` at its default: more hosts don't help a film that waits on its footage.
+
 Numbers are diagnostics: contrast, exposure and motion measurements do not decide whether a dark
 frame or a pause is wrong. A passing check never means the film looks good.

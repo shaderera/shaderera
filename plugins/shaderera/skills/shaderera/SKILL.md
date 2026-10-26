@@ -75,6 +75,11 @@ check, 2 the command could not run) and `findings` with `t`, `file:line` and a b
 
 ## 4. Render and deliver
 
+While you iterate, look (step 3) instead of rendering, and render only the shot that changed:
+`render --from <s> --to <s> --out out/shot.mp4`. Render the whole film when the person asks, or
+for a review round: in the background with `--progress`, and tell them the time left from its
+first lines. Keep `--workers` at its default. Why a render is slow: `guides/review.md`.
+
 ```bash
 npx shaderera review                      # frames, a contact sheet and technical checks
 npx shaderera render                      # out/<project>.mp4
