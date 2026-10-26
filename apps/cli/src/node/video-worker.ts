@@ -12,8 +12,17 @@ export type VideoAsk = { type: 'frame'; index: number } | { type: 'close' }
 /** A request, with the window sizes the reader has now. */
 export type ToVideo = { id: number; keep: number; ahead: number } & VideoAsk
 
-/** An answer, with the decoder's process id after it (none once it ended). */
-export type FromVideo = { id: number; pid: number | undefined; bytes?: Uint8Array; error?: string }
+/**
+ * An answer, with the decoder's process id after it (none once it ended) and the file's longest
+ * keyframe gap in seconds, once the decoder read its packets.
+ */
+export type FromVideo = {
+  id: number
+  pid: number | undefined
+  keyGap?: number
+  bytes?: Uint8Array
+  error?: string
+}
 
 const port = parentPort
 if (port) {
@@ -33,11 +42,18 @@ if (port) {
     try {
       if (m.type === 'close') {
         await decoder.close()
-        return port.postMessage({ id: m.id, pid: decoder.pid } satisfies FromVideo)
+        return port.postMessage({
+          id: m.id,
+          pid: decoder.pid,
+          keyGap: decoder.keyGap,
+        } satisfies FromVideo)
       }
       // The decoder's copy, moved: it keeps its own for a frame asked again.
       const bytes = await decoder.frame(m.index)
-      port.postMessage({ id: m.id, pid: decoder.pid, bytes } satisfies FromVideo, [bytes.buffer])
+      port.postMessage(
+        { id: m.id, pid: decoder.pid, keyGap: decoder.keyGap, bytes } satisfies FromVideo,
+        [bytes.buffer],
+      )
     } catch (error) {
       port.postMessage({
         id: m.id,

@@ -1,8 +1,10 @@
+import { isAbsolute, relative, sep } from 'node:path'
 import type { DeterminismReport, Manifest } from '@shaderera/core'
 import { checkDeterminism, diffPixels } from '@shaderera/core'
 import { type LightLevels, type SeekStats, sampleTimes } from '@shaderera/core/host'
 import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
+import { keyGaps } from '../node/services.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { EXIT } from './findings.ts'
@@ -112,6 +114,26 @@ export const checkChild = async (
   }
 }
 
+/** `file`'s path in `root`, or undefined when it is outside. */
+const inside = (root: string, file: string) => {
+  const path = relative(root, file)
+  return path.startsWith('..') || isAbsolute(path) ? undefined : path
+}
+
+/**
+ * A note for each clip inside `root` whose keyframes are more than 2 s apart (#450): every seek in
+ * it decodes that much first. `gaps` are the files whose packets a decoder read to seek.
+ */
+export const keyframeNotes = (root: string, gaps: ReadonlyMap<string, number> = keyGaps) =>
+  [...gaps].flatMap(([file, gap]) => {
+    const path = inside(root, file)
+    if (gap <= 2 || path === undefined) return []
+    const s = gap.toFixed(1)
+    return [
+      `${path.split(sep).join('/')}: keyframes up to ${s} s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to ${s} s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).`,
+    ]
+  })
+
 /**
  * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10] [--variant a,b | --variants all]`.
  * --hdr10: checks the hdr10 render (decision 0023): its P010 bytes, the peak and the layers' light.
@@ -136,6 +158,8 @@ const checkOne = async (
   out: Output,
 ): Promise<number> => {
   const { project, child } = await open(v)
+  // The clips of this project are noted from what this check reads.
+  for (const file of keyGaps.keys()) if (inside(project.root, file)) keyGaps.delete(file)
   try {
     const r = await checkChild(child, project.manifest, {
       times: Number(v.times ?? 50),
@@ -189,6 +213,10 @@ const checkOne = async (
     }
     return EXIT.failed
   } finally {
+    for (const note of keyframeNotes(project.root)) {
+      out.log(`! ${note}`)
+      out.found({ code: 'keyframes', severity: 'info', message: note })
+    }
     await child.close()
   }
 }

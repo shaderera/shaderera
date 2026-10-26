@@ -81,6 +81,21 @@ export const seekFor = (
   return { ss: `${us / 1_000_000n}.${String(us % 1_000_000n).padStart(6, '0')}`, key }
 }
 
+/**
+ * The longest stretch, in seconds, a decode starts before the frame it wants: from a keyframe to
+ * the next, or from the last one to the last frame. A seek into a file decodes up to that much.
+ */
+export const keyGap = (index: FrameIndex): number => {
+  const at = [...index.keys, index.pts.length - 1]
+  let most = 0n
+  for (let i = 1; i < at.length; i++) {
+    const d = (index.pts[at[i] as number] as bigint) - (index.pts[at[i - 1] as number] as bigint)
+    if (d > most) most = d
+  }
+  const [num, den] = index.timeBase
+  return Number(most * num) / Number(den)
+}
+
 /** The packets of `file`'s first video stream, read by ffprobe in the thread's turn. */
 export const probeIndex = (file: string, turn?: SpawnTurn) =>
   new Promise<FrameIndex | null>((done) => {
@@ -154,6 +169,9 @@ export const videoDecoder = (
   let failed: Error | undefined
   // The file's frames by pts: not read yet, or null once the file is not to be seeked.
   let packets: FrameIndex | null | undefined = known
+  // Its longest keyframe gap, worked out once for the packets read.
+  let gapOf: FrameIndex | null | undefined
+  let gap: number | undefined
   // A seeked decoder's frames before `checked` came out with the pts they should have: only those
   // are given. A decoder from frame 0 counts its frames: all are.
   let checked = Number.POSITIVE_INFINITY
@@ -346,6 +364,14 @@ export const videoDecoder = (
     /** The decoder's process id, while one runs. */
     get pid() {
       return proc?.pid
+    },
+    /** The file's longest keyframe gap (keyGap), once its packets were read to seek. */
+    get keyGap() {
+      if (gapOf !== packets) {
+        gapOf = packets
+        gap = packets ? keyGap(packets) : undefined
+      }
+      return gap
     },
     /** Whether the decoder running now started near its first frame (`-ss`), not at frame 0. */
     get seeked() {

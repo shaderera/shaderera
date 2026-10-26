@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import type { Manifest } from '@shaderera/core'
 import { boxFrame, memoryChild } from '../node/fixtures/memory-child.ts'
-import { checkChild, diffP010 } from './check.ts'
+import { checkChild, diffP010, keyframeNotes } from './check.ts'
 
 const manifest = { fps: 10, duration: 1, width: 64, height: 36 } as Manifest
 const size = { width: 64, height: 36 }
@@ -69,4 +70,17 @@ test('diffP010 compares P010 bytes that start at an odd offset', () => {
   assert.deepEqual(diffP010(a, new Uint8Array(words.buffer)), { mean: 0, max: 0 })
   const b = new Uint16Array([1 << 6, 512 << 6, 1023 << 6, 60 << 6])
   assert.deepEqual(diffP010(a, new Uint8Array(b.buffer)), { mean: 5 / 4, max: 4 })
+})
+
+test('check notes the clips inside the project whose keyframes are more than 2 s apart', () => {
+  const root = join('/films', 'a')
+  const gaps = new Map([
+    [join(root, 'assets', 'footage', 'long.mp4'), 250 / 30],
+    [join(root, 'assets', 'footage', 'short.mp4'), 1],
+    [join(root, 'assets', 'footage', 'two.mp4'), 2],
+    [join('/films', 'b', 'other.mp4'), 9],
+  ])
+  assert.deepEqual(keyframeNotes(root, gaps), [
+    'assets/footage/long.mp4: keyframes up to 8.3 s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to 8.3 s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).',
+  ])
 })

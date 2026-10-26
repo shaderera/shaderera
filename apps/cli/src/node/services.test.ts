@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, readdirSync, utimesSync, writeFileSync } from
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { cacheLimit, clipDecoders, createServices, videoReader } from './services.ts'
+import { cacheLimit, clipDecoders, createServices, keyGaps, videoReader } from './services.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 const clip = () => {
@@ -234,4 +234,27 @@ test('an entry larger than the limit is kept alone, and the limit comes from the
   assert.equal(cacheLimit({}), 1024 * 1024 * 1024)
   assert.equal(cacheLimit({ SHADERERA_FILM_CACHE_MB: '200' }), 200 * 1024 * 1024)
   assert.throws(() => cacheLimit({ SHADERERA_FILM_CACHE_MB: 'lots' }), /SHADERERA_FILM_CACHE_MB/)
+})
+
+test("a clip's longest keyframe gap is known once its decoder read the packets to seek", {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = tempDir('video')
+  // x264's default GOP (250) on 90 frames at 10 fps: one keyframe, 8.9 s before the last frame.
+  const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '90']
+  const file = join(root, 'v.mp4')
+  spawnSync('ffmpeg', [...args, '-pix_fmt', 'yuv420p', file])
+  const v = videoReader(file)
+  try {
+    // From frame 0 on, nothing is seeked.
+    await v.frame(0)
+    await v.frame(1)
+    assert.equal(keyGaps.get(file), undefined)
+    // A decoder started past frame 0 reads the packets.
+    await v.frame(80)
+    assert.ok(Math.abs((keyGaps.get(file) ?? 0) - 8.9) < 1e-6, String(keyGaps.get(file)))
+  } finally {
+    await v.dispose()
+  }
 })
