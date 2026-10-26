@@ -198,16 +198,19 @@ test('decodeFrames fails, naming the decoder, when it exits short and its output
       command,
       grace: 300,
     }));
-  }, /ffmpeg exited \(0\) after 1 of the 3 frames of held\.mkv, and its output did not end/)
+  }, /Decoding held\.mkv: ffmpeg exited \(0\) after 1 of its 3 frames, and its output did not end/)
   assert.ok(performance.now() - start < 5000)
 })
 
-test('decodeFrames fails a decoder that gives nothing for the stall seconds', async () => {
+test('decodeFrames fails a decoder that gives nothing for the stall seconds, naming it', async () => {
   const command = [process.execPath, heldPipe, 'deaf']
+  const start = performance.now()
   await assert.rejects(async () => {
     for await (const _ of decodeFrames(tinyPlan, 'held.mkv', 3, undefined, {
       command,
       stall: 0.5,
     }));
-  }, /ffmpeg gave no frame of held.mkv for 0.5 s: it stalled/)
+  }, /Decoding held\.mkv: ffmpeg gave no frame for 0\.5 s: it stalled/)
+  // Within the idle timeout, not at the end of a film's worth of waiting (#442).
+  assert.ok(performance.now() - start < 3000)
 })

@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { exportFrames, frameTimes } from '@shaderera/core'
-import type { LightLevels } from '@shaderera/core/host'
+import { fpsFraction, type LightLevels } from '@shaderera/core/host'
 import { ffmpegSink, type Input, requireFfmpeg, stallSeconds } from '../cli/ffmpeg.ts'
 import type { Child, HostIdentity } from '../node/child.ts'
 import { frameError } from '../node/open-host.ts'
@@ -302,6 +302,9 @@ const renderClaimed = async (
     RAW[plan.input],
     '-s',
     `${plan.width}x${plan.height}`,
+    // The job's rate, not rawvideo's 25: the file's timestamps are its frames' (#442).
+    '-framerate',
+    fpsFraction(plan.fps),
     '-i',
     '-',
     '-c:v',
@@ -604,7 +607,11 @@ export async function* decodeFrames(
       'error',
       '-i',
       file,
-      ...(select ? ['-vf', `select=${select}`, '-fps_mode', 'passthrough'] : []),
+      ...(select ? ['-vf', `select=${select}`] : []),
+      // Each frame of the file once, whatever its timestamps say: frames are counted, and a
+      // chunk rendered before #442 says 25 fps whatever the job's rate.
+      '-fps_mode',
+      'passthrough',
       '-frames:v',
       String(count),
       '-f',
@@ -631,11 +638,11 @@ export async function* decodeFrames(
       exited === undefined
         ? [
             stall * 1000,
-            `ffmpeg gave no frame of ${file} for ${stall} s: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
+            `Decoding ${file}: ffmpeg gave no frame for ${stall} s: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
           ]
         : [
             o.grace ?? EXIT_GRACE_MS,
-            `ffmpeg exited (${exited}) after ${decoded} of the ${count} frames of ${file}, and its output did not end.`,
+            `Decoding ${file}: ffmpeg exited (${exited}) after ${decoded} of its ${count} frames, and its output did not end.`,
           ]
     timer = setTimeout(() => ff.stdout?.destroy(new Error(why)), ms)
   }
@@ -667,7 +674,8 @@ export async function* decodeFrames(
     clearTimeout(timer)
     ff.kill()
   }
-  if (decoded !== count) throw new Error(`${file} decoded to ${decoded} frames, not ${count}.`)
+  if (decoded !== count)
+    throw new Error(`Decoding ${file}: ffmpeg gave ${decoded} frames, not ${count}.`)
 }
 
 /**
