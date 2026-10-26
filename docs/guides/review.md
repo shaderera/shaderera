@@ -38,7 +38,8 @@ wait in silence. When a render is slow, say why and what helps, in this order:
 - Long-GOP footage (few keyframes): reaching a frame decodes every frame since the last keyframe.
   Encode it again with more keyframes.
 
-Keep `--workers` at its default: more hosts don't help a film that waits on its footage.
+Keep `--workers` at its default for a film that waits on its footage; more (up to the cores less
+two) help only when the film's own drawing is the bottleneck and cores are idle.
 
 Numbers are diagnostics: contrast, exposure and motion measurements do not decide whether a dark
 frame or a pause is wrong. A passing check never means the film looks good.
