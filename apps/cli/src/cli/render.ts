@@ -35,7 +35,7 @@ import {
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { releaseFrozen, save } from '../project/revisions.ts'
-import { childOptions, open, parseRendering, timesOf } from './args.ts'
+import { childOptions, draftArgs, open, parseRendering, timesOf } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
   bitsPerSecond,
@@ -644,7 +644,7 @@ const prerollLight = async (
  * `shaderera render [--job name|file] [--variant name] [--from s] [--to s] [--out path] [--crf 18]
  * [--format mp4|prores-hq|prores-4444] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems]
  * [--progress] [--trusted] [--workers n] [--encoder name] [--no-audio] [--loudness LUFS]
- * [--hdr10] [--force] [--retries n]`. --force: a chunk or png job that the disk-space preflight
+ * [--hdr10] [--draft [height]] [--force] [--retries n]`. --draft [height]: a review render at draftSize (360 px high by default, never above the film's size) at full fps, to out/<name>-draft.mp4; never with --job. --force: a chunk or png job that the disk-space preflight
  * (deliver/disk.ts) refuses goes ahead. --hdr10: an HDR10 mp4 (HEVC Main 10, decision 0023), or a ProRes mov with --format,
  * of a film whose shaderera.json has `hdr10`, rendered on the GPU through one lossless chunk; a job
  * asks for it when it is made
@@ -671,8 +671,10 @@ const encoderOf = (value: unknown): Encoder | 'x265' => {
 }
 
 export const run = async (argv: readonly string[]): Promise<number> => {
-  const { values: v } = parseRendering(
-    argv,
+  // `--draft [height]`: a flag whose value may be left out, which parseArgs cannot read.
+  const drafted = draftArgs(argv)
+  const { values: parsed } = parseRendering(
+    drafted.argv,
     {
       job: { type: 'string' },
       from: { type: 'string' },
@@ -697,6 +699,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     },
     { command: 'render', times: false },
   )
+  const v = { ...parsed, draft: drafted.draft }
   const audio = v['no-audio'] !== true
   const loudness = v.loudness === undefined ? undefined : Number(v.loudness)
   if (loudness !== undefined && !Number.isFinite(loudness))
@@ -723,6 +726,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       `Job ${job.name} froze its range (${job.range ?? 'sdr'}); make a new job with shaderera job${v.hdr10 ? ' --hdr10' : ''}.`,
     )
   if (v.hdr10) checkHdr10Delivery(delivery)
+  if (job && v.draft)
+    throw new Error(
+      `--draft is a review render of the working tree, never a job: render --draft without --job (job ${job.name} renders the film).`,
+    )
   if (job && v.param !== undefined)
     throw new Error(`Job ${job.name} froze its params; make a new job with shaderera job --params.`)
   if (job && v.host !== undefined && v.host !== job.host)
@@ -790,9 +797,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // A terminal, or a reader that asks (--progress), gets the line at every frame; a pipe (a
   // background run, --json) one line every 10 s, so a log of a long render says how far it is.
   const progress = process.stderr.isTTY || v.progress === true
+  // A draft says so, with its size, wherever the render reports.
+  const draft = v.draft ? `draft (${project.manifest.width}×${project.manifest.height})` : undefined
   const onFrame = progressLines({
     every: progress ? 0 : 10_000,
     write: (s) => process.stderr.write(s),
+    ...(draft ? { label: draft } : {}),
   })
   try {
     if (reusing) {
@@ -879,6 +889,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
     const ext = extensionOf(video.codec)
+    // A draft goes beside the review file and the final, never over them.
+    const named = (...parts: string[]) =>
+      join(
+        root,
+        'out',
+        `${[basename(root), ...parts, ...(draft ? ['draft'] : [])].join('-')}${ext}`,
+      )
     const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
       ...video,
       from: job?.output.from ?? from,
@@ -890,8 +907,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           : job
             ? join(root, 'out', `${job.name}${ext}`)
             : typeof v.variant === 'string'
-              ? join(root, 'out', `${basename(root)}-${safeName(v.variant)}${ext}`)
-              : undefined,
+              ? named(safeName(v.variant))
+              : draft
+                ? named()
+                : undefined,
       quality: delivery.quality,
       crf: num(v.crf),
       audio,
@@ -903,7 +922,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
     console.log(
-      `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}`,
+      `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}${draft ? `, ${draft}` : ''}`,
     )
     console.log(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
     if (sound.light) console.log(`light: ${lightLine(sound.light)}`)
@@ -963,6 +982,8 @@ export const progressLines = (o: {
   every: number
   write: (line: string) => void
   now?: () => number
+  /** Said after the frame count on every line: `draft (640×360)`. */
+  label?: string
 }) => {
   const now = o.now ?? (() => performance.now())
   let said = now()
@@ -979,7 +1000,7 @@ export const progressLines = (o: {
       const done = i - first.i
       const fps = done > 0 && t > first.t ? (done * 1000) / (t - first.t) : 0
       const pace = fps > 0 ? `  ${fps.toFixed(1)} fps  ${clockTime((n - i - 1) / fps)} left` : ''
-      line = `frame ${i + 1}/${n}${pace}`
+      line = `frame ${i + 1}/${n}${o.label ? `  ${o.label}` : ''}${pace}`
     }
     width = Math.max(width, line.length)
     o.write(o.every > 0 ? `${line}\n` : `\r${line.padEnd(width)}`)

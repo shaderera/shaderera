@@ -146,7 +146,8 @@ const bytes = (n: number) => new Uint8Array(Buffer.allocUnsafeSlow(n).buffer as 
  */
 export const videoDecoder = (
   file: string,
-  info: VideoInfo,
+  /** `scaled`: the frames at `width` × `height`, not the file's own size (a draft's, scaledVideo). */
+  info: VideoInfo & { scaled?: boolean },
   keep: () => number = () => 1,
   ahead: () => number = keep,
   /** The thread's turns to start ffmpeg in (spawn-turn.ts); none in the CLI's own thread. */
@@ -190,6 +191,8 @@ export const videoDecoder = (
   }
   // Decoded far enough past the latest asked: ffmpeg waits until a host catches up.
   const full = () => next - 1 - asked >= Math.max(1, ahead())
+  // A draft's clip comes at its own size, scaled in the same swscale pass as the conversion.
+  const resize = info.scaled ? `w=${info.width}:h=${info.height}:flags=area:` : ''
   const start = (from: number) => {
     proc?.kill()
     const seek = packets ? seekFor(packets, from) : undefined
@@ -210,7 +213,7 @@ export const videoDecoder = (
       '-map',
       '0:v:0',
       '-vf',
-      `${pick},scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
+      `${pick},scale=${resize}in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
       '-fps_mode',
       'passthrough',
       '-f',

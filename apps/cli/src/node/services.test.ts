@@ -258,3 +258,31 @@ test("a clip's longest keyframe gap is known once its decoder read the packets t
     await v.dispose()
   }
 })
+
+test("a draft's clips come scaled as its frame is, from a decoder of their own", {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = clip()
+  const full = createServices(root)
+  const draft = createServices(root, {}, { videoScale: 0.5 })
+  const mean = (px: Uint8Array) => px.reduce((n, v, i) => (i % 4 === 3 ? n : n + v), 0) / px.length
+  try {
+    const open = (s: ReturnType<typeof createServices>) =>
+      s.handle({ op: 'video-open', path: 'v.mp4' })
+    assert.deepEqual(await open(full), { width: 64, height: 36, fps: 10, frames: 8 })
+    assert.deepEqual(await open(draft), { width: 32, height: 18, fps: 10, frames: 8 })
+    const frame = (s: ReturnType<typeof createServices>) =>
+      s.handle({ op: 'video-frame', path: 'v.mp4', index: 3 }) as Promise<Uint8Array>
+    const [big, small] = [await frame(full), await frame(draft)]
+    assert.equal(big.length, 64 * 36 * 4)
+    assert.equal(small.length, 32 * 18 * 4)
+    // The same picture, scaled by the decoder: the colours on the whole are the same.
+    assert.ok(Math.abs(mean(big) - mean(small)) < 4, `${mean(big)} vs ${mean(small)}`)
+    // Two decoders, one a size: neither gives the other's frames.
+    assert.equal(clipDecoders().length, 2)
+  } finally {
+    await full.close()
+    await draft.close()
+  }
+})

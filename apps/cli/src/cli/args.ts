@@ -97,13 +97,15 @@ export const parseParam = (kv: string): [string, Json] => {
  * Finds the project and opens it in its host (hostOf): the Node host builds it and opens it in a
  * child process; the browser host opens it on a headless Chrome (node/browser.ts: WebGPU, the
  * project's DOM). With `--variant`, the manifest is that variant's and its params go over the
- * defaults; `size` overrides the frame size (review's resized reopen); `--param`s go over both,
+ * defaults; `resized` overrides the frame size (review's resized reopen); `--param`s go over both,
  * and a name the manifest's params schema does not declare is refused (effectiveParams). Every
  * bake the manifest declares is checked against its stamp first, and refused when stale
  * (project/bakes.ts); its frames are what the source's io.bake reads. `extra` says how many more
  * hosts the run needs (from the manifest it renders): they open at once with the first, in `extra`.
  * `--hdr10` opens the source in an hdr10 range (`host.range`, decision 0023): refused without the
- * manifest's `hdr10` or a GPUDevice.
+ * manifest's `hdr10` or a GPUDevice. `draft`, a height in pixels (render --draft), opens it at
+ * draftSize, as a variant of that size would open it, and its clips come from the decoder scaled
+ * by as much.
  */
 export const open = async (
   flags: {
@@ -114,13 +116,16 @@ export const open = async (
     host?: unknown
     param?: unknown
     hdr10?: unknown
+    draft?: unknown
   },
-  size?: { width: number; height: number },
+  resized?: { width: number; height: number },
   extra: (manifest: Manifest) => number = () => 0,
 ): Promise<{ project: Project; child: Child; more: () => Promise<Child>; extra: Child[] }> => {
   const found = await findProject(typeof flags.root === 'string' ? flags.root : process.cwd())
   const name = typeof flags.variant === 'string' ? flags.variant : undefined
   const { manifest, params: variantParams } = withVariant(found.manifest, name)
+  const draft = typeof flags.draft === 'number' ? draftSize(manifest, flags.draft) : undefined
+  const size = draft ?? resized
   const given = Object.fromEntries(
     (Array.isArray(flags.param) ? (flags.param as string[]) : []).map(parseParam),
   )
@@ -131,6 +136,9 @@ export const open = async (
     params,
     ...(name ? { variant: name } : {}),
     ...(size ? { size } : {}),
+    ...(draft && draft.height !== manifest.height
+      ? { videoScale: draft.height / manifest.height }
+      : {}),
     ...(flags.hdr10 === true ? { range: 'hdr10' as const } : {}),
     bakes,
     ...childOptions(flags),
@@ -139,6 +147,50 @@ export const open = async (
   const project = { ...found, manifest: size ? { ...manifest, ...size } : manifest }
   const [child, ...others] = await openHosts(more, 1 + extra(project.manifest))
   return { project, child: child as Child, more, extra: others }
+}
+
+/** A draft's height when `--draft` gives none: enough to judge flow, timing and transitions. */
+export const DRAFT_HEIGHT = 360
+
+/**
+ * A draft's frame (render --draft): `height` pixels high and as wide as the film's aspect makes
+ * it, each side rounded to an even number so that H.264's 4:2:0 takes it. Never larger than the
+ * film: a height at or above its own gives its own size.
+ */
+export const draftSize = (
+  { width, height }: { width: number; height: number },
+  draft: number = DRAFT_HEIGHT,
+) => {
+  if (draft >= height) return { width, height }
+  const even = (n: number) => Math.max(2, Math.round(n / 2) * 2)
+  return { width: even((width * draft) / height), height: even(draft) }
+}
+
+/**
+ * `--draft [height]`: the height in pixels, DRAFT_HEIGHT when none follows; undefined without
+ * the flag. A command that takes no positionals reads the token after `--draft` as its height.
+ */
+export const draftArgs = (argv: readonly string[]): { argv: string[]; draft?: number } => {
+  const at = argv.findIndex((a) => a === '--draft' || a.startsWith('--draft='))
+  if (at < 0) return { argv: [...argv] }
+  const flag = argv[at] as string
+  const next = argv[at + 1]
+  const given = flag.includes('=')
+    ? flag.slice(flag.indexOf('=') + 1)
+    : next !== undefined && !next.startsWith('-')
+      ? next
+      : undefined
+  const rest = [
+    ...argv.slice(0, at),
+    ...argv.slice(at + (flag.includes('=') || given === undefined ? 1 : 2)),
+  ]
+  if (rest.some((a) => a === '--draft' || a.startsWith('--draft=')))
+    throw new Error('--draft is given once.')
+  if (given === undefined) return { argv: rest, draft: DRAFT_HEIGHT }
+  const n = Number(given)
+  if (!Number.isInteger(n) || n < 2)
+    throw new Error(`--draft takes a height in pixels, such as 360 or 540, not "${given}".`)
+  return { argv: rest, draft: n }
 }
 
 /** `--trusted` and `--timeout <s>` as the host's options. */

@@ -10,7 +10,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { cli as run } from '../fixtures/cli.ts'
@@ -330,4 +330,89 @@ test('A GPU encoder failing where a kept answer said yes: the answer is dropped 
   } finally {
     Object.assign(process.env, home)
   }
+})
+
+test('render --draft: 360 px high at full fps, or the height given, beside the review file', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = copy('./fixtures/ratios/')
+  const cli = (...args: string[]) => run(...args, '--root', root)
+  const name = basename(root)
+  const r = await cli('render', '--draft', '--progress', '--to', '1')
+  assert.equal(r.status, 0, r.stderr)
+  const out = join(root, 'out', `${name}-draft.mp4`)
+  assert.equal(r.stdout.split('\n')[0], out)
+  assert.match(r.stdout, /^10 frames in [\d.]+ s on \d+ host\(s\), \w+, draft \(640×360\)$/m)
+  assert.match(r.stderr, /frame 10\/10 {2}draft \(640×360\)/)
+  const p = probe(out)
+  assert.deepEqual([p.video?.width, p.video?.height, p.video?.fps], [640, 360, 10])
+  // Another height: as wide as the film's aspect.
+  assert.equal((await cli('render', '--draft', '540', '--to', '0.2')).status, 0)
+  assert.deepEqual([probe(out).video?.width, probe(out).video?.height], [960, 540])
+  // The review file is not touched, and a variant's draft has its own aspect.
+  assert.equal(existsSync(join(root, 'out', `${name}.mp4`)), false)
+  const v = await cli('render', '--draft', '--variant', '9:16', '--from', '1.5')
+  assert.equal(v.status, 0, v.stderr)
+  const portrait = probe(join(root, 'out', `${name}-9_16-draft.mp4`))
+  assert.deepEqual([portrait.video?.width, portrait.video?.height], [202, 360])
+  assert.match(v.stdout, /^5 frames in .*draft \(202×360\)$/m)
+  // A job is a frozen final: never a draft.
+  assert.equal((await cli('job', '--name', 'final', '--to', '0.5')).status, 0)
+  const job = await cli('render', '--job', 'final', '--draft')
+  assert.equal(job.status, 2)
+  assert.match(job.stderr, /--draft is a review render of the working tree, never a job/)
+})
+
+test('render --draft refuses a source that draws at a size of its own, naming both sizes', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  // This fixture draws on a 64×36 canvas whatever size it is opened at.
+  const root = copy('./fixtures/mcp/')
+  const r = await run('render', '--draft', '18', '--root', root)
+  assert.notEqual(r.status, 0)
+  assert.match(
+    r.stderr,
+    /A layer's canvas is 64x36, but this render \(render --draft, or review's readback\) opened the source at 32x18: draw at host\.manifest's width and height/,
+  )
+})
+
+test("render --draft: a clip's frames come from the decoder scaled as the frame is", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('draft-clip')
+  mkdirSync(join(root, 'src'))
+  const clip = [
+    '-v',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=size=64x36:rate=10',
+    '-frames:v',
+    '10',
+  ]
+  spawnSync('ffmpeg', [...clip, '-pix_fmt', 'yuv420p', join(root, 'clip.mp4')])
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/c.ts', fps: 10, duration: 1, width: 64, height: 36 }),
+  )
+  // The clip fills the frame pixel for pixel: it must come at the frame's size.
+  writeFileSync(
+    join(root, 'src', 'c.ts'),
+    `export default async ({ io, manifest }) => {
+  const clip = await io.video('clip.mp4')
+  if (clip.width !== manifest.width || clip.height !== manifest.height)
+    throw new Error(\`clip \${clip.width}x\${clip.height}, frame \${manifest.width}x\${manifest.height}\`)
+  return {
+    render: async (t, o) => ({ color: await clip.frame(o.frame), alpha: 'straight' }),
+  }
+}
+`,
+  )
+  const draft = await run('render', '--draft', '18', '--root', root)
+  assert.equal(draft.status, 0, draft.stderr)
+  const p = probe(join(root, 'out', `${basename(root)}-draft.mp4`))
+  assert.deepEqual([p.video?.width, p.video?.height], [32, 18])
+  const full = await run('render', '--root', root)
+  assert.equal(full.status, 0, full.stderr)
 })

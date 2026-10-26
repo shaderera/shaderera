@@ -18,7 +18,11 @@ Before you call a draft finished, look at it and check it.
 3. Check timing with numbers, not by looking: declare the moments that matter in
    requirements.json `timing` and read curves with `npx shaderera inspect --track`. Vision models
    judge fine-grained motion poorly (MotionBench, CVPR 2025).
-4. Repair what you see, then review again. Two repair rounds at most: then stop and list what is
+4. Show the person the cut as a draft: `npx shaderera render --draft` (360 px high, full fps) is
+   for flow, timing and transitions. Type sharpness, thin lines, fine texture and colour banding
+   are checked with a full-size `still` at those moments, never in the draft. Render the
+   full-size film only after the person approves the cut.
+5. Repair what you see, then review again. Two repair rounds at most: then stop and list what is
    still weak, honestly, in the `weaknesses` of your summary. An agent grading its own work skews
    positive; a separate reviewer with criteria from the brief is stricter (Anthropic, "Harness
    design for long-running apps", 2026-03-24).

@@ -84,6 +84,7 @@ render is slow: `guides/review.md`.
 
 ```bash
 npx shaderera review                      # frames, a contact sheet and technical checks
+npx shaderera render --draft              # out/<project>-draft.mp4, 360 px high at full fps: flow, timing, transitions only
 npx shaderera render                      # out/<project>.mp4
 npx shaderera render --format prores-hq   # a ProRes mov for finishing
 npx shaderera deliver --variants main,short   # a checked batch: the main film and a variant from shaderera.json
@@ -93,6 +94,10 @@ npx shaderera deliver --variants 16:9,9:16    # one film in both ratios
 Every flag is in `node_modules/shaderera/docs/cli.md`, and delivery, placements and handoffs are
 in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case comes up:
 
+- **Drafts:** show cuts as `render --draft` (360 px; `--draft 540` for another height) for flow,
+  timing and transitions. Check type sharpness, thin lines, fine texture and colour banding with
+  a full-size `still` at those moments, not in the draft. Render the full-size film only after
+  the person approves the cut.
 - **HDR10:** a film with `hdr10` in shaderera.json renders it with `render --hdr10` (`check
   --hdr10` first; `deliver --hdr10 --sdr` adds the SDR file). It needs ffmpeg 9.0 or later:
   `doctor` says so as `ffmpeg:hdr10`. See delivery.md, "HDR10".

@@ -30,6 +30,8 @@ type RunnerOptions = {
   cacheDir?: string
   /** The bakes' frames, checked against their stamps: what io.bake reads. */
   bakes?: BakeFrames
+  /** A draft render's: io.video's frames scaled by this much (createServices). */
+  videoScale?: number
   /**
    * For the studio (docs/studio.md): served under this secret path only, to a sandboxed frame on
    * a page of `studioOrigins`. That page reloads the frame when the project changes (no HMR).
@@ -129,6 +131,7 @@ const listen = async (project: Project, o: RunnerOptions & { port: number }) => 
           : resolve(project.root, project.manifest.dom),
         o.bakes,
         o.base,
+        o.videoScale,
       ),
     ],
     ...(o.base ? { base: o.base } : {}),
