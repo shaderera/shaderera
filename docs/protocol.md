@@ -140,16 +140,19 @@ it, before any frame.
   canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the file's
   sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. Once per file in a host. Other formats
   are converted to PNG once (the plugin `image-to-png`).
-- `io.video` opens a video file for its frames. The CLI's process decodes it in software with
-  ffmpeg (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over;
-  frames read in order stream. One decoder serves every Node host of a render: a frame is decoded
-  once, however many hosts there are, and the last few decoded (two a host and one) are kept, so a
-  frame asked a little out of order is not decoded again; one before them restarts the decoder.
-  Which frame a t shows is the film's choice (`fps` is the file's). The same frame is the same
-  bytes in both hosts (tested against ffmpeg's own decode). A clip's decoder lives until the render
-  ends unless `close()` stops it and frees its buffers, once every host that opened it closed it: a
-  film with many clips closes each when its shot ends. A `frame(i)` after `close()` opens the file
-  again and gives the same bytes.
+- `io.video` opens a video file for its frames. The CLI's process decodes it in software with ffmpeg
+  (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over; frames
+  read in order stream. A frame far from the one before (a jump back, a chunk's first frame) starts
+  the decoder (on four threads) at the keyframe before it, not at frame 0, when the file's packets
+  say which frame is which (H.264, HEVC, ProRes, DNxHD, MJPEG); each frame is checked by its
+  timestamp, and any other file, or a frame that does not check, decodes from frame 0 as before. One
+  decoder serves every Node host of a render: a frame is decoded once, however many hosts there are,
+  and the last few decoded (two a host and one) are kept, so a frame asked a little out of order is
+  not decoded again; one before them restarts the decoder. Which frame a t shows is the film's
+  choice (`fps` is the file's). The same frame is the same bytes in both hosts (tested against
+  ffmpeg's own decode). A clip's decoder lives until the render ends unless `close()` stops it and
+  frees its buffers, once every host that opened it closed it: a film with many clips closes each
+  when its shot ends. A `frame(i)` after `close()` opens the file again and gives the same bytes.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and
   runs: `make` runs only when nothing is kept for the key with the input files as they are now (a
   changed input is another entry). Put a version in the key when the making changes. The cache

@@ -4,11 +4,126 @@ import type { VideoInfo } from './services.ts'
 import { type SpawnTurn, spawnInTurn } from './spawn-turn.ts'
 
 /**
+ * Where a file's frames are, for a decoder that starts near a frame instead of at frame 0: each
+ * frame's pts in presentation order (frame i is `pts[i]`), the frames a decode may start at, and
+ * the file's start time, from its packets (ffprobe reads them, decoding nothing). Null when the
+ * packets cannot say which frame is which: a codec whose packets are not one frame each, a packet
+ * without a pts, two packets with one pts.
+ */
+export type FrameIndex = {
+  pts: bigint[]
+  /** The frames a decode may start at (keyframes), ascending. */
+  keys: number[]
+  timeBase: [bigint, bigint]
+  /** The file's start time in microseconds: ffmpeg's `-ss` counts from it. */
+  startUs: bigint
+}
+
+/** Codecs whose packets are one frame each, so the n-th frame decoded is the n-th packet by pts. */
+const ONE_FRAME_A_PACKET = new Set(['h264', 'hevc', 'prores', 'dnxhd', 'mjpeg'])
+
+/** Reads ffprobe's packets of the first video stream (`-of json`) into a FrameIndex, or null. */
+export const frameIndex = (json: string): FrameIndex | null => {
+  const p = JSON.parse(json) as {
+    packets?: { pts?: number | string; flags?: string }[]
+    streams?: { codec_name?: string; time_base?: string }[]
+    format?: { start_time?: string }
+  }
+  const s = p.streams?.[0]
+  if (!s || !ONE_FRAME_A_PACKET.has(String(s.codec_name))) return null
+  const [num, den] = String(s.time_base).split('/')
+  const start = /^(-?)(\d+)\.(\d{6})$/.exec(String(p.format?.start_time))
+  if (!num || !den || !/^\d+$/.test(num) || !/^\d+$/.test(den) || !start) return null
+  const frames: { pts: bigint; key: boolean }[] = []
+  for (const k of p.packets ?? []) {
+    // A packet an edit list discards (`D`) is decoded for the frames after it, never given.
+    if (k.flags?.includes('D')) continue
+    if (k.pts === undefined || !/^-?\d+$/.test(String(k.pts))) return null
+    frames.push({ pts: BigInt(k.pts), key: k.flags?.[0] === 'K' })
+  }
+  frames.sort((a, b) => (a.pts < b.pts ? -1 : a.pts > b.pts ? 1 : 0))
+  for (let i = 1; i < frames.length; i++)
+    if ((frames[i] as { pts: bigint }).pts === (frames[i - 1] as { pts: bigint }).pts) return null
+  const startUs = BigInt(`${start[2]}${start[3]}`) * (start[1] ? -1n : 1n)
+  return {
+    pts: frames.map((f) => f.pts),
+    keys: frames.flatMap((f, i) => (f.key ? [i] : [])),
+    timeBase: [BigInt(num), BigInt(den)],
+    startUs,
+  }
+}
+
+/**
+ * Where a decode for frame `from` starts: the `-ss` (seconds after the file's start) of the last
+ * keyframe at or before it, and that keyframe. Undefined when it would start at the file's start
+ * anyway (or `from` is past what the index knows).
+ */
+export const seekFor = (
+  index: FrameIndex,
+  from: number,
+): { ss: string; key: number } | undefined => {
+  if (from <= 0 || from >= index.pts.length) return undefined
+  // The last keyframe at or before `from` (frames are in pts order, so by index).
+  let lo = 0
+  let hi = index.keys.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if ((index.keys[mid] as number) <= from) lo = mid + 1
+    else hi = mid
+  }
+  const key = index.keys[lo - 1]
+  if (key === undefined || key === 0) return undefined
+  const [num, den] = index.timeBase
+  // Rounded down to a microsecond, so ffmpeg's seek lands on this keyframe or one before it.
+  const at = (index.pts[key] as bigint) * num * 1_000_000n
+  const us = (at >= 0n ? at / den : -((-at + den - 1n) / den)) - index.startUs
+  if (us <= 0n) return undefined
+  return { ss: `${us / 1_000_000n}.${String(us % 1_000_000n).padStart(6, '0')}`, key }
+}
+
+/** The packets of `file`'s first video stream, read by ffprobe in the thread's turn. */
+export const probeIndex = (file: string, turn?: SpawnTurn) =>
+  new Promise<FrameIndex | null>((done) => {
+    const args = [
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=codec_name,time_base:format=start_time:packet=pts,flags',
+      '-of',
+      'json',
+      file,
+    ]
+    const p = spawnInTurn(turn, () =>
+      spawn('ffprobe', args, { stdio: ['ignore', 'pipe', 'ignore'] }),
+    )
+    const out: Buffer[] = []
+    p.stdout?.on('data', (d: Buffer) => out.push(d))
+    p.on('error', () => done(null))
+    p.on('close', (code) => {
+      try {
+        done(code === 0 ? frameIndex(Buffer.concat(out).toString('utf8')) : null)
+      } catch {
+        done(null)
+      }
+    })
+  })
+
+/**
  * Decodes one file's frames in order with ffmpeg. The last `keep()` frames up to the latest asked
  * are kept, so a frame asked a little out of order is given again without decoding; one before
  * them restarts it, as does one far ahead. The decoder runs up to `ahead()` frames past the latest
  * asked (`keep()` by default), so the next frames are decoded while the hosts render, not when
  * they ask.
+ *
+ * A restart at a frame past the first starts ffmpeg at the keyframe before it (`-ss` before `-i`),
+ * not at frame 0 (#434): the file's packets (`frameIndex`) say which pts frame i has, and each frame
+ * that comes out is given as frame i only once its pts (showinfo, with `-copyts`) is the one frame
+ * i has. A file the packets cannot index, or a frame that comes out with another pts or not at all,
+ * goes back to decoding from frame 0 and counting, as before; that file is not seeked again. A
+ * seeked decoder runs on 4 threads, which cuts the decode up to the frame (the same bytes as one
+ * thread: ffmpeg's frame threads are exact).
  */
 export const videoDecoder = (
   file: string,
@@ -17,6 +132,8 @@ export const videoDecoder = (
   ahead: () => number = keep,
   /** The thread's turns to start ffmpeg in (spawn-turn.ts); none in the CLI's own thread. */
   turn?: SpawnTurn,
+  /** For tests: the frame index in place of the one read from the file. */
+  known?: FrameIndex | null,
 ) => {
   const size = info.width * info.height * 4
   let proc: ReturnType<typeof spawn> | undefined
@@ -32,6 +149,13 @@ export const videoDecoder = (
   let ended = false
   // Why the decoder could not start (no ffmpeg): every read of it fails with it.
   let failed: Error | undefined
+  // The file's frames by pts: not read yet, or null once the file is not to be seeked.
+  let packets: FrameIndex | null | undefined = known
+  // A seeked decoder's frames before `checked` came out with the pts they should have: only those
+  // are given. A decoder from frame 0 counts its frames: all are.
+  let checked = Number.POSITIVE_INFINITY
+  // A seeked decoder gave a frame with a pts not its own, or ended early: it is not used.
+  let wrong = false
   const trim = () => {
     const oldest = asked - Math.max(1, keep()) + 1
     if ((frames[0]?.index ?? oldest) < oldest) frames = frames.filter((f) => f.index >= oldest)
@@ -40,26 +164,34 @@ export const videoDecoder = (
   const full = () => next - 1 - asked >= Math.max(1, ahead())
   const start = (from: number) => {
     proc?.kill()
+    const seek = packets ? seekFor(packets, from) : undefined
     // Software decode, every frame from `from` on, converted by the file's own colour tags, started
-    // in this thread's turn.
+    // in this thread's turn. Seeked: ffmpeg starts at a keyframe before `from`, keeps the file's
+    // timestamps and picks frames by pts, printing each one's pts (showinfo) to check it.
+    const pick = seek
+      ? `select=gte(pts\\,${(packets as FrameIndex).pts[from]}),showinfo=checksum=0`
+      : `select=gte(n\\,${from})`
     const args = [
       '-loglevel',
-      'error',
+      seek ? 'info' : 'error',
       '-threads',
-      '1',
+      seek ? '4' : '1',
+      ...(seek ? ['-nostats', '-ss', seek.ss, '-noaccurate_seek', '-copyts'] : []),
       '-i',
       file,
       '-map',
       '0:v:0',
       '-vf',
-      `select=gte(n\\,${from}),scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
+      `${pick},scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
       '-fps_mode',
       'passthrough',
       '-f',
       'rawvideo',
       '-',
     ]
-    proc = spawnInTurn(turn, () => spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'ignore'] }))
+    proc = spawnInTurn(turn, () =>
+      spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', seek ? 'pipe' : 'ignore'] }),
+    )
     next = from
     asked = from
     frames = []
@@ -67,6 +199,8 @@ export const videoDecoder = (
     filled = 0
     ended = false
     failed = undefined
+    checked = seek ? from : Number.POSITIVE_INFINITY
+    wrong = false
     // Events of a decoder that was replaced (a jump back) are ignored.
     const mine = proc
     mine.on('error', (error) => {
@@ -94,34 +228,74 @@ export const videoDecoder = (
       if (full()) mine.stdout?.pause()
       waiting?.()
     })
-    mine.stdout?.on('end', () => {
-      if (proc !== mine) return
+    // Seeked, it has ended once both its pipes have (the last pts may come after the last bytes).
+    let open = seek ? 2 : 1
+    const end = () => {
+      if (proc !== mine || --open > 0) return
       ended = true
       waiting?.()
-    })
+    }
+    mine.stdout?.on('end', end)
+    if (seek && mine.stderr) {
+      const pts = (packets as FrameIndex).pts
+      let line = ''
+      mine.stderr.setEncoding('utf8')
+      mine.stderr.on('data', (d: string) => {
+        if (proc !== mine) return
+        line += d
+        const lines = line.split('\n')
+        line = lines.pop() ?? ''
+        for (const l of lines) {
+          const m = /\bn:\s*\d+\s+pts:\s*(-?\d+)/.exec(l)
+          if (!m || wrong) continue
+          if (BigInt(m[1] as string) === pts[checked]) checked++
+          else wrong = true
+        }
+        waiting?.()
+      })
+      mine.stderr.on('end', end)
+    }
+  }
+  // Starts a decoder at `from`, reading the file's packets first the first time it starts past
+  // frame 0.
+  const begin = async (from: number) => {
+    if (from > 0 && packets === undefined) packets = await probeIndex(file, turn)
+    start(from)
   }
   const read = async (index: number): Promise<Uint8Array> => {
     if (!Number.isInteger(index) || index < 0 || index >= info.frames)
       throw new Error(`${file} has frames 0 to ${info.frames - 1}, not ${index}.`)
-    // A jump far ahead restarts the decoder: a new one skips the frames before `index` inside
-    // ffmpeg, where this one would convert and pipe every one of them (decoding is about a third of
-    // that work, so the restart is cheaper past half of `next`).
-    if (proc && index - next > Math.max(30, next / 2)) start(index)
+    // A jump far ahead restarts the decoder: a new one decodes from where it starts (the keyframe
+    // before `index`, or frame 0) and skips the frames before `index` inside ffmpeg, where this one
+    // would convert and pipe every one of them. Decoding is about a third of that work, so the
+    // restart is cheaper when it decodes less than three times the frames this one would read on.
+    if (proc && index - next > 30) {
+      if (packets === undefined) packets = await probeIndex(file, turn)
+      const from = (packets && seekFor(packets, index)?.key) || 0
+      if (index - from < 3 * (index - next)) await begin(index)
+    }
     // Raised and trimmed first, so the frames looked in are the ones kept from now on (a `keep()`
     // that shrank since, a host gone, drops some).
     asked = Math.max(asked, index)
     trim()
     for (;;) {
-      if (!proc) start(index)
+      if (!proc) await begin(index)
       const found = frames.find((f) => f.index === index)
-      if (found) {
+      if (found && index < checked) {
         if (!full()) proc?.stdout?.resume()
         return found.bytes
+      }
+      // A seeked decoder that gave another frame than the one it should, or ended before this one:
+      // the file is decoded from frame 0 from now on, as it always was.
+      if (checked !== Number.POSITIVE_INFINITY && (wrong || (ended && !failed))) {
+        packets = null
+        await begin(index)
+        continue
       }
       // Behind what is kept (a jump back) or behind where it decodes: only a new decoder reaches
       // it, never this one reading on.
       if (index < (frames[0]?.index ?? next)) {
-        start(index)
+        await begin(index)
         continue
       }
       if (failed) throw failed
@@ -158,6 +332,10 @@ export const videoDecoder = (
     /** The decoder's process id, while one runs. */
     get pid() {
       return proc?.pid
+    },
+    /** Whether the decoder running now started near its first frame (`-ss`), not at frame 0. */
+    get seeked() {
+      return proc !== undefined && checked !== Number.POSITIVE_INFINITY
     },
   }
 }
