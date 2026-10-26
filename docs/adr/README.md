@@ -48,7 +48,7 @@ One file per decision, in the order they were made.
   core's `videoTexture` converting them in integer WGSL so both hosts give the same bytes; RGBA
   stays the default (amends 0007).
 - [0028](0028-stills-decoded-once-in-the-cli.md): `io.image` decoded once in the CLI for every
-  host, shrunk to `maxSize` with one fixed area-average filter, and cached at the decoded size;
-  GPU mips deferred (amends 0007).
+  host by one Rust→WASM module (zune-jpeg, zune-png), shrunk to `maxSize` with one fixed
+  area-average filter, and cached at the decoded size; GPU mips deferred (amends 0007).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
