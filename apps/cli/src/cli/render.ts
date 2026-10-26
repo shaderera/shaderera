@@ -135,7 +135,8 @@ const exportOnce = async (
     out?: string
     quality?: Quality
     crf?: number
-    onFrame?: (i: number, n: number) => void
+    /** Each frame written; with `'recheck'`, each frame the determinism re-check rendered again. */
+    onFrame?: (i: number, n: number, phase?: 'recheck') => void
     workers?: number
     more?: () => Promise<Child>
     /**
@@ -373,7 +374,6 @@ const exportOnce = async (
           ...(o.editList === false ? { editList: false } : {}),
           revision: o.revision,
         })
-    let next = 0
     const sink = ffmpegSink(args, input, codec !== 'prores-4444', { handOver: true })
     await writePreroll(sink, {
       ...preroll,
@@ -389,20 +389,21 @@ const exportOnce = async (
           fps: manifest.fps,
           from,
           to,
-          // Frames go round the hosts in the order exportFrames asks for them.
-          render: async (t) => {
-            const host = hosts[next++ % hosts.length] as Child
+          // exportFrames sends the frames round the hosts, and splits its re-check between them.
+          render: async (t, host) => {
             try {
-              return (await host.render(t, 'final', input)).pixels
+              return (await (hosts[host] as Child).render(t, 'final', input)).pixels
             } catch (error) {
               throw frameError(error, t, manifest.fps, hosts.length)
             }
           },
           inspect: child.has.inspect ? (t) => child.inspect(t) : undefined,
           sink,
-          onFrame: o.onFrame,
+          onFrame: o.onFrame && ((i, n) => o.onFrame?.(i, n)),
+          onRecheck: o.onFrame && ((i, n) => o.onFrame?.(i, n, 'recheck')),
           signal: o.signal,
           ahead: hosts.length * 2,
+          hosts: hosts.length,
         })
     const probed = probe(partial)
     requireFrames(out, probed, preroll.frames + frames)
@@ -895,7 +896,8 @@ const clockTime = (seconds: number) => {
  * A render's progress for `onFrame`: `frame 120/600  23.4 fps  0:21 left`, at the pace since its
  * first frame (what came before it, the open or a decoder seeking to a chunk's start, is not the
  * pace). With `every` 0 the line is rewritten in place at each frame (a terminal); otherwise one
- * line is written at most every `every` ms, the first once `every` has passed (a pipe).
+ * line is written at most every `every` ms, the first once `every` has passed (a pipe). The
+ * determinism re-check that follows the last frame says `re-checking 12/20` instead.
  */
 export const progressLines = (o: {
   every: number
@@ -905,16 +907,22 @@ export const progressLines = (o: {
   const now = o.now ?? (() => performance.now())
   let said = now()
   let first: { t: number; i: number } | undefined
-  return (i: number, n: number) => {
+  // The longest line written in place, blanked by a shorter one.
+  let width = 0
+  return (i: number, n: number, phase?: 'recheck') => {
     const t = now()
-    first ??= { t, i }
+    if (!phase) first ??= { t, i }
     if (o.every > 0 && t - said < o.every) return
     said = t
-    const done = i - first.i
-    const fps = done > 0 && t > first.t ? (done * 1000) / (t - first.t) : 0
-    const pace = fps > 0 ? `  ${fps.toFixed(1)} fps  ${clockTime((n - i - 1) / fps)} left` : ''
-    const line = `frame ${i + 1}/${n}${pace}`
-    o.write(o.every > 0 ? `${line}\n` : `\r${line}`)
+    let line = `re-checking ${i + 1}/${n}`
+    if (!phase && first) {
+      const done = i - first.i
+      const fps = done > 0 && t > first.t ? (done * 1000) / (t - first.t) : 0
+      const pace = fps > 0 ? `  ${fps.toFixed(1)} fps  ${clockTime((n - i - 1) / fps)} left` : ''
+      line = `frame ${i + 1}/${n}${pace}`
+    }
+    width = Math.max(width, line.length)
+    o.write(o.every > 0 ? `${line}\n` : `\r${line.padEnd(width)}`)
   }
 }
 

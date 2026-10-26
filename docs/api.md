@@ -34,7 +34,7 @@ stable entry. Adding or removing an export is therefore a visible change.
 | `parseFps(value)` | function | a rate as shaderera.json writes it (`30`, `29.97`, `"24000/1001"`) as an exact fraction `{ fps, num, den }`, or null |
 | `sha256(bytes)` | function | the SHA-256 of some bytes as lowercase hex, in the browser and in Node: how an analysis names its source |
 | `checkDeterminism`, `diffJson`, `diffPixels` | functions | the checks the CLI runs, for an embedding app's own tests |
-| `exportFrames`, `Sink`, `NotDeterministic` | function, type, class | the frame loop with backpressure for an app with its own encoder; `ahead` keeps several frames rendering at once, written in order; `skip` passes over the frames the sink already holds (a resumed export); a source that fails the determinism re-check throws `NotDeterministic` (its `failures`) |
+| `exportFrames`, `Sink`, `NotDeterministic` | function, type, class | the frame loop with backpressure for an app with its own encoder; `ahead` keeps several frames rendering at once, written in order; `hosts` passes `render` which host a frame goes to, round them, and splits the re-check between them, run at once; `onRecheck` counts the re-check's frames; `skip` passes over the frames the sink already holds (a resumed export); a source that fails the determinism re-check throws `NotDeterministic` (its `failures`) |
 | `DeterminismReport`, `DeterminismFailure`, `JsonChange`, `PixelDiff` | types | results of the above |
 
 The behaviour in [determinism.md](determinism.md) (frame identity, sequential replay, readiness,

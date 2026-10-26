@@ -66,7 +66,10 @@ film's, not the export's: the whole film and the chunk of a plan that hold a win
 (`render --from/--to`) re-check every frame the window re-checks, so the two never disagree about a
 frame because one of them did not look at it. A window shorter than a second may hold no frame of
 the grid. An export spread over several hosts (`render --workers`, a chunk) sends the frames round
-the hosts too, so they must agree with each other, not only with themselves.
+the hosts, and splits the re-check evenly between them, run at once: a frame is rendered again on
+a host other than the one that first rendered it, and each host shuffles its own share. So the
+hosts must agree with each other, not only with themselves. Meanwhile the progress line says
+`re-checking 12/20`.
 
 ## What breaks it, and the fix
 

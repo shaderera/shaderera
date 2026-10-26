@@ -616,7 +616,9 @@ export const startBridge = async (o: {
         ...(opener ? { more } : {}),
         revision: traced,
         signal,
-        onFrame: (i, n) => {
+        onFrame: (i, n, phase) => {
+          // The re-check after the last frame leaves the job at 1.
+          if (phase) return
           job.progress = (i + 1) / n
           // About a hundred reports a render, not one a frame.
           if (job.progress - last >= 0.01 || i + 1 === n) {

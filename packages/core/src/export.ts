@@ -43,25 +43,35 @@ export class NotDeterministic extends Error {
 /**
  * Renders every frame in [from, to) in order into a sink, waiting on each write. The export is also
  * the first pass of a determinism check: before the sink ends, its frames on the film's one-a-second
- * grid (`rechecked`) are rendered again in a shuffled order. If any changed, the sink is
+ * grid (`rechecked`) are rendered again in a shuffled order, split between the `hosts` (each
+ * re-checks frames another host rendered first, so they must agree). If any changed, the sink is
  * aborted and this throws, because a source that fails the check may play but cannot export.
  */
 export const exportFrames = async (o: {
   fps: number
   from: number
   to: number
-  render: (t: number) => Promise<Uint8Array | Uint8ClampedArray>
+  /** `host`: which of the `hosts` renders it, from 0. */
+  render: (t: number, host: number) => Promise<Uint8Array | Uint8ClampedArray>
   /** Compared too, on the frames rendered again. */
   inspect?: (t: number) => Promise<Json>
   sink: Sink
   signal?: AbortSignal
   onFrame?: (index: number, total: number, t: number) => void
+  /** Called after each frame the re-check rendered again, with its count so far (from 0). */
+  onRecheck?: (index: number, total: number) => void
   /**
    * How many frames may be rendering at once (1 by default): `render` is called in frame order
    * and the sink still gets them in order. More than 1 only for a render that spreads frames over
    * several hosts; a frame's `inspect` then runs after later frames were asked for.
    */
   ahead?: number
+  /**
+   * How many hosts `render` spreads frames over (1 by default): the frames go round them in the
+   * order they are asked for, and the re-check is split between them, run at once, each host
+   * shuffling its share of frames another host rendered first.
+   */
+  hosts?: number
   /**
    * How many of the first frames the sink already holds (a resumed export): they are neither
    * rendered nor written, except the ones the determinism re-check samples, which are rendered so
@@ -71,7 +81,12 @@ export const exportFrames = async (o: {
 }): Promise<{ readonly frames: number }> => {
   const times = frameTimes(o.fps, o.from, o.to)
   const checked = new Set(rechecked(times, o.fps))
-  const first = new Map<number, Visit>()
+  const first = new Map<number, Visit & { host: number }>()
+  const hosts = Math.max(1, Math.floor(o.hosts ?? 1))
+  // The host each re-checked frame went to first, and the last frame each host was asked for.
+  const hostOf = new Map<number, number>()
+  const last: (number | null)[] = Array.from({ length: hosts }, () => null)
+  let next = 0
   const ahead = Math.max(1, Math.floor(o.ahead ?? 1))
   const skip = Math.max(0, Math.floor(o.skip ?? 0))
   // A skipped frame is rendered only for the re-check.
@@ -80,7 +95,10 @@ export const exportFrames = async (o: {
   const ask = (index: number) => {
     const t = times[index]
     if (t === undefined || asked.has(index) || !needed(index)) return
-    const pixels = o.render(t)
+    const host = next++ % hosts
+    if (checked.has(t)) hostOf.set(index, host)
+    last[host] = t
+    const pixels = o.render(t, host)
     // Awaited in order below; a later one that fails before then must not go unhandled.
     pixels.catch(() => {})
     asked.set(index, pixels)
@@ -95,7 +113,8 @@ export const exportFrames = async (o: {
       asked.delete(index)
       if (checked.has(t)) {
         const hash = await sha256(pixels)
-        first.set(t, { hash, json: o.inspect ? await o.inspect(t) : undefined })
+        const json = o.inspect ? await o.inspect(t) : undefined
+        first.set(t, { hash, json, host: hostOf.get(index) as number })
       }
       // After the frame's inspect: with one frame at a time, the source has not moved on.
       ask(index + ahead)
@@ -104,7 +123,17 @@ export const exportFrames = async (o: {
       o.onFrame?.(index, times.length, t)
     }
     o.signal?.throwIfAborted()
-    const failures = await revisit(first, o, times.at(-1) ?? null)
+    const failures = await revisit(
+      first,
+      {
+        render: o.render,
+        inspect: o.inspect,
+        hosts,
+        signal: o.signal,
+        onVisit: o.onRecheck && ((done, total) => o.onRecheck?.(done - 1, total)),
+      },
+      last,
+    )
     if (failures.length > 0) {
       throw new NotDeterministic(failures)
     }

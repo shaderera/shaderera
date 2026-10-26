@@ -341,3 +341,19 @@ test('progress: every frame in place for a terminal, a line every 10 s with the 
     'frame 40/10800  2.0 fps  1:29:40 left\n',
   ])
 })
+
+test('progress: the determinism re-check says how far it is, not 0:00 left', () => {
+  let clock = 0
+  const said: string[] = []
+  const tty = progressLines({ every: 0, write: (line) => said.push(line), now: () => clock })
+  tty(0, 30)
+  clock = 1000
+  tty(29, 30)
+  tty(0, 2, 'recheck')
+  tty(1, 2, 'recheck')
+  // Written over the frame line in place, so what is left of it is blanked.
+  assert.deepEqual(said.slice(2), [
+    `\r${'re-checking 1/2'.padEnd('frame 30/30  29.0 fps  0:00 left'.length)}`,
+    `\r${'re-checking 2/2'.padEnd('frame 30/30  29.0 fps  0:00 left'.length)}`,
+  ])
+})

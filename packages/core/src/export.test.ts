@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import type { DeterminismFailure } from './determinism.ts'
 import { exportFrames, NotDeterministic } from './export.ts'
+import { sha256 } from './hash.ts'
 
 const recorder = () => {
   const log: string[] = []
@@ -183,4 +185,106 @@ test('exportFrames re-checks one frame each second of the film, so a window it r
     assert.equal((await verdict(from, to)).accepted, false, `${from}–${to}`)
   // The re-check costs one render each second of the window: frames 0, 30, 60 … rendered again.
   assert.equal((await verdict(11, 20)).rendered, 270 + 9)
+})
+
+test('exportFrames spreads the re-check over its hosts, each shuffling its own share', async () => {
+  const visits: { t: number; host: number; again: boolean }[] = []
+  const rechecks: [number, number][] = []
+  let written = 0
+  let inFlight = 0
+  let most = 0
+  await exportFrames({
+    fps: 1,
+    from: 0,
+    to: 12,
+    hosts: 3,
+    ahead: 6,
+    render: async (t, host) => {
+      const again = written === 12
+      visits.push({ t, host, again })
+      if (again) most = Math.max(most, ++inFlight)
+      await new Promise((done) => setTimeout(done, 2))
+      if (again) inFlight--
+      return new Uint8Array([t])
+    },
+    sink: { write: async () => void written++, end: async () => {} },
+    onRecheck: (i, n) => rechecks.push([i, n]),
+  })
+  // The first pass goes round the hosts in frame order.
+  const first = visits.filter((v) => !v.again)
+  assert.deepEqual(
+    first.map((v) => v.host),
+    first.map((_, i) => i % 3),
+  )
+  // The re-check: every frame once, a share on each host, the hosts at once.
+  const again = visits.filter((v) => v.again)
+  assert.deepEqual(
+    again.map((v) => v.t).sort((a, b) => a - b),
+    Array.from({ length: 12 }, (_, i) => i),
+  )
+  for (const host of [0, 1, 2]) {
+    const share = again.filter((v) => v.host === host).map((v) => v.t)
+    assert.equal(share.length, 4)
+    // Never in frame order, and never the frames this host rendered first: the hosts must agree.
+    assert.notDeepEqual(
+      share,
+      [...share].sort((a, b) => a - b),
+    )
+    for (const t of share) assert.notEqual(first.find((v) => v.t === t)?.host, host)
+  }
+  assert.equal(most, 3)
+  assert.deepEqual(
+    rechecks,
+    Array.from({ length: 12 }, (_, i) => [i, 12]),
+  )
+})
+
+test('exportFrames catches pixels a host carries from frame to frame, naming the frame before on that host', async () => {
+  const last = [-1, -1]
+  let failures: readonly DeterminismFailure[] = []
+  await assert.rejects(
+    exportFrames({
+      fps: 1,
+      from: 0,
+      to: 8,
+      hosts: 2,
+      ahead: 4,
+      render: async (t, host) => {
+        const out = new Uint8Array([last[host] as number])
+        last[host] = t
+        return out
+      },
+      sink: { write: async () => {}, end: async () => {}, abort: async () => {} },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof NotDeterministic)
+      failures = error.failures
+      return true
+    },
+  )
+  assert.ok(failures.length > 0)
+  // Each `after` is the frame the same host rendered just before: the one its pixels carried.
+  for (const f of failures) {
+    assert.equal(f.kind, 'pixels')
+    if (f.kind === 'pixels') assert.equal(f.second, await sha256(new Uint8Array([f.after ?? -1])))
+  }
+})
+
+test('exportFrames shares the re-check evenly, whichever hosts rendered the frames first', async () => {
+  // At 30 fps the re-checked frames 0, 30, 60 … all went to hosts 0 and 2 of 4 the first time.
+  let written = 0
+  const shares = [0, 0, 0, 0]
+  await exportFrames({
+    fps: 30,
+    from: 0,
+    to: 20,
+    hosts: 4,
+    ahead: 8,
+    render: async (_t, host) => {
+      if (written === 600) shares[host] = (shares[host] as number) + 1
+      return new Uint8Array([1])
+    },
+    sink: { write: async () => void written++, end: async () => {} },
+  })
+  assert.deepEqual(shares, [5, 5, 5, 5])
 })
