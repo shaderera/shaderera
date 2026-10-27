@@ -194,4 +194,20 @@ test('io.image decodes a still once for every host of a command, and again only 
   } finally {
     await after.close()
   }
+  // A still larger than an eighth of the cache's limit is decoded in each host, the same bytes:
+  // at 838 bytes, deep.png at full size (192 bytes) is, its maxSize 3 (48) and photo.jpg (96) not.
+  process.env.SHADERERA_FILM_CACHE_MB = '0.0008'
+  rmSync(join(root, '.shaderera', 'cache'), { recursive: true, force: true })
+  const small: Child[] = await Promise.all([node(), openBrowserChild(project, {})])
+  try {
+    const [n, b] = (await Promise.all(small.map((child) => child.inspect(0)))).map((j) => ({
+      ...(j as object),
+      made: undefined,
+    }))
+    assert.deepEqual(b, n)
+    assert.equal(decoded() - before, 7, 'only the two stills within the rule')
+  } finally {
+    delete process.env.SHADERERA_FILM_CACHE_MB
+    await Promise.all(small.map((child) => child.close()))
+  }
 })

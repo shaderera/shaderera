@@ -163,6 +163,9 @@ The memory column is peak resident memory, Node or Chrome included.
    - **Too big to keep.** An entry larger than one eighth of the limit (128 MiB at the default)
      is not written: it would push out up to eight others on every run. Such a still is still
      decoded only once a command, in the CLI, rather than once a host.
+     - (Amended 2026-10-27, #453 slice 2: such a still is decoded in each host, from its own
+       `read`, with the same module. Measured on 4 hosts, sending 192 MB from the CLI to each was
+       slower than four decodes, and the CLI held a copy of each until every host closed.)
    - **No warning of its own.** #454's lint for per-frame CPU pixel work warns about a still
      decoded far larger than the film shows it (the 8000×6000 photograph in a 1080p film). There
      is one warning, not two.

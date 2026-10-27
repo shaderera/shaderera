@@ -7,8 +7,11 @@ import { timeVideo } from './render-time.ts'
 
 /** What a host asks of the CLI's process (node/services.ts). */
 export type Ask = {
-  /** A still decoded once for every host (ADR 0028, 1); the web player decodes it itself. */
-  image(path: string, maxSize?: number): Promise<DecodedImage>
+  /**
+   * A still decoded once for every host (ADR 0028, 1); the web player decodes it itself. Null for
+   * a still too large for the cache: the host decodes it from its own `read`.
+   */
+  image(path: string, maxSize?: number): Promise<DecodedImage | null>
   cacheGet(hash: string): Promise<Uint8Array | null>
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
   videoOpen(path: string): Promise<{ width: number; height: number; fps: number; frames: number }>
@@ -20,9 +23,10 @@ export type Ask = {
 
 /**
  * A still as the CLI's process opens it (services.ts, `image-open`): its decoded size, and the key
- * its bytes are asked by (`image-data`).
+ * its bytes are asked by (`image-data`). `local`: too large for the cache (ADR 0028, 7), so the
+ * CLI does not decode it, and each host decodes it itself.
  */
-export type StillSize = { width: number; height: number; bits: 8 | 16; key: string }
+export type StillSize = { width: number; height: number; bits: 8 | 16; key: string; local?: true }
 
 const text = new TextEncoder()
 
@@ -55,7 +59,10 @@ export const extraIo = (
       const key = `${options?.maxSize ?? 0} ${path}`
       let image = images.get(key)
       if (!image) {
-        image = ask.image(path, options?.maxSize)
+        const maxSize = options?.maxSize
+        image = ask
+          .image(path, maxSize)
+          .then(async (still) => still ?? decodeImage(await read(path), path, maxSize))
         images.set(key, image)
       }
       return image

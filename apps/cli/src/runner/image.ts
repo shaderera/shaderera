@@ -1,5 +1,5 @@
 // PNG and JPEG decoded for `io.image` by one WASM module (ADR 0028): in the CLI's process for its
-// hosts (node/stills.ts), and in the web player's worker and for `io.bake`'s `image(i)` in each host,
+// hosts (node/services.ts), and in the web player's worker and for `io.bake`'s `image(i)` in each host,
 // so every host samples the same pixels: never a canvas or a browser's decoder.
 import type { DecodedImage } from '@shaderera/core'
 import { IMAGE_WASM } from './image-wasm.ts'

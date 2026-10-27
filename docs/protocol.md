@@ -152,8 +152,8 @@ it, before any frame.
   decode, and it is kept in memory until the last of them closes. The decoded bytes are kept in
   the cache (`io.cache`'s, below), keyed by the decoder's version, the file's content hash and the
   decoded width, height and bits, so the next command reads them instead of decoding (a changed
-  file is another entry); a still larger than an eighth of the cache's limit is not kept there. The
-  web player's worker decodes from `files/` with the same module, so the same bytes. Other formats
+  file is another entry). A still larger than an eighth of the cache's limit is neither kept nor
+  decoded there: each host decodes it itself, with the same module. The web player's worker decodes from `files/` with the same module, so the same bytes. Other formats
   are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with ffmpeg
   (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over; frames

@@ -78,6 +78,7 @@ const askParent = <T>(request: ServiceRequest) =>
 const ask: Ask = {
   image: async (path, maxSize) => {
     const size = await askParent<StillSize>({ op: 'image-open', path, maxSize })
+    if (size.local) return null
     return stillOf(size, await askParent<Uint8Array>({ op: 'image-data', key: size.key }))
   },
   cacheGet: (hash) => askParent({ op: 'cache-get', hash }),

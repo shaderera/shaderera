@@ -310,8 +310,8 @@ export const createServices = (
   const myStills = new Set<string>()
   /**
    * A still's decoded RGBA (ADR 0028, 6–7): from the cache when it holds it, else decoded and kept
-   * there unless larger than an eighth of the cache's limit. The entry is the raw bytes: its key
-   * names the size, and an entry of another length is not used.
+   * there. The entry is the raw bytes: its key names the size, and an entry of another length is
+   * not used.
    */
   const still = async (
     key: string,
@@ -324,12 +324,16 @@ export const createServices = (
     if (kept?.byteLength === size.width * size.height * 4 * (size.bits / 8)) return kept
     stillsDecoded.count++
     const data = await decodeStill(bytes, path, maxSize)
-    if (data.byteLength <= limit / 8) await cachePut(key, data)
+    await cachePut(key, data)
     return data
   }
   const openStill = async (path: string, maxSize?: number): Promise<StillSize> => {
     const bytes = new Uint8Array(await readFile(insideForRead(root, path)))
     const size = imageSize(bytes, path, maxSize)
+    // Too large to keep (ADR 0028, 7): the hosts decode it, rather than this process holding a
+    // copy for them all and sending it to each.
+    if (size.width * size.height * 4 * (size.bits / 8) > limit / 8)
+      return { ...size, key: '', local: true }
     decoderTag ??= sha256(IMAGE_WASM)
     const key = sha256(`${decoderTag}\0${sha256(bytes)}\0${size.width}x${size.height}x${size.bits}`)
     let s = stills.get(key)

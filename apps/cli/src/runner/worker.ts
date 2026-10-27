@@ -152,6 +152,7 @@ const ask: Ask = {
       ...(maxSize === undefined ? {} : { maxSize: String(maxSize) }),
     })
     const size = (await (opened as Response).json()) as StillSize
+    if (size.local) return null
     const data = (await service('image-data', { key: size.key })) as Response
     return stillOf(size, new Uint8Array(await data.arrayBuffer()))
   },
