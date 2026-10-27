@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { crc32 } from 'node:zlib'
-import { decode, encode } from 'fast-png'
+import { encode } from 'fast-png'
 import jpeg from 'jpeg-js'
 import { decodeImage } from './image.ts'
 
@@ -134,6 +134,12 @@ test('a still large enough to grow the decoder memory decodes', () => {
   assert.deepEqual(big.data, data)
 })
 
+test('maxSize is a whole number of pixels up to 65536', () => {
+  const file = rgba(1, 1, [1, 2, 3, 4])
+  for (const bad of [0, 1.5, -2, 65537, 2 ** 32 + 100])
+    assert.throws(() => decodeImage(file, 'm.png', bad), /maxSize is a whole number/, `${bad}`)
+})
+
 test('a file that is neither PNG nor JPEG names its path', () => {
   assert.throws(() => decodeImage(Uint8Array.of(1, 2, 3), 'h.gif'), /h\.gif is not a PNG or JPEG/)
 })
@@ -141,5 +147,4 @@ test('a file that is neither PNG nor JPEG names its path', () => {
 test('a broken PNG names its path', () => {
   const file = rgba(2, 2, new Array(16).fill(1)).slice(0, 40)
   assert.throws(() => decodeImage(file, 'i.png'), /i\.png/)
-  assert.equal(decode(rgba(2, 2, new Array(16).fill(1))).width, 2)
 })

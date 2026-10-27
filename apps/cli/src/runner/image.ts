@@ -24,7 +24,8 @@ const decoder = () => {
  * a still within it, or no `maxSize`, keeps its size.
  */
 export const decodeImage = (bytes: Uint8Array, path: string, maxSize?: number): DecodedImage => {
-  if (maxSize !== undefined && !(Number.isInteger(maxSize) && maxSize >= 1))
+  // Up to the decoder's largest side, 65536, so the value reaches it unwrapped.
+  if (maxSize !== undefined && !(Number.isInteger(maxSize) && maxSize >= 1 && maxSize <= 65536))
     throw new Error(`io.image ${path}: maxSize is a whole number of pixels, not ${maxSize}.`)
   const { memory, alloc, decode } = decoder()
   const at = alloc(bytes.length)
@@ -39,6 +40,7 @@ export const decodeImage = (bytes: Uint8Array, path: string, maxSize?: number): 
   const out = memory.buffer.slice(data as number, (data as number) + (len as number))
   if (!ok) {
     const why = new TextDecoder().decode(out)
+    // 'not a PNG or JPEG' is decode_file's own message (wasm/image/src/lib.rs).
     throw new Error(
       why === 'not a PNG or JPEG'
         ? `${path} is not a PNG or JPEG: convert it to PNG once (the plugin image-to-png).`

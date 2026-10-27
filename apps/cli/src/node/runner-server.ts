@@ -1,6 +1,5 @@
-import { existsSync } from 'node:fs'
 import { createServer as createNetServer } from 'node:net'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import type { Logger } from 'vite'
 import { stamp } from '../stamp/plugin.ts'

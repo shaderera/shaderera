@@ -28,6 +28,8 @@ one version of `shaderera` builds: a site that stores files by their hash keeps 
 
 A static player has no CLI process behind it, so its worker answers what the CLI would:
 - `io.read`: the film's files in `files/`.
+- `io.image`: decoded in the worker from `files/` by the same WASM module as the CLI's hosts, so
+  the same bytes, `maxSize` included.
 - `io.video`: the proxy. It has the original's frames, converted to H.264 (yuv420p, BT.709, a
   keyframe every 15 frames, no B-frames); the build checks its frame count and size against the
   original. The worker decodes it with WebCodecs, through Mediabunny. The frames are close to the
@@ -178,10 +180,9 @@ engine's code in the player is MIT; what else it bundles, and under which licenc
 
 The build writes `assets/THIRD-PARTY-NOTICES.txt`, and `runner.html` names it. It holds the
 notices of every package the bundler put in `assets/`: the engine's (`shaderera`,
-`@shaderera/core`), Mediabunny, Comlink and the rest of what they import, the crates in `io.image`'s decoder (from
-its module's header), the bundler's
-runtime helpers (Vite, Rolldown), and the film's own npm dependencies, which are bundled the same
-way and carry the same duty. The film's own code is the author's and is left out. The list comes
+`@shaderera/core`), Mediabunny, Comlink and the rest of what they import, the crates in
+`io.image`'s decoder (from its module's header), the bundler's runtime helpers (Vite, Rolldown),
+and the film's own npm dependencies, which are bundled the same way and carry the same duty. The film's own code is the author's and is left out. The list comes
 from the modules the bundler included, not from a list kept by hand. For each package, sorted by
 name: its name, version and `license` from its `package.json`, its `LICENSE`, `LICENCE` or
 `NOTICE` files, and the licence headers of its bundled files, which the bundler drops from the
