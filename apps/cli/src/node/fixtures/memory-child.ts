@@ -159,7 +159,9 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
       () => o.identity ?? { host: 'node' as const, node: process.version, adapter: 'in-memory' },
     ),
     clock: call(() => o.clock ?? { date: 0, performance: 0 }),
-    profile: call(() => o.profile ?? { time: { renders: 0, renderMs: 0, videoMs: 0 } }),
+    profile: call(
+      () => o.profile ?? { time: { renders: 0, renderMs: 0, videoMs: 0, composeMs: 0 } },
+    ),
     seeks: call(() => null),
     text: call((t: number) => o.text?.(t) ?? []),
     close: async () => {
