@@ -282,7 +282,7 @@ of footage it takes a moment, not the time to read all of it.
 | Flag | Default |
 |---|---|
 | `--from <s>`, `--to <s>` | 0, `duration`. A window outside the film, or `--to` before `--from`, is refused before anything renders |
-| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
+| `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a window that is not the whole film adds its seconds, `out/<name>-4.0-6.5.mp4` for `--from 4 --to 6.5`, so it never replaces the full film; a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
 | `--master` | off: review quality (crf 16, preset veryfast). On: crf 12, preset slow |
 | `--crf <n>` | the quality's |
@@ -383,8 +383,9 @@ film is rendered once the cut is approved.
 - `io.video` clips come from the decoder scaled as the frame is (`width` and `height` say so), so
   their frames cross to the hosts at the draft's share of the bytes. The decode itself is still
   the file's full size.
-- The file is `out/<name>-draft.mp4` (`out/<name>-<variant>-draft.mp4` with `--variant`), beside
-  the review file and the final, never over them.
+- The file is `out/<name>-draft.mp4` (`out/<name>-<variant>-draft.mp4` with `--variant`,
+  `out/<name>-draft-4.0-6.5.mp4` for a window), beside the review file and the final, never over
+  them.
 - It works with `--from`, `--to`, `--variant` and the encode flags. It is never a job: `--job`
   with `--draft` is refused.
 
