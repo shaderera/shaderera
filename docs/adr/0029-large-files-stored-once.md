@@ -2,6 +2,10 @@
 
 2026-10-27. Proposed (#476). The owner approved an ADR on the growth investigation. Amends 0003
 (revisions and frozen copies). #474 lands first and keeps one unused frozen copy instead of three.
+The maintainer decided its open questions the same day (owner: "decide as you recommend"):
+read-only hard links on NTFS and ext4 are accepted with the risk in 3; objects become read-only on
+every system; a handoff keeps copying as today; references are reconsidered at about twice the
+media size (Rejected); macOS clones are checked on a Mac when this is implemented.
 
 **Context.** A project's footage is held by the working tree, by `versions/objects/` and by every
 frozen copy (`.shaderera/revisions/<id>/`). The growth investigation (2026-10-27) ran a project
@@ -47,9 +51,8 @@ footage is stored twice (working tree and object).
    - **A save** (`store`) and **a restore or undo** (`checkout` into the working tree): clone or
      copy, **never a link**. The person edits the working tree in place, and a link would carry
      that edit into the stored object.
-   - **A handoff** (`writeHandoff`) writes each file twice, at its path and under
-     `versions/objects/`. Inside the handoff folder those two may be linked or cloned. It never
-     links to the project's own objects.
+   - **A handoff** (`writeHandoff`) is unchanged: it copies, and never links to the project's own
+     objects. It leaves the machine, so saving its space is not worth a second rule.
 3. **The guarantee stays: an edit never renders under a revision's id.**
    - **With a clone** nothing changes. An edit to the copy stays in the copy. The check on every
      use (`checkout` hashes the frozen copy against the revision) finds it, and the file is
@@ -126,7 +129,7 @@ keeps. On APFS, btrfs, XFS and ReFS a save clones too, so it is about 2 GB. Not 
   copies are kept, so this limit is never reached.
 
 **LOC impact.** About 40 lines: the clone, link or copy function, its use in `store`, `checkout`
-and `writeHandoff`, `chmod` on new objects, and `nlink` in `prune`'s byte count.
+`chmod` on new objects, and `nlink` in `prune`'s byte count.
 
 **How to reverse.** Place every file by copy again. The objects can stay read-only or be made
 writable. Nothing on disk changes format.
