@@ -148,7 +148,7 @@ const encoders = ffmpeg
 const hdr10Skip = ffmpeg ? (hdr10Problem() ?? false) : 'no ffmpeg'
 
 // A detailed 960×540 second (a fractal zoom under moving grain), its yuv420p frames the reference.
-const NVENC_SIZE = ['-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-s', '960x540', '-r', '30']
+const RAW_540P = ['-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-s', '960x540', '-r', '30']
 const h264Nvenc =
   ffmpeg &&
   spawnSync('ffmpeg', [
@@ -165,13 +165,13 @@ const h264Nvenc =
     '-',
   ]).status === 0
 
-test('an NVENC review keeps a detailed film near x264 review quality, and a lower crf gives a larger, better file', {
+test("an NVENC review keeps a detailed film above VMAF 95 (x264's review: about 99), and a lower crf gives a larger, better file", {
   skip: !h264Nvenc && 'no h264_nvenc here',
 }, () => {
   const dir = tempDir('nvenc-review')
   const ref = join(dir, 'ref.yuv')
   const source = 'mandelbrot=s=960x540:r=30:end_scale=0.05,noise=alls=24:allf=t,format=yuv420p'
-  spawnSync('ffmpeg', [
+  const made = spawnSync('ffmpeg', [
     '-v',
     'error',
     '-f',
@@ -184,10 +184,11 @@ test('an NVENC review keeps a detailed film near x264 review quality, and a lowe
     'rawvideo',
     ref,
   ])
+  assert.equal(made.status, 0, String(made.stderr))
   const filters = spawnSync('ffmpeg', ['-hide_banner', '-filters'], { encoding: 'utf8' }).stdout
   const vmaf = /\slibvmaf\s/.test(filters)
   const score = (crf?: number) => {
-    const out = join(dir, `${crf}.mp4`)
+    const out = join(dir, `crf-${crf ?? 'review'}.mp4`)
     const args = ffmpegArgs({
       ...base,
       width: 960,
@@ -207,7 +208,7 @@ test('an NVENC review keeps a detailed film near x264 review quality, and a lowe
     const metric = spawnSync('ffmpeg', [
       '-i',
       out,
-      ...NVENC_SIZE,
+      ...RAW_540P,
       '-i',
       ref,
       '-lavfi',
@@ -219,7 +220,8 @@ test('an NVENC review keeps a detailed film near x264 review quality, and a lowe
     const line = String(metric.stderr).match(vmaf ? /VMAF score: ([\d.]+)/ : /average:([\d.]+)/)
     return { bytes: statSync(out).size, score: Number(line?.[1]) }
   }
-  // Measured 2026-10-27 (RTX 5070 Ti): VMAF 98.6 / PSNR 38.6 dB, where vbr at cq 19 scored 77 / 27.0.
+  // This 540p second, measured 2026-10-27 (RTX 5070 Ti): VMAF 98.7 / PSNR 38.6 dB at qp 19, where
+  // vbr at cq 19 scored 76.5 / 27.0.
   const review = score()
   assert.ok(review.score >= (vmaf ? 95 : 35), JSON.stringify(review))
   const finer = score(12)

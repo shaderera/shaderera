@@ -32,7 +32,8 @@ export const QUALITIES = {
  * `x264`: libx264 on the CPU. The others are H.264 on the GPU, off the CPU the hosts render on,
  * with larger files at a like quality: a review encode, never a master unless asked (owner
  * decision, 2026-10-09). `nvenc` is NVIDIA's (measured: +13% at qp 19 against x264's review
- * on a detailed film, VMAF 99.8 to 98.6),`qsv` Intel's Quick Sync, `amf` AMD's, `videotoolbox` Apple's.
+ * on a detailed film, VMAF 99.8 to 98.6), `qsv` Intel's Quick Sync, `amf` AMD's, `videotoolbox`
+ * Apple's.
  */
 export type Encoder = 'x264' | Hardware
 export type Hardware = 'nvenc' | 'qsv' | 'amf' | 'videotoolbox'

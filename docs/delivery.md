@@ -96,7 +96,16 @@ A review uses the machine's GPU encoder where it has one: NVENC (NVIDIA, p5 hq, 
 Quick Sync (`qsv`, Intel, global_quality 19), AMF (`amf`, AMD, constant QP 19) or VideoToolbox
 (`videotoolbox`, Apple, `-q:v 62`; constant quality needs Apple silicon), tried in that order. A
 master always uses x264 unless `--encoder` names another. On the product film with 4 hosts, NVENC
-took 9.8 → 7.7 s against x264 medium.
+took 9.8 → 7.7 s against x264 medium (at its vbr, until 0.2.1). Only NVENC takes `--bitrate` and
+`--maxrate`; with either, a review tries NVENC alone. Whether an encoder takes a size is a test
+encode, kept in `~/.shaderera/encoders.json` for that ffmpeg (its path, mtime and version);
+`shaderera doctor` asks again. When ffmpeg then fails on a kept yes, the outcome decides whether it was the encoder.
+If ffmpeg names the encoder (`[h264_nvenc @ …] No capable devices found`), the yes is dropped and
+the render runs again once with the next encoder found (x264 at the last), with a warning. If it
+does not, the render runs once with x264: when x264 renders it, the yes is dropped, with a
+warning; when x264 fails too (an output it cannot write), the render fails with the first error
+and the encoder is kept. A render without a GPU encoder is not tried again. An HDR10 review's
+HEVC NVENC is asked apart: never kept in that file, and a failed HDR10 encode is not retried.
 
 NVENC's review is a constant QP. Its vbr at `-b:v 0 -cq 19` (until 0.2.1) held the output near
 15 Mb/s whatever the cq, so a detailed film came out far below x264. Measured 2026-10-27, RTX
@@ -110,25 +119,17 @@ timebase, `settb=1/30,setpts=N`, and with the same colour tags, or VMAF reads lo
 | **NVENC constant QP 19 (review)** | **279 Mb/s, VMAF 99.8** | **50 Mb/s, VMAF 99.2** |
 | NVENC constant QP 12 (`--crf 11`) | 438 Mb/s, VMAF 99.98 | |
 
-NVENC ran at about 110 fps there (reading the FFV1), x264 veryfast at 40 to 60. Only NVENC takes `--bitrate` and `--maxrate`;
-with either, a review tries NVENC alone. Whether an encoder takes a size is a test encode, kept
-in `~/.shaderera/encoders.json` for that ffmpeg (its path, mtime and version); `shaderera doctor`
-asks again. When ffmpeg then fails on a kept yes, the outcome decides whether it was the encoder.
-If ffmpeg names the encoder (`[h264_nvenc @ …] No capable devices found`), the yes is dropped and
-the render runs again once with the next encoder found (x264 at the last), with a warning. If it
-does not, the render runs once with x264: when x264 renders it, the yes is dropped, with a
-warning; when x264 fails too (an output it cannot write), the render fails with the first error
-and the encoder is kept. A render without a GPU encoder is not tried again. An HDR10 review's
-HEVC NVENC is asked apart: never kept in that file, and a failed HDR10 encode is not retried.
+NVENC ran at about 110 fps there (reading the FFV1), x264 veryfast at 40 to 60.
 
 ### Rate control
 
 A placement with a bitrate rule asks for one. `--bitrate 15M` encodes at a constant rate with HRD
 filler (`nal-hrd=cbr`), so the floor holds on a still frame, as CTV networks ask: a static 256×64
 ramp came out at 1.91 Mb/s for `--bitrate 2M` (x264; NVENC 1.81), where crf gives 0.2.
-`--maxrate 10M` keeps the crf and caps it (`-maxrate`, `-bufsize` twice the rate; NVENC's constant
-QP takes no ceiling, so with it NVENC runs a vbr at cq 19), as DOOH screens
-ask. `deliver` records each file as ffprobe reads it (`probe`).
+`--maxrate 10M` keeps the crf and caps it (`-maxrate`, `-bufsize` twice the rate), as DOOH screens
+ask. A constant QP takes no ceiling, so with `--maxrate` NVENC runs a vbr at cq crf + 1 instead, and
+loses quality even under a ceiling it never reaches: 123 Mb/s at VMAF 89.8 on the fractal zoom
+above at `--maxrate 400M`. `deliver` records each file as ffprobe reads it (`probe`).
 
 ### Loudness
 
