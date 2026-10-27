@@ -53,18 +53,6 @@ test('ffmpegArgs converts with the BT.709 matrix, tags BT.709 and sets the quali
   assert.ok(review.includes('-preset veryfast -crf 16'))
   const master = ffmpegArgs({ ...base, quality: 'master' }).join(' ')
   assert.ok(master.includes('-preset veryfast -crf 10'))
-  // A job's recorded x264 settings (a 0.2.1 master: slow crf 12); --crf still overrides the crf.
-  const old = { preset: 'slow', crf: 12 }
-  assert.ok(
-    ffmpegArgs({ ...base, quality: 'master', x264: old })
-      .join(' ')
-      .includes('-preset slow -crf 12'),
-  )
-  assert.ok(
-    ffmpegArgs({ ...base, quality: 'master', x264: old, crf: 14 })
-      .join(' ')
-      .includes('-preset slow -crf 14'),
-  )
 })
 
 test('ProRes: HQ 4:2:2 10-bit or 4444 with alpha, PCM audio; H.264-only options refused', () => {

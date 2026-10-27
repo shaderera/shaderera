@@ -22,17 +22,12 @@ export type Quality = 'review' | 'master'
 /**
  * x264 settings per delivery quality. A review is preset veryfast at crf 16: a third of medium's
  * CPU at its crf 18 quality, in a file about 20% larger (docs/delivery.md, measured on 9.0.2). A
- * master is veryfast at crf 10: slow crf 12's VMAF several times faster, in a file about 10%
- * larger (#496). A job records its master's settings; a master job made by 0.2.1 or earlier has
- * none and renders slow crf 12 (videoOptionsOf).
+ * master is veryfast at crf 10: slow crf 12's VMAF about 5× faster, in a file about 10% larger (#496).
  */
 export const QUALITIES = {
   review: { crf: 16, preset: 'veryfast' },
   master: { crf: 10, preset: 'veryfast' },
 } as const
-
-/** The x264 preset and crf a job's master renders with, as the job recorded them. */
-export type X264 = { readonly preset: string; readonly crf: number }
 
 /**
  * `x264`: libx264 on the CPU. The others are H.264 on the GPU, off the CPU the hosts render on,
@@ -297,8 +292,6 @@ export const ffmpegArgs = (o: {
   out: string
   /** x264 settings: `review` is crf 16 / preset veryfast, `master` crf 10 / preset veryfast. */
   quality?: Quality
-  /** A job's recorded x264 settings, over the quality's. */
-  x264?: X264
   /** Overrides the quality's crf. */
   crf?: number
   /** The mix's part of the encode (Mix.encode), or none for a file without sound. */
@@ -335,7 +328,7 @@ export const ffmpegArgs = (o: {
   if (prores && (o.bitrate || o.maxrate))
     throw new Error('ProRes has its own data rate: --bitrate and --maxrate are for H.264.')
   if (prores && o.input === 'yuv420p') throw new Error('ProRes takes RGBA frames, not yuv420p.')
-  const q = o.x264 ?? QUALITIES[o.quality ?? 'review']
+  const q = QUALITIES[o.quality ?? 'review']
   const yuv = o.input === 'yuv420p'
   const pixFmt = { rgba: 'rgba', rgba64: 'rgba64le', yuv420p: 'yuv420p' }[o.input ?? 'rgba']
   const args = ['-y', '-loglevel', 'error', '-f', 'rawvideo', '-pix_fmt', pixFmt]

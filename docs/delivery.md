@@ -93,11 +93,10 @@ reports them (the wall time varies with what else the machine runs; the hosts sh
 Writing to null on the same machine, medium took 20 s (30 fps) and veryfast 7.5 s (80 fps).
 
 A master is x264 preset veryfast at crf 10 (slow at crf 12 until 0.2.1): slow's quality several
-times faster, in a file about 10% larger. A job records the preset and crf its master renders
-with, so it always renders the same file; a master job made by 0.2.1 or earlier records none and
-renders slow crf 12. A particle product film (1920×1080, 60 fps, a 6 s window), `render --job` on 4 hosts,
-16 threads, an RTX 5070 Ti, ffmpeg 9.0.2; VMAF against the same job's lossless PNG frames (FFV1),
-both inputs on one timebase (`settb=1/60,setpts=N`), the reference converted as the encoder does:
+times faster, in a file about 10% larger. A particle product film (1920×1080, 60 fps, a 6 s
+window), `render --job` on 4 hosts, 16 threads, an RTX 5070 Ti, ffmpeg 9.0.2; VMAF against the
+same job's lossless PNG frames (FFV1), both inputs on one timebase (`settb=1/60,setpts=N`), the
+reference converted as the encoder does:
 
 | master | wall time (360 frames) | fps | file | VMAF |
 |---|---|---|---|---|
