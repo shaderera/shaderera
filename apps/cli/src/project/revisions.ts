@@ -445,8 +445,13 @@ const place = (object: string, file: string, hash: string, link: boolean) => {
   }
   try {
     renameSync(tmp, file)
-  } catch {
-    // Windows refuses to rename over a read-only file: the frozen file a link left.
+  } catch (e) {
+    // Windows refuses to rename over a read-only file: the frozen file a link left. Never in the
+    // working tree, where the file is the person's (one held open would be lost).
+    if (!link) {
+      rmSync(tmp, { force: true })
+      throw e
+    }
     rmSync(file, { force: true })
     renameSync(tmp, file)
   }
