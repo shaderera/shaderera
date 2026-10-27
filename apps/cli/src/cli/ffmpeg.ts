@@ -31,15 +31,15 @@ export const QUALITIES = {
 /**
  * `x264`: libx264 on the CPU. The others are H.264 on the GPU, off the CPU the hosts render on,
  * with larger files at a like quality: a review encode, never a master unless asked (owner
- * decision, 2026-10-09). `nvenc` is NVIDIA's (measured: +48% at cq 19 against x264 medium crf
- * 18), `qsv` Intel's Quick Sync, `amf` AMD's, `videotoolbox` Apple's.
+ * decision, 2026-10-09). `nvenc` is NVIDIA's (measured: +13% at qp 19 against x264's review
+ * on a detailed film, VMAF 99.8 to 98.6),`qsv` Intel's Quick Sync, `amf` AMD's, `videotoolbox` Apple's.
  */
 export type Encoder = 'x264' | Hardware
 export type Hardware = 'nvenc' | 'qsv' | 'amf' | 'videotoolbox'
 /** The GPU encoders, in the order a review tries them. */
 export const HARDWARE: readonly Hardware[] = ['nvenc', 'qsv', 'amf', 'videotoolbox']
 export const ENCODERS: readonly Encoder[] = ['x264', ...HARDWARE]
-const NVENC = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-b:v', '0']
+const NVENC = ['-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq']
 /** A GPU encoder's constant quality for a review, near x264's. */
 const CQ = 19
 /**
@@ -47,7 +47,10 @@ const CQ = 19
  * higher better, and only Apple silicon has it). Only NVENC takes --bitrate and --maxrate.
  */
 const constantQuality: Record<Hardware, (cq: number) => string[]> = {
-  nvenc: (cq) => [...NVENC, '-cq', String(cq)],
+  // A constant QP: vbr at -b:v 0 -cq n held a detailed 1080p30 film near 15 Mb/s whatever n was
+  // (VMAF 63 against a lossless render, where x264's review scores 98.6); qp 19 scores 99.8 at
+  // 279 Mb/s there, against x264's 246 (docs/delivery.md, measured 2026-10-27).
+  nvenc: (cq) => [...NVENC, '-rc', 'constqp', '-qp', String(cq)],
   qsv: (cq) => ['-c:v', 'h264_qsv', '-preset', 'medium', '-global_quality', String(cq)],
   amf: (cq) => {
     const qp = String(cq)
@@ -357,12 +360,11 @@ export const ffmpegArgs = (o: {
   const cap = (rate: string) => ['-maxrate', rate, '-bufsize', doubled(rate)]
   const cq = o.crf === undefined ? CQ : o.crf + 1
   if (o.encoder === 'nvenc') {
-    if (o.bitrate)
-      args.push(...NVENC.slice(0, 6), '-rc', 'cbr', '-b:v', o.bitrate, ...cap(o.bitrate))
-    else {
-      args.push(...constantQuality.nvenc(cq))
-      if (o.maxrate) args.push(...cap(o.maxrate))
-    }
+    if (o.bitrate) args.push(...NVENC, '-rc', 'cbr', '-b:v', o.bitrate, ...cap(o.bitrate))
+    // A constant QP takes no ceiling: --maxrate caps a vbr at cq instead.
+    else if (o.maxrate)
+      args.push(...NVENC, '-rc', 'vbr', '-b:v', '0', '-cq', String(cq), ...cap(o.maxrate))
+    else args.push(...constantQuality.nvenc(cq))
   } else if (o.encoder && o.encoder !== 'x264') {
     if (o.bitrate || o.maxrate)
       throw new Error(`--bitrate and --maxrate are for x264 and nvenc, not ${o.encoder}.`)

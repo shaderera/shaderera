@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -146,6 +146,88 @@ const encoders = ffmpeg
   ? spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout
   : ''
 const hdr10Skip = ffmpeg ? (hdr10Problem() ?? false) : 'no ffmpeg'
+
+// A detailed 960×540 second (a fractal zoom under moving grain), its yuv420p frames the reference.
+const NVENC_SIZE = ['-f', 'rawvideo', '-pix_fmt', 'yuv420p', '-s', '960x540', '-r', '30']
+const h264Nvenc =
+  ffmpeg &&
+  spawnSync('ffmpeg', [
+    '-v',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    'color=s=960x540:d=0.1',
+    '-c:v',
+    'h264_nvenc',
+    '-f',
+    'null',
+    '-',
+  ]).status === 0
+
+test('an NVENC review keeps a detailed film near x264 review quality, and a lower crf gives a larger, better file', {
+  skip: !h264Nvenc && 'no h264_nvenc here',
+}, () => {
+  const dir = tempDir('nvenc-review')
+  const ref = join(dir, 'ref.yuv')
+  const source = 'mandelbrot=s=960x540:r=30:end_scale=0.05,noise=alls=24:allf=t,format=yuv420p'
+  spawnSync('ffmpeg', [
+    '-v',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    source,
+    '-t',
+    '1',
+    '-f',
+    'rawvideo',
+    ref,
+  ])
+  const filters = spawnSync('ffmpeg', ['-hide_banner', '-filters'], { encoding: 'utf8' }).stdout
+  const vmaf = /\slibvmaf\s/.test(filters)
+  const score = (crf?: number) => {
+    const out = join(dir, `${crf}.mp4`)
+    const args = ffmpegArgs({
+      ...base,
+      width: 960,
+      height: 540,
+      fps: 30,
+      to: 1,
+      out,
+      input: 'yuv420p',
+      encoder: 'nvenc',
+      crf,
+    })
+    const r = spawnSync('ffmpeg', args, { input: readFileSync(ref) })
+    assert.equal(r.status, 0, String(r.stderr))
+    // One timebase and the review's BT.709 tags for both, or VMAF reads low (79 for 98.7 here).
+    const tags = 'setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv'
+    const pair = `[0:v]settb=1/30,setpts=N[a];[1:v]${tags},settb=1/30,setpts=N[b];[a][b]`
+    const metric = spawnSync('ffmpeg', [
+      '-i',
+      out,
+      ...NVENC_SIZE,
+      '-i',
+      ref,
+      '-lavfi',
+      pair + (vmaf ? 'libvmaf' : 'psnr'),
+      '-f',
+      'null',
+      '-',
+    ])
+    const line = String(metric.stderr).match(vmaf ? /VMAF score: ([\d.]+)/ : /average:([\d.]+)/)
+    return { bytes: statSync(out).size, score: Number(line?.[1]) }
+  }
+  // Measured 2026-10-27 (RTX 5070 Ti): VMAF 98.6 / PSNR 38.6 dB, where vbr at cq 19 scored 77 / 27.0.
+  const review = score()
+  assert.ok(review.score >= (vmaf ? 95 : 35), JSON.stringify(review))
+  const finer = score(12)
+  assert.ok(
+    finer.bytes > review.bytes * 1.2 && finer.score > review.score,
+    JSON.stringify({ review, finer }),
+  )
+})
 
 const HEVC = [
   { name: 'x265 review from P010', encoder: 'x265', input: 'p010', chunk: false, skip: false },
