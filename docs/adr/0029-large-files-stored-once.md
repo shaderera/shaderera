@@ -128,7 +128,7 @@ keeps. On APFS, btrfs, XFS and ReFS a save clones too, so it is about 2 GB. Not 
 - NTFS allows 1023 links per file. One object is linked once per frozen copy, and few frozen
   copies are kept, so this limit is never reached.
 
-**LOC impact.** About 40 lines: the clone, link or copy function, its use in `store`, `checkout`
+**LOC impact.** About 40 lines: the clone, link or copy function, its use in `store` and `checkout`,
 `chmod` on new objects, and `nlink` in `prune`'s byte count.
 
 **How to reverse.** Place every file by copy again. The objects can stay read-only or be made
