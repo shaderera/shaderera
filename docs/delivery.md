@@ -62,7 +62,7 @@ state (BT.709 limited when untagged, as players assume for HD) and compares patc
 |---|---|---|
 | Before: swscale's default matrix (BT.601), no tags | **40** (green 255→215); magenta 37, cyan 26, red 23, yellow 17, blue 14, orange 6, light skin 3 | — (asserted > 10) |
 | Now, review (crf 16, veryfast; 9.0.2) | 2 (cyan, magenta, yellow, orange, dark skin); greys exact | ≤ 4 |
-| Now, master (crf 10, veryfast) | 2 (same patches); greys exact | ≤ 3 |
+| Now, master (crf 12, slow, until 0.2.1; crf 10, veryfast asserted the same) | 2 (same patches); greys exact | ≤ 3 |
 
 ffmpeg 8.1.1 (gyan.dev full build), Windows 11. The remaining 1–2 levels are 8-bit Y'CbCr
 quantisation at limited range, not the encoder: review and master measure the same on flat patches.
@@ -95,7 +95,7 @@ Writing to null on the same machine, medium took 20 s (30 fps) and veryfast 7.5 
 A master is x264 preset veryfast at crf 10 (slow at crf 12 until 0.2.1): slow's quality several
 times faster, in a file about 10% larger. A job records the preset and crf its master renders
 with, so it always renders the same file; a master job made by 0.2.1 or earlier records none and
-renders slow crf 12. MATTER (1920×1080, 60 fps, a 6 s window, 20–26 s), `render --job` on 4 hosts,
+renders slow crf 12. A particle product film (1920×1080, 60 fps, a 6 s window), `render --job` on 4 hosts,
 16 threads, an RTX 5070 Ti, ffmpeg 9.0.2; VMAF against the same job's lossless PNG frames (FFV1),
 both inputs on one timebase (`settb=1/60,setpts=N`), the reference converted as the encoder does:
 
@@ -104,7 +104,7 @@ both inputs on one timebase (`settb=1/60,setpts=N`), the reference converted as 
 | slow, crf 12 (until 0.2.1) | 57.8 s | 6.2 | 242.5 MB (323 Mb/s) | 99.99 |
 | **veryfast, crf 10** | **11.4 s** | **31.6** | **273.9 MB (+13%)** | **99.95** |
 
-MATTER's frame is mostly the encoder (host render 4.6 ms a frame): the whole render ran 5.1×
+That film's frame is mostly the encoder (host render 4.6 ms a frame): the whole render ran 5.1×
 faster. Earlier, on two 1080p30 films: slow crf 12 VMAF 99.3 / 99.2 at 25 / 13 fps, veryfast crf
 10 99.2 / 99.2 at 89 / 67 fps, about 10% larger.
 

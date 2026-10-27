@@ -352,11 +352,11 @@ export const createJob = async (
     ...(o.range === 'hdr10' ? { range: o.range } : {}),
     camera: 'authored' as const,
     output: { width: manifest.width, height: manifest.height, fps: manifest.fps, from, to },
-    delivery: {
+    delivery: recordX264({
       ...DELIVERY,
-      ...recordX264(o.delivery ?? {}, o.range),
+      ...o.delivery,
       ...(o.range === 'hdr10' ? { color: 'hdr10-bt2020-pq' as const } : {}),
-    },
+    }),
     inputs: {
       assets: Object.fromEntries(Object.entries(files).filter(([p]) => !CODE.test(p))),
       ...(lock ? { lock: files[lock] } : {}),
@@ -554,11 +554,13 @@ export const openJob = async (
   return { project: built.project, child, more, extra: others }
 }
 
-/** An SDR mp4 master's delivery with the x264 settings it renders with now recorded (#496). */
-export const recordX264 = (d: Partial<Delivery>, range?: Range): Partial<Delivery> =>
-  (d.format ?? 'mp4') === 'mp4' && d.quality === 'master' && range !== 'hdr10'
-    ? { ...d, x264: { preset: QUALITIES.master.preset, crf: QUALITIES.master.crf } }
-    : d
+/** An x264 master: an SDR mp4 master (an HDR10 one is x265's). */
+const x264Master = (d: Partial<Delivery>) =>
+  (d.format ?? 'mp4') === 'mp4' && d.quality === 'master' && d.color !== 'hdr10-bt2020-pq'
+
+/** A delivery with the x264 settings an x264 master renders with now recorded (#496). */
+export const recordX264 = <D extends Partial<Delivery>>(d: D): D =>
+  x264Master(d) ? { ...d, x264: { ...QUALITIES.master } } : d
 
 /** The master every job made by 0.2.1 or earlier renders, recording no x264 settings. */
 const MASTER_021: X264 = { preset: 'slow', crf: 12 }
@@ -569,9 +571,7 @@ const MASTER_021: X264 = { preset: 'slow', crf: 12 }
  */
 export const videoOptionsOf = (d: Partial<Delivery>) => ({
   codec: d.format === 'prores-hq' || d.format === 'prores-4444' ? d.format : ('h264' as const),
-  ...((d.format ?? 'mp4') === 'mp4' && d.quality === 'master'
-    ? { x264: d.x264 ?? MASTER_021 }
-    : {}),
+  ...(x264Master(d) ? { x264: d.x264 ?? MASTER_021 } : {}),
   ...(d.bitrate ? { bitrate: d.bitrate } : {}),
   ...(d.maxrate ? { maxrate: d.maxrate } : {}),
   ...(d.editList === false ? { editList: false } : {}),
