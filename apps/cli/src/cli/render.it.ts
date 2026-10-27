@@ -18,6 +18,7 @@ import { tempDir } from '../fixtures/temp.ts'
 import type { Child } from '../node/child.ts'
 import { boxFrame, memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import { canEncode, encodersFile, probe } from './ffmpeg.ts'
+import type { FrameTime } from './frame-time.ts'
 import { exportVideo } from './render.ts'
 
 /** A fixture in its own temp folder: test files run in parallel, and each build empties `.shaderera/`. */
@@ -49,7 +50,7 @@ test('a piped render reports every frame only when asked (a parent process asks)
   // Where the frame time went (#454), at the end.
   assert.match(
     asked.stdout,
-    /^time: [\d.]+ ms a frame · host render [\d.]+ ms · waiting on io\.video [\d.]+ ms · encoder (idle|busy) \(/m,
+    /^time: [\d.]+ ms a frame · on the host: drawing [\d.]+ ms, compositor and readback [\d.]+ ms, waiting on io\.video [\d.]+ ms · encoder (idle|busy) \(/m,
   )
   // Unasked, and a variant: at its own length, done before a line every 10 s is due.
   const quiet = render('--variant', 'short')
@@ -62,6 +63,64 @@ test('a piped render reports every frame only when asked (a parent process asks)
   assert.match(backwards.stderr, /The window 0\.8–0\.2 s is outside 0–1 s\./)
   assert.doesNotMatch(backwards.stderr, /ffmpeg|failed where it worked/)
   assert.match(render('--from', 'a').stderr, /Not a time in seconds: a\./)
+})
+
+test("a render's frame time adds up: the hosts' drawing, io.video, compositor and readback and the encoder make the frame (#497)", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const main = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const root = copy('./fixtures/mcp/')
+  // 60 frames at 720p: large enough that the compositor and readback are a real part of each.
+  const manifest = join(root, 'shaderera.json')
+  writeFileSync(
+    manifest,
+    JSON.stringify({
+      ...JSON.parse(readFileSync(manifest, 'utf8')),
+      width: 1280,
+      height: 720,
+      fps: 30,
+      duration: 2,
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    [
+      "import type { Open } from '@shaderera/core'",
+      'const open: Open = ({ io }) => {',
+      '  const canvas = io.canvas(1280, 720)',
+      '  return {',
+      '    render: async (t) => {',
+      "      const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D",
+      "      ctx.fillStyle = 'rgb(20, 20, 40)'",
+      '      ctx.fillRect(0, 0, 1280, 720)',
+      "      ctx.fillStyle = 'rgb(255, 120, 0)'",
+      '      ctx.fillRect(t * 600, 200, 160, 160)',
+      "      return { color: canvas, name: 'box' }",
+      '    },',
+      '  }',
+      '}',
+      'export default open',
+    ].join('\n'),
+  )
+  const out = join(tempDir('render'), 'film.mp4')
+  const r = spawnSync(
+    process.execPath,
+    [main, 'render', '--root', root, '--out', out, '--no-audio', '--workers', '1', '--json'],
+    { encoding: 'utf8' },
+  )
+  assert.equal(r.status, 0, r.stderr)
+  const found = (
+    JSON.parse(r.stdout) as { findings: { code: string; measured?: string }[] }
+  ).findings.find((f) => f.code === 'frame-time')
+  assert.ok(found?.measured, r.stdout)
+  const t = JSON.parse(found.measured) as FrameTime
+  assert.ok(t.composeMs > 0, found.measured)
+  // Within a quarter of the frame, as docs/cli.md says: the rest is the CLI's own work on a frame.
+  const parts = (t.renderMs + t.composeMs) / Math.max(1, t.hosts) + t.encoderMs
+  assert.ok(
+    Math.abs(parts - t.frameMs) <= t.frameMs / 4,
+    `the parts ${parts.toFixed(2)} ms of a ${t.frameMs.toFixed(2)} ms frame: ${found.measured}`,
+  )
 })
 
 test('the output holds the previous film until the new one is complete; a failed render leaves it', {

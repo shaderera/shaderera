@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { renderTime, resetRenderTime, timeRender, timeVideo } from './render-time.ts'
+import { renderTime, resetRenderTime, timeFrame, timeRender, timeVideo } from './render-time.ts'
 
 // Relations, not wall-clock windows: the machine may be loaded (#482).
 const timed = async (run: () => Promise<unknown>) => {
@@ -14,7 +14,7 @@ test('io.video waits count as their union inside render: concurrent waits once, 
   resetRenderTime()
   // The first render after a reset (its shaders compile) is left out.
   await timeRender(() => sleep(30))
-  assert.deepEqual(renderTime(), { renders: 0, renderMs: 0, videoMs: 0 })
+  assert.deepEqual(renderTime(), { renders: 0, renderMs: 0, videoMs: 0, composeMs: 0 })
 
   // Two clips' frames awaited at once count once: about half the two waits added, never both.
   const waits: number[] = []
@@ -56,4 +56,28 @@ test('io.video waits count as their union inside render: concurrent waits once, 
   // A wait outside render (open's) is not counted either.
   await timeVideo(() => sleep(20))
   assert.equal(renderTime().videoMs, after.videoMs)
+})
+
+test('a frame counts its compositor, readback and hand-off apart from its render call, the first after a reset not at all', async () => {
+  resetRenderTime()
+  const first = timeFrame()
+  await first.render(() => sleep(20))
+  await sleep(20)
+  first.done()
+  assert.deepEqual(renderTime(), { renders: 0, renderMs: 0, videoMs: 0, composeMs: 0 })
+
+  const frame = timeFrame()
+  const whole = await timed(async () => {
+    await frame.render(() => sleep(20))
+    await sleep(40)
+    frame.done()
+  })
+  const t = renderTime()
+  assert.equal(t.renders, 1)
+  // The time after the render call is the compositor's, and the two never overlap.
+  assert.ok(t.composeMs >= 35, `${t.composeMs}`)
+  assert.ok(t.renderMs + t.composeMs <= whole, `${t.renderMs} + ${t.composeMs} of ${whole}`)
+  // Done twice counts once.
+  frame.done()
+  assert.equal(renderTime().composeMs, t.composeMs)
 })

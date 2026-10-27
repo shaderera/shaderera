@@ -316,24 +316,35 @@ audio: -23.0 LUFS, true peak -20.4 dBTP, range 0.0 LU
 
 ### Where the time went
 
-At its end a render says where each frame's time went: the wall time a frame, the host's render
-call (the source's own `render`, compositing and the copy back not included), how much of that
-waited on `io.video` frames, and whether the encoder kept up (it took each frame in at most a
-quarter of the time: idle) or set the pace (busy). With several hosts the render time is each
-host's. When the film's own drawing (render less its `io.video` waits) fills at least half of
-each host's share of the time while the encoder is idle, a second line points to the authoring
-guide's [Footage and stills on the GPU](authoring.md#footage-and-stills-on-the-gpu). The figures start at the first frame written: the
-preroll, what the hosts rendered before and the first frame (which compiles the shaders) are left
-out. The wall time does include the determinism re-check at the end and ffmpeg's flush. A host
-that cannot give its figures leaves them out, never the render:
+At its end a render says where each frame's time went: the wall time a frame; on the host, the
+film's own drawing (the source's `render` call less its waits on `io.video` frames), the
+compositor and readback (from the end of the render call until the frame's bytes are handed to
+the CLI: the layers composited, the frame read back from the GPU and sent over the pipe or POSTed),
+and the `io.video` waits; and whether the encoder kept up (it took each frame in at most a quarter
+of the time: idle) or set the pace (busy). With several hosts the host's figures are each host's,
+so they count once over the hosts. While the encoder is idle, the host's three over the hosts plus
+the time each frame waited on the encoder add up to the wall time a frame within a quarter of it:
+the rest is the CLI's own work on each frame and, in the browser host, laying out the film's
+`dom`, which none of them counts. A busy encoder sets the pace, and the hosts' work on the next
+frames overlaps its wait, so the sum can then be more than the frame. When
+the encoder is idle and one of the host's parts is its largest and fills at least half of each
+host's share of the time, a second line names it: the film's own drawing points to the authoring
+guide's [Footage and stills on the GPU](authoring.md#footage-and-stills-on-the-gpu), the
+compositor and readback to [Expensive films](authoring.md#expensive-films) (more hosts, fewer
+layers). The figures start at the first frame written: the preroll, what the hosts rendered
+before and the first frame (which compiles the shaders) are left out. The wall time does include
+the determinism re-check at the end and ffmpeg's flush. A host that cannot give its figures leaves
+them out, never the render:
 
 ```
-time: 92.3 ms a frame · host render 72.1 ms · waiting on io.video 0.0 ms · encoder idle (it took each frame in 2.4 ms and waited for the next)
-The film's own drawing takes most of each frame while the encoder waits: footage and stills drawn on the CPU are the usual cause. See AUTHORING.md, "Footage and stills on the GPU".
+time: 27.1 ms a frame · on the host: drawing 0.9 ms, compositor and readback 22.7 ms, waiting on io.video 0.0 ms · encoder idle (it took each frame in 3.3 ms and waited for the next)
+The compositor and readback take most of each frame while the encoder waits: every frame's layers are composited, read back and handed to the CLI on its host, so more hosts (--workers) on idle cores, fewer layers, and layers as GPU textures rather than canvases make it faster. See AUTHORING.md, "Expensive films".
 ```
 
 With `--json` it is the `frame-time` finding (`info`), whose `measured` holds the figures as JSON:
-`frames`, `hosts`, `frameMs`, `renderMs`, `videoMs`, `encoderMs`, `encoderIdle` and `drawing`.
+`frames`, `hosts`, `frameMs`, `renderMs` (the render call, its `io.video` waits included),
+`videoMs`, `composeMs` (the compositor and readback), `encoderMs`, `encoderIdle`, and `drawing`
+and `compositor` (the part a second line names).
 A render of frames made before the encode (`--hdr10`, `assemble`) has none.
 
 A source with `captions()` gets `<name>.srt` and `<name>.vtt` beside the file. A source that is

@@ -160,6 +160,10 @@ command that prints nothing looks frozen.
   --to 14` writes one `.cpuprofile` for the CLI and one for each host (without `--trusted` a host
   cannot write it): open them in Chrome DevTools, Performance, and see whether the time is in
   `open`, in the film's draw or waiting.
+- **Few layers, on the GPU.** Each frame's layers are composited and the frame read back from the
+  GPU and handed to the CLI in every host. When `render`'s time line says the compositor and
+  readback take most of each frame, return fewer layers, return GPU textures rather than canvases
+  (a canvas is uploaded every frame), and use more hosts (`--workers`, below).
 - **Check with fewer frames.** `check` renders every timestamp twice; at 5 s a frame, the default
   50 take over eight minutes. `npx shaderera check --times 4` still compares two orders.
 - **Render in the background with progress.** `npx shaderera render 2> render.log` writes

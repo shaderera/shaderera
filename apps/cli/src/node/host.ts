@@ -35,7 +35,13 @@ import {
   yuvFits,
 } from '@shaderera/core/host'
 import { type Ask, extraIo, type StillSize, stillOf } from '../runner/io.ts'
-import { type RenderTime, renderTime, resetRenderTime, timeRender } from '../runner/render-time.ts'
+import {
+  type FrameTimer,
+  type RenderTime,
+  renderTime,
+  resetRenderTime,
+  timeFrame,
+} from '../runner/render-time.ts'
 import { adapterLine, softwareAdapter } from './adapter.ts'
 import { fixFullTurns } from './arcs.ts'
 import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
@@ -161,9 +167,9 @@ export const clock = { date: 0, performance: 0, rendering: false }
   }
 }
 
-/** Runs a render with the clock counted, timed (render-time.ts). */
-const counted = async <T>(run: () => Promise<T>): Promise<T> =>
-  timeRender(async () => {
+/** Runs a frame's render call with the clock counted, timed (render-time.ts). */
+const counted = async <T>(run: () => Promise<T>, timer: FrameTimer): Promise<T> =>
+  timer.render(async () => {
     clock.rendering = true
     try {
       return await run()
@@ -381,7 +387,8 @@ const cpuComposite = (layers: readonly Layer[], width: number, height: number): 
   return new Uint8Array(ctx.getImageData(0, 0, width, height).data.buffer)
 }
 
-const handle = async (m: Request): Promise<unknown> => {
+/** `timer` times a render's frame: its call, then until its bytes are on the pipe. */
+const handle = async (m: Request, timer: FrameTimer = timeFrame()): Promise<unknown> => {
   if (m.type === 'open') {
     opened = m
     manifest = m.manifest
@@ -464,7 +471,7 @@ const handle = async (m: Request): Promise<unknown> => {
       const layers = lightChecked(
         finalOnly(
           flattenFrame(
-            await counted(() => s.render(m.t, { width, height, intent: m.intent, frame })),
+            await counted(() => s.render(m.t, { width, height, intent: m.intent, frame }), timer),
           ),
           m.intent,
           m.t,
@@ -564,7 +571,8 @@ process.on('message', async ({ id, request }: { id: number; request: Request }) 
       await handle(opened)
     }
     gpuErrors.length = 0
-    const result = await handle(request)
+    const timer = timeFrame()
+    const result = await handle(request, timer)
     // Errors are reported as events after the call that made them: let them arrive.
     await new Promise((done) => setImmediate(done))
     if (lost !== undefined)
@@ -591,7 +599,8 @@ process.on('message', async ({ id, request }: { id: number; request: Request }) 
         bulk: pixels.byteLength,
       })
       // For tests (child.it.ts): a frame announced whose bytes never come.
-      if (!dropFrames) pipe.write(pixels)
+      // Handed over once the pipe took them: the frame's compositor time ends there.
+      if (!dropFrames) pipe.write(pixels, () => timer.done())
     } else process.send?.({ id, result: result ?? null })
   } catch (e) {
     // Dawn rejects a call on a lost device (an AbortError) before `lost` resolves: let it, so

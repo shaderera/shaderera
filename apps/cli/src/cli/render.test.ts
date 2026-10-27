@@ -390,7 +390,7 @@ test("a render says where its frame time went, from the hosts' render times and 
   const project = memoryProject()
   const child = memoryChild({
     size: { width: 64, height: 36 },
-    profile: { time: { renders: 10, renderMs: 50, videoMs: 20 } },
+    profile: { time: { renders: 10, renderMs: 50, videoMs: 20, composeMs: 30 } },
   })
   const out = join(project.root, 'out', 'timed.mp4')
   const done = await exportVideo(project, child, {
@@ -403,7 +403,7 @@ test("a render says where its frame time went, from the hosts' render times and 
   assert.ok(done.time)
   // Counted from the first frame written: its shader compiles are left out.
   assert.equal(done.time.frames, done.frames - 1)
-  assert.deepEqual([done.time.renderMs, done.time.videoMs], [5, 2])
+  assert.deepEqual([done.time.renderMs, done.time.videoMs, done.time.composeMs], [5, 2, 3])
   assert.ok(done.time.frameMs > 0 && done.time.encoderMs >= 0)
 })
 

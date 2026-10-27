@@ -42,7 +42,14 @@ import {
 import * as Comlink from 'comlink'
 import { type PcmForm, packClips, toPage } from './audio.ts'
 import { type Ask, extraIo, type StillSize, stillOf } from './io.ts'
-import { type RenderTime, renderTime, resetRenderTime, timeRender } from './render-time.ts'
+import {
+  type FrameTimer,
+  type RenderTime,
+  renderTime,
+  resetRenderTime,
+  timeFrame,
+  timeRender,
+} from './render-time.ts'
 
 export type Capabilities = {
   inspect: boolean
@@ -85,8 +92,9 @@ const clock = { date: 0, performance: 0, rendering: false }
     return perf()
   }
 }
-const counted = async <T>(run: () => Promise<T>): Promise<T> =>
-  timeRender(async () => {
+/** A render call with the clock counted, timed (render-time.ts): as a frame's when `timer` is given. */
+const counted = async <T>(run: () => Promise<T>, timer?: FrameTimer): Promise<T> =>
+  (timer ? timer.render : timeRender)(async () => {
     clock.rendering = true
     try {
       return await run()
@@ -650,9 +658,12 @@ const api = {
   send: (t: number, intent: 'preview' | 'final', format: GpuOutput | HdrOutput, to: string) =>
     enqueue(false, () =>
       authored(async () => {
-        const { bytes, layers, light } = await composite(t, intent, format)
+        // Timed until the runner server has the frame: its compositor, readback and hand-off.
+        const timer = timeFrame()
+        const { bytes, layers, light } = await composite(t, intent, format, timer)
         const r = await fetch(to, { method: 'POST', body: bytes as Uint8Array<ArrayBuffer> })
         if (!r.ok) throw new Error(`The runner server refused the frame (${r.status}).`)
+        timer.done()
         return { layers, ...(light ? { light } : {}) }
       }),
     ),
@@ -712,6 +723,7 @@ const composite = async (
   t: number,
   intent: 'preview' | 'final',
   format: GpuOutput | HdrOutput = 'rgba',
+  timer?: FrameTimer,
 ): Promise<{
   bytes: Uint8Array | Uint8ClampedArray
   layers: ReturnType<typeof layerInfo>[]
@@ -720,14 +732,16 @@ const composite = async (
   const { width, height } = manifest
   const dom = await domAt(t)
   try {
-    const frame = await counted(() =>
-      opened().render(t, {
-        width,
-        height,
-        intent,
-        frame: frameAt(t, manifest.fps),
-        ...(dom ? { dom } : {}),
-      }),
+    const frame = await counted(
+      () =>
+        opened().render(t, {
+          width,
+          height,
+          intent,
+          frame: frameAt(t, manifest.fps),
+          ...(dom ? { dom } : {}),
+        }),
+      timer,
     )
     const layers = lightChecked(finalOnly(flattenFrame(frame), intent, t), range)
     const info = layers.map(layerInfo)
