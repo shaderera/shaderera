@@ -1,6 +1,6 @@
 {
   "name": "create-shaderera",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Start a Shaderera project: npm create shaderera@latest my-film",
   "license": "MIT",
   "homepage": "https://github.com/shaderera/shaderera",
