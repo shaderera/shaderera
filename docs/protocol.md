@@ -139,10 +139,16 @@ context is portable. In Node, `io.read` and `io.font` refuse paths outside the p
 that needs something the host lacks (`gpu`, `dom`) checks in `open` and throws a message naming
 it, before any frame.
 
-- `io.image` decodes PNG and JPEG in JavaScript (fast-png, jpeg-js) in both hosts, never with a
-  canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the file's
-  sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. Once per file in a host. Other formats
-  are converted to PNG once (the plugin `image-to-png`).
+- `io.image(path, { maxSize })` decodes PNG and JPEG with one WASM module (zune-png, zune-jpeg;
+  [ADR 0028](adr/0028-stills-decoded-once-in-the-cli.md)) in both hosts and the web player, never
+  with a canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the
+  file's sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. A JPEG's chroma is smoothed as
+  libjpeg does by default, and a PNG's `tRNS` chunk gives it its transparency. `maxSize` (whole
+  pixels) shrinks the long side to it and the short side to `max(1, round(short × maxSize /
+  long))`, with an area-average (box) filter weighted by alpha, in integers, rows then columns, each
+  pass rounding half up; where the alpha is 0 the colour is 0. A still within `maxSize` keeps its
+  size and bytes. Pass the largest size the film shows the still. Once per file and size in a host.
+  Other formats are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with ffmpeg
   (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over; frames
   read in order stream. A frame far from the one before (a jump back, a chunk's first frame) starts

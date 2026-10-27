@@ -32,10 +32,10 @@ Besides `@shaderera/core` 0.1.5 (MIT):
   cookie 0.7.2, cors 2.8.6, cross-spawn 7.0.6, debug 4.4.3, depd 2.0.0, dunder-proto 1.0.1, ee-first
   1.1.1, encodeurl 2.0.0, es-define-property 1.0.1, es-errors 1.3.0, es-object-atoms 1.1.2,
   escape-html 1.0.3, etag 1.8.1, eventsource-parser 3.1.1, eventsource 3.0.7, express-rate-limit
-  8.7.1, express 5.3.0, fast-png 8.0.0, fast-deep-equal 3.1.3, fflate 0.8.3, finalhandler 2.1.1,
+  8.7.1, express 5.3.0, fast-deep-equal 3.1.3, finalhandler 2.1.1,
   forwarded 0.2.0, fresh 2.0.0, function-bind 1.1.2, get-intrinsic 1.3.0, get-proto 1.0.1, gopd
   1.2.0, has-symbols 1.1.0, hasown 2.0.4, hono 4.13.13, http-errors 2.0.1, iconv-lite 0.7.3,
-  iobuffer 6.0.1, ip-address 10.7.4, ipaddr.js 1.9.1, is-promise 4.0.0, jose 6.2.12,
+  ip-address 10.7.4, ipaddr.js 1.9.1, is-promise 4.0.0, jose 6.2.12,
   json-schema-traverse 1.0.0, magic-string 1.4.3, math-intrinsics 1.1.0, media-typer 1.1.1,
   merge-descriptors 2.0.0, mime-db 1.54.0, mime-types 3.0.2, minisearch 7.2.0, ms 2.1.3, negotiator
   1.1.0, object-assign 4.1.1, object-inspect 1.13.4, on-finished 2.4.1, oxc-parser 0.153.0, parseurl
@@ -44,7 +44,7 @@ Besides `@shaderera/core` 0.1.5 (MIT):
   serve-static 2.2.1, shebang-command 2.0.0, shebang-regex 3.0.0, side-channel-list 1.0.1,
   side-channel-map 1.0.1, side-channel-weakmap 1.0.2, side-channel 1.1.1, statuses 2.0.2,
   toidentifier 1.0.1, type-is 2.1.0, unpipe 1.0.0, vary 1.1.2, wgpu-matrix 3.4.2, zod 4.6.7.
-- **BSD-3-Clause:** @webgpu/types 0.1.74, diff 8.0.4, fast-uri 3.1.8, jpeg-js 0.4.4, qs 6.16.1.
+- **BSD-3-Clause:** @webgpu/types 0.1.74, diff 8.0.4, fast-uri 3.1.8, qs 6.16.1.
 - **Apache-2.0:** comlink 4.4.2.
 - **MPL-2.0**, new in 0.1.5: mediabunny 1.61.1 (with `@types/dom-webcodecs` 0.1.13 and
   `@types/dom-mediacapture-transform` 0.1.12, MIT, types only). It decodes video in a web
@@ -66,8 +66,8 @@ The agent skills (`shaderera`, `shaderera-plugins`) and the Claude Code plugin a
 | the runner (`shaderera`) and `@shaderera/core` 0.1.5 | MIT |
 | mediabunny 1.61.1, unmodified | MPL-2.0 |
 | comlink 4.4.2 | Apache-2.0 |
-| fast-png 8.0.0, with iobuffer 6.0.1 and fflate 0.8.3 | MIT |
-| jpeg-js 0.4.4 (its encoder carries Adobe's BSD notice, its decoder is Apache-2.0) | BSD-3-Clause |
+| `io.image`'s decoder, compiled to WASM: zune-png 0.5.2, zune-jpeg 0.5.15, zune-core 0.5.3, zune-inflate 0.2.54 | MIT OR Apache-2.0 OR Zlib, used under MIT |
+| simd-adler32 0.3.10, in the same WASM | MIT |
 | Vite's and Rolldown's runtime helpers | MIT |
 
 Mediabunny is about 0.8 MB of the 0.9 MB `assets/worker.js` (unminified). The bundler keeps

@@ -4,7 +4,7 @@ import { cpSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'n
 import { findPackageJSON } from 'node:module'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { shareFiles } from '../cli/share.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { findProject } from '../node/project.ts'
@@ -107,13 +107,8 @@ test('a player carries the licence notices of every package it bundles, the same
     assert.ok(pkg, `${name} installed`)
     return realpathSync(dirname(pkg))
   }
-  const fastPng = pathToFileURL(join(root('fast-png'), 'package.json')).href
   const bundled: [string, string, string][] = [
     ['comlink', root('comlink'), 'Apache-2.0'],
-    ['fast-png', root('fast-png'), 'MIT'],
-    ['fflate', root('fflate', fastPng), 'MIT'],
-    ['iobuffer', root('iobuffer', fastPng), 'MIT'],
-    ['jpeg-js', root('jpeg-js'), 'BSD-3-Clause'],
     ['mediabunny', root('mediabunny'), 'MPL-2.0'],
   ]
   for (const [name, dir, license] of bundled) {
@@ -123,8 +118,9 @@ test('a player carries the licence notices of every package it bundles, the same
     const licence = readFileSync(join(dir, 'LICENSE'), 'utf8').replace(/\r\n/g, '\n').trimEnd()
     assert.ok(text.includes(licence), `${name}'s LICENSE text`)
   }
-  // The licence headers the bundler drops from the code: jpeg-js's encoder is Adobe's.
-  assert.match(text, /Copyright \(c\) 2008, Adobe Systems Incorporated/)
+  // The licence headers the bundler drops from the code: the crates in io.image's decoder.
+  assert.match(text, /zune-jpeg 0\.5\.15 \(MIT OR Apache-2\.0 OR Zlib, used under MIT\)/)
+  assert.match(text, /Copyright \(c\) \[2021\] \[Marvin Countryman\]/)
   // The engine's own packages too; the film's own code is the author's.
   assert.match(text, /\n- @shaderera\/core \S+ \(MIT\)\n/)
   assert.match(text, /\n- shaderera \S+ \(MIT\)\n/)

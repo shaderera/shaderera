@@ -178,7 +178,8 @@ engine's code in the player is MIT; what else it bundles, and under which licenc
 
 The build writes `assets/THIRD-PARTY-NOTICES.txt`, and `runner.html` names it. It holds the
 notices of every package the bundler put in `assets/`: the engine's (`shaderera`,
-`@shaderera/core`), Mediabunny, Comlink, fast-png and the rest of what they import, the bundler's
+`@shaderera/core`), Mediabunny, Comlink and the rest of what they import, the crates in `io.image`'s decoder (from
+its module's header), the bundler's
 runtime helpers (Vite, Rolldown), and the film's own npm dependencies, which are bundled the same
 way and carry the same duty. The film's own code is the author's and is left out. The list comes
 from the modules the bundler included, not from a list kept by hand. For each package, sorted by

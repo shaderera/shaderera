@@ -9,3 +9,4 @@ dist-*
 .venv-adapters/
 .claude/settings.local.json
 packages/plugins/previews/versions/
+apps/cli/wasm/image/target

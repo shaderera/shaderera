@@ -28,11 +28,12 @@ export const extraIo = (
 ): Required<Pick<Io, 'image' | 'video' | 'cache' | 'bake'>> => {
   const images = new Map<string, Promise<DecodedImage>>()
   return {
-    image: (path) => {
-      let image = images.get(path)
+    image: (path, options) => {
+      const key = `${options?.maxSize ?? 0} ${path}`
+      let image = images.get(key)
       if (!image) {
-        image = read(path).then((bytes) => decodeImage(bytes, path))
-        images.set(path, image)
+        image = read(path).then((bytes) => decodeImage(bytes, path, options?.maxSize))
+        images.set(key, image)
       }
       return image
     },

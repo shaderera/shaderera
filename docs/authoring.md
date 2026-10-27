@@ -45,7 +45,7 @@ A frame is one layer or a stack of them: a canvas, RGBA bytes, or a `GPUTexture`
 | three.js `WebGPURenderer` | both | on `host.gpu`, with its frame clock advanced by `t`; the `render-three-host` plugin does this plumbing (`docs/participants/three.md`) |
 | Canvas2D | both | `io.canvas`; text through `io.font`, loaded in `open` (`docs/participants/canvas.md`); for type and small shapes, not for footage or large stills ([below](#footage-and-stills-on-the-gpu)) |
 | HTML, CSS, React, GSAP | browser host only | name a `MountDom` module in `shaderera.json` `"dom"`, set `"host": "browser"`, and use `options.dom` as a layer or a texture (`docs/participants/dom.md`) |
-| Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); on `host.gpu`, upload a still once and a footage frame once a frame, and sample them in WGSL ([below](#footage-and-stills-on-the-gpu)); a film with many clips calls a clip's `close()` when its shot ends, or each decoder holds memory to the end of the render; analysis by a model is decoded once to project files (`docs/analysis.md`) |
+| Images, footage, sound made in code | both | `io.image`, `io.video`, `AudioClip.pcm` (`docs/protocol.md`); give `io.image` a `maxSize`, the largest size the film shows the still, so an 8000 px photo is not decoded and drawn at full size; on `host.gpu`, upload a still once and a footage frame once a frame, and sample them in WGSL ([below](#footage-and-stills-on-the-gpu)); a film with many clips calls a clip's `close()` when its shot ends, or each decoder holds memory to the end of the render; analysis by a model is decoded once to project files (`docs/analysis.md`) |
 
 ## Plugins
 
