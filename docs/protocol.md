@@ -127,7 +127,7 @@ type Io = {
   font(path: string, family: string): Promise<void>       // registers a font for the 2D context
   // Both Shaderera hosts provide these (optional for other hosts):
   image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage> // PNG or JPEG, straight RGBA, 8 or 16 bits
-  video?(path: string): Promise<Footage>                  // { width, height, fps, frames, frame(i), close() }
+  video?(path: string): Promise<Footage>                  // { width, height, fps, frames, colour, frame(i, { format }), close() }
   cache?(key: string, inputs: string[], make: () => Promise<Uint8Array>): Promise<Uint8Array>
   bake?(name: string): Promise<Baked>                     // { frames, read(i), image(i) }
 }
@@ -170,6 +170,23 @@ it, before any frame.
   `height` say so. A clip's decoder lives until the render ends unless `close()` stops it and
   frees its buffers, once every host that opened it closed it: a film with many clips closes each
   when its shot ends. A `frame(i)` after `close()` opens the file again and gives the same bytes.
+- `io.video`'s `frame(i, { format: 'yuv420p' })` ([ADR 0027](adr/0027-video-frames-as-ycbcr.md))
+  hands frame i over as the file's Y'CbCr planes, 1.5 bytes a pixel against RGBA's 4: I420, the Y
+  plane then Cb then Cr, rows from the top with no padding, Y `width × height` bytes and Cb and Cr
+  each `ceil(width / 2) × ceil(height / 2)`. ffmpeg keeps the file's matrix and range and changes
+  only the pixel format: an 8-bit 4:2:0 file (H.264, HEVC) passes through unconverted, a 4:2:2 or
+  4:4:4 file is subsampled (its chroma then sited left) and a 10- or 12-bit file reduced to 8 bits.
+  `colour` says how to read the planes: `matrix` (`bt709`, `bt601`, `bt2020nc`), `range`
+  (`limited`, `full`) and `chroma` siting (`left`, `center`, `topleft`), always resolved: an
+  untagged file is BT.601 limited (full for `yuvj` formats), as the RGBA path's conversion takes it,
+  and an untagged 4:2:0 file's chroma is the codec's default (left; center for MJPEG). A clip whose
+  pixel format has alpha refuses `yuv420p`, naming `rgba`. A clip's decoder serves one format: a
+  film that asks for both runs two. With no option, or `{ format: 'rgba' }`, `frame(i)` is the
+  RGBA it always was. `videoTexture` in `@shaderera/core/gpu` converts the planes on the GPU, in
+  integers, the same bytes in every host and as `yuv420pToRgba` (its TypeScript reference); its
+  bytes are close to the RGBA path's (about 34 dB PSNR on a test pattern), not equal: swscale
+  takes a 2×2 block's chroma as it is. Another host that offers `io.video` and cannot give planes
+  throws a message naming the format.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and
   runs: `make` runs only when nothing is kept for the key with the input files as they are now (a
   changed input is another entry). Put a version in the key when the making changes. The cache

@@ -149,7 +149,12 @@ export const runnerPlugin = (
                       : op === 'video-open'
                         ? { op, path: q('path') }
                         : op === 'video-frame'
-                          ? { op, path: q('path'), index: Number(q('index')) }
+                          ? {
+                              op,
+                              path: q('path'),
+                              index: Number(q('index')),
+                              format: q('format') === 'yuv420p' ? 'yuv420p' : 'rgba',
+                            }
                           : op === 'video-close'
                             ? { op, path: q('path') }
                             : op === 'bake-open'

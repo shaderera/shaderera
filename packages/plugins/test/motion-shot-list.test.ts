@@ -208,6 +208,7 @@ test("the README's examples typecheck, and run as written", async () => {
     height: 2,
     fps: 25,
     frames: 100,
+    colour: { matrix: 'bt709', range: 'limited', chroma: 'left' },
     frame: async (i) => {
       asked.push(i)
       return new Uint8Array(16)

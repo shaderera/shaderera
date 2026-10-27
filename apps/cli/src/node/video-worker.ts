@@ -2,7 +2,7 @@
 // videoDecoder keeps, and moves each frame asked for (a copy of its own) to the CLI's thread
 // without copying it again.
 import { parentPort, workerData } from 'node:worker_threads'
-import { videoDecoder } from './decoder.ts'
+import { type VideoFormat, videoDecoder } from './decoder.ts'
 import type { VideoInfo } from './services.ts'
 import type { SpawnTurn } from './spawn-turn.ts'
 
@@ -26,17 +26,18 @@ export type FromVideo = {
 
 const port = parentPort
 if (port) {
-  const { file, info, scaled, turn } = workerData as {
+  const { file, info, scaled, format, turn } = workerData as {
     file: string
     info: VideoInfo
     scaled?: boolean
+    format?: VideoFormat
     turn?: SpawnTurn
   }
   let keep = 1
   let ahead = 1
   const decoder = videoDecoder(
     file,
-    { ...info, scaled },
+    { ...info, scaled, format },
     () => keep,
     () => ahead,
     turn,

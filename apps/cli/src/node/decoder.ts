@@ -3,6 +3,15 @@ import { spawn } from 'node:child_process'
 import type { VideoInfo } from './services.ts'
 import { type SpawnTurn, spawnInTurn } from './spawn-turn.ts'
 
+/** How io.video hands a frame over (ADR 0027): straight RGBA, or the file's Y'CbCr planes (I420). */
+export type VideoFormat = 'rgba' | 'yuv420p'
+
+/** A frame's bytes in `format` at `width` × `height`. */
+export const frameBytes = (format: VideoFormat, width: number, height: number) =>
+  format === 'yuv420p'
+    ? width * height + 2 * Math.ceil(width / 2) * Math.ceil(height / 2)
+    : width * height * 4
+
 /**
  * Where a file's frames are, for a decoder that starts near a frame instead of at frame 0: each
  * frame's pts in presentation order (frame i is `pts[i]`), the frames a decode may start at, and
@@ -146,8 +155,11 @@ const bytes = (n: number) => new Uint8Array(Buffer.allocUnsafeSlow(n).buffer as 
  */
 export const videoDecoder = (
   file: string,
-  /** `scaled`: the frames at `width` × `height`, not the file's own size (a draft's, scaledVideo). */
-  info: VideoInfo & { scaled?: boolean },
+  /**
+   * `scaled`: the frames at `width` × `height`, not the file's own size (a draft's, scaledVideo).
+   * `format`: straight RGBA (the default), or the file's planes as `yuv420p` in `info.colour`.
+   */
+  info: VideoInfo & { scaled?: boolean; format?: VideoFormat },
   keep: () => number = () => 1,
   ahead: () => number = keep,
   /** The thread's turns to start ffmpeg in (spawn-turn.ts); none in the CLI's own thread. */
@@ -155,7 +167,7 @@ export const videoDecoder = (
   /** For tests: the frame index in place of the one read from the file. */
   known?: FrameIndex | null,
 ) => {
-  const size = info.width * info.height * 4
+  const size = frameBytes(info.format ?? 'rgba', info.width, info.height)
   let proc: ReturnType<typeof spawn> | undefined
   // The index of the frame being filled, its bytes and how many came.
   let next = 0
@@ -193,6 +205,13 @@ export const videoDecoder = (
   const full = () => next - 1 - asked >= Math.max(1, ahead())
   // A draft's clip comes at its own size, scaled in the same swscale pass as the conversion.
   const resize = info.scaled ? `w=${info.width}:h=${info.height}:flags=area:` : ''
+  // RGBA: converted by the file's own colour tags. yuv420p (ADR 0027, 1): the file's matrix, range
+  // and siting, named so swscale keeps them; an 8-bit 4:2:0 file passes through unconverted.
+  const { matrix, range, chroma } = info.colour
+  const convert =
+    info.format === 'yuv420p'
+      ? `out_color_matrix=${matrix === 'bt2020nc' ? 'bt2020' : matrix}:out_range=${range === 'full' ? 'pc' : 'tv'}:out_chroma_loc=${chroma},format=yuv420p`
+      : 'in_color_matrix=auto:in_range=auto:out_range=full,format=rgba'
   const start = (from: number) => {
     proc?.kill()
     const seek = packets ? seekFor(packets, from) : undefined
@@ -213,7 +232,7 @@ export const videoDecoder = (
       '-map',
       '0:v:0',
       '-vf',
-      `${pick},scale=${resize}in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
+      `${pick},scale=${resize}${convert}`,
       '-fps_mode',
       'passthrough',
       '-f',

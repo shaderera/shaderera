@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { yuv420pToRgba } from '@shaderera/core/gpu'
 import { tempDir } from '../fixtures/temp.ts'
 import { frameIndex, keyGap, probeIndex, seekFor, videoDecoder } from './decoder.ts'
 import { probeVideo } from './services.ts'
@@ -205,4 +206,100 @@ test('the longest keyframe gap counts from each keyframe to the next, and the la
   )
   assert.ok(late)
   assert.equal(keyGap(late), 0.005)
+})
+
+/** PSNR over R, G and B of two RGBA frames. */
+const psnr = (a: Uint8Array, b: Uint8Array) => {
+  let sum = 0
+  let n = 0
+  for (let i = 0; i < a.length; i++) {
+    if (i % 4 === 3) continue
+    sum += ((a[i] as number) - (b[i] as number)) ** 2
+    n++
+  }
+  return sum === 0 ? Infinity : 10 * Math.log10((255 * 255) / (sum / n))
+}
+
+test("yuv420p is the file's planes in the colour probeVideo reports, close to the RGBA path", {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 60_000,
+}, async () => {
+  const dir = tempDir('yuv')
+  const make = (name: string, args: string[]) => {
+    const file = join(dir, name)
+    const r = spawnSync('ffmpeg', [
+      ...['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=80x46:rate=10,scale=320:184'],
+      ...['-frames:v', '2'],
+      ...args,
+      file,
+    ])
+    assert.equal(r.status, 0, String(r.stderr))
+    return file
+  }
+  const first = (file: string, vf = 'null') =>
+    spawnSync(
+      'ffmpeg',
+      ['-v', 'error', '-i', file, '-vf', vf, '-frames:v', '1', '-f', 'rawvideo', '-'],
+      { maxBuffer: 1 << 24 },
+    ).stdout as Buffer
+  for (const [file, colour, passes] of [
+    // Untagged: what the RGBA path's auto takes, BT.601 limited.
+    [
+      make('untagged.mp4', ['-c:v', 'libx264', '-pix_fmt', 'yuv420p']),
+      ['bt601', 'limited', 'left'],
+      true,
+    ],
+    [
+      make('hd.mp4', [
+        ...['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-colorspace', 'bt709'],
+        ...['-color_range', 'tv'],
+      ]),
+      ['bt709', 'limited', 'left'],
+      true,
+    ],
+    [
+      make('full.avi', ['-c:v', 'mjpeg', '-pix_fmt', 'yuvj420p']),
+      ['bt601', 'full', 'center'],
+      true,
+    ],
+    [
+      make('wide.mkv', ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-colorspace', 'bt2020nc']),
+      ['bt2020nc', 'limited', 'left'],
+      true,
+    ],
+    // 4:2:2 10-bit, subsampled and reduced to 8 bits by swscale, sited left as the decoder asks.
+    [
+      make('pro.mov', ['-c:v', 'prores_ks', '-pix_fmt', 'yuv422p10le']),
+      ['bt601', 'limited', 'left'],
+      false,
+    ],
+  ] as const) {
+    const info = probeVideo(file)
+    const [matrix, range, chroma] = colour
+    assert.deepEqual(info.colour, { matrix, range, chroma }, file)
+    const yuv = videoDecoder(file, { ...info, format: 'yuv420p' })
+    const rgba = videoDecoder(file, info)
+    try {
+      const planesOf = await yuv.frame(0)
+      const { width: w, height: h } = info
+      assert.equal(planesOf.length, w * h + 2 * Math.ceil(w / 2) * Math.ceil(h / 2))
+      const db = psnr(yuv420pToRgba(planesOf, w, h, info.colour), await rgba.frame(0))
+      // Not the RGBA path's bytes: its swscale takes the chroma of a 2×2 block as it is. A wrong
+      // matrix or range is 6–9 dB further (34 dB here, 29 and 26 with either wrong).
+      assert.ok(db > 32, `${file}: ${db.toFixed(1)} dB from the RGBA path`)
+      if (!passes) continue
+      // An 8-bit 4:2:0 file's own planes, unconverted.
+      assert.ok(Buffer.from(planesOf).equals(first(file)), `${file}: its own planes`)
+      // The matrix and range are those swscale's auto takes: its exact conversion (bilinear, full
+      // chroma, accurate rounding), which sites chroma at the center, is the reference's, ±1.
+      const exact = first(
+        file,
+        'scale=in_color_matrix=auto:in_range=auto:out_range=full:flags=bilinear+full_chroma_int+accurate_rnd,format=rgba',
+      )
+      const centred = yuv420pToRgba(planesOf, w, h, { ...info.colour, chroma: 'center' })
+      assert.ok(psnr(centred, exact) > 60, `${file}: ${psnr(centred, exact).toFixed(1)} dB`)
+    } finally {
+      await Promise.all([yuv.close(), rgba.close()])
+    }
+  }
 })

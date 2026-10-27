@@ -16,7 +16,7 @@ assets/chunks/*       the film's entry, its npm dependencies and the engine's sh
 assets/THIRD-PARTY-NOTICES.txt  the licence notices of every package bundled in assets/
 files/<path>          the film's files, as share sends them, for io.read
 media/<path>.mp4      for each video among them, an H.264 proxy io.video decodes
-media/<path>.json     its width, height, fps and frame count, as io.video reads the original
+media/<path>.json     its width, height, fps, frame count, colour and alpha, as io.video reads the original
 bakes/<name>/<frame>  each bake's frames, checked against its stamp, for io.bake
 bakes/<name>.json     their file names in order
 ```
@@ -34,7 +34,9 @@ A static player has no CLI process behind it, so its worker answers what the CLI
   keyframe every 15 frames, no B-frames); the build checks its frame count and size against the
   original. The worker decodes it with WebCodecs, through Mediabunny. The frames are close to the
   CLI's, not the same bytes: the browser's colour conversion differs from ffmpeg's (about 32 dB
-  PSNR on a test pattern's saturated edges).
+  PSNR on a test pattern's saturated edges). `frame(i, { format: 'yuv420p' })` is the proxy's own
+  planes as I420 (`colour` BT.709, limited, chroma sited left; NV12 is split into I420), close to
+  the CLI's planes of the original, not the same.
 - `io.bake`: the bake's frames, the same bytes as the CLI reads. A bake that was never made, is
   stale or has a changed frame fails the build, naming `shaderera bake <name>`.
 - `io.cache`: kept in memory for the page's life.
@@ -156,8 +158,9 @@ configureRunner({
   files: new URL('../files/', import.meta.url).href,
   // What answers io.video, io.cache and io.bake, in place of the CLI's process.
   ask: {
-    videoOpen: async (path) => ({ width, height, fps, frames }),
-    videoFrame: async (path, index) => rgbaBytes,  // straight RGBA, full range, 4 bytes a pixel
+    videoOpen: async (path) => ({ width, height, fps, frames, colour }),
+    // format 'rgba': straight RGBA, full range, 4 bytes a pixel; 'yuv420p': I420 in colour.
+    videoFrame: async (path, index, format) => bytes,
     videoClose: async (path) => {},
     cacheGet: async (hash) => bytesOrNull,
     cachePut: async (hash, bytes) => {},

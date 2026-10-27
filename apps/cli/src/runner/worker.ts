@@ -162,10 +162,10 @@ const ask: Ask = {
   },
   cachePut: async (hash, bytes) => void (await service('cache-put', { hash }, bytes)),
   videoOpen: async (path) => (await (await service('video-open', { path }))?.json()) as never,
-  videoFrame: async (path, index) =>
+  videoFrame: async (path, index, format) =>
     new Uint8Array(
       await (
-        (await service('video-frame', { path, index: String(index) })) as Response
+        (await service('video-frame', { path, index: String(index), format })) as Response
       ).arrayBuffer(),
     ),
   videoClose: async (path) => void (await service('video-close', { path })),

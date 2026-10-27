@@ -16,7 +16,12 @@ test('the stable and experimental entries export exactly what docs/api.md lists'
     'parseFps',
     'sha256',
   ])
-  assert.deepEqual(await keys('./gpu.ts'), ['readBuffer', 'readTexture'])
+  assert.deepEqual(await keys('./gpu.ts'), [
+    'readBuffer',
+    'readTexture',
+    'videoTexture',
+    'yuv420pToRgba',
+  ])
   assert.deepEqual(await keys('./host.ts'), [
     'CODE_LIGHT',
     'GRAPHICS_WHITE',

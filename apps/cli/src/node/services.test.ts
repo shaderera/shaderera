@@ -270,8 +270,9 @@ test("a draft's clips come scaled as its frame is, from a decoder of their own",
   try {
     const open = (s: ReturnType<typeof createServices>) =>
       s.handle({ op: 'video-open', path: 'v.mp4' })
-    assert.deepEqual(await open(full), { width: 64, height: 36, fps: 10, frames: 8 })
-    assert.deepEqual(await open(draft), { width: 32, height: 18, fps: 10, frames: 8 })
+    const colour = { matrix: 'bt601', range: 'limited', chroma: 'left' }
+    assert.deepEqual(await open(full), { width: 64, height: 36, fps: 10, frames: 8, colour })
+    assert.deepEqual(await open(draft), { width: 32, height: 18, fps: 10, frames: 8, colour })
     const frame = (s: ReturnType<typeof createServices>) =>
       s.handle({ op: 'video-frame', path: 'v.mp4', index: 3 }) as Promise<Uint8Array>
     const [big, small] = [await frame(full), await frame(draft)]
@@ -281,8 +282,51 @@ test("a draft's clips come scaled as its frame is, from a decoder of their own",
     assert.ok(Math.abs(mean(big) - mean(small)) < 4, `${mean(big)} vs ${mean(small)}`)
     // Two decoders, one a size: neither gives the other's frames.
     assert.equal(clipDecoders().length, 2)
+    const planes = (await draft.handle({
+      op: 'video-frame',
+      path: 'v.mp4',
+      index: 3,
+      format: 'yuv420p',
+    })) as Uint8Array
+    assert.equal(planes.length, 32 * 18 * 1.5, 'yuv420p scaled too')
   } finally {
     await full.close()
     await draft.close()
+  }
+})
+
+test('a clip asked for in both formats runs a decoder for each, and one with alpha refuses yuv420p', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = clip()
+  spawnSync('ffmpeg', [
+    ...['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '2'],
+    ...['-c:v', 'png', '-pix_fmt', 'rgba', join(root, 'alpha.mov')],
+  ])
+  const s = createServices(root)
+  try {
+    const before = clipDecoders().length
+    const rgba = (await s.handle({ op: 'video-frame', path: 'v.mp4', index: 1 })) as Uint8Array
+    const yuv = (await s.handle({
+      op: 'video-frame',
+      path: 'v.mp4',
+      index: 1,
+      format: 'yuv420p',
+    })) as Uint8Array
+    assert.deepEqual([rgba.length, yuv.length], [64 * 36 * 4, 64 * 36 * 1.5])
+    assert.equal(clipDecoders().length - before, 2)
+    await s.handle({ op: 'video-close', path: 'v.mp4' })
+    assert.equal(clipDecoders().length, before, 'both closed')
+    await assert.rejects(
+      s.handle({ op: 'video-frame', path: 'alpha.mov', index: 0, format: 'yuv420p' }),
+      /alpha.*rgba/,
+    )
+    assert.equal(
+      ((await s.handle({ op: 'video-frame', path: 'alpha.mov', index: 0 })) as Uint8Array).length,
+      64 * 36 * 4,
+    )
+  } finally {
+    await s.close()
   }
 })

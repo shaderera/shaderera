@@ -46,6 +46,13 @@ failure, cancellation, pixels) is part of the stable surface, not only the types
 readback with the row padding and staging done right. Optional; a source keeps its own device,
 resources and passes. Stable only when consumers outside this repository need it.
 
+`videoTexture(device, clip)`: an `io.video` clip's frames as an `rgba8unorm` texture at its size
+(`{ frame(i): Promise<GPUTexture>, destroy() }`). `frame(i)` asks for `yuv420p`, uploads the
+planes and converts them in a WGSL pass with the clip's `colour`, in integers, so every host gives
+the same bytes ([ADR 0027](adr/0027-video-frames-as-ycbcr.md)). The texture is the helper's, valid
+until its next `frame()` or `destroy()`. `yuv420pToRgba(planes, width, height, colour)` is the
+same conversion on the CPU, its reference.
+
 ## `@shaderera/core/host`: experimental
 
 What a host needs and both of Shaderera's share (`checkManifest`, `withVariant`, `openSource`,
