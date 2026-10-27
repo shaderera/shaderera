@@ -1,21 +1,19 @@
 // What the hosts ask of the CLI's own process, which may write files and run ffmpeg where a
-// project's code may not: the derived-data cache, decoded video frames and baked frames. The Node host asks
+// project's code may not: the derived-data cache, decoded stills, decoded video frames and baked
+// frames. The Node host asks
 // over IPC (child.ts), the browser host's worker over the runner server (runner-plugin.ts).
 import { spawnSync } from 'node:child_process'
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdir, readFile, rename, utimes, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { Worker } from 'node:worker_threads'
+import { imageSize } from '../runner/image.ts'
+import { IMAGE_WASM } from '../runner/image-wasm.ts'
+import type { StillSize } from '../runner/io.ts'
 import { insideForRead } from './inside.ts'
 import { lendTurns } from './spawn-turn.ts'
+import type { FromStill } from './still-worker.ts'
 import type { FromVideo, ToVideo, VideoAsk } from './video-worker.ts'
 
 /** The frames a host may read, by bake: absolute files, in order, checked against their stamps. */
@@ -25,6 +23,8 @@ export type BakeFrames = { readonly [name: string]: readonly string[] }
 export type ServiceRequest =
   | { op: 'cache-get'; hash: string }
   | { op: 'cache-put'; hash: string; bytes: Uint8Array }
+  | { op: 'image-open'; path: string; maxSize?: number }
+  | { op: 'image-data'; key: string }
   | { op: 'video-open'; path: string }
   | { op: 'video-frame'; path: string; index: number }
   | { op: 'video-close'; path: string }
@@ -196,6 +196,36 @@ export const cacheLimit = (env: NodeJS.ProcessEnv = process.env): number => {
   return Math.floor(n * 1024 * 1024)
 }
 
+const sha256 = (data: Uint8Array | string) => createHash('sha256').update(data).digest('hex')
+/** The decoder's version in a still's key: the module itself, so a new crate or filter is a new key. */
+let decoderTag: string | undefined
+
+/** `bytes` decoded in a thread of its own (still-worker.ts), which ends after. */
+const decodeStill = (bytes: Uint8Array, path: string, maxSize?: number) =>
+  new Promise<Uint8Array>((done, fail) => {
+    const worker = new Worker(
+      new URL(`./still-worker${extname(import.meta.url)}`, import.meta.url),
+      {
+        workerData: { bytes, path, maxSize },
+      },
+    )
+    worker.once('message', (m: FromStill) => {
+      if (m.data) done(m.data)
+      else fail(new Error(m.error))
+      void worker.terminate()
+    })
+    worker.once('error', fail)
+    worker.once('exit', () => fail(new Error(`The decoder of ${path} has stopped.`)))
+  })
+
+/**
+ * The stills decoded in this process, by key, each with the hosts using it (ADR 0028, 1): hosts
+ * asking for one at once share its decode, and it is kept until the last of them closes.
+ */
+const stills = new Map<string, { data: Promise<Uint8Array>; users: Set<object> }>()
+/** How many stills this process decoded rather than read from the cache (for tests). */
+export const stillsDecoded = { count: 0 }
+
 /** A cache entry's name: its key. Anything else there (a host's file being written) is not one. */
 const ENTRY = /^[0-9a-f]{64}$/
 
@@ -250,9 +280,83 @@ export const createServices = (
     return frames
   }
   const cacheDir = join(root, '.shaderera', 'cache')
-  // This host, and the clips it opened.
+  /** An entry's bytes, its use noted; null when there is none. */
+  const cacheGet = async (hash: string) => {
+    if (!ENTRY.test(hash)) throw new Error('A cache key is a sha256.')
+    const file = join(cacheDir, hash)
+    // An entry another process evicts as it is read is a miss: the film makes it again.
+    let data: Buffer
+    try {
+      data = await readFile(file)
+    } catch {
+      return null
+    }
+    const now = new Date()
+    await utimes(file, now, now).catch(() => {})
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+  }
+  const cachePut = async (hash: string, bytes: Uint8Array) => {
+    if (!ENTRY.test(hash)) throw new Error('A cache key is a sha256.')
+    await mkdir(cacheDir, { recursive: true })
+    const file = join(cacheDir, hash)
+    // Written beside and moved, so another host never reads half of it.
+    await writeFile(`${file}.${process.pid}`, bytes)
+    await rename(`${file}.${process.pid}`, file)
+    evict(cacheDir, limit, hash)
+  }
+  // This host, and the clips and stills it opened.
   const me = {}
   const mine = new Set<string>()
+  const myStills = new Set<string>()
+  /**
+   * A still's decoded RGBA (ADR 0028, 6–7): from the cache when it holds it, else decoded and kept
+   * there. The entry is the raw bytes: its key names the size, and an entry of another length is
+   * not used.
+   */
+  const still = async (
+    key: string,
+    bytes: Uint8Array,
+    path: string,
+    maxSize: number | undefined,
+    size: { width: number; height: number; bits: 8 | 16 },
+  ) => {
+    const kept = await cacheGet(key)
+    if (kept?.byteLength === size.width * size.height * 4 * (size.bits / 8)) return kept
+    stillsDecoded.count++
+    const data = await decodeStill(bytes, path, maxSize)
+    await cachePut(key, data)
+    return data
+  }
+  const openStill = async (path: string, maxSize?: number): Promise<StillSize> => {
+    const bytes = new Uint8Array(await readFile(insideForRead(root, path)))
+    const size = imageSize(bytes, path, maxSize)
+    // Too large to keep (ADR 0028, 7): the hosts decode it, rather than this process holding a
+    // copy for them all and sending it to each.
+    if (size.width * size.height * 4 * (size.bits / 8) > limit / 8)
+      return { ...size, key: '', local: true }
+    decoderTag ??= sha256(IMAGE_WASM)
+    const key = sha256(`${decoderTag}\0${sha256(bytes)}\0${size.width}x${size.height}x${size.bits}`)
+    let s = stills.get(key)
+    if (!s) {
+      const made = { data: still(key, bytes, path, maxSize, size), users: new Set<object>() }
+      // A failed decode is not kept: the next request tries again.
+      made.data.catch(() => stills.get(key) === made && stills.delete(key))
+      stills.set(key, made)
+      s = made
+    }
+    s.users.add(me)
+    myStills.add(key)
+    await s.data
+    return { ...size, key }
+  }
+  const closeStills = () => {
+    for (const key of myStills) {
+      const s = stills.get(key)
+      s?.users.delete(me)
+      if (s?.users.size === 0) stills.delete(key)
+    }
+    myStills.clear()
+  }
   // The file each clip path named, checked once while the clip is open: the check reads the real
   // path of every folder above it, which on every frame cost the CLI's process more than the frame.
   const checked = new Map<string, string>()
@@ -301,31 +405,17 @@ export const createServices = (
   }
   const handle = async (r: ServiceRequest): Promise<unknown> => {
     switch (r.op) {
-      case 'cache-get': {
-        if (!/^[0-9a-f]{64}$/.test(r.hash)) throw new Error('A cache key is a sha256.')
-        const file = join(cacheDir, r.hash)
-        // An entry another process evicts as it is read is a miss: the film makes it again.
-        let data: Buffer
-        try {
-          data = readFileSync(file)
-        } catch {
-          return null
-        }
-        try {
-          const now = new Date()
-          utimesSync(file, now, now)
-        } catch {}
-        return new Uint8Array(data)
-      }
-      case 'cache-put': {
-        if (!/^[0-9a-f]{64}$/.test(r.hash)) throw new Error('A cache key is a sha256.')
-        mkdirSync(cacheDir, { recursive: true })
-        const file = join(cacheDir, r.hash)
-        // Written beside and moved, so another host never reads half of it.
-        writeFileSync(`${file}.${process.pid}`, r.bytes)
-        renameSync(`${file}.${process.pid}`, file)
-        evict(cacheDir, limit, r.hash)
+      case 'cache-get':
+        return cacheGet(r.hash)
+      case 'cache-put':
+        await cachePut(r.hash, r.bytes)
         return null
+      case 'image-open':
+        return openStill(r.path, r.maxSize)
+      case 'image-data': {
+        const s = myStills.has(r.key) ? stills.get(r.key) : undefined
+        if (!s) throw new Error('This host opened no such still.')
+        return s.data
       }
       case 'video-open':
         return video(r.path).info
@@ -347,6 +437,12 @@ export const createServices = (
     }
   }
   // close resolves once every decoder this host was the last user of has exited.
-  return { handle, close: () => Promise.all([...mine].map(release)).then(() => {}) }
+  return {
+    handle,
+    close: () => {
+      closeStills()
+      return Promise.all([...mine].map(release)).then(() => {})
+    },
+  }
 }
 export type Services = ReturnType<typeof createServices>

@@ -6,6 +6,7 @@
 //! the result through the six words it points at. The caller drops the instance after each decode,
 //! so nothing is ever freed here.
 
+use zune_core::bit_depth::BitDepth;
 use zune_core::bytestream::ZCursor;
 use zune_core::colorspace::ColorSpace;
 use zune_core::options::DecoderOptions;
@@ -37,33 +38,48 @@ pub extern "C" fn alloc(len: usize) -> *mut u8 {
     at
 }
 
-/// Decodes the `len` bytes at `at`. The six words it points at are `[1, width, height, bits,
-/// data, data length]`, the data RGBA bytes (16-bit samples little-endian), or `[0, 0, 0, 0,
-/// message, message length]` for an error, the message UTF-8. `max_size` 0 keeps the full size.
-#[no_mangle]
-pub extern "C" fn decode(at: *const u8, len: usize, max_size: u32) -> *const u32 {
-    let file = unsafe { std::slice::from_raw_parts(at, len) };
-    let words: Vec<u32> = match decode_file(file).map(|image| shrink(image, max_size as usize)) {
-        Ok(image) => {
-            let (bits, data) = match image.samples {
-                Samples::Eight(v) => (8, v),
-                Samples::Sixteen(v) => (16, v.iter().flat_map(|s| s.to_le_bytes()).collect()),
-            };
-            let words =
-                vec![1, image.width as u32, image.height as u32, bits, data.as_ptr() as u32, data.len() as u32];
-            std::mem::forget(data);
-            words
-        }
-        Err(message) => {
-            let words = vec![0, 0, 0, 0, message.as_ptr() as u32, message.len() as u32];
-            std::mem::forget(message);
-            words
-        }
+/// The six result words, kept: `[1, width, height, bits, data, data length]`, or `[0, 0, 0, 0,
+/// message, message length]` for an error, the message UTF-8.
+fn result(r: Result<(usize, usize, u32, Vec<u8>), String>) -> *const u32 {
+    let (head, bytes) = match r {
+        Ok((width, height, bits, data)) => ([1, width as u32, height as u32, bits], data),
+        Err(message) => ([0; 4], message.into_bytes()),
     };
+    let words = vec![head[0], head[1], head[2], head[3], bytes.as_ptr() as u32, bytes.len() as u32];
+    std::mem::forget(bytes);
     let out = words.as_ptr();
     std::mem::forget(words);
     out
 }
+
+/// Decodes the `len` bytes at `at`. The words it points at (`result`) hold the RGBA bytes,
+/// 16-bit samples little-endian. `max_size` 0 keeps the full size.
+#[no_mangle]
+pub extern "C" fn decode(at: *const u8, len: usize, max_size: u32) -> *const u32 {
+    let file = unsafe { std::slice::from_raw_parts(at, len) };
+    result(decode_file(file).map(|image| {
+        let image = shrink(image, max_size as usize);
+        let (bits, data) = match image.samples {
+            Samples::Eight(v) => (8, v),
+            Samples::Sixteen(v) => (16, v.iter().flat_map(|s| s.to_le_bytes()).collect()),
+        };
+        (image.width, image.height, bits, data)
+    }))
+}
+
+/// The width, height and bits `decode` gives the `len` bytes at `at`, from the file's headers
+/// alone (the cache's key, ADR 0028, 6). The words it points at (`result`) hold no data.
+#[no_mangle]
+pub extern "C" fn size(at: *const u8, len: usize, max_size: u32) -> *const u32 {
+    let file = unsafe { std::slice::from_raw_parts(at, len) };
+    result(file_size(file).map(|(width, height, bits)| {
+        let (width, height) = shrunk_size(width, height, max_size as usize);
+        (width, height, bits, Vec::new())
+    }))
+}
+
+const PNG: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+const JPEG: [u8; 3] = [0xff, 0xd8, 0xff];
 
 fn options() -> DecoderOptions {
     DecoderOptions::default()
@@ -87,9 +103,26 @@ fn rgba<T: Copy>(samples: Vec<T>, colour: ColorSpace, opaque: T) -> Result<Vec<T
     })
 }
 
+/// A PNG or JPEG file's full width, height and bits as `decode_file` decodes it, from its headers.
+pub fn file_size(file: &[u8]) -> Result<(usize, usize, u32), String> {
+    if file.starts_with(&PNG) {
+        let mut png = PngDecoder::new_with_options(ZCursor::new(file), options());
+        png.decode_headers().map_err(|e| format!("{e:?}"))?;
+        let (width, height) = png.dimensions().ok_or("no PNG header")?;
+        return Ok((width, height, if png.depth() == Some(BitDepth::Sixteen) { 16 } else { 8 }));
+    }
+    if file.starts_with(&JPEG) {
+        let mut jpeg = JpegDecoder::new_with_options(ZCursor::new(file), options());
+        jpeg.decode_headers().map_err(|e| format!("{e:?}"))?;
+        let info = jpeg.info().ok_or("no JPEG header")?;
+        return Ok((usize::from(info.width), usize::from(info.height), 8));
+    }
+    Err("not a PNG or JPEG".into())
+}
+
 /// A PNG or JPEG file's pixels, at full size.
 pub fn decode_file(file: &[u8]) -> Result<Image, String> {
-    if file.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+    if file.starts_with(&PNG) {
         let mut png = PngDecoder::new_with_options(ZCursor::new(file), options());
         png.decode_headers().map_err(|e| format!("{e:?}"))?;
         let (width, height) = png.dimensions().ok_or("no PNG header")?;
@@ -101,7 +134,7 @@ pub fn decode_file(file: &[u8]) -> Result<Image, String> {
         };
         return Ok(Image { width, height, samples });
     }
-    if file.starts_with(&[0xff, 0xd8, 0xff]) {
+    if file.starts_with(&JPEG) {
         let mut jpeg = JpegDecoder::new_with_options(ZCursor::new(file), options());
         let pixels = jpeg.decode().map_err(|e| format!("{e:?}"))?;
         let info = jpeg.info().ok_or("no JPEG header")?;

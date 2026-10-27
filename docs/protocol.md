@@ -126,7 +126,7 @@ type Io = {
   canvas(width: number, height: number): OffscreenCanvas  // OffscreenCanvas / @napi-rs/canvas
   font(path: string, family: string): Promise<void>       // registers a font for the 2D context
   // Both Shaderera hosts provide these (optional for other hosts):
-  image?(path: string): Promise<DecodedImage>             // PNG or JPEG, straight RGBA, 8 or 16 bits
+  image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage> // PNG or JPEG, straight RGBA, 8 or 16 bits
   video?(path: string): Promise<Footage>                  // { width, height, fps, frames, frame(i), close() }
   cache?(key: string, inputs: string[], make: () => Promise<Uint8Array>): Promise<Uint8Array>
   bake?(name: string): Promise<Baked>                     // { frames, read(i), image(i) }
@@ -140,15 +140,21 @@ that needs something the host lacks (`gpu`, `dom`) checks in `open` and throws a
 it, before any frame.
 
 - `io.image(path, { maxSize })` decodes PNG and JPEG with one WASM module (zune-png, zune-jpeg;
-  [ADR 0028](adr/0028-stills-decoded-once-in-the-cli.md)) in both hosts and the web player, never
+  [ADR 0028](adr/0028-stills-decoded-once-in-the-cli.md)), in place of fast-png and jpeg-js, never
   with a canvas or the browser's decoder, so every host gets the same pixels: straight RGBA, the
   file's sRGB code values, 8 bits a channel or 16 for a 16-bit PNG. A JPEG's chroma is smoothed as
   libjpeg does by default, and a PNG's `tRNS` chunk gives it its transparency. `maxSize` (whole
   pixels) shrinks the long side to it and the short side to `max(1, round(short × maxSize /
   long))`, with an area-average (box) filter weighted by alpha, in integers, rows then columns, each
   pass rounding half up; where the alpha is 0 the colour is 0. A still within `maxSize` keeps its
-  size and bytes. Pass the largest size the film shows the still. Once per file and size in a host.
-  Other formats are converted to PNG once (the plugin `image-to-png`).
+  size and bytes. Pass the largest size the film shows the still. The CLI's process decodes a
+  still, in a thread of its own, once a command for every host: hosts asking at once share the
+  decode, and it is kept in memory until the last of them closes. The decoded bytes are kept in
+  the cache (`io.cache`'s, below), keyed by the decoder's version, the file's content hash and the
+  decoded width, height and bits, so the next command reads them instead of decoding (a changed
+  file is another entry). A still larger than an eighth of the cache's limit is neither kept nor
+  decoded there: each host decodes it itself, with the same module. The web player's worker decodes from `files/` with the same module, so the same bytes. Other formats
+  are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with ffmpeg
   (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over; frames
   read in order stream. A frame far from the one before (a jump back, a chunk's first frame) starts
@@ -170,15 +176,17 @@ it, before any frame.
   holds at most 1 GiB (`SHADERERA_FILM_CACHE_MB` sets another limit, in megabytes): a put past it
   removes the least recently used entries (a hit counts as a use) until the rest fit, never the one
   just put, nor a file another host is still writing. An entry removed is made again the next time
-  it is asked for, so deleting `.shaderera/cache/` is always safe.
+  it is asked for, so deleting `.shaderera/cache/` is always safe. The cache also holds the decoded
+  stills of `io.image`, under the same limit.
 - `io.bake(name)` opens a [bake](#bakes)'s frames: `frames` is their count, `read(i)` frame i's
   bytes as the file has them, `image(i)` the same decoded as `io.image` decodes (PNG, JPEG). The
   frames were checked against the bake's stamp before the source opened.
 - Project code cannot write files or run programs
-  ([where it runs](determinism.md#where-project-code-runs)), so the cache, the decoder and the
-  bake's frames run in the CLI's process: the Node host asks over IPC, the browser host over the
+  ([where it runs](determinism.md#where-project-code-runs)), so the cache, the image and video
+  decoders and the bake's frames run in the CLI's process: the Node host asks over IPC, the browser host over the
   runner server. A [web player](player.md) has no CLI behind it: its worker answers them itself,
-  from a video proxy and the bake's frames built with it, and keeps the cache in memory.
+  from the film's files, a video proxy and the bake's frames built with it, and keeps the cache in
+  memory.
 
 ## `shaderera.json`
 

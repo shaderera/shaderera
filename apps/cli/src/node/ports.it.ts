@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { encode as encodePng } from 'fast-png'
@@ -11,6 +11,7 @@ import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
 import { type Child, openChild } from './child.ts'
 import { findProject } from './project.ts'
+import { stillsDecoded } from './services.ts'
 
 /**
  * io.image, io.video and io.cache, in the Node host and the browser host:
@@ -150,5 +151,63 @@ test('the browser host decodes and reads the same bytes as the Node host', async
     assert.deepEqual(b, n)
   } finally {
     await Promise.all(children.map((c) => c.close()))
+  }
+})
+
+test('io.image decodes a still once for every host of a command, and again only when it changed', async () => {
+  rmSync(join(root, '.shaderera', 'cache'), { recursive: true, force: true })
+  const decoded = () => stillsDecoded.count
+  const before = decoded()
+  // Three hosts at once: deep.png full and at maxSize 3, and photo.jpg, each decoded once.
+  const children: Child[] = await Promise.all([node(), node(), openBrowserChild(project, {})])
+  try {
+    // Without io.cache's count, which depends on which host made its entry first.
+    const [a, b, c] = (await Promise.all(children.map((child) => child.inspect(0)))).map((j) => ({
+      ...(j as object),
+      made: undefined,
+    }))
+    assert.deepEqual(b, a)
+    assert.deepEqual(c, a)
+    assert.equal(decoded() - before, 3)
+  } finally {
+    await Promise.all(children.map((child) => child.close()))
+  }
+  // The next command reads them from the cache.
+  const next = await node()
+  try {
+    await next.inspect(0)
+    assert.equal(decoded() - before, 3, 'kept in .shaderera/cache')
+  } finally {
+    await next.close()
+  }
+  // A changed file is decoded again, at both its sizes.
+  const changed = deep.map((v) => 65535 - v)
+  writeFileSync(
+    join(root, 'assets', 'deep.png'),
+    encodePng({ width: W, height: H, data: changed, depth: 16, channels: 4 }),
+  )
+  const after = await node()
+  try {
+    const j = (await after.inspect(0)) as { png: { first: number[] } }
+    assert.deepEqual(j.png.first, [...changed.slice(0, 4)])
+    assert.equal(decoded() - before, 5)
+  } finally {
+    await after.close()
+  }
+  // A still larger than an eighth of the cache's limit is decoded in each host, the same bytes:
+  // at 838 bytes, deep.png at full size (192 bytes) is, its maxSize 3 (48) and photo.jpg (96) not.
+  process.env.SHADERERA_FILM_CACHE_MB = '0.0008'
+  rmSync(join(root, '.shaderera', 'cache'), { recursive: true, force: true })
+  const small: Child[] = await Promise.all([node(), openBrowserChild(project, {})])
+  try {
+    const [n, b] = (await Promise.all(small.map((child) => child.inspect(0)))).map((j) => ({
+      ...(j as object),
+      made: undefined,
+    }))
+    assert.deepEqual(b, n)
+    assert.equal(decoded() - before, 7, 'only the two stills within the rule')
+  } finally {
+    delete process.env.SHADERERA_FILM_CACHE_MB
+    await Promise.all(small.map((child) => child.close()))
   }
 })

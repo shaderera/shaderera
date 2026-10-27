@@ -41,7 +41,7 @@ import {
 } from '@shaderera/core/host'
 import * as Comlink from 'comlink'
 import { type PcmForm, packClips, toPage } from './audio.ts'
-import { type Ask, extraIo } from './io.ts'
+import { type Ask, extraIo, type StillSize, stillOf } from './io.ts'
 import { type RenderTime, renderTime, resetRenderTime, timeRender } from './render-time.ts'
 
 export type Capabilities = {
@@ -144,6 +144,18 @@ const service = async (op: string, query: Record<string, string>, body?: Uint8Ar
 }
 /** The services' answers: the CLI's process, unless a host configured its own. */
 const ask: Ask = {
+  image: async (path, maxSize) => {
+    // The path the CLI's process reads: a revision's own copy when one is open (`base`).
+    const served = url(path).slice(files.length)
+    const opened = await service('image-open', {
+      path: served,
+      ...(maxSize === undefined ? {} : { maxSize: String(maxSize) }),
+    })
+    const size = (await (opened as Response).json()) as StillSize
+    if (size.local) return null
+    const data = (await service('image-data', { key: size.key })) as Response
+    return stillOf(size, new Uint8Array(await data.arrayBuffer()))
+  },
   cacheGet: async (hash) => {
     const r = await service('cache-get', { hash })
     return r ? new Uint8Array(await r.arrayBuffer()) : null

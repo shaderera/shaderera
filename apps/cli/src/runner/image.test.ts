@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { crc32 } from 'node:zlib'
 import { encode } from 'fast-png'
 import jpeg from 'jpeg-js'
-import { decodeImage } from './image.ts'
+import { decodeImage, imageSize } from './image.ts'
 
 const rgba = (width: number, height: number, data: number[]) =>
   encode({ width, height, depth: 8, channels: 4, data: Uint8Array.from(data) })
@@ -147,4 +147,22 @@ test('a file that is neither PNG nor JPEG names its path', () => {
 test('a broken PNG names its path', () => {
   const file = rgba(2, 2, new Array(16).fill(1)).slice(0, 40)
   assert.throws(() => decodeImage(file, 'i.png'), /i\.png/)
+})
+
+test('imageSize gives the size decodeImage gives, from the headers, at any maxSize', () => {
+  const deep = encode({ width: 6, height: 4, depth: 16, channels: 4, data: new Uint16Array(96) })
+  const photo = jpeg.encode({ width: 7, height: 3, data: new Uint8Array(84) }, 90).data
+  for (const [file, name] of [
+    [deep, 'n.png'],
+    [photo, 'o.jpg'],
+  ] as const)
+    for (const maxSize of [undefined, 1, 3, 5, 9]) {
+      const { width, height, bits } = decodeImage(file, name, maxSize)
+      assert.deepEqual(
+        imageSize(file, name, maxSize),
+        { width, height, bits },
+        `${name} ${maxSize}`,
+      )
+    }
+  assert.throws(() => imageSize(Uint8Array.of(1, 2, 3), 'h.gif'), /h\.gif is not a PNG or JPEG/)
 })

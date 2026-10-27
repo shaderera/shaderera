@@ -138,17 +138,25 @@ export const runnerPlugin = (
                 ? { op, hash: q('hash') }
                 : op === 'cache-put'
                   ? { op, hash: q('hash'), bytes: new Uint8Array(Buffer.concat(parts)) }
-                  : op === 'video-open'
-                    ? { op, path: q('path') }
-                    : op === 'video-frame'
-                      ? { op, path: q('path'), index: Number(q('index')) }
-                      : op === 'video-close'
+                  : op === 'image-open'
+                    ? {
+                        op,
+                        path: q('path'),
+                        ...(q('maxSize') ? { maxSize: Number(q('maxSize')) } : {}),
+                      }
+                    : op === 'image-data'
+                      ? { op, key: q('key') }
+                      : op === 'video-open'
                         ? { op, path: q('path') }
-                        : op === 'bake-open'
-                          ? { op, name: q('name') }
-                          : op === 'bake-frame'
-                            ? { op, name: q('name'), index: Number(q('index')) }
-                            : undefined
+                        : op === 'video-frame'
+                          ? { op, path: q('path'), index: Number(q('index')) }
+                          : op === 'video-close'
+                            ? { op, path: q('path') }
+                            : op === 'bake-open'
+                              ? { op, name: q('name') }
+                              : op === 'bake-frame'
+                                ? { op, name: q('name'), index: Number(q('index')) }
+                                : undefined
             if (!request) {
               res.statusCode = 400
               res.end(`unknown service ${op}`)
