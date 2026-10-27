@@ -77,6 +77,15 @@ test('rate control: a constant bitrate with HRD filler, or a ceiling on the crf'
   assert.ok(cap.includes('-crf 16 -maxrate 10M -bufsize 20000000'))
   const nvenc = ffmpegArgs({ ...base, bitrate: '8M', encoder: 'nvenc' }).join(' ')
   assert.ok(nvenc.includes('-rc cbr -b:v 8M -maxrate 8M') && !nvenc.includes('-rc vbr'))
+  // An NVENC review is a constant QP (vbr's cq held it near 15 Mb/s whatever cq was): --crf n is
+  // qp n + 1; --maxrate caps a vbr at cq n + 1 instead, as a QP alone takes no ceiling.
+  const review = ffmpegArgs({ ...base, encoder: 'nvenc' }).join(' ')
+  assert.ok(review.includes('-c:v h264_nvenc -preset p5 -tune hq -rc constqp -qp 19'))
+  assert.ok(!review.includes('-cq') && !review.includes('-maxrate'))
+  const finer = ffmpegArgs({ ...base, encoder: 'nvenc', crf: 13 }).join(' ')
+  assert.ok(finer.includes('-qp 14'))
+  const capped = ffmpegArgs({ ...base, encoder: 'nvenc', maxrate: '10M' }).join(' ')
+  assert.ok(capped.includes('-rc vbr -b:v 0 -cq 19 -maxrate 10M -bufsize 20000000'))
   // The other GPU encoders run at a constant quality only: --crf n is their cq n + 1.
   const qsv = ffmpegArgs({ ...base, encoder: 'qsv', crf: 20 }).join(' ')
   assert.ok(qsv.includes('-c:v h264_qsv -preset medium -global_quality 21'))
