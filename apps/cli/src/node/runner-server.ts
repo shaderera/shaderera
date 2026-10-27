@@ -1,6 +1,5 @@
-import { existsSync } from 'node:fs'
 import { createServer as createNetServer } from 'node:net'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import type { Logger } from 'vite'
 import { stamp } from '../stamp/plugin.ts'
@@ -137,12 +136,6 @@ const listen = async (project: Project, o: RunnerOptions & { port: number }) => 
     ...(o.base ? { base: o.base } : {}),
     optimizeDeps: {
       exclude: ['comlink', '@shaderera/core'],
-      // Installed, the runner is the package's dist/ inside node_modules, whose imports Vite never
-      // pre-bundles: jpeg-js, the worker's one CommonJS dependency (runner/image.ts), would reach
-      // the browser as it is and fail the worker. From this repository Vite finds it itself.
-      ...(existsSync(join(o.pkgDir, 'src/runner/bridge.ts'))
-        ? {}
-        : { include: ['shaderera > jpeg-js'] }),
     },
     server: {
       host: HOST,

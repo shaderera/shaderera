@@ -30,7 +30,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\"",
     "test:slow": "pnpm --filter @shaderera/core run build && pnpm run build && node --test \"src/**/*.it.ts\"",
-    "test:all": "pnpm --filter @shaderera/core run build && pnpm run build && node --test \"src/**/*.test.ts\" \"src/**/*.it.ts\""
+    "test:all": "pnpm --filter @shaderera/core run build && pnpm run build && node --test \"src/**/*.test.ts\" \"src/**/*.it.ts\"",
+    "build:wasm": "node scripts/image-wasm.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
@@ -38,8 +39,6 @@
     "@shaderera/core": "workspace:*",
     "comlink": "4.4.2",
     "diff": "8.0.4",
-    "fast-png": "8.0.0",
-    "jpeg-js": "0.4.4",
     "magic-string": "1.4.3",
     "mediabunny": "1.61.1",
     "minisearch": "7.2.0",
@@ -50,6 +49,8 @@
     "vite": "^8.0.0"
   },
   "devDependencies": {
+    "fast-png": "8.0.0",
+    "jpeg-js": "0.4.4",
     "vite": "8.3.5"
   }
 }

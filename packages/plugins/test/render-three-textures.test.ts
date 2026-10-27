@@ -80,7 +80,12 @@ for (const path of ['assets/rgba.png', 'assets/photo.jpg', 'assets/deep.png'])
   test(`render-three-textures: a texture from io.image is pixel-equal to the former decoder's (${path})`, async () => {
     const { texture, aspect, width, height } = await loadTexture(host, path)
     assert.deepEqual([width, height, aspect], [W, H, W / H])
-    assert.deepEqual(pixels(texture), flipped(former(path)))
+    if (path.endsWith('.jpg')) {
+      // io.image smooths a JPEG's chroma where jpeg-js repeated it (ADR 0028, 3): close, not equal.
+      const was = flipped(former(path))
+      const mean = [...pixels(texture)].reduce((s, v, i) => s + Math.abs(v - (was[i] as number)), 0)
+      assert.ok(mean / was.length < 3, `mean difference ${mean / was.length}`)
+    } else assert.deepEqual(pixels(texture), flipped(former(path)))
     assert.deepEqual(pixels(textureOf(decodeImage(read(path), path))), pixels(texture))
   })
 

@@ -55,6 +55,7 @@ writeFileSync(
 export default async ({ io }) => {
   const png = await io.image('assets/deep.png')
   const jpg = await io.image('assets/photo.jpg')
+  const small = await io.image('assets/deep.png', { maxSize: 3 })
   const clip = await io.video('assets/clip.mp4')
   const frames = [await clip.frame(3), await clip.frame(4), await clip.frame(1)]
   await clip.close()
@@ -67,6 +68,7 @@ export default async ({ io }) => {
     inspect: async () => ({
       png: { bits: png.bits, w: png.width, first: Array.from(png.data.slice(0, 4)), hash: await hex(new Uint8Array(png.data.buffer)) },
       jpg: { w: jpg.width, hash: await hex(jpg.data) },
+      small: { w: small.width, h: small.height, bits: small.bits, hash: await hex(new Uint8Array(small.data.buffer)) },
       clip: { w: clip.width, h: clip.height, fps: clip.fps, frames: clip.frames, hashes: await Promise.all(frames.map(hex)) },
       derived: Array.from(derived),
       made,
@@ -79,16 +81,18 @@ const entryFile = await buildForNode(project)
 const node = () => openChild(project, { entryFile })
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
 
-test('io.image decodes a 16-bit PNG and a JPEG; io.video gives frame i as ffmpeg decodes it', async () => {
+test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video gives frame i as ffmpeg decodes it', async () => {
   const child = await node()
   try {
     const j = (await child.inspect(0)) as {
       png: { bits: number; w: number; first: number[] }
+      small: { w: number; h: number; bits: number }
       clip: { w: number; h: number; fps: number; frames: number; hashes: string[] }
       derived: number[]
     }
     assert.equal(j.png.bits, 16)
     assert.deepEqual(j.png.first, [...deep.slice(0, 4)])
+    assert.deepEqual([j.small.w, j.small.h, j.small.bits], [3, 2, 16], 'maxSize 3 on a 6×4 still')
     assert.deepEqual([j.clip.w, j.clip.h, j.clip.fps, j.clip.frames], [32, 16, 10, 10])
     // Frames 3 and then 1 (a jump back) straight from ffmpeg, the same conversion.
     const direct = (n: number) =>

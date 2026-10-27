@@ -58,15 +58,7 @@ const packageDirs = (root: string): string[] => {
   const json = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
   const deps = Object.keys({ ...json.dependencies, ...json.devDependencies })
   const local = deps.map((d) => join(root, 'node_modules', d)).filter((d) => existsSync(d))
-  // fast-png and jpeg-js decode io.image in the host (runner/image.ts).
-  const dirs = [
-    cliRoot,
-    pkg('@shaderera/core'),
-    pkg('@napi-rs/canvas'),
-    pkg('fast-png'),
-    pkg('jpeg-js'),
-    ...local,
-  ]
+  const dirs = [cliRoot, pkg('@shaderera/core'), pkg('@napi-rs/canvas'), ...local]
   // Resolution from the project walks up through each ancestor's node_modules by the path as
   // written, before it follows a link or junction to the real path (a frozen revision or an
   // agent stage sits inside the project; pnpm and linked installs use links): allow both.

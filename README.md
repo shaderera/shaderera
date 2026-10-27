@@ -289,6 +289,11 @@ pnpm test       # the fast tests, about ten seconds: run them all the time
 pnpm test:all   # the fast and the slow tests: before a pull request
 ```
 
+`io.image`'s decoder is Rust compiled to WASM (`apps/cli/wasm/image/`, ADR 0028), committed built
+as `apps/cli/src/runner/image-wasm.ts`, so building the packages needs no Rust. After a change to
+the crate, rebuild it with `pnpm --filter shaderera build:wasm` (Rust and the
+`wasm32-unknown-unknown` target).
+
 `pnpm install` warns `Ignored build scripts: esbuild, webgpu` and suggests `pnpm approve-builds`.
 That is expected: the tests pass without approving them (webgpu's script only clears a macOS
 download flag).

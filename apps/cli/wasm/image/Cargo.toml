@@ -1,0 +1,23 @@
+[package]
+name = "shaderera-image"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "io.image's decoder (ADR 0028): PNG and JPEG to straight RGBA, shrunk with one integer box filter"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Exact versions: a bump changes the decoded bytes, so it is deliberate (ADR 0028, 2). No SIMD.
+[dependencies]
+zune-core = { version = "=0.5.3", default-features = false }
+zune-jpeg = { version = "=0.5.15", default-features = false }
+zune-png = { version = "=0.5.2", default-features = false }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

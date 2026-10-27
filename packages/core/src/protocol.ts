@@ -220,11 +220,13 @@ export type Io = {
   /** Registers a font file under a family name for the 2D context. */
   font(path: string, family: string): Promise<void>
   /**
-   * A PNG or JPEG decoded in JavaScript, the same pixels in every host (never a browser's or a
+   * A PNG or JPEG decoded by one WASM module, the same pixels in every host (never a browser's or a
    * canvas's decoder): straight RGBA, sRGB code values as the file has them, 8 bits a channel, or
-   * 16 for a 16-bit PNG. Decoded once per file in a host. Other formats: convert them to PNG once.
+   * 16 for a 16-bit PNG. `maxSize`: the long side shrunk to it with an area-average filter, the
+   * aspect kept; pass the largest size the film shows the still. Decoded once per file and size in
+   * a host. Other formats: convert them to PNG once.
    */
-  image?(path: string): Promise<DecodedImage>
+  image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage>
   /**
    * A video file's frames, decoded in software by the host's ffmpeg: `frame(i)` is frame i as
    * straight RGBA (sRGB, full range, by the file's own colour tags), the same bytes every time, read

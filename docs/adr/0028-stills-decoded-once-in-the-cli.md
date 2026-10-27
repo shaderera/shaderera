@@ -81,6 +81,15 @@ The memory column is peak resident memory, Node or Chrome included.
      batch, or it recreates the instance. The web player does the same in its worker.
    - **Shipping it.** The build gains a Rust and wasm-pack step, in CI too. The built `.wasm`
      ships in the `shaderera` npm package, so a person needs no Rust.
+     - (Amended 2026-10-27, #453 slice 1: no wasm-pack and no bindings. The crate,
+       `apps/cli/wasm/image/`, exports a plain C ABI (`alloc`, then `decode(at, len, maxSize)`
+       pointing at six result words) and imports nothing. `cargo build --target
+       wasm32-unknown-unknown` builds it, and `pnpm --filter shaderera build:wasm` writes it as
+       base64 into `apps/cli/src/runner/image-wasm.ts`, which is committed. So building the
+       packages needs no Rust; only a change to the crate does. The JS call stays one function,
+       `decodeImage(bytes, path, maxSize)`. The repository has no CI yet, so nothing checks the
+       committed module against the crate: the build is reproducible with the pinned toolchain
+       and `Cargo.lock`, and a review of a crate change rebuilds it.)
    - **Benchmark before implementing.** #469 benchmarked an 8-bit JPEG and an 8-bit RGBA PNG.
      Benchmark 16-bit PNGs and 1, 2 and 4-bit PNGs against fast-png first. A case that is slower
      or different is reported on #453 before the switch.
