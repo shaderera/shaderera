@@ -57,8 +57,8 @@ test('check and still run in the browser host from the installed package', () =>
 })
 
 test('a runner worker that fails to load fails the command at once, not at the timeout', () => {
-  // The worker's image decoder no longer parses: the worker module fails to load.
-  writeFileSync(join(project, 'node_modules/shaderera/dist/runner/image.js'), 'export const = ;\n')
+  // The worker module no longer parses (only the browser's worker loads it, never the CLI).
+  writeFileSync(join(project, 'node_modules/shaderera/dist/runner/worker.js'), 'export const = ;\n')
   // Chrome's profile would serve the module from its cache, as the test before loaded it. On
   // Windows that Chrome's helpers hold the profile's files a moment after it exits: the retries
   // wait them out (#422).
