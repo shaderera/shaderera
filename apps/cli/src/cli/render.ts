@@ -99,6 +99,13 @@ export type VideoOptions = {
 /** The file name extension of a codec's container. */
 export const extensionOf = (codec: Codec = 'h264') => (codec === 'h264' ? '.mp4' : '.mov')
 
+/**
+ * What a default file name adds for a window that is not the whole film (#466): its seconds, so
+ * `--from 4 --to 6.5` writes `<name>-4.0-6.5.mp4` beside the full film instead of over it.
+ */
+export const windowParts = (from: number, to: number, duration: number): string[] =>
+  from <= 0 && to >= duration ? [] : [from.toFixed(1), to.toFixed(1)]
+
 /** Checks options given on the command line or in a job, before anything renders. */
 export const checkVideoOptions = (o: VideoOptions) => {
   if (o.codec !== undefined && !CODECS.includes(o.codec))
@@ -244,7 +251,11 @@ const exportOnce = async (
   const head = from - preroll.seconds
   const out = o.out
     ? resolve(root, o.out)
-    : join(root, 'out', `${basename(root)}${extensionOf(codec)}`)
+    : join(
+        root,
+        'out',
+        `${[basename(root), ...windowParts(from, to, manifest.duration)].join('-')}${extensionOf(codec)}`,
+      )
   // Anywhere else in the project, the film would be saved into every later revision.
   if (!outside(root, out) && outside(join(root, 'out'), out))
     throw new Error(
@@ -889,12 +900,15 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
     const ext = extensionOf(video.codec)
-    // A draft goes beside the review file and the final, never over them.
+    // A draft goes beside the review file and the final, never over them, and a window beside
+    // the whole film.
+    const { duration } = project.manifest
+    const span = windowParts(from ?? 0, to ?? duration, duration)
     const named = (...parts: string[]) =>
       join(
         root,
         'out',
-        `${[basename(root), ...parts, ...(draft ? ['draft'] : [])].join('-')}${ext}`,
+        `${[basename(root), ...parts, ...(draft ? ['draft'] : []), ...span].join('-')}${ext}`,
       )
     const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
       ...video,

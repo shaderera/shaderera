@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
 import { memoryChild, memoryProject } from '../node/fixtures/memory-child.ts'
 import { draftArgs, draftSize } from './args.ts'
 import { canEncode, encoderSaid, encodersFile, FfmpegError } from './ffmpeg.ts'
-import { encoderRefused, exportVideo, progressLines, transientEncoder } from './render.ts'
+import {
+  encoderRefused,
+  exportVideo,
+  progressLines,
+  transientEncoder,
+  windowParts,
+} from './render.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
@@ -233,6 +239,25 @@ test('a bad window is refused before ffmpeg runs, and keeps the GPU encoder', {
     assert.deepEqual(lines, [])
   })
   assert.equal(after, kept)
+})
+
+test('a window that is not the whole film is written beside it, named by its seconds (#466)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject({ width: 64, height: 36 })
+  const child = memoryChild({ size: { width: 64, height: 36 } })
+  const o = { revision: 'test', encoder: 'x264' as const, audio: false }
+  const name = (file: string) => join(project.root, 'out', `${basename(project.root)}${file}`)
+  await quietly(async () => {
+    assert.equal(
+      (await exportVideo(project, child, { ...o, from: 0.2, to: 0.5 })).out,
+      name('-0.2-0.5.mp4'),
+    )
+    assert.equal((await exportVideo(project, child, { ...o, to: 0.3 })).out, name('-0.0-0.3.mp4'))
+    assert.equal((await exportVideo(project, child, { ...o, from: 0, to: 1 })).out, name('.mp4'))
+  })
+  assert.deepEqual(windowParts(4, 6.5, 10), ['4.0', '6.5'])
+  assert.deepEqual(windowParts(0, 10, 10), [])
 })
 
 /** An exit with an error whose words name no encoder (a new driver's, say). */

@@ -340,7 +340,8 @@ test('render --draft: 360 px high at full fps, or the height given, beside the r
   const name = basename(root)
   const r = await cli('render', '--draft', '--progress', '--to', '1')
   assert.equal(r.status, 0, r.stderr)
-  const out = join(root, 'out', `${name}-draft.mp4`)
+  // A window beside the whole film (#466): its seconds in the name.
+  const out = join(root, 'out', `${name}-draft-0.0-1.0.mp4`)
   assert.equal(r.stdout.split('\n')[0], out)
   assert.match(r.stdout, /^10 frames in [\d.]+ s on \d+ host\(s\), \w+, draft \(640×360\)$/m)
   assert.match(r.stderr, /frame 10\/10 {2}draft \(640×360\)/)
@@ -348,12 +349,13 @@ test('render --draft: 360 px high at full fps, or the height given, beside the r
   assert.deepEqual([p.video?.width, p.video?.height, p.video?.fps], [640, 360, 10])
   // Another height: as wide as the film's aspect.
   assert.equal((await cli('render', '--draft', '540', '--to', '0.2')).status, 0)
-  assert.deepEqual([probe(out).video?.width, probe(out).video?.height], [960, 540])
+  const tall = probe(join(root, 'out', `${name}-draft-0.0-0.2.mp4`))
+  assert.deepEqual([tall.video?.width, tall.video?.height], [960, 540])
   // The review file is not touched, and a variant's draft has its own aspect.
   assert.equal(existsSync(join(root, 'out', `${name}.mp4`)), false)
   const v = await cli('render', '--draft', '--variant', '9:16', '--from', '1.5')
   assert.equal(v.status, 0, v.stderr)
-  const portrait = probe(join(root, 'out', `${name}-9_16-draft.mp4`))
+  const portrait = probe(join(root, 'out', `${name}-9_16-draft-1.5-2.0.mp4`))
   assert.deepEqual([portrait.video?.width, portrait.video?.height], [202, 360])
   assert.match(v.stdout, /^5 frames in .*draft \(202×360\)$/m)
   // A job is a frozen final: never a draft.
