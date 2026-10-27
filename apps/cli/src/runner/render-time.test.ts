@@ -16,7 +16,7 @@ test('io.video waits count as their union inside render: concurrent waits once, 
   await timeRender(() => sleep(30))
   assert.deepEqual(renderTime(), { renders: 0, renderMs: 0, videoMs: 0 })
 
-  // Two clips' frames awaited at once count once: less than the sum of the two waits.
+  // Two clips' frames awaited at once count once: about half the two waits added, never both.
   const waits: number[] = []
   await timeRender(async () => {
     await Promise.all(
@@ -29,7 +29,7 @@ test('io.video waits count as their union inside render: concurrent waits once, 
     both.videoMs > 0 && both.videoMs <= both.renderMs,
     `${both.videoMs} of ${both.renderMs}`,
   )
-  assert.ok(both.videoMs < waits[0]! + waits[1]!, `${both.videoMs} vs ${waits}`)
+  assert.ok(both.videoMs < 0.75 * (waits[0]! + waits[1]!), `${both.videoMs} vs ${waits}`)
 
   // A frame asked ahead at the end of a render comes between renders: none of it is waiting.
   let come = () => {}
