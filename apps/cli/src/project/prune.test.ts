@@ -175,7 +175,9 @@ test('prune removes the frozen copies nobody uses, and keeps one a live process 
   assert.ok(existsSync(join(copies, a)))
   const done = prune(root, { keep: 10 })
   assert.deepEqual(done.copies, [a])
-  assert.ok(dry.bytes > 0 && done.bytes === dry.bytes)
+  assert.equal(done.bytes, dry.bytes)
+  // On NTFS a frozen copy is links to its objects, so removing it frees nothing (ADR 0029).
+  if (process.platform === 'win32') assert.equal(dry.bytes, 0)
   assert.deepEqual(readdirSync(copies).sort(), [b, `${b}.using`].sort())
   // The revision stays (a save), and a render makes its copy again.
   assert.ok(existsSync(join(materialize(root, a), 'asset.bin')))

@@ -110,14 +110,17 @@ const size = (file: string) => {
   }
 }
 
-/** The bytes of the files in a folder, links not followed. */
-export const folderSize = (dir: string): number => {
+/**
+ * The bytes of the files in a folder, links not followed; with `freed`, only the files that removing
+ * them frees: a hard link to an object frees nothing (ADR 0029).
+ */
+export const folderSize = (dir: string, freed = false): number => {
   try {
     return readdirSync(dir, { recursive: true })
       .map((p) => {
         try {
           const s = lstatSync(join(dir, String(p)))
-          return s.isFile() ? s.size : 0
+          return s.isFile() && !(freed && s.nlink > 1) ? s.size : 0
         } catch {
           return 0
         }
@@ -240,7 +243,7 @@ export const prune = (
     const bytes =
       removed.reduce((n, id) => n + size(revisionFile(id)), 0) +
       objects.reduce((n, h) => n + size(objectFile(h)), 0) +
-      copies.reduce((n, id) => n + folderSize(join(frozen, id)), 0)
+      copies.reduce((n, id) => n + folderSize(join(frozen, id), true), 0)
     return { removed, objects, copies, bytes, kept, left: [] }
   }
 
@@ -257,7 +260,7 @@ export const prune = (
   for (const id of copies) {
     const again = unusedFrozen(root).find((c) => c.id === id)
     if (!again || now() - again.used < GRACE_MS) continue
-    const n = folderSize(join(frozen, id))
+    const n = folderSize(join(frozen, id), true)
     if (removeFrozen(root, id)) {
       bytes += n
       gone.push(id)

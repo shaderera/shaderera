@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
 import {
   appendFileSync,
+  chmodSync,
   closeSync,
+  constants,
+  copyFileSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -361,13 +365,21 @@ export const store = (
       utimesSync(object, now, now)
       continue
     } catch {}
-    // Copied as it is hashed: a file edited since the scan is never stored under the old hash.
+    // Cloned and then hashed, or copied as it is hashed: a file edited since the scan is never
+    // stored under the old hash. Read-only, so a frozen copy may link it (ADR 0029).
     const tmp = `${object}.${process.pid}.tmp`
-    if (hashFile(join(root, path), tmp) !== hash) {
+    if ((clone(join(root, path), tmp) ? hashFile(tmp) : hashFile(join(root, path), tmp)) !== hash) {
       rmSync(tmp, { force: true })
       throw new Error(`${path} changed during save; save again.`)
     }
-    renameSync(tmp, object)
+    chmodSync(tmp, 0o444)
+    try {
+      renameSync(tmp, object)
+    } catch (e) {
+      // A save beside this one stored it first (Windows refuses to rename over a read-only file).
+      rmSync(tmp, { force: true })
+      if (!existsSync(object)) throw e
+    }
   }
   const file = join(versionsOf(root), 'revisions', `${id}.json`)
   const parent = head(root)
@@ -408,11 +420,59 @@ export const readObject = (root: string, hash: string): Buffer => {
   return data
 }
 
+/** A copy-on-write copy, where the file system has them (APFS, btrfs, XFS): whether it made one. */
+const clone = (from: string, to: string) => {
+  try {
+    copyFileSync(from, to, constants.COPYFILE_FICLONE_FORCE)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Puts a checked object at `file` (ADR 0029): a clone, else with `link` (a frozen copy, never the
+ * working tree) a hard link to the read-only object, else a copy hashed as it is written. False
+ * when that copy is not `hash`.
+ */
+const place = (object: string, file: string, hash: string, link: boolean) => {
+  const tmp = `${file}.${process.pid}.tmp`
+  rmSync(tmp, { force: true })
+  if (clone(object, tmp)) chmodSync(tmp, 0o644)
+  else if (!(link && linked(object, tmp)) && hashFile(object, tmp) !== hash) {
+    rmSync(tmp, { force: true })
+    return false
+  }
+  try {
+    renameSync(tmp, file)
+  } catch (e) {
+    // Windows refuses to rename over a read-only file: the frozen file a link left. Never in the
+    // working tree, where the file is the person's (one held open would be lost).
+    if (!link) {
+      rmSync(tmp, { force: true })
+      throw e
+    }
+    rmSync(file, { force: true })
+    renameSync(tmp, file)
+  }
+  return true
+}
+const linked = (object: string, to: string) => {
+  try {
+    chmodSync(object, 0o444)
+    linkSync(object, to)
+    return true
+  } catch {
+    rmSync(to, { force: true })
+    return false
+  }
+}
+
 /**
  * Makes a folder (the working tree by default) equal a revision: writes its files and removes the
  * files it does not have. Every path and every object is checked before anything is written.
  */
-const checkout = (root: string, target: Revision, dir = root) => {
+const checkout = (root: string, target: Revision, dir = root, link = false) => {
   const now = existsSync(dir) ? scan(dir) : {}
   // An object a prune removed while this ran (its revision is listed pruned first) says so.
   const corrupt = (hash: string) =>
@@ -438,12 +498,7 @@ const checkout = (root: string, target: Revision, dir = root) => {
     .map((path) => inside(dir, path))
   for (const [file, object, hash] of writes) {
     mkdirSync(dirname(file), { recursive: true })
-    const tmp = `${file}.${process.pid}.tmp`
-    if (hashFile(object, tmp) !== hash) {
-      rmSync(tmp, { force: true })
-      throw corrupt(hash)
-    }
-    renameSync(tmp, file)
+    if (!place(object, file, hash, link)) throw corrupt(hash)
   }
   for (const file of removes) rmSync(file, { force: true })
 }
@@ -511,7 +566,7 @@ export const materialize = (root: string, id: string): string => {
   let failed: unknown = new Error(`The frozen copy of ${id} could not be made.`)
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      checkout(root, revision, dir)
+      checkout(root, revision, dir, true)
       if (complete(root, revision, dir)) {
         touch(dir)
         return dir

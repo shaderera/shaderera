@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -114,6 +115,27 @@ test('materialize writes a frozen copy that later edits do not touch', () => {
   assert.equal(materialize(root, one.id), dir)
 })
 
+test('a frozen copy shares its objects read-only, and a restore writes files the person can edit', () => {
+  const root = project()
+  const one = save(root, { by: 'person' })
+  const object = join(root, 'versions', 'objects', one.files['src/a.ts'] as string)
+  assert.equal(statSync(object).mode & 0o222, 0)
+  const frozen = join(materialize(root, one.id), 'src', 'a.ts')
+  // NTFS never clones, so the frozen file is the object itself (ADR 0029).
+  if (process.platform === 'win32') assert.equal(statSync(frozen).ino, statSync(object).ino)
+  try {
+    writeFileSync(frozen, 'edited\n')
+  } catch (e) {
+    assert.match(String((e as NodeJS.ErrnoException).code), /EPERM|EACCES/)
+  }
+  assert.match(readFileSync(object, 'utf8'), /One/)
+  assert.match(readFileSync(join(materialize(root, one.id), 'src', 'a.ts'), 'utf8'), /One/)
+  writeFileSync(join(root, 'src', 'a.ts'), 'changed\n')
+  restore(root, one.id)
+  writeFileSync(join(root, 'src', 'a.ts'), 'edited after restore\n')
+  assert.match(readFileSync(object, 'utf8'), /One/)
+})
+
 test('a frozen copy stays after its render; past one unused, the least recently used go', () => {
   const root = project()
   const copies = join(root, '.shaderera', 'revisions')
@@ -154,7 +176,9 @@ test('a frozen copy stays after its render; past one unused, the least recently 
     unusedFrozen(root).map((c) => c.id),
     [four],
   )
-  // A copy kept is still checked: an edit to it is repaired on the next use.
+  // A copy kept is still checked: an edit to it (a new file over the read-only one, as an editor
+  // saves) is repaired on the next use.
+  rmSync(join(copies, four, 'src', 'a.ts'))
   writeFileSync(join(copies, four, 'src', 'a.ts'), 'edited\n')
   assert.match(readFileSync(join(materialize(root, four), 'src', 'a.ts'), 'utf8'), /four/)
   releaseFrozen(root, four)
@@ -295,6 +319,8 @@ test('a revision and an object are checked before they are trusted', () => {
   writeFileSync(file, text)
   // A corrupted object is refused, never written into the project.
   const hash = base.files['src/a.ts'] as string
+  // Objects are read-only (ADR 0029): only a tool that clears that can tamper with one.
+  chmodSync(join(root, 'versions', 'objects', hash), 0o644)
   writeFileSync(join(root, 'versions', 'objects', hash), 'tampered\n')
   writeFileSync(join(root, 'src', 'a.ts'), 'edited\n')
   assert.throws(() => restore(root, base.id), /corrupt/)

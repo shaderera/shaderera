@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -48,8 +48,10 @@ test('a job renders its frozen revision with its own params, whatever the projec
   const src = join(root, 'src', 'composition.ts')
   writeFileSync(src, readFileSync(src, 'utf8').replace('ctx.fillRect(', 'ctx.fillRect(1 + '))
   assert.equal(await sha256((await render(await openJob(root, job))).pixels), before)
-  // So does an edit to the revision's frozen copy: it is repaired before the job renders.
+  // So does an edit to the revision's frozen copy (a new file over the read-only one, as an editor
+  // saves): it is repaired before the job renders.
   const copy = join(root, '.shaderera', 'revisions', job.revision, 'src', 'composition.ts')
+  rmSync(copy)
   writeFileSync(copy, readFileSync(src, 'utf8'))
   assert.equal(await sha256((await render(await openJob(root, job))).pixels), before)
   // The working tree with the same params now renders something else.
