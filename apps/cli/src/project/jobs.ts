@@ -12,6 +12,7 @@ import {
 import { basename, join } from 'node:path'
 import { frameTimes, type Json, type Manifest, type Range } from '@shaderera/core'
 import { checkManifest, paramDefaults, withVariant } from '@shaderera/core/host'
+import { QUALITIES, type X264 } from '../cli/ffmpeg.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { buildNode } from '../node/build.ts'
 import type { Child } from '../node/child.ts'
@@ -76,8 +77,13 @@ export type Delivery = {
    * `png`: an RGBA PNG sequence plus audio for finishing.
    */
   format: 'mp4' | 'png' | 'prores-hq' | 'prores-4444'
-  /** `review`: crf 18, preset medium; `master`: crf 12, preset slow. */
+  /** x264 `review`: crf 16, preset veryfast; `master`: crf 10, preset veryfast (QUALITIES). */
   quality: 'review' | 'master'
+  /**
+   * An H.264 master's x264 settings, recorded when the job was made so that it always renders the
+   * same file. A master job made by 0.2.1 or earlier has none: slow crf 12 (videoOptionsOf).
+   */
+  x264?: X264
   /**
    * `sdr-bt709`: SDR, BT.709 primaries, transfer and matrix, limited range (the tested conversion).
    * `hdr10-bt2020-pq`: an hdr10 job's (decision 0023), BT.2020 primaries and matrix, PQ, 10 bits,
@@ -348,7 +354,7 @@ export const createJob = async (
     output: { width: manifest.width, height: manifest.height, fps: manifest.fps, from, to },
     delivery: {
       ...DELIVERY,
-      ...o.delivery,
+      ...recordX264(o.delivery ?? {}, o.range),
       ...(o.range === 'hdr10' ? { color: 'hdr10-bt2020-pq' as const } : {}),
     },
     inputs: {
@@ -548,9 +554,24 @@ export const openJob = async (
   return { project: built.project, child, more, extra: others }
 }
 
-/** What a delivery asks of a video export (exportVideo's VideoOptions). */
+/** An SDR mp4 master's delivery with the x264 settings it renders with now recorded (#496). */
+export const recordX264 = (d: Partial<Delivery>, range?: Range): Partial<Delivery> =>
+  (d.format ?? 'mp4') === 'mp4' && d.quality === 'master' && range !== 'hdr10'
+    ? { ...d, x264: { preset: QUALITIES.master.preset, crf: QUALITIES.master.crf } }
+    : d
+
+/** The master every job made by 0.2.1 or earlier renders, recording no x264 settings. */
+const MASTER_021: X264 = { preset: 'slow', crf: 12 }
+
+/**
+ * What a delivery asks of a video export (exportVideo's VideoOptions). A master's x264 settings
+ * are the ones it recorded (recordX264), or 0.2.1's when it recorded none.
+ */
 export const videoOptionsOf = (d: Partial<Delivery>) => ({
   codec: d.format === 'prores-hq' || d.format === 'prores-4444' ? d.format : ('h264' as const),
+  ...((d.format ?? 'mp4') === 'mp4' && d.quality === 'master'
+    ? { x264: d.x264 ?? MASTER_021 }
+    : {}),
   ...(d.bitrate ? { bitrate: d.bitrate } : {}),
   ...(d.maxrate ? { maxrate: d.maxrate } : {}),
   ...(d.editList === false ? { editList: false } : {}),

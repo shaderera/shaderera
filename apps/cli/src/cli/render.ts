@@ -29,6 +29,7 @@ import {
   deliveryOf,
   openJob,
   readJob,
+  recordX264,
   safeName,
   videoOptionsOf,
   windowOf,
@@ -67,6 +68,7 @@ import {
   requireFrames,
   requireHdr10,
   requireHdr10Ffmpeg,
+  type X264,
 } from './ffmpeg.ts'
 import { found } from './findings.ts'
 import { type FrameTime, frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
@@ -94,6 +96,8 @@ export type VideoOptions = {
   editList?: boolean
   /** One WAV per clip `group` beside the file (`<name>.stems/<group>.wav`), summing to the mix. */
   stems?: boolean
+  /** H.264: a job's recorded x264 settings, over the quality's (videoOptionsOf). */
+  x264?: X264
 }
 
 /** The file name extension of a codec's container. */
@@ -378,6 +382,7 @@ const exportOnce = async (
           out: partial,
           container: containerOf(out, codec),
           quality: o.quality,
+          ...(o.x264 ? { x264: o.x264 } : {}),
           crf: o.crf,
           audio,
           input: input as Input,
@@ -725,7 +730,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     throw new Error(
       `Job ${job.name} froze its delivery (${job.delivery.format}); --${given.join(', --')} belong to shaderera job.`,
     )
-  const delivery = job?.delivery ?? deliveryOf(v)
+  const delivery = job?.delivery ?? recordX264(deliveryOf(v))
   if (!job && delivery.format === 'png')
     throw new Error(
       "A png delivery is a job's finishing handoff: shaderera job --png, then render --job.",
