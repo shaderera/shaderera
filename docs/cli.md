@@ -322,9 +322,11 @@ compositor and readback (from the end of the render call until the frame's bytes
 the CLI: the layers composited, the frame read back from the GPU and sent over the pipe or POSTed),
 and the `io.video` waits; and whether the encoder kept up (it took each frame in at most a quarter
 of the time: idle) or set the pace (busy). With several hosts the host's figures are each host's,
-so they count once over the hosts. The host's three over the hosts, plus the time each frame
-waited on the encoder, add up to the wall time a frame within a quarter of it: the rest is the
-CLI's own work on each frame, and with several hosts their work overlapping the encoder's. When
+so they count once over the hosts. While the encoder is idle, the host's three over the hosts plus
+the time each frame waited on the encoder add up to the wall time a frame within a quarter of it:
+the rest is the CLI's own work on each frame and, in the browser host, laying out the film's
+`dom`, which none of them counts. A busy encoder sets the pace, and the hosts' work on the next
+frames overlaps its wait, so the sum can then be more than the frame. When
 the encoder is idle and one of the host's parts is its largest and fills at least half of each
 host's share of the time, a second line names it: the film's own drawing points to the authoring
 guide's [Footage and stills on the GPU](authoring.md#footage-and-stills-on-the-gpu), the

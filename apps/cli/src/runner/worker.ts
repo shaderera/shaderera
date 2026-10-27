@@ -43,6 +43,7 @@ import * as Comlink from 'comlink'
 import { type PcmForm, packClips, toPage } from './audio.ts'
 import { type Ask, extraIo, type StillSize, stillOf } from './io.ts'
 import {
+  type FrameTimer,
   type RenderTime,
   renderTime,
   resetRenderTime,
@@ -91,12 +92,9 @@ const clock = { date: 0, performance: 0, rendering: false }
     return perf()
   }
 }
-/** A render call with the clock counted, timed (render-time.ts): as `frame`'s when given. */
-const counted = async <T>(
-  run: () => Promise<T>,
-  frame?: ReturnType<typeof timeFrame>,
-): Promise<T> =>
-  (frame ? frame.render : timeRender)(async () => {
+/** A render call with the clock counted, timed (render-time.ts): as a frame's when `timer` is given. */
+const counted = async <T>(run: () => Promise<T>, timer?: FrameTimer): Promise<T> =>
+  (timer ? timer.render : timeRender)(async () => {
     clock.rendering = true
     try {
       return await run()
@@ -661,11 +659,11 @@ const api = {
     enqueue(false, () =>
       authored(async () => {
         // Timed until the runner server has the frame: its compositor, readback and hand-off.
-        const timed = timeFrame()
-        const { bytes, layers, light } = await composite(t, intent, format, timed)
+        const timer = timeFrame()
+        const { bytes, layers, light } = await composite(t, intent, format, timer)
         const r = await fetch(to, { method: 'POST', body: bytes as Uint8Array<ArrayBuffer> })
         if (!r.ok) throw new Error(`The runner server refused the frame (${r.status}).`)
-        timed.done()
+        timer.done()
         return { layers, ...(light ? { light } : {}) }
       }),
     ),
@@ -725,7 +723,7 @@ const composite = async (
   t: number,
   intent: 'preview' | 'final',
   format: GpuOutput | HdrOutput = 'rgba',
-  timed?: ReturnType<typeof timeFrame>,
+  timer?: FrameTimer,
 ): Promise<{
   bytes: Uint8Array | Uint8ClampedArray
   layers: ReturnType<typeof layerInfo>[]
@@ -743,7 +741,7 @@ const composite = async (
           frame: frameAt(t, manifest.fps),
           ...(dom ? { dom } : {}),
         }),
-      timed,
+      timer,
     )
     const layers = lightChecked(finalOnly(flattenFrame(frame), intent, t), range)
     const info = layers.map(layerInfo)

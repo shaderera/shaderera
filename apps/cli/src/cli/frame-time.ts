@@ -7,9 +7,9 @@ const MORE_HOSTS = 'AUTHORING.md, "Expensive films"'
 
 /**
  * Where a render's frame time went (#454, #497): what `render` prints at its end, and `--json`
- * holds. A host's parts (its drawing, io.video waits, compositor and readback) over the hosts, plus
- * the encoder's, add up to the frame time within a quarter of it: the rest is the CLI's own work
- * on each frame, and work of several hosts that overlaps the encoder's.
+ * holds. While the encoder is idle, a host's parts (its drawing, io.video waits, compositor and
+ * readback) over the hosts, plus the encoder's, add up to the frame time within a quarter of it
+ * (docs/cli.md, "Where the time went"); a busy encoder's wait overlaps the hosts' work.
  */
 export type FrameTime = {
   frames: number

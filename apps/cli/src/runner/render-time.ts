@@ -83,12 +83,18 @@ export const timeVideo = async <T>(wait: () => Promise<T>): Promise<T> => {
   }
 }
 
+/** A frame's timer (timeFrame). */
+export type FrameTimer = {
+  render: <T>(run: () => Promise<T>) => Promise<T>
+  done: () => void
+}
+
 /**
  * Times one frame: its render call (timeRender), then from the call's end to `done()` (the frame
  * composited, read back and handed over) as its compositor's time. The frame whose render call is
  * left out (the first after a reset) is left out here too.
  */
-export const timeFrame = () => {
+export const timeFrame = (): FrameTimer => {
   let ended: number | null = null
   let counted = false
   return {
