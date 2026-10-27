@@ -517,9 +517,10 @@ export const LISTENING_MS = 5000
 
 /**
  * Whether an agent waits on comments now: some waiter's file was touched in the last
- * `LISTENING_MS`. Files older than that are removed. For the bridge's `listening`.
+ * `LISTENING_MS` (`staleMs`, for tests). Files older than that are removed. For the bridge's
+ * `listening`.
  */
-export const listening = (root: string, now = Date.now()): boolean => {
+export const listening = (root: string, now = Date.now(), staleMs = LISTENING_MS): boolean => {
   let any = false
   let names: string[] = []
   try {
@@ -530,7 +531,7 @@ export const listening = (root: string, now = Date.now()): boolean => {
   for (const name of names) {
     const file = join(waitDir(root), name)
     try {
-      if (now - statSync(file).mtimeMs <= LISTENING_MS) any = true
+      if (now - statSync(file).mtimeMs <= staleMs) any = true
       else rmSync(file, { force: true })
     } catch {}
   }

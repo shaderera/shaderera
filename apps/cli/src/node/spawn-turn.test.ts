@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Worker } from 'node:worker_threads'
-import { HOLD_MS, lendTurns } from './spawn-turn.ts'
+import { lendTurns } from './spawn-turn.ts'
+
+// HOLD_MS, shorter: the tests time it.
+const HOLD_MS = 300
 
 const fixture = new URL('./fixtures/turn-worker.ts', import.meta.url)
 const now = () => performance.timeOrigin + performance.now()
@@ -12,7 +15,7 @@ type Ran = { start: number; end: number }
 
 /** A fixture worker with turns of its own; `asking` runs (in this thread) when it is about to ask. */
 const worker = (data: object, asking: () => void = () => {}) => {
-  const { turn, transfer } = lendTurns()
+  const { turn, transfer } = lendTurns(HOLD_MS)
   const w = new Worker(fixture, { workerData: { ...data, turn }, transferList: transfer })
   const ran = new Promise<Ran>((done, fail) => {
     w.on('message', (m: 'asking' | Ran) => (m === 'asking' ? asking() : done(m)))
@@ -55,9 +58,9 @@ const longestGap = async (ms: number) => {
 
 test("a worker that hangs in its turn holds the CLI's thread for HOLD_MS at most", async () => {
   const { w } = worker({ mode: 'hang' })
-  const gap = await longestGap(HOLD_MS + 1500)
+  const gap = await longestGap(HOLD_MS + 700)
   assert.ok(gap >= HOLD_MS - 100, `held for ${gap} ms`)
-  assert.ok(gap < HOLD_MS + 1000, `held for ${gap} ms`)
+  assert.ok(gap < HOLD_MS + 500, `held for ${gap} ms`)
   await w.terminate()
 })
 
@@ -67,6 +70,6 @@ test('a worker that exits in its turn does not stop the next one', async () => {
   const start = now()
   const next = worker({ mode: 'time' })
   await next.ran
-  assert.ok(now() - start < HOLD_MS + 2000)
+  assert.ok(now() - start < HOLD_MS + 1500)
   await next.w.terminate()
 })

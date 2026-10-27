@@ -35,14 +35,17 @@ export const HOLD_MS = 2_000
  */
 export const ASK_MS = 10_000
 
-/** The CLI's thread: turns for one new worker, and the port to list in its `transferList`. */
-export const lendTurns = (): { turn: SpawnTurn; transfer: MessagePort[] } => {
+/**
+ * The CLI's thread: turns for one new worker, and the port to list in its `transferList`. `holdMs`:
+ * HOLD_MS but for tests.
+ */
+export const lendTurns = (holdMs = HOLD_MS): { turn: SpawnTurn; transfer: MessagePort[] } => {
   const flag = new Int32Array(new SharedArrayBuffer(4))
   const { port1, port2 } = new MessageChannel()
   port1.on('message', () => {
     Atomics.store(flag, 0, GRANTED)
     Atomics.notify(flag, 0)
-    Atomics.wait(flag, 0, GRANTED, HOLD_MS)
+    Atomics.wait(flag, 0, GRANTED, holdMs)
     Atomics.store(flag, 0, FREE)
     Atomics.notify(flag, 0)
   })

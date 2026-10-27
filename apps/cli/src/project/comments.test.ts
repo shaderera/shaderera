@@ -17,7 +17,6 @@ import {
   commentsFile,
   fold,
   frameAt,
-  LISTENING_MS,
   listening,
   listing,
   MAX_TEXT,
@@ -380,7 +379,9 @@ test("only the person wakes a waiter: their comment, or their reply reopening on
   )
 })
 
-test('listening: a waiter keeps its own file fresh; a killed one stops listening within 5 s', async () => {
+test('listening: a waiter keeps its own file fresh; a killed one stops listening once its file is stale', async () => {
+  // LISTENING_MS, shorter: the waiters below touch their files every 200 ms.
+  const stale = 1000
   const root = project()
   const script = `
 import { waitForComments } from ${JSON.stringify(new URL('./comments.ts', import.meta.url).href)}
@@ -394,7 +395,7 @@ await waitForComments(process.argv[2], { pollMs: 200 })
     assert.ok(Date.now() < until, 'the waiters never wrote their files')
     await new Promise((r) => setTimeout(r, 50))
   }
-  assert.equal(listening(root), true)
+  assert.equal(listening(root, Date.now(), stale), true)
   const { pid, started } = JSON.parse(
     readFileSync(join(waitDir(root), String(waiters[0]?.pid)), 'utf8'),
   )
@@ -404,11 +405,11 @@ await waitForComments(process.argv[2], { pollMs: 200 })
   for (const w of waiters) w.kill('SIGKILL')
   await Promise.all(waiters.map((w) => new Promise((r) => w.once('exit', r))))
   const killed = Date.now()
-  while (listening(root)) {
-    assert.ok(Date.now() - killed < LISTENING_MS + 1500, 'still listening after the waiters died')
+  while (listening(root, Date.now(), stale)) {
+    assert.ok(Date.now() - killed < stale + 1500, 'still listening after the waiters died')
     await new Promise((r) => setTimeout(r, 100))
   }
-  assert.ok(Date.now() - killed <= LISTENING_MS + 1000)
+  assert.ok(Date.now() - killed <= stale + 1000)
   // Whoever saw them stale removed them.
   assert.deepEqual(readdirSync(waitDir(root)), [])
 })
