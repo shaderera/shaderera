@@ -53,9 +53,9 @@ One file per decision, in the order they were made.
 - [0029](0029-large-files-stored-once.md): a stored file placed once, by clone, then read-only
   link, then copy, for frozen copies (never a link into the working tree); footage still stored
   whole in the project, with no shared store and no external references (amends 0003).
-- [0030](0030-footage-frames-through-shared-memory.md): footage frames reach a Node host through
-  a ring in shared memory that the clip's one decoder writes as it decodes, not through the CLI's
-  thread and the bulk pipe; the same bytes, the pipe kept as the fallback, hardware decode allowed
-  but not the default yet (amends 0007 and 0027).
+- [0030](0030-footage-frames-decoded-ahead.md): footage frames, in steps: the CLI's one decoder
+  decodes on several threads and further ahead, over the same pipe (step 1); a ring in shared
+  memory only if the pipe hop is still over a third of the wait (step 2, deferred, needs a native
+  module); the same bytes; hardware decode allowed but not the default yet (amends 0007).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
