@@ -235,16 +235,16 @@ test('io.image decodes a still once for every host of a command, and again only 
   rmSync(join(root, '.shaderera', 'cache'), { recursive: true, force: true })
   const decoded = () => stillsDecoded.count
   const before = decoded()
-  // Three hosts at once: deep.png full and at maxSize 3, and photo.jpg, each decoded once.
-  const children: Child[] = await Promise.all([node(), node(), openBrowserChild(project, {})])
+  // Two hosts at once: deep.png full and at maxSize 3, and photo.jpg, each decoded once. The
+  // decode is the CLI's, whichever host asks; the browser's way to it is the test above's.
+  const children: Child[] = await Promise.all([node(), node()])
   try {
     // Without io.cache's count, which depends on which host made its entry first.
-    const [a, b, c] = (await Promise.all(children.map((child) => child.inspect(0)))).map((j) => ({
+    const [a, b] = (await Promise.all(children.map((child) => child.inspect(0)))).map((j) => ({
       ...(j as object),
       made: undefined,
     }))
     assert.deepEqual(b, a)
-    assert.deepEqual(c, a)
     assert.equal(decoded() - before, 3)
   } finally {
     await Promise.all(children.map((child) => child.close()))

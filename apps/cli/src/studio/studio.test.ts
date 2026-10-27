@@ -350,7 +350,7 @@ test('a reload whose request reaches the bridge before the page-left is resumed,
   assert.deepEqual(heard, ['reloaded'])
 })
 
-test('a page said closed that comes back later (15 s, waiting for Connect) is back', async (t) => {
+test('a page said closed that comes back later (waiting for Connect) is back', async (t) => {
   const id = makeId()
   const heard: string[] = []
   const p = page(relay.origin, id)
@@ -361,13 +361,14 @@ test('a page said closed that comes back later (15 s, waiting for Connect) is ba
     bridge,
     hello: { version: '0', os: 'test', telemetry: true },
     onPage: (state) => heard.push(state),
+    pageBackMs: 1000,
   })
   closeAtEnd(t, cli, p)
   const { bridge: got } = await p.pair()
   p.ws.close()
   await p.closed
-  // Longer than the 10 s a reload has: closed.
-  await new Promise((r) => setTimeout(r, 15_000))
+  // Longer than the time a reload has (pageBackMs): closed.
+  await new Promise((r) => setTimeout(r, 1500))
   assert.deepEqual(heard, ['closed'])
   // The page is back (Connect pressed): its request to the bridge.
   const info = await call(got.port, {
