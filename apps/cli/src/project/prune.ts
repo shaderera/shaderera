@@ -111,7 +111,7 @@ const size = (file: string) => {
 }
 
 /** The bytes of the files in a folder, links not followed. */
-const folderSize = (dir: string): number => {
+export const folderSize = (dir: string): number => {
   try {
     return readdirSync(dir, { recursive: true })
       .map((p) => {

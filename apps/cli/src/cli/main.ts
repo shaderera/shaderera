@@ -18,7 +18,7 @@ Commands:
   handoff <job> [--verify] [--clean-install]   frozen project + job + REPRODUCE.md in out/handoff/<job>/
   review [--out dir] [--requirements file] [--quick] [--json]   frames, a contact sheet and technical checks
   bake [name...]                             run a bake's command and stamp the frames it made
-  doctor [--json]                            what this machine and project have and lack (ffmpeg, encoders, Chrome, Dawn, GPU)
+  doctor [--json]                            what this machine and project have and lack (ffmpeg, encoders, Chrome, Dawn, GPU, disk space)
   mcp                                        serve the CLI as MCP tools over stdio
   activity [--last 20] [--json]              what the CLI, the agent and the studio did in this project
   activity add [--comment id] <text>         add a note of what you mean to do to the activity

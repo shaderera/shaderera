@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
-import { gpuItem, hdr10Item, limitsLine, shareItem, signInItem } from './doctor.ts'
+import { createJob } from '../project/jobs.ts'
+import { materialize, releaseFrozen, save } from '../project/revisions.ts'
+import {
+  binary,
+  diskItems,
+  gpuItem,
+  hdr10Item,
+  limitsLine,
+  shareItem,
+  signInItem,
+} from './doctor.ts'
 import { saveToken } from './site.ts'
 
 test('limitsLine names the limits films run into, in MB and pixels', () => {
@@ -124,4 +135,75 @@ test('doctor says whether ffmpeg can make HDR10: 9.0 or later, SDR on older', ()
   const ok = hdr10Item(undefined, true)
   assert.equal(ok.status, 'ok')
   assert.match(ok.detail, /ffmpeg 9\.0 or later.*NVIDIA HEVC/)
+})
+
+test('binary prints bytes in binary units', () => {
+  assert.equal(binary(0), '0 B')
+  assert.equal(binary(1023), '1023 B')
+  assert.equal(binary(1024), '1.0 KiB')
+  assert.equal(binary(1.5 * 2 ** 20), '1.5 MiB')
+  assert.equal(binary(2 * 2 ** 30), '2.0 GiB')
+})
+
+test('doctor says what takes the project’s disk space, what prune would free and what pins the biggest objects', async () => {
+  const root = join(tempDir('doctor-disk'), 'film')
+  cpSync(fileURLToPath(new URL('fixtures/mcp/', import.meta.url)), root, { recursive: true })
+  const put = (path: string, bytes: number, fill = 1) => {
+    mkdirSync(join(root, path, '..'), { recursive: true })
+    writeFileSync(join(root, path), Buffer.alloc(bytes, fill))
+  }
+  put('assets/clip.bin', 3 * 2 ** 20)
+  const start = save(root, { by: 'cli', label: 'start' }).id
+  await createJob(root, { by: 'cli', revision: start, name: 'j1' })
+  put('assets/music.bin', 2 * 2 ** 20)
+  // 11 saves past the labelled one: prune keeps the last 10, so the first goes with its object.
+  for (let i = 0; i < 11; i++) {
+    put('note.bin', 100, i + 2)
+    save(root, { by: 'cli' })
+  }
+  const old = new Date(Date.now() - 24 * 3600_000)
+  const objects = join(root, 'versions', 'objects')
+  for (const o of readdirSync(objects)) utimesSync(join(objects, o), old, old)
+  materialize(root, start)
+  releaseFrozen(root, start)
+  put('.shaderera/cache/bundle.js', 4000)
+  put('out/film.mp4', 1000)
+  put('out/j1.plan/chunk-000.mkv', 2000)
+  put('out/j1/000000.png', 3000)
+  put('out/review/contact-sheet.png', 400)
+  put('out/stills/0.png', 500)
+  put('out/studio/export.mp4', 600)
+  put('out/deliveries/yt/main.mp4', 700)
+  put('node_modules/x/index.js', 800)
+
+  const before = readdirSync(objects).length
+  const items = diskItems(root)
+  const at = (id: string) => items.find((i) => i.id === id)
+  for (const i of items) assert.equal(i.needed, false)
+  assert.equal(at('disk:out:renders')?.bytes, 1000)
+  assert.equal(at('disk:out:plans')?.bytes, 2000)
+  assert.equal(at('disk:out:png-jobs')?.bytes, 3000)
+  assert.equal(at('disk:out:review')?.bytes, 400)
+  assert.equal(at('disk:out:stills')?.bytes, 500)
+  assert.equal(at('disk:out:studio')?.bytes, 600)
+  assert.equal(at('disk:out:other')?.bytes, 700)
+  assert.equal(at('disk:node_modules')?.bytes, 800)
+  assert.ok((at('disk:cache')?.bytes ?? 0) >= 4000)
+  assert.ok((at('disk:working-tree')?.bytes ?? 0) >= 5 * 2 ** 20)
+  assert.ok((at('disk:versions')?.bytes ?? 0) >= 5 * 2 ** 20)
+  assert.ok((at('disk:frozen')?.bytes ?? 0) >= 3 * 2 ** 20)
+  assert.match(at('disk')?.detail ?? '', /^\d+\.\d MiB in all$/)
+  assert.match(at('disk:working-tree')?.detail ?? '', /^5\.\d MiB \(/)
+  assert.match(
+    at('disk:prune')?.detail ?? '',
+    /^prune --dry-run would free [\d.]+ (B|KiB): 1 revision\(s\), 1 object\(s\), 0 frozen copy\(ies\)$/,
+  )
+  const kept = items.filter((i) => i.id === 'disk:kept')
+  assert.equal(kept.length, 3)
+  assert.match(kept[0]?.detail ?? '', /^assets\/clip\.bin 3\.0 MiB: /)
+  for (const why of ['label "start"', 'job j1', 'a frozen copy used just now', 'the head'])
+    assert.ok(kept[0]?.detail.includes(why), why)
+  assert.match(kept[1]?.detail ?? '', /^assets\/music\.bin 2\.0 MiB: /)
+  // Sizes only: nothing was removed.
+  assert.equal(readdirSync(objects).length, before)
 })
