@@ -3,9 +3,9 @@
 // frames. The Node host asks
 // over IPC (child.ts), the browser host's worker over the runner server (runner-plugin.ts).
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
-import { mkdir, readFile, rename, utimes, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdir, readFile, rename, rm, utimes, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import type { VideoColour } from '@shaderera/core'
@@ -284,7 +284,7 @@ const ENTRY = /^[0-9a-f]{64}$/
 /**
  * Removes the least recently used entries of a cache folder until it holds at most `limit` bytes,
  * never `keep` (the entry just put). An entry's modification time is its last use: a put writes
- * it and a get touches it. A file another host is writing (`<key>.<pid>`) is not an entry, and one
+ * it and a get touches it. A file another host is writing (`<key>.<uuid>`) is not an entry, and one
  * that cannot be removed now is left.
  */
 const evict = (dir: string, limit: number, keep: string) => {
@@ -352,9 +352,17 @@ export const createServices = (
     if (!ENTRY.test(hash)) throw new Error('A cache key is a sha256.')
     await mkdir(cacheDir, { recursive: true })
     const file = join(cacheDir, hash)
-    // Written beside and moved, so another host never reads half of it.
-    await writeFile(`${file}.${process.pid}`, bytes)
-    await rename(`${file}.${process.pid}`, file)
+    // Written beside and moved, so another host never reads half of it. Hosts share this process,
+    // so each put has a name of its own; one that loses the move to another put of the same entry
+    // (same hash, same bytes; Windows refuses a move over a file being read) leaves that one.
+    const part = `${file}.${randomUUID()}`
+    await writeFile(part, bytes)
+    try {
+      await rename(part, file)
+    } catch (e) {
+      await rm(part, { force: true })
+      if (!existsSync(file)) throw e
+    }
     evict(cacheDir, limit, hash)
   }
   // This host, and the clips and stills it opened.

@@ -197,6 +197,17 @@ test('a decoder thread that dies while it is disposed fails nothing, and leaves 
 const key = (c: string) => c.repeat(64)
 const bytes = (n: number, fill: number) => new Uint8Array(n).fill(fill)
 
+test('hosts putting the same entry at once all succeed, and it reads whole', async () => {
+  const root = tempDir('cache')
+  const s = createServices(root)
+  const puts = Array.from({ length: 8 }, () =>
+    s.handle({ op: 'cache-put', hash: key('c'), bytes: bytes(100_000, 7) }),
+  )
+  await Promise.all(puts)
+  assert.deepEqual(await s.handle({ op: 'cache-get', hash: key('c') }), bytes(100_000, 7))
+  assert.deepEqual(readdirSync(join(root, '.shaderera', 'cache')), [key('c')])
+})
+
 test('past its limit the cache drops the least recently used entries, a get counting as a use', async () => {
   const root = tempDir('cache')
   const s = createServices(root, {}, { cacheLimit: 3000 })
