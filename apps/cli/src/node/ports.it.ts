@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { yuv420pToRgba } from '@shaderera/core/gpu'
 import { encode as encodePng } from 'fast-png'
 import jpeg from 'jpeg-js'
 import { tempDir } from '../fixtures/temp.ts'
@@ -15,11 +16,22 @@ import { stillsDecoded } from './services.ts'
 
 /**
  * io.image, io.video and io.cache, in the Node host and the browser host:
- * the same bytes in both. Needs ffmpeg and Chrome; without them this fails, it does not skip.
+ * the same bytes in both. Needs ffmpeg, Chrome and a GPU; without them this fails, it does not skip.
  */
 const root = tempDir('ports')
 mkdirSync(join(root, 'src'))
 mkdirSync(join(root, 'assets'))
+// `webgpu` (Dawn) for the Node host's GPU, as contract.it.ts, and core for videoTexture.
+mkdirSync(join(root, 'node_modules', '@shaderera'), { recursive: true })
+for (const [from, to] of [
+  ['../../fixtures/particles/node_modules/webgpu', 'webgpu'],
+  ['../../node_modules/@shaderera/core', '@shaderera/core'],
+] as const)
+  symlinkSync(
+    realpathSync(join(import.meta.dirname, from)),
+    join(root, 'node_modules', to),
+    'junction',
+  )
 // A 16-bit PNG with alpha, and a JPEG.
 const W = 6
 const H = 4
@@ -46,14 +58,43 @@ spawnSync('ffmpeg', [
   'yuv420p',
   join(root, 'assets', 'clip.mp4'),
 ])
+// ADR 0027's fixtures for videoTexture: every matrix, range and siting, odd sizes, the code
+// extremes and hard edges, as planes the film converts on the GPU.
+const fixtures = [
+  [16, 8],
+  [7, 5],
+].flatMap(([w, h]) =>
+  (['bt709', 'bt601', 'bt2020nc'] as const).flatMap((matrix) =>
+    (['limited', 'full'] as const).flatMap((range) =>
+      (['left', 'center', 'topleft'] as const).map((chroma) => ({
+        w: w as number,
+        h: h as number,
+        colour: { matrix, range, chroma },
+        planes: Array.from(
+          {
+            length:
+              (w as number) * (h as number) +
+              2 * Math.ceil((w as number) / 2) * Math.ceil((h as number) / 2),
+          },
+          (_, i) =>
+            i % 3
+              ? ([0, 16, 128, 235, 240, 255][(i * 7) % 6] as number)
+              : (i * 37 + (h as number)) & 255,
+        ),
+      })),
+    ),
+  ),
+)
+writeFileSync(join(root, 'assets', 'fixtures.json'), JSON.stringify(fixtures))
 writeFileSync(
   join(root, 'shaderera.json'),
   JSON.stringify({ entry: './src/c.ts', fps: 10, duration: 1, width: 8, height: 8 }),
 )
 writeFileSync(
   join(root, 'src', 'c.ts'),
-  `const hex = async (b) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b)), (x) => x.toString(16).padStart(2, '0')).join('')
-export default async ({ io }) => {
+  `import { readTexture, videoTexture } from '@shaderera/core/gpu'
+const hex = async (b) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', b)), (x) => x.toString(16).padStart(2, '0')).join('')
+export default async ({ io, gpu }) => {
   const png = await io.image('assets/deep.png')
   const jpg = await io.image('assets/photo.jpg')
   const small = await io.image('assets/deep.png', { maxSize: 3 })
@@ -61,6 +102,17 @@ export default async ({ io }) => {
   const frames = [await clip.frame(3), await clip.frame(4), await clip.frame(1)]
   await clip.close()
   frames.push(await clip.frame(3))
+  const yuv = [await clip.frame(3, { format: 'yuv420p' }), await clip.frame(1, { format: 'yuv420p' })]
+  const texture = videoTexture(gpu, clip)
+  const converted = await readTexture(gpu, await texture.frame(3))
+  texture.destroy()
+  const fixtures = JSON.parse(new TextDecoder().decode(await io.read('assets/fixtures.json')))
+  const references = []
+  for (const { w, h, colour, planes } of fixtures) {
+    const v = videoTexture(gpu, { width: w, height: h, colour, frame: async () => new Uint8Array(planes) })
+    references.push(await hex(await readTexture(gpu, await v.frame(0))))
+    v.destroy()
+  }
   let made = 0
   const derived = await io.cache('shout v1', ['assets/photo.jpg'], async () => { made++; return new Uint8Array([7, 8, 9]) })
   const canvas = io.canvas(8, 8)
@@ -70,7 +122,10 @@ export default async ({ io }) => {
       png: { bits: png.bits, w: png.width, first: Array.from(png.data.slice(0, 4)), hash: await hex(new Uint8Array(png.data.buffer)) },
       jpg: { w: jpg.width, hash: await hex(jpg.data) },
       small: { w: small.width, h: small.height, bits: small.bits, hash: await hex(new Uint8Array(small.data.buffer)) },
-      clip: { w: clip.width, h: clip.height, fps: clip.fps, frames: clip.frames, hashes: await Promise.all(frames.map(hex)) },
+      clip: { w: clip.width, h: clip.height, fps: clip.fps, frames: clip.frames, colour: clip.colour, hashes: await Promise.all(frames.map(hex)) },
+      yuv: await Promise.all(yuv.map(hex)),
+      converted: await hex(converted),
+      references,
       derived: Array.from(derived),
       made,
     }),
@@ -89,6 +144,9 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
       png: { bits: number; w: number; first: number[] }
       small: { w: number; h: number; bits: number }
       clip: { w: number; h: number; fps: number; frames: number; hashes: string[] }
+      yuv: string[]
+      converted: string
+      references: string[]
       derived: number[]
     }
     assert.equal(j.png.bits, 16)
@@ -118,6 +176,25 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
     assert.equal(j.clip.hashes[2], sha(direct(1)), 'frame 1, after a jump back')
     assert.notEqual(j.clip.hashes[0], j.clip.hashes[2])
     assert.equal(j.clip.hashes[3], j.clip.hashes[0], 'frame 3 again, after close')
+    // yuv420p: the file's own planes, and videoTexture's conversion of them the reference's.
+    const planes = (n: number) =>
+      spawnSync(
+        'ffmpeg',
+        [
+          ...['-v', 'error', '-i', join(root, 'assets', 'clip.mp4')],
+          ...['-vf', `select=eq(n\\,${n})`, '-fps_mode', 'passthrough', '-f', 'rawvideo', '-'],
+        ],
+        { maxBuffer: 1 << 24 },
+      ).stdout
+    assert.deepEqual(j.yuv, [sha(planes(3)), sha(planes(1))])
+    const colour = { matrix: 'bt601', range: 'limited', chroma: 'left' } as const
+    assert.deepEqual((j.clip as { colour?: unknown }).colour, colour, 'an untagged H.264')
+    assert.equal(j.converted, sha(yuv420pToRgba(planes(3), 32, 16, colour)))
+    assert.deepEqual(
+      j.references,
+      fixtures.map((x) => sha(yuv420pToRgba(new Uint8Array(x.planes), x.w, x.h, x.colour))),
+      'videoTexture is the reference, byte for byte',
+    )
     assert.deepEqual(j.derived, [7, 8, 9])
   } finally {
     await child.close()
@@ -144,7 +221,7 @@ test('io.cache makes once and keeps it for the next host; a changed input makes 
   }
 })
 
-test('the browser host decodes and reads the same bytes as the Node host', async () => {
+test('the browser host decodes, reads and converts on the GPU the same bytes as the Node host', async () => {
   const children: Child[] = [await node(), await openBrowserChild(project, {})]
   try {
     const [n, b] = await Promise.all(children.map((c) => c.inspect(0)))

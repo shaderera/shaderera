@@ -89,6 +89,9 @@ or a measure needs them, is `readTexture` in `@shaderera/core/gpu`: WebGPU requi
 A still or a footage frame is straight RGBA bytes (`io.image`, `io.video`'s `frame(i)`). Write
 them to a texture, a still once in `open` and footage once a frame, and sample the texture in a
 pass. Fit, scale and blur are then a few lines of WGSL, and the frame never leaves the GPU.
+`videoTexture(device, clip)` (`@shaderera/core/gpu`) gives a footage frame as such a texture from
+its Y'CbCr planes, 1.5 bytes a pixel over the pipe instead of 4: sample its `frame(i)` in place of
+writing the RGBA bytes (it has one mip level).
 
 This one pass draws a picture's rectangle over the target. A mip level as small as the target's
 pixels scales it down without aliasing; a much smaller level, read with a 3×3 tent, blurs it.

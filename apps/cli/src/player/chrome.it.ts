@@ -13,6 +13,8 @@ import { extname, join, normalize } from 'node:path'
 import { after, test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import type { VideoColour } from '@shaderera/core'
+import { yuv420pToRgba } from '@shaderera/core/gpu'
 import { shareFiles } from '../cli/share.ts'
 import { chromePath, session } from '../node/browser.ts'
 import { buildPlayer } from './build.ts'
@@ -105,6 +107,28 @@ const ffmpegFrame = (file: string, n: number) =>
     ],
     { maxBuffer: 1 << 24 },
   ).stdout as Buffer
+
+/** Frame n of the clip as io.video's yuv420p in the CLI gives it: the file's planes. */
+const ffmpegPlanes = (file: string, n: number) =>
+  new Uint8Array(
+    spawnSync(
+      'ffmpeg',
+      [
+        '-v',
+        'error',
+        '-i',
+        file,
+        '-vf',
+        `select=eq(n\\,${n})`,
+        '-frames:v',
+        '1',
+        '-f',
+        'rawvideo',
+        '-',
+      ],
+      { maxBuffer: 1 << 24 },
+    ).stdout as Buffer,
+  )
 
 /** PSNR over R, G and B. */
 const psnr = (a: Uint8Array, b: Uint8Array) => {
@@ -228,6 +252,8 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
     type Inspect = {
       clip: { width: number; height: number; fps: number; frames: number }
       frame: number
+      colour: { matrix: string; range: string; chroma: string }
+      planes: string
       level: { frames: number; first: number; last: number }
       cache: { bytes: number[]; made: number }
     }
@@ -258,9 +284,12 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
     assert.equal(r.capabilities.deep, true, 'WebGPU in the player worker')
     assert.deepEqual([r.manifest.width, r.manifest.height], [320, 180])
     // The host hook: io.video, io.bake and io.cache answered in the player's worker.
-    assert.deepEqual(r.half.inspect, {
+    const { planes: _, ...half } = r.half.inspect
+    assert.deepEqual(half, {
       clip: { width: 320, height: 180, fps: 30, frames: 30 },
       frame: 15,
+      // The proxy's planes (media.ts).
+      colour: { matrix: 'bt709', range: 'limited', chroma: 'left' },
       level: { frames: 3, first: 100, last: 102 },
       cache: { bytes: [7, 8, 9, 7, 8, 9], made: 1 },
     })
@@ -301,6 +330,17 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
       )
       assert.ok(same > 28, `frame ${frame} at ${same} dB`)
       assert.ok(same > before + 3 && same > next + 3, 'not a neighbouring frame')
+      // yuv420p: the proxy's own planes, close to the CLI's planes of the original (BT.601 untagged
+      // there, BT.709 in the proxy: compared as RGB).
+      const planes = new Uint8Array(Buffer.from(at.inspect.planes, 'base64'))
+      assert.equal(planes.length, 320 * 180 * 1.5)
+      const original = ffmpegPlanes(clip, frame)
+      const db = psnr(
+        yuv420pToRgba(planes, 320, 180, at.inspect.colour as VideoColour),
+        yuv420pToRgba(original, 320, 180, { matrix: 'bt601', range: 'limited', chroma: 'left' }),
+      )
+      console.log(`yuv420p frame ${frame}: ${db.toFixed(1)} dB`)
+      assert.ok(db > 32, `yuv420p frame ${frame} at ${db} dB`)
     }
     cdp.close()
   } finally {

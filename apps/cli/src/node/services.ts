@@ -8,9 +8,11 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { mkdir, readFile, rename, utimes, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { Worker } from 'node:worker_threads'
+import type { VideoColour } from '@shaderera/core'
 import { imageSize } from '../runner/image.ts'
 import { IMAGE_WASM } from '../runner/image-wasm.ts'
 import type { StillSize } from '../runner/io.ts'
+import { frameBytes, type VideoFormat } from './decoder.ts'
 import { insideForRead } from './inside.ts'
 import { lendTurns } from './spawn-turn.ts'
 import type { FromStill } from './still-worker.ts'
@@ -26,16 +28,60 @@ export type ServiceRequest =
   | { op: 'image-open'; path: string; maxSize?: number }
   | { op: 'image-data'; key: string }
   | { op: 'video-open'; path: string }
-  | { op: 'video-frame'; path: string; index: number }
+  | { op: 'video-frame'; path: string; index: number; format?: VideoFormat }
   | { op: 'video-close'; path: string }
   | { op: 'bake-open'; name: string }
   | { op: 'bake-frame'; name: string; index: number }
 
-export type VideoInfo = { width: number; height: number; fps: number; frames: number }
+export type VideoInfo = {
+  width: number
+  height: number
+  fps: number
+  frames: number
+  /** Its `yuv420p` planes' colour, as the decoder makes them (videoColour). */
+  colour: VideoColour
+  /** Its pixel format carries alpha: it refuses `yuv420p`. */
+  alpha: boolean
+}
+
+/** ffprobe's matrices as the RGBA path's `in_color_matrix=auto` reads them; others are BT.601. */
+const MATRIX: { [tag: string]: VideoColour['matrix'] } = {
+  bt709: 'bt709',
+  bt2020nc: 'bt2020nc',
+  bt2020c: 'bt2020nc',
+}
 
 /**
- * A video's first stream as `io.video` gives it: width, height, fps, and the frames counted from
- * its packets (ffprobe).
+ * The colour of a file's `yuv420p` planes (ADR 0027, 1), from ffprobe's stream: the file's matrix
+ * and range, or for an untagged file what swscale's `auto` takes (BT.601, limited; full for
+ * `yuvj*`), measured on ffmpeg 9.0. A 4:2:0 file keeps its chroma siting (left for an untagged
+ * H.264 or HEVC, center for MJPEG, as ffprobe says); swscale subsamples any other to `left`, as
+ * the decoder asks it to.
+ */
+export const videoColour = (s: {
+  pix_fmt?: string
+  color_space?: string
+  color_range?: string
+  chroma_location?: string
+  codec_name?: string
+}): VideoColour => {
+  const pix = String(s.pix_fmt)
+  const sited = /^yuvj?420p/.test(pix) ? s.chroma_location : 'left'
+  return {
+    matrix: MATRIX[String(s.color_space)] ?? 'bt601',
+    range: s.color_range === 'pc' || pix.startsWith('yuvj') ? 'full' : 'limited',
+    chroma:
+      sited === 'left' || sited === 'center' || sited === 'topleft'
+        ? sited
+        : s.codec_name === 'mjpeg'
+          ? 'center'
+          : 'left',
+  }
+}
+
+/**
+ * A video's first stream as `io.video` gives it: width, height, fps, the frames counted from its
+ * packets, and its planes' colour (ffprobe).
  */
 export const probeVideo = (file: string): VideoInfo => {
   const r = spawnSync(
@@ -47,7 +93,7 @@ export const probeVideo = (file: string): VideoInfo => {
       'v:0',
       '-count_packets',
       '-show_entries',
-      'stream=width,height,r_frame_rate,nb_read_packets',
+      'stream=width,height,r_frame_rate,nb_read_packets,codec_name,pix_fmt,color_space,color_range,chroma_location',
       '-of',
       'json',
       file,
@@ -64,6 +110,8 @@ export const probeVideo = (file: string): VideoInfo => {
     height: Number(s.height),
     fps: d ? (n as number) / d : (n as number),
     frames: Number(s.nb_read_packets),
+    colour: videoColour(s as { [k: string]: string }),
+    alpha: /^(yuva|gbrap|ya\d|rgba|bgra|argb|abgr)/.test(String(s.pix_fmt)),
   }
 }
 
@@ -100,12 +148,16 @@ export const videoReader = (
   thread: URL = new URL(`./video-worker${extname(import.meta.url)}`, import.meta.url),
   /** A draft render's: the frames scaled by this much each side, by the decoder (scaledVideo). */
   scale = 1,
+  format: VideoFormat = 'rgba',
 ) => {
   const scaled = scale !== 1
   const info = scaled ? scaledVideo(probeVideo(file), scale) : probeVideo(file)
+  // yuv420p has no alpha: dropping it would change the look without the author (ADR 0027, 1).
+  if (format === 'yuv420p' && info.alpha)
+    throw new Error(`${file} has alpha, which yuv420p cannot carry: ask for its frames as rgba.`)
   const { turn, transfer } = lendTurns()
   const worker = new Worker(thread, {
-    workerData: { file, info, scaled, turn },
+    workerData: { file, info, scaled, format, turn },
     transferList: transfer,
   })
   // Only while it answers a request: an idle decoder does not keep the CLI running.
@@ -135,7 +187,7 @@ export const videoReader = (
   worker.on('error', gone)
   worker.on('exit', () => gone(new Error(`The decoder of ${file} has stopped.`)))
   // Frames decoded ahead, at most AHEAD_BYTES of them and never fewer than one.
-  const size = info.width * info.height * 4
+  const size = frameBytes(format, info.width, info.height)
   const capped = () => Math.max(1, Math.min(ahead(), Math.floor(AHEAD_BYTES / size)))
   const ask = (m: VideoAsk) =>
     new Promise<Uint8Array | null>((done, fail) => {
@@ -272,7 +324,8 @@ export const createServices = (
   const limit = o.cacheLimit ?? cacheLimit()
   // A draft's clips are decoded at another size (scaledVideo): decoders of their own.
   const scale = o.videoScale ?? 1
-  const keyOf = (file: string) => (scale === 1 ? file : `${file}\0${scale}`)
+  // A decoder serves one format of a clip (ADR 0027, 1): a film asking for both runs two.
+  const keyOf = (file: string, format: VideoFormat) => `${file}\0${scale}\0${format}`
   const baked = (name: string) => {
     const frames = bakes[name]
     if (!frames)
@@ -306,7 +359,8 @@ export const createServices = (
   }
   // This host, and the clips and stills it opened.
   const me = {}
-  const mine = new Set<string>()
+  // The decoders this host uses, by key, and each one's file.
+  const mine = new Map<string, string>()
   const myStills = new Set<string>()
   /**
    * A still's decoded RGBA (ADR 0028, 6–7): from the cache when it holds it, else decoded and kept
@@ -360,13 +414,13 @@ export const createServices = (
   // The file each clip path named, checked once while the clip is open: the check reads the real
   // path of every folder above it, which on every frame cost the CLI's process more than the frame.
   const checked = new Map<string, string>()
-  const video = (path: string) => {
+  const video = (path: string, format: VideoFormat = 'rgba') => {
     let file = checked.get(path)
     if (file === undefined) {
       file = insideForRead(root, path)
       checked.set(path, file)
     }
-    const key = keyOf(file)
+    const key = keyOf(file, format)
     let v = shared.get(key)
     // A reader whose thread died is dropped: the next request opens a fresh one.
     if (v?.reader.dead) {
@@ -384,24 +438,30 @@ export const createServices = (
           () => users.size + 1,
           undefined,
           scale,
+          format,
         ),
       }
       shared.set(key, v)
     }
     v.users.add(me)
-    mine.add(file)
+    mine.set(key, file)
     return v.reader
   }
+  // Every format of the clip this host opened.
   const release = async (file: string) => {
-    const v = shared.get(keyOf(file))
-    mine.delete(file)
     for (const [path, f] of checked) if (f === file) checked.delete(path)
-    if (!v) return
-    v.users.delete(me)
-    if (v.users.size === 0) {
-      shared.delete(keyOf(file))
-      await v.reader.dispose()
+    const done: Promise<void>[] = []
+    for (const [key, f] of mine) {
+      if (f !== file) continue
+      mine.delete(key)
+      const v = shared.get(key)
+      v?.users.delete(me)
+      if (v?.users.size === 0) {
+        shared.delete(key)
+        done.push(v.reader.dispose())
+      }
     }
+    await Promise.all(done)
   }
   const handle = async (r: ServiceRequest): Promise<unknown> => {
     switch (r.op) {
@@ -417,10 +477,12 @@ export const createServices = (
         if (!s) throw new Error('This host opened no such still.')
         return s.data
       }
-      case 'video-open':
-        return video(r.path).info
+      case 'video-open': {
+        const { alpha: _, ...info } = video(r.path).info
+        return info
+      }
       case 'video-frame':
-        return video(r.path).frame(r.index)
+        return video(r.path, r.format).frame(r.index)
       case 'video-close':
         await release(insideForRead(root, r.path))
         return null
@@ -441,7 +503,7 @@ export const createServices = (
     handle,
     close: () => {
       closeStills()
-      return Promise.all([...mine].map(release)).then(() => {})
+      return Promise.all([...new Set(mine.values())].map(release)).then(() => {})
     },
   }
 }

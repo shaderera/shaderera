@@ -8,12 +8,15 @@
 // io.video reads the proxy the build made (media/<path>.mp4, with the original's info in
 // media/<path>.json) and decodes it with WebCodecs, through Mediabunny. Frame i is straight,
 // full-range RGBA, as the CLI hands it over; the browser's decoder and colour conversion make it
-// close to ffmpeg's, not the same bytes. io.bake reads the frames the build copied to
-// bakes/<name>/, the same bytes as the CLI's. io.cache is kept in memory.
+// close to ffmpeg's, not the same bytes. As yuv420p it is the proxy's own planes (BT.709 limited,
+// the chroma sited left), as I420: close to the CLI's planes of the original, not the same.
+// io.bake reads the frames the build copied to bakes/<name>/, the same bytes as the CLI's.
+// io.cache is kept in memory.
 //
 // A clip may also be one of the viewer's own files, `local:<id>/<name>`: the framing page hands
 // the File to the player's bridge, the bridge to this worker (docs/player.md), and io.video
 // decodes it here, its info read from the file itself. It never leaves the viewer's machine.
+import type { VideoColour } from '@shaderera/core'
 import {
   ALL_FORMATS,
   BlobSource,
@@ -26,7 +29,18 @@ import {
 import { decodeImage } from '../runner/image.ts'
 import type { Ask } from '../runner/io.ts'
 
-type Info = { width: number; height: number; fps: number; frames: number }
+type Info = {
+  width: number
+  height: number
+  fps: number
+  frames: number
+  colour: VideoColour
+  /** The original's pixel format carries alpha (node/services.ts probeVideo): no yuv420p. */
+  alpha?: boolean
+}
+
+/** The proxy's planes (media.ts makeProxy). */
+const PROXY: VideoColour = { matrix: 'bt709', range: 'limited', chroma: 'left' }
 
 /** How far ahead a read decodes on rather than seeking: about a proxy's keyframe interval. */
 const AHEAD = 15
@@ -74,6 +88,43 @@ const rgba = async (sample: VideoSample, info: Info): Promise<Uint8Array> => {
 }
 
 /**
+ * The decoder's planes as I420, tight (ADR 0027, 1): Y, then Cb, then Cr. NV12 (Cb and Cr
+ * interleaved) is split; any other format (with alpha, more than 8 bits) is refused.
+ */
+const i420 = async (sample: VideoSample, info: Info, what: string): Promise<Uint8Array> => {
+  if (info.alpha || (sample.format !== 'I420' && sample.format !== 'NV12'))
+    throw new Error(
+      `${what} decodes as ${info.alpha ? 'a format with alpha' : sample.format}, not yuv420p: ask for its frames as rgba.`,
+    )
+  const { width: w, height: h } = info
+  const cw = Math.ceil(w / 2)
+  const ch = Math.ceil(h / 2)
+  const raw = new Uint8Array(sample.allocationSize())
+  const [y, u, v] = await sample.copyTo(raw)
+  const out = new Uint8Array(w * h + 2 * cw * ch)
+  const rows = (p: PlaneLayout, width: number, height: number, at: number) => {
+    for (let r = 0; r < height; r++)
+      out.set(
+        raw.subarray(p.offset + r * p.stride, p.offset + r * p.stride + width),
+        at + r * width,
+      )
+  }
+  rows(y as PlaneLayout, w, h, 0)
+  if (sample.format === 'I420') {
+    rows(u as PlaneLayout, cw, ch, w * h)
+    rows(v as PlaneLayout, cw, ch, w * h + cw * ch)
+  } else {
+    const p = u as PlaneLayout
+    for (let r = 0; r < ch; r++)
+      for (let c = 0; c < cw; c++) {
+        out[w * h + r * cw + c] = raw[p.offset + r * p.stride + 2 * c] as number
+        out[w * h + cw * ch + r * cw + c] = raw[p.offset + r * p.stride + 2 * c + 1] as number
+      }
+  }
+  return out
+}
+
+/**
  * The player's answers, for the film whose files are at `files` (an absolute URL ending in `/`,
  * beside `media/` and `bakes/`), and `localFile`, which gives a viewer's file by its `local:` name.
  */
@@ -100,12 +151,19 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
       })
       const track = await decodable(input, name)
       const stats = await track.computePacketStats()
+      const space = await track.getColorSpace()
       return {
         info: {
           width: track.displayWidth,
           height: track.displayHeight,
           fps: stats.averagePacketRate,
           frames: stats.packetCount,
+          // As the file tags it, BT.601 limited untagged (node/services.ts videoColour).
+          colour: {
+            matrix: space.matrix === 'bt709' ? 'bt709' : 'bt601',
+            range: space.fullRange ? 'full' : 'limited',
+            chroma: 'left',
+          },
         },
         first: await track.getFirstTimestamp(),
         sink: new VideoSampleSink(track),
@@ -125,7 +183,7 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
     })
     const track = await decodable(input, `io.video(${path})'s proxy`)
     return {
-      info,
+      info: { ...info, colour: PROXY },
       first: await track.getFirstTimestamp(),
       sink: new VideoSampleSink(track),
       input,
@@ -143,7 +201,12 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
     return clip
   }
 
-  const frame = async (clip: Clip, index: number): Promise<Uint8Array> => {
+  const frame = async (
+    clip: Clip,
+    path: string,
+    index: number,
+    format: 'rgba' | 'yuv420p',
+  ): Promise<Uint8Array> => {
     const { info } = clip
     if (!Number.isInteger(index) || index < 0 || index >= info.frames)
       throw new Error(`The clip has frames 0 to ${info.frames - 1}, not ${index}.`)
@@ -162,7 +225,9 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
         continue
       }
       try {
-        return await rgba(value, info)
+        return format === 'yuv420p'
+          ? await i420(value, info, `io.video(${path})`)
+          : await rgba(value, info)
       } finally {
         value.close()
       }
@@ -193,8 +258,11 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
       ),
     cacheGet: async (hash) => cache.get(hash) ?? null,
     cachePut: async (hash, bytes) => void cache.set(hash, bytes),
-    videoOpen: async (path) => (await clipOf(path)).info,
-    videoFrame: async (path, index) => frame(await clipOf(path), index),
+    videoOpen: async (path) => {
+      const { alpha: _, ...info } = (await clipOf(path)).info
+      return info
+    },
+    videoFrame: async (path, index, format) => frame(await clipOf(path), path, index, format),
     videoClose: async (path) => {
       const clip = clips.get(path)
       clips.delete(path)

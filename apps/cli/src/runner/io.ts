@@ -1,6 +1,6 @@
 // `io.image`, `io.video`, `io.cache` and `io.bake`, the same in both hosts: the Node host passes its IPC
 // to the CLI process as `ask`, the runner worker its requests to the runner server.
-import type { Baked, DecodedImage, Footage, Io } from '@shaderera/core'
+import type { Baked, DecodedImage, Footage, Io, VideoColour } from '@shaderera/core'
 import { sha256 } from '@shaderera/core'
 import { decodeImage } from './image.ts'
 import { timeVideo } from './render-time.ts'
@@ -14,8 +14,14 @@ export type Ask = {
   image(path: string, maxSize?: number): Promise<DecodedImage | null>
   cacheGet(hash: string): Promise<Uint8Array | null>
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
-  videoOpen(path: string): Promise<{ width: number; height: number; fps: number; frames: number }>
-  videoFrame(path: string, index: number): Promise<Uint8Array>
+  videoOpen(path: string): Promise<{
+    width: number
+    height: number
+    fps: number
+    frames: number
+    colour: VideoColour
+  }>
+  videoFrame(path: string, index: number, format: 'rgba' | 'yuv420p'): Promise<Uint8Array>
   videoClose(path: string): Promise<void>
   bakeOpen(name: string): Promise<{ frames: number }>
   bakeFrame(name: string, index: number): Promise<Uint8Array>
@@ -71,7 +77,14 @@ export const extraIo = (
       const info = await ask.videoOpen(path)
       return {
         ...info,
-        frame: (index) => timeVideo(() => ask.videoFrame(path, index)),
+        frame: (index, options) => {
+          const format = options?.format ?? 'rgba'
+          if (format !== 'rgba' && format !== 'yuv420p')
+            throw new Error(
+              `io.video(${path}): frame format is 'rgba' or 'yuv420p', not ${format}.`,
+            )
+          return timeVideo(() => ask.videoFrame(path, index, format))
+        },
         close: () => ask.videoClose(path),
       }
     },

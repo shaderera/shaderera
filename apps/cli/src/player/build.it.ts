@@ -149,12 +149,18 @@ test('footage gets a proxy with the original frames: H.264, yuv420p, no B-frames
   ])
     assert.ok(player.files.includes(f), `${f} missing`)
   const info = { width: 320, height: 180, fps: 30, frames: 30 }
-  assert.deepEqual(
-    JSON.parse(readFileSync(join(outDir, 'media/assets/clip.mp4.json'), 'utf8')),
-    info,
-  )
+  // The original's colour (untagged) and alpha; the proxy is BT.709.
+  assert.deepEqual(JSON.parse(readFileSync(join(outDir, 'media/assets/clip.mp4.json'), 'utf8')), {
+    ...info,
+    colour: { matrix: 'bt601', range: 'limited', chroma: 'left' },
+    alpha: false,
+  })
   const proxy = join(outDir, 'media/assets/clip.mp4.mp4')
-  assert.deepEqual(probeVideo(proxy), info)
+  assert.deepEqual(probeVideo(proxy), {
+    ...info,
+    colour: { matrix: 'bt709', range: 'limited', chroma: 'left' },
+    alpha: false,
+  })
   const r = spawnSync(
     'ffprobe',
     [

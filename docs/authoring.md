@@ -206,6 +206,13 @@ device.queue.submit([encoder.finish()])
 return { color: output, alpha: 'premultiplied' }
 ```
 
+For footage drawn on the GPU, `videoTexture(host.gpu, clip)` from `@shaderera/core/gpu` asks
+for the clip's Y'CbCr planes (1.5 bytes a pixel, not RGBA's 4: footage-heavy films render faster)
+and converts them on the GPU, the same bytes in every host. Its `frame(i)` gives an `rgba8unorm`
+texture to sample in place of `footage.write`; it is valid until the next `frame()`, so a
+dissolve between two frames uses two helpers. Its pixels are close to `clip.frame(i)`'s RGBA,
+not equal: switching a film changes its pixels once.
+
 `docs/participants/webgpu.md`, "Footage and stills", has the whole film: the WGSL pass, `picture`
 (a texture with mip levels), `fit` (cover and contain as a uv rectangle) and `pass`. Never blur by
 drawing a frame to a tiny canvas and back up: it is slow, and with `'high'` smoothing its pixels

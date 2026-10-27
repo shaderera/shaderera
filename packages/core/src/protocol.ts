@@ -229,8 +229,10 @@ export type Io = {
   image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage>
   /**
    * A video file's frames, decoded in software by the host's ffmpeg: `frame(i)` is frame i as
-   * straight RGBA (sRGB, full range, by the file's own colour tags), the same bytes every time, read
-   * in order fastest. Which frame a t shows is the film's choice (`fps` is the file's).
+   * straight RGBA (sRGB, full range, by the file's own colour tags), or with `{ format: 'yuv420p' }`
+   * as the file's Y'CbCr planes (`colour` says how to read them; `videoTexture` in
+   * `@shaderera/core/gpu` converts them on the GPU), the same bytes every time, read in order
+   * fastest. Which frame a t shows is the film's choice (`fps` is the file's).
    */
   video?(path: string): Promise<Footage>
   /**
@@ -265,6 +267,17 @@ export type DecodedImage = {
   readonly data: Uint8Array | Uint16Array
 }
 
+/**
+ * How a clip's `yuv420p` planes are read (ADR 0027): the matrix and range they are coded in, and
+ * where their chroma samples sit. Always resolved: an untagged file gets what the RGBA path assumes.
+ */
+export type VideoColour = {
+  readonly matrix: 'bt709' | 'bt601' | 'bt2020nc'
+  readonly range: 'limited' | 'full'
+  /** `left`: co-sited across, between rows down; `center`: between both ways; `topleft`: co-sited. */
+  readonly chroma: 'left' | 'center' | 'topleft'
+}
+
 /** A video file opened for its frames. */
 export type Footage = {
   readonly width: number
@@ -272,8 +285,14 @@ export type Footage = {
   /** The file's frame rate. */
   readonly fps: number
   readonly frames: number
-  /** Frame `index` (0-based) as straight RGBA bytes, `width × height × 4`. */
-  frame(index: number): Promise<Uint8Array>
+  /** How its `yuv420p` planes are read. */
+  readonly colour: VideoColour
+  /**
+   * Frame `index` (0-based): straight RGBA bytes, `width × height × 4` (the default), or `yuv420p`:
+   * I420, the Y plane then Cb then Cr, rows from the top with no padding, Y `width × height` and
+   * Cb and Cr each `ceil(width / 2) × ceil(height / 2)`. A clip with alpha refuses `yuv420p`.
+   */
+  frame(index: number, options?: { format?: 'rgba' | 'yuv420p' }): Promise<Uint8Array>
   /**
    * Stops the decoder and frees its buffers: a film with many clips closes each when its shot
    * ends. A `frame(i)` after it opens the file again and gives the same bytes.
