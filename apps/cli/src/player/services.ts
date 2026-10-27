@@ -1,6 +1,9 @@
-// What the CLI's process answers for a film (io.video, io.cache, io.bake), answered in the web
+// What the CLI's process answers for a film (io.image, io.video, io.cache, io.bake), answered in the web
 // player's worker instead: a static player has no CLI behind it. player/worker.ts hands it to the
 // runner (configureRunner), with the same answers as node/services.ts.
+//
+// io.image decodes the film's file from files/ with the same module as the CLI (runner/image.ts),
+// so the same bytes.
 //
 // io.video reads the proxy the build made (media/<path>.mp4, with the original's info in
 // media/<path>.json) and decodes it with WebCodecs, through Mediabunny. Frame i is straight,
@@ -20,6 +23,7 @@ import {
   type VideoSample,
   VideoSampleSink,
 } from 'mediabunny'
+import { decodeImage } from '../runner/image.ts'
 import type { Ask } from '../runner/io.ts'
 
 type Info = { width: number; height: number; fps: number; frames: number }
@@ -181,6 +185,12 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
   }
 
   return {
+    image: async (path, maxSize) =>
+      decodeImage(
+        await fetchBytes(new URL(path.replace(/^\.?\//, ''), files), `io.image(${path})`),
+        path,
+        maxSize,
+      ),
     cacheGet: async (hash) => cache.get(hash) ?? null,
     cachePut: async (hash, bytes) => void cache.set(hash, bytes),
     videoOpen: async (path) => (await clipOf(path)).info,

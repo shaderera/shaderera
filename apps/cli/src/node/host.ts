@@ -34,7 +34,7 @@ import {
   watchShaders,
   yuvFits,
 } from '@shaderera/core/host'
-import { type Ask, extraIo } from '../runner/io.ts'
+import { type Ask, extraIo, type StillSize, stillOf } from '../runner/io.ts'
 import { type RenderTime, renderTime, resetRenderTime, timeRender } from '../runner/render-time.ts'
 import { adapterLine, softwareAdapter } from './adapter.ts'
 import { fixFullTurns } from './arcs.ts'
@@ -76,6 +76,10 @@ const askParent = <T>(request: ServiceRequest) =>
     process.send?.({ service: { id, request } })
   })
 const ask: Ask = {
+  image: async (path, maxSize) => {
+    const size = await askParent<StillSize>({ op: 'image-open', path, maxSize })
+    return stillOf(size, await askParent<Uint8Array>({ op: 'image-data', key: size.key }))
+  },
   cacheGet: (hash) => askParent({ op: 'cache-get', hash }),
   cachePut: (hash, bytes) => askParent({ op: 'cache-put', hash, bytes }),
   videoOpen: (path) => askParent({ op: 'video-open', path }),
@@ -411,7 +415,11 @@ const handle = async (m: Request): Promise<unknown> => {
       gpu: device,
       io: {
         read,
-        ...extraIo(read, ask),
+        // A still the CLI cannot read or decode is recorded as a failed read, as io.read's.
+        ...extraIo(read, {
+          ...ask,
+          image: (p, max) => recorded('read', p, () => ask.image(p, max)),
+        }),
         canvas: (w, h) => createCanvas(w, h) as unknown as OffscreenCanvas,
         font: (path, family) =>
           recorded('font', path, async () => {

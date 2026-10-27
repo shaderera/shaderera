@@ -7,6 +7,8 @@ import { timeVideo } from './render-time.ts'
 
 /** What a host asks of the CLI's process (node/services.ts). */
 export type Ask = {
+  /** A still decoded once for every host (ADR 0028, 1); the web player decodes it itself. */
+  image(path: string, maxSize?: number): Promise<DecodedImage>
   cacheGet(hash: string): Promise<Uint8Array | null>
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
   videoOpen(path: string): Promise<{ width: number; height: number; fps: number; frames: number }>
@@ -16,7 +18,28 @@ export type Ask = {
   bakeFrame(name: string, index: number): Promise<Uint8Array>
 }
 
+/**
+ * A still as the CLI's process opens it (services.ts, `image-open`): its decoded size, and the key
+ * its bytes are asked by (`image-data`).
+ */
+export type StillSize = { width: number; height: number; bits: 8 | 16; key: string }
+
 const text = new TextEncoder()
+
+/**
+ * A still as the CLI's process hands it over: its size (services.ts, `image-open`), then its
+ * bytes. A view into a larger message (a small still over IPC) is copied, so `data.buffer` is the
+ * still's alone.
+ */
+export const stillOf = (
+  size: { width: number; height: number; bits: 8 | 16 },
+  bytes: Uint8Array,
+): DecodedImage => {
+  const own =
+    bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice()
+  const { width, height, bits } = size
+  return { width, height, bits, data: bits === 16 ? new Uint16Array(own.buffer) : own }
+}
 
 /**
  * The ports over a host's `read` and its way to the CLI's process. The waits on `io.video` frames
@@ -32,7 +55,7 @@ export const extraIo = (
       const key = `${options?.maxSize ?? 0} ${path}`
       let image = images.get(key)
       if (!image) {
-        image = read(path).then((bytes) => decodeImage(bytes, path, options?.maxSize))
+        image = ask.image(path, options?.maxSize)
         images.set(key, image)
       }
       return image
