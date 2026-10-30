@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { diffJson, diffPixels, type Json, type Matrices, sha256 } from '@shaderera/core'
 import { describeCamera } from '../camera/describe.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
@@ -25,17 +26,28 @@ import {
   windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, releaseFrozen, restore, save, slash, undo } from '../project/revisions.ts'
+import {
+  briefRevision,
+  head,
+  log,
+  releaseFrozen,
+  restore,
+  save,
+  slash,
+  undo,
+} from '../project/revisions.ts'
 import { contactSheet, type ReviewReport, review, toPng } from '../review/review.ts'
 import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
-import { insideFilm, open, parse } from './args.ts'
+import { DRAFT_HEIGHT, insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
+import { errorFinding } from './findings.ts'
 import { valueAt } from './inspect.ts'
+import { studios } from './mcp-studio.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { revisionHosts } from './revision-host.ts'
-import { stillTimes } from './still.ts'
+import { openFile, stillTimes } from './still.ts'
 import { nameOf, sameAsMain, variantList } from './variants.ts'
 
 type Obj = { [k: string]: Json }
@@ -113,14 +125,17 @@ const timesOf = (times: unknown): number[] => {
   return times
 }
 
+/** render's `draft`: true for DRAFT_HEIGHT, or a height in pixels; undefined without one. */
+const draftOf = (draft: unknown): number | undefined => {
+  if (draft === undefined || draft === false) return undefined
+  if (draft === true) return DRAFT_HEIGHT
+  if (typeof draft !== 'number' || !Number.isInteger(draft) || draft < 2)
+    throw new Error(`draft is true or a height in pixels, not ${shown(draft)}.`)
+  return draft
+}
+
 /** An image content block of a base64 PNG. */
 const image = (data: string) => ({ type: 'image', data, mimeType: 'image/png' })
-
-/** A revision as a tool returns it: the count of its files, not each one's hash. */
-const briefRevision = <R extends { files: object }>({ files, ...r }: R) => ({
-  ...r,
-  files: Object.keys(files).length,
-})
 
 /** A review report as a tool returns it: its files relative to the project, with `/`. */
 const relativeReport = <R extends ReviewReport>(root: string, r: R): R => {
@@ -134,6 +149,26 @@ const relativeReport = <R extends ReviewReport>(root: string, r: R): R => {
 
 /** The long side of render_frame's image unless `full`: a full HD PNG is ~3 MB of base64. */
 const IMAGE = 1024
+/**
+ * The longest side of any image a tool returns: the Claude API refuses a request with an image over
+ * 8000 px, and shows one over 2000 px no sharper.
+ */
+const LONGEST = 2048
+
+/** A PNG scaled down, when it is bigger, to LONGEST px on its long side. */
+const fitted = async (png: Buffer): Promise<Buffer> => {
+  // The IHDR chunk: width and height, big-endian, at bytes 16 and 20.
+  const [width, height] = [png.readUInt32BE(16), png.readUInt32BE(20)]
+  const k = LONGEST / Math.max(width, height)
+  if (k >= 1) return png
+  const w = Math.max(1, Math.round(width * k))
+  const h = Math.max(1, Math.round(height * k))
+  const ctx = createCanvas(w, h).getContext('2d')
+  ctx.drawImage(await loadImage(png), 0, 0, w, h)
+  return ctx.canvas.encode('png')
+}
+/** The least time between two of render's progress notifications, in ms. */
+const PROGRESS = 250
 /** The most frames one `still` sheet holds. */
 const SHEET = 64
 /** The tools that take `variant` and `params`, and the ones that return content blocks. */
@@ -148,180 +183,339 @@ const paramFlags = (params: Obj | undefined) =>
 const png = (px: Uint8Array, width: number, height: number): string =>
   Buffer.from(encodePng(px, width, height)).toString('base64')
 
+/** A property's schema with what it is for. */
+const say = (schema: object, description: string) => ({ ...schema, description })
 const num = { type: 'number' }
 const str = { type: 'string' }
 const obj = { type: 'object' }
+const bool = { type: 'boolean' }
+/** Seconds into the film, as every time a tool takes is. */
+const at = (what = 'The time') => say(num, `${what}, in seconds from 0 up to the duration.`)
 /** `variant` and `params`: the call renders that variant of shaderera.json, these params over it. */
-const looks = { variant: str, params: obj }
+const looks = {
+  variant: say(str, 'A variant from shaderera.json to render instead of the main output.'),
+  params: say(obj, "Params over the manifest's (and the variant's) defaults, name → value."),
+}
+const revision = say(
+  str,
+  'A saved revision id (from versions or a comment): renders that revision from its frozen copy, not the files as they are now.',
+)
 /** `variants`: several outputs in one call, each in its own host, at once. */
-const several = { variants: { oneOf: [{ type: 'array', items: str }, { const: 'all' }] } }
-const SEVERAL =
-  'variants (a list of names, main for the manifest\'s own output, or "all": main and every variant, main left out (and named as main) when a variant renders the same) runs each in its own host at once, instead of variant.'
+const several = {
+  variants: say(
+    { oneOf: [{ type: 'array', items: str }, { const: 'all' }] },
+    'Several outputs at once, each in its own host, instead of variant: a list of names (main for the manifest\'s own output), or "all" (main and every variant; main is left out, and named as main, when a variant renders the same).',
+  ),
+}
 
-const tools: [string, string, { [k: string]: object }, string[]][] = [
+/** What a client may show and assume of a tool: its title, and whether it changes anything. */
+type Annotations = {
+  title: string
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+}
+const looking = (title: string): Annotations => ({ title, readOnlyHint: true })
+const writing = (title: string, o: Omit<Annotations, 'title'> = {}): Annotations => ({
+  title,
+  destructiveHint: false,
+  ...o,
+})
+
+const tools: [string, string, { [k: string]: object }, string[], Annotations][] = [
   [
     'render_frame',
-    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version. revision (a saved revision id, from versions or a comment) renders that revision from its frozen copy instead of the files as they are now.',
+    'Renders one frame and returns numbers about it: sha256, mean RGBA, the alpha bounding box, its layers and ms. With image: true, also its size and a PNG of it (at most 1024 px on its long side, or 2048 with full: true), or of a part of it (region or object) enlarged for a close look.',
     {
-      t: num,
-      final: { type: 'boolean' },
-      camera: obj,
-      image: { type: 'boolean' },
-      full: { type: 'boolean' },
-      region: { type: 'array', items: num },
-      object: str,
-      scale: num,
-      revision: str,
+      t: at(),
+      final: say(bool, 'false renders the preview intent; default true (final).'),
+      camera: say(obj, '{ view, projection } matrices for this frame only.'),
+      image: say(bool, 'Return a PNG too.'),
+      full: say(bool, 'The whole frame up to 2048 px on its long side instead of 1024.'),
+      region: say(
+        { type: 'array', items: num, minItems: 4, maxItems: 4 },
+        '[x, y, width, height] in frame pixels: the image is that part of the frame.',
+      ),
+      object: say(
+        str,
+        'An inspected id with a bbox, or a text run with its box: the image is that part of the frame.',
+      ),
+      scale: say(
+        { type: 'integer', minimum: 1, maximum: 16 },
+        'How many times region or object is enlarged, by whole pixels; lowered to keep the long side at most 2048 px, and the size block then says so.',
+      ),
+      revision,
       ...looks,
     },
     ['t'],
+    looking('Render a frame'),
   ],
   [
     'still',
-    `Like \`shaderera still <t>... --sheet\`: renders each of times (seconds), or every \`every\` seconds from 0, and returns one contact sheet image, each frame labelled with its t. variant, params and revision as render_frame. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. ${SEVERAL}`,
-    { times: { type: 'array', items: num }, every: num, revision: str, ...looks, ...several },
+    'Renders final frames (or, with file, reads those of a rendered video) and returns one contact sheet image, each frame labelled with its t: the way to look at the film. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. At most 64 frames.',
+    {
+      times: say({ type: 'array', items: num }, 'The times to look at, in seconds.'),
+      file: say(
+        str,
+        "A rendered video inside the project (out/x.mp4): the sheet is of its frames, as encoded, instead of the source's. Not with variant, variants, params or revision.",
+      ),
+      every: say(num, 'Also a frame every this many seconds from 0.'),
+      revision,
+      ...looks,
+      ...several,
+    },
     [],
+    looking('Look at frames'),
   ],
   [
     'inspect',
-    "Returns the source's inspect JSON at t, or the subtree at a diffJson path (a.b, a[id=x]). With track (a path) instead of t, like `shaderera inspect --track`: the value at that path at every frame from from to to (default the whole film), each { t, value, speed? } (speed per second, for numbers and arrays of numbers): a curve to read easing, holds and overshoot. variant and params as render_frame.",
-    { t: num, path: str, track: str, from: num, to: num, ...looks },
+    "Returns the source's inspect JSON at t, or the value at path. With track instead of t, that value at every frame from from to to: a curve, to read easing, holds and overshoot. Takes t or track.",
+    {
+      t: at(),
+      path: say(str, 'A diffJson path into inspect (a.b, a[id=x]): only the value there.'),
+      track: say(
+        str,
+        'A path to follow over time instead of t: returns [{ t, value, speed? }], speed per second for numbers and arrays of numbers.',
+      ),
+      from: at('With track, from'),
+      to: at('With track, to'),
+      ...looks,
+    },
     [],
+    looking('Inspect the state'),
   ],
   [
     'compare',
-    'Compares two times: returns diffJson of inspect(a) vs inspect(b) (under path) and diffPixels of the final frames. variant and params as render_frame. (`shaderera diff` compares two revisions.)',
-    { a: num, b: num, path: str, ...looks },
+    'Compares two times: diffJson of inspect at a vs b (under path) and diffPixels of the two final frames. (diff compares two revisions.)',
+    {
+      a: at('The first time'),
+      b: at('The second time'),
+      path: say(str, 'Compare inspect only under this path.'),
+      ...looks,
+    },
     ['a', 'b'],
+    looking('Compare two times'),
   ],
   [
     'pick',
-    'Returns the Pick at pixel (x, y) at t, the inspected object with that id and its source.',
-    { t: num, x: num, y: num },
+    'Returns what is drawn at a pixel at t: the Pick, the inspected object with that id and its source.',
+    {
+      t: at(),
+      x: say(num, 'Frame pixels from the left.'),
+      y: say(num, 'Frame pixels from the top.'),
+    },
     ['t', 'x', 'y'],
+    looking('Pick a pixel'),
   ],
   [
     'get_camera',
-    'Returns the camera matrices at t, the camera in words (eye, forward, up, fovY, near, far) and the source of the inspect camera object.',
-    { t: num },
+    'Returns the camera at t: its matrices, the camera in words (eye, forward, up, fovY, near, far) and the source of the inspect camera object.',
+    { t: at() },
     ['t'],
+    looking('Read the camera'),
   ],
   [
     'get_source',
-    'Returns the file, line, column and ±8 numbered lines of the source of the inspect object with this id.',
-    { id: str, t: num },
+    'Returns the file, line, column and ±8 numbered lines of the source of an inspect object.',
+    { id: say(str, 'The id of an object in inspect.'), t: at('The time to inspect (default 0)') },
     ['id'],
+    looking('Find the source'),
   ],
   [
     'check',
-    `Like \`shaderera check\`: renders times sampled t (default 20, where the CLI's check takes 50) twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
-    { times: num, seed: num, hdr10: { type: 'boolean' }, ...several },
+    'Checks that the film is deterministic: renders sampled times twice in two orders and compares them; returns failures and preview vs final. With variants, { variants: [{ variant, ...result }] }.',
+    {
+      samples: say(
+        num,
+        "How many times to sample, 2 or more: default 20, where the CLI's check takes 50.",
+      ),
+      seed: say(num, 'The seed of the sampled times (default 1).'),
+      hdr10: say(
+        bool,
+        "Check the HDR10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers' light); returns its light levels.",
+      ),
+      ...several,
+    },
     [],
+    looking('Check determinism'),
   ],
   [
     'render',
-    'Like `shaderera render`: writes an mp4 (out: inside the project) with ffmpeg, refusing a source that is not deterministic; returns the file, frame count and seconds. With job (a name from the job tool), renders that frozen job instead of the working tree. hdr10: true makes an HDR10 mp4 (HEVC Main 10) of a film with hdr10 in shaderera.json, and returns its measured light levels; a job asks for it when it is made. A host on a software GPU (SwiftShader, llvmpipe, WARP: 10–100× slower) is refused unless softwareGpu: true.',
+    "Writes a video (an mp4 with ffmpeg) of a window of the film, or a draft, refusing a source that is not deterministic; returns the file, frame count and seconds, and sends progress when asked. A whole film at full size is the CLI's job (npx shaderera render), in a shell.",
     {
-      from: num,
-      to: num,
-      out: str,
-      job: str,
-      hdr10: { type: 'boolean' },
-      softwareGpu: { type: 'boolean' },
+      from: at('The start'),
+      to: at('The end'),
+      out: say(str, 'The file, inside the project (default under out/).'),
+      draft: say(
+        { oneOf: [{ type: 'number' }, { const: true }] },
+        'A review render this many pixels high (true: 360), at full fps, beside the final as out/<name>-draft.mp4. Not with job.',
+      ),
+      job: say(
+        str,
+        'A job name (from the job tool): renders that frozen job instead of the working tree.',
+      ),
+      hdr10: say(
+        bool,
+        'An HDR10 mp4 (HEVC Main 10) of a film with hdr10 in shaderera.json, with its measured light levels. A job asks for it when it is made.',
+      ),
+      softwareGpu: say(
+        bool,
+        'Render on a software GPU (SwiftShader, llvmpipe, WARP: 10–100× slower), which is refused otherwise.',
+      ),
+      ...looks,
     },
     [],
+    writing('Render a video', { destructiveHint: true, idempotentHint: true }),
   ],
   [
     'save',
-    'Like `shaderera save`: saves the project as a revision (versions/); returns its id. The same files always have the same id.',
-    { label: str, note: str },
+    'Saves the project as a revision (versions/); returns its id. The same files always have the same id.',
+    { label: say(str, 'A short name for it.'), note: say(str, 'What changed, in words.') },
     [],
+    writing('Save a revision', { idempotentHint: true }),
   ],
   [
     'versions',
-    'Like `shaderera versions`: returns the head revision, the log of saves, restores and undos, and the render jobs.',
+    'Returns the head revision, the log of saves, restores and undos, and the render jobs.',
     {},
     [],
+    looking('List revisions'),
   ],
   [
     'restore',
-    'Like `shaderera restore <id>`: makes the project that revision (the working tree is saved first); returns the revision now checked out.',
-    { id: str },
+    'Makes the project files that revision (the working tree is saved first); returns the revision now checked out.',
+    { id: say(str, 'A revision id, from versions.') },
     ['id'],
+    writing('Restore a revision', { destructiveHint: true }),
   ],
   [
     'undo',
-    'Like `shaderera undo`: returns the project to the previous revision (unsaved edits are saved first); returns the revision now checked out.',
+    'Returns the project files to the previous revision (unsaved edits are saved first); returns the revision now checked out.',
     {},
     [],
+    writing('Undo', { destructiveHint: true }),
   ],
   [
     'diff',
-    'Like `shaderera diff <a> [<b>]`: the files added, removed and changed from revision a to b (or to the working tree), and a unified patch of their text unless stat: true.',
-    { a: str, b: str, stat: { type: 'boolean' } },
+    'The files added, removed and changed from revision a to b (or to the working tree), and a unified patch of their text.',
+    {
+      a: say(str, 'A revision id, from versions.'),
+      b: say(str, 'A revision id to compare with; default the working tree.'),
+      stat: say(bool, 'Only the lists of files, no patch.'),
+    },
     ['a'],
+    looking('Compare revisions'),
   ],
   [
     'comments',
-    "Like `shaderera comments --json`: the person's comments on the film, as threads with their replies: { revision (the working tree's id now), head, comments: [{ id, state (open, fixed, resolved), revision, t, frame, to?, variant?, point?/box? with size, object?, params?, text, replies, fixedIn?, stale }] }. state (default open; all) or id (one). stale: the tree is not the one it was made on. point and box go straight into pick and render_frame region, at t.",
-    { state: str, id: str },
+    "The person's comments on the film, as threads with their replies: { revision (the working tree's id now), head, comments: [{ id, state, revision, t, frame, to?, variant?, point?/box? with size, object?, params?, text, replies, fixedIn?, stale }] }. stale: the tree is not the one it was made on. point and box go straight into pick and render_frame region, at t.",
+    {
+      state: say(
+        { type: 'string', enum: ['open', 'fixed', 'resolved', 'all'] },
+        'Which comments (default open).',
+      ),
+      id: say(str, 'One comment, by id.'),
+    },
     [],
+    looking('Read comments'),
   ],
   [
     'comment_add',
-    'Like `shaderera comments add`: files a comment at t (to t..to with to) on the tree as it is (saved as a revision), for feedback the person gave in chat. point [x, y] or box [x, y, w, h] in the variant’s frame pixels, object, params (only those that differ from the defaults are kept). Returns { revision, head, comments: [it] }.',
+    'Files a comment at t on the tree as it is (saved as a revision), for feedback the person gave in chat. Returns { revision, head, comments: [it] }.',
     {
-      t: num,
-      to: num,
-      variant: str,
-      point: { type: 'array', items: num },
-      box: { type: 'array', items: num },
-      object: str,
-      params: obj,
-      text: str,
+      t: at(),
+      to: at('The end of a span the comment covers'),
+      variant: say(str, 'The variant it is about.'),
+      point: say({ type: 'array', items: num }, "[x, y] in the variant's frame pixels."),
+      box: say({ type: 'array', items: num }, "[x, y, w, h] in the variant's frame pixels."),
+      object: say(str, 'The inspected id it is about.'),
+      params: say(
+        obj,
+        'The params it was seen with; only those that differ from the defaults are kept.',
+      ),
+      text: say(str, 'The comment.'),
     },
     ['t', 'text'],
+    writing('Add a comment'),
   ],
   [
     'comment_reply',
-    'Like `shaderera comments reply <id> [--fixed]`: replies to a comment. fixed: true saves the tree as a revision labelled "fix <id>: <text>" and marks the comment fixed in it; refused when nothing changed since the revision the comment was made on. Returns { revision, head, comments: [it] }.',
-    { id: str, text: str, fixed: { type: 'boolean' } },
+    'Replies to a comment. Returns { revision, head, comments: [it] }.',
+    {
+      id: say(str, 'The comment id.'),
+      text: say(str, 'The reply.'),
+      fixed: say(
+        bool,
+        'Saves the tree as a revision labelled "fix <id>: <text>" and marks the comment fixed in it; refused when nothing changed since the revision the comment was made on.',
+      ),
+    },
     ['id', 'text'],
+    writing('Reply to a comment'),
   ],
   [
     'comment_resolve',
-    'Like `shaderera comments reopen <id>` with reopen: true. Without it, refused: only the person resolves a comment, in the studio.',
-    { id: str, reopen: { type: 'boolean' } },
+    'Reopens a comment, with reopen: true. Without it, refused: only the person resolves a comment, in the studio.',
+    { id: say(str, 'The comment id.'), reopen: say(bool, 'Reopen it.') },
     ['id'],
+    writing('Reopen a comment', { idempotentHint: true }),
   ],
   [
     'job',
-    'Like `shaderera job`: freezes a render job: a revision (the project is saved first unless revision is given), a variant from shaderera.json, params over the defaults, an optional window. hdr10: true makes a job that renders an HDR10 mp4 (shaderera.json needs hdr10). Returns the job.',
+    'Freezes a render job: a revision (the project is saved first unless revision is given), a variant from shaderera.json, params over the defaults, an optional window. Returns the job; render renders it.',
     {
-      variant: str,
-      params: obj,
-      revision: str,
-      name: str,
-      label: str,
-      from: num,
-      to: num,
-      hdr10: { type: 'boolean' },
+      variant: say(str, 'A variant from shaderera.json.'),
+      params: say(obj, 'Params over the defaults, name → value.'),
+      revision: say(str, 'A saved revision id to freeze instead of saving the tree now.'),
+      name: say(str, 'The job name.'),
+      label: say(str, 'A short description.'),
+      from: at('The start of the window'),
+      to: at('The end of the window'),
+      hdr10: say(bool, 'A job that renders an HDR10 mp4 (shaderera.json needs hdr10).'),
     },
     [],
+    writing('Make a render job'),
   ],
   [
     'review',
-    `Like \`shaderera review\`: renders the shots (or 7 evenly spaced frames), transition samples and the last frame, writes a contact sheet to out/review/ and runs the technical checks (format, determinism, blank frames, end hold, text fit and overlap, glyphs, copy, assets, readback, alpha) against requirements.json; returns the report JSON plus the contact sheet and frame thumbs as images. quick skips determinism and readback. With variants, { variants: [{ variant, ...report }] } and each one's contact sheet, each in out/review/<variant>/ (main in out/review/). ${SEVERAL}`,
-    { variant: str, quick: { type: 'boolean' }, ...several },
+    "Renders the shots (or 7 evenly spaced frames), transition samples and the last frame, writes a contact sheet to out/review/ and runs the technical checks (format, determinism, blank frames, end hold, text fit and overlap, glyphs, copy, assets, readback, alpha) against requirements.json; returns the report JSON plus the contact sheet and frame thumbs as images. With variants, { variants: [{ variant, ...report }] } and each one's contact sheet, each in out/review/<variant>/ (main in out/review/).",
+    {
+      variant: say(str, 'A variant from shaderera.json.'),
+      quick: say(bool, 'Skip determinism and readback.'),
+      ...several,
+    },
     [],
+    writing('Review the film', { idempotentHint: true }),
+  ],
+  [
+    'studio',
+    "Starts the project's studio (or reuses the one this server started) and returns its address: the page where the person watches the film and comments on it, opened in their browser. It runs as long as this server, or until stop. A studio started elsewhere is named by its pid.",
+    {
+      stop: say(
+        bool,
+        "Stop the project's studio instead, whoever started it, as shaderera studio --stop does.",
+      ),
+    },
+    [],
+    writing('Open the studio', { idempotentHint: true }),
   ],
   [
     'activity_add',
-    'Like `shaderera activity add`: adds a note of what you mean to do (text, at most 4000 characters) to the activity the studio shows, about a comment when comment (its id) is given. Only for what you mean to do: every tool call is recorded already. Returns the entry.',
-    { text: str, comment: str },
+    'Adds a note of what you mean to do to the activity the studio shows. Only for what you mean to do: every tool call is recorded already. Returns the entry.',
+    {
+      text: say(str, 'The note, at most 4000 characters.'),
+      comment: say(str, 'The id of the comment it is about.'),
+    },
     ['text'],
+    writing('Note what you mean to do'),
   ],
 ]
+
+/** What the server tells a client about using it, once, at initialize. */
+const INSTRUCTIONS = `Shaderera's tools look at and check a film made in code: a project with shaderera.json (root names it when the server runs elsewhere).
+The loop: inspect or render_frame for numbers (state, hashes, boxes at t) → still to look at frames → edit the source → check that it is deterministic → render a short window or a draft.
+Numbers are cheaper than pictures: images are opt-in, and at most 2048 px.
+A whole film at full size renders in the CLI (npx shaderera render) in a shell, not here.
+studio opens the page where the person watches and comments; comments are their notes from it: reply with comment_reply, and fixed: true once the change is made.`
 
 /** The tools whose PNG is kept as their activity entry's image (decision 0025). */
 const PICTURED = new Set(['still', 'render_frame'])
@@ -403,9 +597,22 @@ const projectOf = async (dir: string, root: unknown) => {
  */
 export const createServer = (
   dir: string,
-  flags: { trusted?: boolean; timeout?: string; variant?: string; host?: string } = {},
+  flags: {
+    trusted?: boolean
+    timeout?: string
+    variant?: string
+    host?: string
+    /** More flags for every `shaderera studio` the studio tool starts (tests: --site, --no-open). */
+    studio?: readonly string[]
+  } = {},
 ) => {
   const sessions = new Map<string, NodeSession>()
+  const studio = studios([
+    ...(flags.host ? ['--host', flags.host] : []),
+    ...(flags.trusted ? ['--trusted'] : []),
+    ...(flags.timeout ? ['--timeout', flags.timeout] : []),
+    ...(flags.studio ?? []),
+  ])
   // render_frame and still with a revision: its frozen copy in its own host, kept for the next call.
   const frozen = revisionHosts({
     host: flags.host,
@@ -468,7 +675,7 @@ export const createServer = (
       ) => Promise.all(hosts.map((o, i) => run(o, names[i])))
       if (name === 'check') {
         const results = await each((o) =>
-          checkChild(o.child, o.project.manifest, { times: a.times ?? 20, seed: a.seed }),
+          checkChild(o.child, o.project.manifest, { samples: a.samples ?? 20, seed: a.seed }),
         )
         return { ...main, variants: results.map((r, i) => ({ variant: nameOf(names[i]), ...r })) }
       }
@@ -530,6 +737,39 @@ export const createServer = (
       ]
     } finally {
       await Promise.all(hosts.map((o) => o.child.close()))
+    }
+  }
+  /** still with file: a sheet of a rendered file's frames; no child opens for it. */
+  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+  const fileSheet = async (root: string, a: { [k: string]: any }) => {
+    if (typeof a.file !== 'string') throw new Error('file is a video file inside the project.')
+    for (const k of ['variant', 'variants', 'params', 'revision'])
+      if (a[k] !== undefined) throw new Error(`file is read as it was rendered: no ${k}.`)
+    const path = inside(root, a.file)
+    const video = openFile(path)
+    try {
+      const given = timesOf(a.times)
+      const every = typeof a.every === 'number' ? a.every : undefined
+      if (given.length === 0 && every === undefined) throw new Error('still needs times or every.')
+      const times = stillTimes(given, every, video.duration)
+      if (times.length > SHEET)
+        throw new Error(
+          `${times.length} frames: a sheet holds at most ${SHEET}. Give fewer times or a longer every.`,
+        )
+      const label = basename(path)
+      const frames = []
+      for (const t of times) frames.push({ t, label, pixels: await video.frame(t) })
+      const { width, height } = video
+      const sheet = await contactSheet(frames, width, height)
+      return [
+        {
+          type: 'text',
+          text: JSON.stringify({ times, file: slash(relative(root, path)), width, height }),
+        },
+        image(sheet.toString('base64')),
+      ]
+    } finally {
+      await video.close()
     }
   }
   /** The tools on versions/ alone: no child opens for them. */
@@ -612,9 +852,12 @@ export const createServer = (
     name: string,
     // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
     a: { [k: string]: any },
+    /** Each frame render writes, when the client asked for progress. */
+    progress?: (i: number, n: number, phase?: 'recheck') => void,
   ): Promise<unknown> => {
     const onComments = commentTools[name]
     if (onComments) return onComments(root, a)
+    if (name === 'still' && a.file !== undefined) return fileSheet(root, a)
     // A variant or params get their own child, closed with the call; the session's child is the
     // server's own variant (`--variant`), with the defaults.
     if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
@@ -651,7 +894,8 @@ export const createServer = (
                 : undefined
             if (!region) {
               const { width, height } = manifest
-              const k = a.full === true ? 1 : Math.min(1, IMAGE / Math.max(width, height))
+              const most = a.full === true ? LONGEST : IMAGE
+              const k = Math.min(1, most / Math.max(width, height))
               const size = {
                 width: Math.max(1, Math.round(width * k)),
                 height: Math.max(1, Math.round(height * k)),
@@ -659,20 +903,34 @@ export const createServer = (
               const data =
                 k === 1
                   ? png(r.pixels, width, height)
-                  : (await toPng(r.pixels, width, height, IMAGE)).toString('base64')
+                  : (await toPng(r.pixels, width, height, most)).toString('base64')
               return [text, { type: 'text', text: JSON.stringify(size) }, image(data)]
             }
-            const part = crop(r.pixels, manifest, region, a.scale ?? 1)
+            const asked = a.scale ?? 1
+            const part = crop(r.pixels, manifest, region, asked, LONGEST)
+            // A region over LONGEST at scale 1 is scaled down whole.
+            const k = Math.min(1, LONGEST / Math.max(part.width, part.height))
+            const size = {
+              width: Math.max(1, Math.round(part.width * k)),
+              height: Math.max(1, Math.round(part.height * k)),
+            }
+            const scale = Number((part.scale * k).toFixed(3))
             const where = {
               type: 'text',
               text: JSON.stringify({
-                width: part.width,
-                height: part.height,
+                ...size,
                 region: part.region,
-                scale: a.scale ?? 1,
+                scale,
+                ...(scale < asked
+                  ? { note: `scale ${asked} → ${scale} (long side ≤ ${LONGEST})` }
+                  : {}),
               }),
             }
-            return [text, where, image(png(part.pixels, part.width, part.height))]
+            const data =
+              k === 1
+                ? png(part.pixels, part.width, part.height)
+                : (await toPng(part.pixels, part.width, part.height, LONGEST)).toString('base64')
+            return [text, where, image(data)]
           } finally {
             if (a.camera) await c.override(null)
           }
@@ -748,7 +1006,7 @@ export const createServer = (
           const hdr = a.hdr10 === true ? await open({ ...flags, root, hdr10: true }) : undefined
           try {
             return await checkChild(hdr?.child ?? c, manifest, {
-              times: a.times ?? 20,
+              samples: a.samples ?? 20,
               seed: a.seed,
             })
           } finally {
@@ -760,22 +1018,43 @@ export const createServer = (
           if (typeof a.job !== 'string') {
             // Before the save and ffmpeg (exportVideo checks it too).
             windowOf(manifest, a.from, a.to)
-            const hdr = a.hdr10 === true ? await open({ ...flags, root, hdr10: true }) : undefined
+            const draft = draftOf(a.draft)
+            // A draft, a variant, params or hdr10 get their own host, closed with the call.
+            const mine =
+              draft !== undefined || typeof a.variant === 'string' || params || a.hdr10 === true
+                ? await open({
+                    ...flags,
+                    root,
+                    variant,
+                    param: paramFlags(params),
+                    ...(draft !== undefined ? { draft } : {}),
+                    ...(a.hdr10 === true ? { hdr10: true } : {}),
+                  })
+                : undefined
             try {
-              const host = hdr?.child ?? c
-              await refuseSoftware(host, a.softwareGpu === true, 'softwareGpu: true')
-              return await exportVideo(hdr?.project ?? opened.project, host, {
+              const target = mine ?? opened
+              await refuseSoftware(target.child, a.softwareGpu === true, 'softwareGpu: true')
+              return await exportVideo(target.project, target.child, {
                 from: a.from,
                 to: a.to,
                 out,
+                name: [
+                  ...(typeof a.variant === 'string' ? [safeName(a.variant)] : []),
+                  ...(draft !== undefined ? ['draft'] : []),
+                ],
                 revision: save(root, { by: 'agent' }).id,
+                ...(progress ? { onFrame: progress } : {}),
               })
             } finally {
-              await hdr?.child.close()
+              await mine?.child.close()
             }
           }
           if (a.hdr10 !== undefined)
             throw new Error('A job froze its range: make a job with hdr10: true instead.')
+          if (a.draft !== undefined)
+            throw new Error('A draft is a review render of the working tree, never a job.')
+          if (a.variant !== undefined || params)
+            throw new Error('A job froze its variant and params: make a job with them instead.')
           const job = readJob(root, a.job)
           if (job.delivery.format === 'png')
             throw new Error(
@@ -793,6 +1072,7 @@ export const createServer = (
               out: out ?? join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
               quality: job.delivery.quality,
               revision: job.revision,
+              ...(progress ? { onFrame: progress } : {}),
             })
           } finally {
             await frozen.child.close()
@@ -857,17 +1137,44 @@ export const createServer = (
   }
   const server = new Server(
     { name: 'shaderera', version: shadereraVersion() },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
   )
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map(([name, description, properties, required]) => ({
+    tools: tools.map(([name, description, properties, required, { title, ...annotations }]) => ({
       name,
+      title,
       description,
-      inputSchema: { type: 'object' as const, properties: { ...properties, root: str }, required },
+      inputSchema: {
+        type: 'object' as const,
+        properties: {
+          ...properties,
+          root: say(str, "The project's folder, when the server runs outside it."),
+        },
+        required,
+      },
+      annotations: { title, ...annotations },
     })),
   }))
-  server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-    const { root, start, ...result } = await answer(params)
+  server.setRequestHandler(CallToolRequestSchema, async ({ params }, extra) => {
+    // render's frames as notifications/progress, when the client asked (a progressToken): at most
+    // one every PROGRESS ms, and the last.
+    const token = params._meta?.progressToken
+    let sent = 0
+    const progress =
+      token === undefined
+        ? undefined
+        : (i: number, n: number, phase?: 'recheck') => {
+            // The frames written (i counts from 0); the re-check after them would go back to 0.
+            if (phase || (i + 1 < n && performance.now() - sent < PROGRESS)) return
+            sent = performance.now()
+            void extra
+              .sendNotification({
+                method: 'notifications/progress',
+                params: { progressToken: token, progress: i + 1, total: n },
+              })
+              .catch(() => {})
+          }
+    const { root, start, ...result } = await answer(params, progress)
     // Activity, once per call in a project (activity_add is its own entry), timed from when it ran.
     // A comment written is its own record: a comment tool's entry is only for its failure.
     if (
@@ -878,10 +1185,10 @@ export const createServer = (
       recordTool(root, params.name, performance.now() - start, result)
     return result
   })
-  const answer = async (params: {
-    name: string
-    arguments?: { [k: string]: unknown }
-  }): Promise<{ content: unknown; isError?: true; root?: string; start: number }> => {
+  const answer = async (
+    params: { name: string; arguments?: { [k: string]: unknown } },
+    progress?: (i: number, n: number, phase?: 'recheck') => void,
+  ): Promise<{ content: unknown; isError?: true; root?: string; start: number }> => {
     const a = params.arguments ?? {}
     let start = performance.now()
     let session: NodeSession | undefined
@@ -892,22 +1199,37 @@ export const createServer = (
         if (!tools.some(([n]) => n === params.name)) throw new Error(`Unknown tool ${params.name}.`)
         root = (await projectOf(dir, a.root)).root
         if (params.name === 'activity_add') return addNote(root, a)
+        if (params.name === 'studio') return a.stop === true ? studio.stop(root) : studio.open(root)
         session = sessionOf(root)
         const onVersions = revisions[params.name]
-        if (!onVersions) return call(root, session, params.name, a)
+        if (!onVersions) return call(root, session, params.name, a, progress)
         // restore and undo replace files the child (and its clips' ffmpeg) may hold open, which
         // Windows refuses: close it first. The next call opens it again on the new files.
         if (params.name !== 'diff') await session.drop()
         return onVersions(root, a)
       })
-      const content = IMAGES.has(params.name) ? r : [{ type: 'text', text: JSON.stringify(r) }]
+      // A sheet of many frames can be taller than any client takes: every image is fitted.
+      const content = IMAGES.has(params.name)
+        ? await Promise.all(
+            (r as { type: string; data?: string }[]).map(async (b) =>
+              b.type === 'image' && b.data
+                ? { ...b, data: (await fitted(Buffer.from(b.data, 'base64'))).toString('base64') }
+                : b,
+            ),
+          )
+        : [{ type: 'text', text: JSON.stringify(r) }]
       return { content, root, start }
     } catch (e) {
       if (/exited|took longer/.test(String(e))) void session?.drop()
-      return { content: [{ type: 'text', text: (e as Error).message }], isError: true, root, start }
+      // An error in the film's code (a throw, a build error, a shader): its finding, where it is.
+      const finding = errorFinding(e)
+      const content = [{ type: 'text', text: (e as Error).message }]
+      if (finding.file) content.push({ type: 'text', text: JSON.stringify(finding) })
+      return { content, isError: true, root, start }
     }
   }
   server.onclose = () => {
+    studio.close()
     for (const session of sessions.values()) session.close()
     void frozen.drop()
   }

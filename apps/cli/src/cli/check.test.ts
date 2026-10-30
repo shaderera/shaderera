@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
-import { join } from 'node:path'
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import type { Manifest } from '@shaderera/core'
+import { cli } from '../fixtures/cli.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild } from '../node/fixtures/memory-child.ts'
-import { checkChild, diffP010, keyframeNotes } from './check.ts'
+import { CAUSES, checkChild, diffP010, keyframeNotes } from './check.ts'
 
 const manifest = { fps: 10, duration: 1, width: 64, height: 36 } as Manifest
 const size = { width: 64, height: 36 }
@@ -18,7 +22,7 @@ test('an hdr10 check hashes P010, reports the light, and fails a frame past the 
   const film = memoryChild({ size, frame: boxFrame(64, 36), hdr: { hdr10, fps: 10 } })
   assert.equal(film.has.p010, true)
   assert.equal(film.has.yuv, false)
-  const ok = await checkChild(film, manifest, { times: 4 })
+  const ok = await checkChild(film, manifest, { samples: 4 })
   assert.deepEqual(ok.failures, [])
   // An opaque red box over transparent black: BT.709 red at Graphics White is R 0.627 × 203 in BT.2020.
   assert.ok(ok.light && Math.abs(ok.light.maxCll - 0.6274 * 203) < 2, JSON.stringify(ok.light))
@@ -28,7 +32,7 @@ test('an hdr10 check hashes P010, reports the light, and fails a frame past the 
   const dim = { ...hdr10, mastering: { ...hdr10.mastering, peak: 100 } }
   const over = memoryChild({ size, frame: boxFrame(64, 36), hdr: { hdr10: dim, fps: 10 } })
   await assert.rejects(
-    checkChild(over, manifest, { times: 2 }),
+    checkChild(over, manifest, { samples: 2 }),
     /above the mastering display's peak of 100 cd\/m²/,
   )
   // An hdr10 host gives nothing in SDR.
@@ -41,12 +45,12 @@ test('an hdr10 check hashes P010, reports the light, and fails a frame past the 
 test('a check of fewer than two timestamps is refused: it could never fail', async () => {
   const child = memoryChild({ size })
   for (const times of [0, 1, Number.NaN, 2.5])
-    await assert.rejects(checkChild(child, manifest, { times }), /2 or more/)
+    await assert.rejects(checkChild(child, manifest, { samples: times }), /2 or more/)
 })
 
 test('check passes a film that is a function of t, inspect included, and fails one with state', async () => {
   const film = memoryChild({ size, frame: boxFrame(64, 36), inspect: (t) => ({ x: 20 - 10 * t }) })
-  const ok = await checkChild(film, manifest, { times: 5 })
+  const ok = await checkChild(film, manifest, { samples: 5 })
   assert.deepEqual(ok.failures, [])
   assert.equal(ok.what, 'inspect + pixels')
   assert.deepEqual(ok.previewVsFinal, { mean: 0, max: 0, at: ok.previewVsFinal.at })
@@ -55,9 +59,80 @@ test('check passes a film that is a function of t, inspect included, and fails o
   // Each frame a little brighter than the one before: a revisit gives other pixels.
   let n = 0
   const stateful = memoryChild({ size, frame: () => new Uint8Array(64 * 36 * 4).fill(n++) })
-  const bad = await checkChild(stateful, manifest, { times: 5 })
+  const bad = await checkChild(stateful, manifest, { samples: 5 })
   assert.ok(bad.failures.length > 0)
   assert.equal(bad.what, 'pixels')
+})
+
+test('a film that uses Math.random fails check at its first t, with the frame and the usual causes', async () => {
+  const root = tempDir('random')
+  mkdirSync(join(root, 'src'))
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/composition.ts', fps: 30, duration: 2, width: 8, height: 8 }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `const open = ({ io }) => {
+  const canvas = io.canvas(8, 8)
+  return {
+    render: async () => {
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = \`rgb(\${Math.floor(Math.random() * 256)}, 0, 0)\`
+      ctx.fillRect(0, 0, 8, 8)
+      return { color: canvas }
+    },
+  }
+}
+export default open
+`,
+  )
+  const r = await cli('check', '--samples', '5', '--root', root)
+  assert.equal(r.status, 1, r.stderr)
+  assert.match(
+    r.stdout,
+    /^✗ not deterministic: differs at t=[\d.]+ \(frame \d+\), the first difference found; check stops there$/m,
+  )
+  assert.match(r.stdout, /^ {2}✗ t=[\d.]+ (rendered first|after t=[\d.]+), pixels: /m)
+  assert.ok(r.stdout.includes(`  ${CAUSES}`), r.stdout)
+  const json = JSON.parse((await cli('check', '--samples', '5', '--root', root, '--json')).stdout)
+  const [f] = json.findings.filter((x: { code: string }) => x.code === 'determinism')
+  assert.equal(f.t[0], Math.round(f.t[0] * 1000) / 1000)
+  assert.doesNotMatch(f.message, /after t=-/)
+})
+
+test("a type error in src/ fails check with its file and line; --no-types skips the project's tsc", async () => {
+  const root = tempDir('types')
+  mkdirSync(join(root, 'src'))
+  mkdirSync(join(root, 'node_modules'))
+  // The project's own typescript: this repo's, linked in.
+  const typescript = dirname(createRequire(import.meta.url).resolve('typescript/package.json'))
+  symlinkSync(typescript, join(root, 'node_modules', 'typescript'), 'junction')
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/composition.ts', fps: 10, duration: 1, width: 8, height: 8 }),
+  )
+  writeFileSync(
+    join(root, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: { strict: true, noEmit: true, lib: ['ES2023'] },
+      include: ['src'],
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `const width: number = 8
+const label: number = 'eight'
+const open = () => ({ render: () => [], width, label })
+export default open
+`,
+  )
+  const r = await cli('check', '--samples', '2', '--root', root, '--json')
+  assert.equal(r.status, 1, r.stdout)
+  const [f] = JSON.parse(r.stdout).findings.filter((x: { code: string }) => x.code === 'type')
+  assert.deepEqual([f.severity, f.file, f.line], ['error', 'src/composition.ts', 2])
+  assert.match(f.message, /^TS2322: Type 'string' is not assignable to type 'number'/)
+  assert.equal((await cli('check', '--samples', '2', '--root', root, '--no-types')).status, 0)
 })
 
 test('diffP010 compares P010 bytes that start at an odd offset', () => {

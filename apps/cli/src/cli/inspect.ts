@@ -107,9 +107,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     insideFilm([t], project.manifest.duration)
     if (!child.has.inspect) throw new Error('This source has no inspect(t).')
     const json = await child.inspect(t)
-    console.log(
-      v.json ? JSON.stringify(json, null, 2) : formatInspect(json, v.path as string | undefined),
-    )
+    const path = v.path as string | undefined
+    if (!v.json) console.log(formatInspect(json, path))
+    else {
+      const value = path ? valueAt(json, path) : json
+      if (value === undefined) throw new Error(`Nothing at ${path} in inspect.`)
+      console.log(JSON.stringify(value, null, 2))
+    }
     return 0
   } finally {
     await child.close()

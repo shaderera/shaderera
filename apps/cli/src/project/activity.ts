@@ -247,9 +247,10 @@ export const redact = (args: readonly string[]): string[] =>
 /**
  * Commands with no activity entry of their own (decision 0025): mcp records each tool call, studio
  * its edits and renders, activity is the log itself (`activity add` writes its own note), and the
- * ones that only read: versions, diff, doctor, and comments' list, show and --wait. The comments
- * that write (add, reply, resolve, reopen) get one only when they fail: done, the comment itself
- * is the record, as the studio shows it.
+ * ones that only read: versions, diff and doctor. The comments that write (add, reply, resolve,
+ * reopen) get one only when they fail: done, the comment itself is the record, as the studio shows
+ * it. The comments read (list, show, --wait) get one when they succeed, as MCP's comments tool
+ * does: the studio shows that the agent read them.
  */
 const UNRECORDED = new Set(['mcp', 'studio', 'activity', 'versions', 'diff', 'doctor', 'help'])
 const COMMENT_WRITES = new Set(['add', 'reply', 'resolve', 'reopen'])
@@ -259,7 +260,9 @@ export const recordable = (argv: readonly string[], exitCode = 0): boolean => {
   const [command = '', ...rest] = argv
   if (UNRECORDED.has(command)) return false
   if (command === 'comments')
-    return rest.some((a) => COMMENT_WRITES.has(a)) && !rest.includes('--wait') && exitCode !== 0
+    return rest.some((a) => COMMENT_WRITES.has(a)) && !rest.includes('--wait')
+      ? exitCode !== 0
+      : exitCode === 0
   return true
 }
 

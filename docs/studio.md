@@ -68,7 +68,7 @@ The first page back wins: a page that pairs on the new address ends the old sess
 page back closes the standby. There is one standby at a time; one whose id expires is replaced by
 a new one.
 
-**For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
+**For agents.** With MCP, the `studio` tool starts it and returns the `url` event below, and `studio {stop: true}` stops it ([mcp.md](mcp.md#tools)). Without MCP, or to read its events, run `shaderera studio --json` in the background, give the person the
 `url` event's address (or let the command open it), and read the events. stdout is one JSON object
 a line, `{event, ...}`:
 

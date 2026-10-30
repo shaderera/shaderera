@@ -106,6 +106,12 @@ in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case come
 - **HDR10:** a film with `hdr10` in shaderera.json renders it with `render --hdr10` (`check
   --hdr10` first; `deliver --hdr10 --sdr` adds the SDR file). It needs ffmpeg 9.0 or later:
   `doctor` says so as `ffmpeg:hdr10`. See delivery.md, "HDR10".
+- **Looking at the rendered file:** `npx shaderera still --file out/<name>.mp4 --count 12 --sheet`
+  (`--from`, `--to`, `--columns`; MCP `still {file}`) gives its frames as encoded, and
+  `render` prints its loudness (`audio:` integrated LUFS and true peak). No ffmpeg command needed.
+- **Stopping a render:** `npx shaderera render --stop` in the project stops the render running
+  there cleanly. Never kill processes by name or pattern: other sessions' renders and tests run
+  on the same machine.
 - **A software GPU:** `render` and `deliver` refuse a host whose WebGPU is SwiftShader, llvmpipe,
   lavapipe or WARP (10–100× slower). Tell the person, and pass `--software-gpu` only when they
   accept the wait (MCP `render`: `softwareGpu: true`).
@@ -120,7 +126,7 @@ in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case come
 rendered partly outside the host (a bake), follow `AUTHORING.md`, "Expensive films": `open`
 kept light (sound built in `audio()`, derived bytes in `io.cache`), clips closed when their shot
 ends, per-pixel work on the GPU, footage and stills as textures sampled in WGSL rather than
-drawn with Canvas2D ("Footage and stills on the GPU"), a CPU profile before guessing, fewer `check --times`, a render
+drawn with Canvas2D ("Footage and stills on the GPU"), a CPU profile before guessing, fewer `check --samples`, a render
 in the background with its progress log, `shaderera bake`, and `still --compare` against the
 approved variant before a final.
 
@@ -161,7 +167,10 @@ right, so ask before sharing or reusing any of it.
 
 **The studio** is a page on shaderera.com that previews, renders and shares the project on this
 machine. Open it after the first draft passes `check` (section 3), and whenever the person wants
-to review the film with you, or watch, render or share it from a page:
+to review the film with you, or watch, render or share it from a page. Call MCP `studio`: it
+starts the studio (or returns the one it started) and gives its `url` event, which you give the
+person, and it runs as long as the MCP server; `studio {stop: true}` stops it. Without MCP, or to
+read its events:
 
 1. Run `npx shaderera studio --json` in the background (`--connect <id>` when the page gave the
    person a command with an id).
