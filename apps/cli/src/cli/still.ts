@@ -1,32 +1,45 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
+import { videoReader } from '../node/services.ts'
 import { activityImage } from '../project/activity.ts'
 import { safeName } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { type Comparison, compareFrames, sideBySide } from '../review/compare.ts'
 import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
-import { insideFilm, open, parseRendering } from './args.ts'
+import { insideFilm, open, parseRendering, timesOf } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { EXIT } from './findings.ts'
-import { eachVariant, nameOf, type Output } from './variants.ts'
+import { direct, eachVariant, nameOf, type Output } from './variants.ts'
+
+/** `--count n [--from s] [--to s]`: n times evenly from `from` (0) up to before `to` (the end). */
+export type Span = { count: number; from?: number; to?: number }
 
 /**
- * The times to render: the times given, plus every `every` seconds from 0 when asked. Each must be
- * inside the film.
+ * The times to render: the times given, plus every `every` seconds from 0 and `span`'s, when
+ * asked. Each must be inside the film.
  */
 export const stillTimes = (
   given: readonly number[],
   every: number | undefined,
   duration: number,
+  span?: Span,
 ) => {
   const times = [...given]
   if (every !== undefined) {
     if (!(every > 0)) throw new Error('--every needs seconds above 0.')
     for (let t = 0; t < duration - 1e-9; t += every) times.push(Number(t.toFixed(6)))
+  }
+  if (span) {
+    const { count, from = 0, to = duration } = span
+    if (!(Number.isInteger(count) && count >= 1))
+      throw new Error(`--count is a whole number of frames, 1 or more, not ${count}.`)
+    if (!(to > from)) throw new Error(`--to must be after --from (${from}–${to} s).`)
+    for (let i = 0; i < count; i++)
+      times.push(Number((from + ((to - from) * i) / count).toFixed(6)))
   }
   if (times.length === 0)
     throw new Error('Usage: shaderera still <t>... [--every s] [--sheet] [--diff] (seconds)')
@@ -80,6 +93,11 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const { values, times } = parseRendering(
     argv,
     {
+      file: { type: 'string' },
+      columns: { type: 'string' },
+      from: { type: 'string' },
+      to: { type: 'string' },
+      count: { type: 'string' },
       every: { type: 'string' },
       sheet: { type: 'boolean' },
       diff: { type: 'boolean' },
@@ -93,6 +111,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     },
     { command: 'still', times: true },
   )
+  if (values.file !== undefined) return stillFile(values.file, values, times)
   // Several variants with --sheet: each one's frames, for one sheet of them side by side.
   const kept: (VariantFrames & { outDir: string })[] = []
   return eachVariant(values, (v, out) => stillOne(v, times, out, kept), {
@@ -115,10 +134,119 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   })
 }
 
+/** `--count`, `--from` and `--to` as a Span; --from or --to without --count is refused. */
+const spanOf = (v: { count?: string; from?: string; to?: string }): Span | undefined => {
+  if (v.count === undefined) {
+    if (v.from !== undefined || v.to !== undefined)
+      throw new Error('--from and --to go with --count: --count n [--from s] [--to s].')
+    return undefined
+  }
+  const [from, to] = [v.from, v.to].map((x) => (x === undefined ? undefined : timesOf([x])[0]))
+  return {
+    count: Number(v.count),
+    ...(from === undefined ? {} : { from }),
+    ...(to === undefined ? {} : { to }),
+  }
+}
+
+/** `--columns n`: how many frames across a sheet (4 by default); only with --sheet. */
+const columnsOf = (v: { columns?: string; sheet?: boolean }): number => {
+  if (v.columns === undefined) return 4
+  if (!v.sheet) throw new Error('--columns lays out a --sheet: give --sheet with it.')
+  const n = Number(v.columns)
+  if (!(Number.isInteger(n) && n >= 1))
+    throw new Error(`--columns is a whole number, 1 or more, not ${v.columns}.`)
+  return n
+}
+
+/**
+ * A rendered file, read as `io.video` reads a clip: its size and length, and the frame shown at
+ * each t (the frame whose time is the last at or before t).
+ */
+export const openFile = (file: string) => {
+  const reader = videoReader(file)
+  const { width, height, fps, frames } = reader.info
+  return {
+    width,
+    height,
+    duration: frames / fps,
+    frame: (t: number) => reader.frame(Math.min(frames - 1, Math.floor(t * fps + 1e-6))),
+    close: () => reader.dispose(),
+  }
+}
+
+/** The flags `still --file` refuses: they render the source, which a file is not. */
+const SOURCE_ONLY = ['variant', 'variants', 'compare', 'region', 'object', 'diff', 'param'] as const
+
+/** `still --file <video> <t>...`: stills and a sheet of a rendered file, not of the source. */
+const stillFile = async (
+  file: string,
+  v: {
+    [k in (typeof SOURCE_ONLY)[number]]?: unknown
+  } & {
+    every?: string
+    count?: string
+    from?: string
+    to?: string
+    sheet?: boolean
+    columns?: string
+    out?: string
+    json?: boolean
+  },
+  given: readonly number[],
+): Promise<number> => {
+  for (const flag of SOURCE_ONLY)
+    if (v[flag] !== undefined)
+      throw new Error(`--${flag} renders the source: still --file reads the file's frames only.`)
+  const columns = columnsOf(v)
+  const path = resolve(file)
+  const video = openFile(path)
+  try {
+    const { width, height } = video
+    const times = stillTimes(
+      given,
+      v.every === undefined ? undefined : Number(v.every),
+      video.duration,
+      spanOf(v),
+    )
+    const name = basename(path, extname(path))
+    const outDir = v.out ? resolve(v.out) : join(dirname(path), 'stills')
+    mkdirSync(outDir, { recursive: true })
+    const pngs = pngWriter()
+    const stills: Still[] = []
+    const shown: { t: number; label: string; pixels: Uint8Array }[] = []
+    for (const t of times) {
+      const started = performance.now()
+      const pixels = await video.frame(t)
+      const s: Still = {
+        t,
+        file: join(outDir, `${name}-${t.toFixed(3)}.png`),
+        ms: performance.now() - started,
+      }
+      await pngs.write(s.file, toPng(pixels, width, height))
+      if (v.sheet) shown.push({ t, label: name, pixels })
+      stills.push(s)
+      if (!v.json) direct.log(lineOf(s))
+    }
+    const sheet = v.sheet ? join(outDir, `${name}-sheet.png`) : undefined
+    if (sheet) await pngs.write(sheet, contactSheet(shown, width, height, columns))
+    await pngs.done()
+    if (v.json) direct.result({ stills, ...(sheet ? { sheet } : {}) })
+    else if (sheet) direct.log(relative(process.cwd(), sheet))
+    return EXIT.ok
+  } finally {
+    await video.close()
+  }
+}
+
 const stillOne = async (
   v: Parameters<typeof open>[0] & {
     every?: string
+    count?: string
+    from?: string
+    to?: string
     sheet?: boolean
+    columns?: string
     diff?: boolean
     out?: string
     region?: string
@@ -132,6 +260,7 @@ const stillOne = async (
   kept: (VariantFrames & { outDir: string })[],
 ): Promise<number> => {
   if (v.region && v.object) throw new Error('Give --region or --object, not both.')
+  const columns = columnsOf(v)
   const scale = v.scale === undefined ? 1 : Number(v.scale)
   const variant = typeof v.variant === 'string' ? v.variant : 'main'
   if (v.compare === variant)
@@ -155,6 +284,7 @@ const stillOne = async (
       given,
       v.every === undefined ? undefined : Number(v.every),
       Math.min(duration, other?.project.manifest.duration ?? duration),
+      spanOf(v),
     )
     const outDir = v.out ? resolve(v.out) : join(project.root, 'out', 'stills')
     mkdirSync(outDir, { recursive: true })
@@ -230,7 +360,7 @@ const stillOne = async (
       kept.push({ name: variant, width, height, ...(safeArea ? { safeArea } : {}), frames, outDir })
     } else if (v.sheet) {
       sheet = join(outDir, `${pair}-sheet.png`)
-      await pngs.write(sheet, contactSheet(rendered, sheetWidth, height))
+      await pngs.write(sheet, contactSheet(rendered, sheetWidth, height, columns))
       activityImage(sheet)
     }
     await pngs.done()

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
 import { cli } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
+
+const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
 test('still --compare: each t beside the other variant, with PSNR and mean ΔE, in text, --json and --sheet', async () => {
   const root = fileURLToPath(new URL('./fixtures/params/', import.meta.url))
@@ -45,6 +48,50 @@ test('still --compare: each t beside the other variant, with PSNR and mean ΔE, 
   )
   assert.equal(same.result.stills[0].compare.psnr, null)
   assert.equal(same.result.stills[0].compare.deltaE, 0)
+})
+
+test('still --file reads stills and a sheet from a rendered file: --count, --from, --to and --columns (#537)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('still-file')
+  cpSync(fileURLToPath(new URL('./fixtures/mcp/', import.meta.url)), root, { recursive: true })
+  assert.equal((await cli('render', '--root', root)).status, 0)
+  const film = join(root, 'out', `${basename(root)}.mp4`)
+  const r = await cli(
+    'still',
+    '--file',
+    film,
+    '--count',
+    '4',
+    '--from',
+    '0.2',
+    '--to',
+    '1',
+    '--sheet',
+    '--columns',
+    '2',
+    '--json',
+  )
+  assert.equal(r.status, 0, r.stderr)
+  const { stills, sheet } = JSON.parse(r.stdout).result
+  assert.deepEqual(
+    stills.map((s: { t: number }) => s.t),
+    [0.2, 0.4, 0.6, 0.8],
+  )
+  assert.equal(sheet, join(root, 'out', 'stills', `${basename(root)}-sheet.png`))
+  // Two across, two down, each frame at its own 64×36.
+  const png = decode(readFileSync(sheet))
+  assert.deepEqual([png.width, png.height], [8 + 2 * (64 + 8), 8 + 2 * (36 + 22 + 8)])
+  // The box the source draws at x 15 + t·10 (t 0.2: x 17) is in the file's frame.
+  const still = decode(readFileSync(stills[0].file))
+  assert.ok((still.data[(14 * 64 + 20) * 4] as number) > 128)
+  const refused = await cli('still', '--file', film, '0', '--variant', 'short')
+  assert.equal(refused.status, 2)
+  assert.match(refused.stderr, /--variant renders the source/)
+  assert.match(
+    (await cli('still', '--file', film, '0', '--columns', '2')).stderr,
+    /--columns lays out a --sheet/,
+  )
 })
 
 test('a variant named what a file name cannot hold (16:9, a/b) still writes into out/stills', async () => {

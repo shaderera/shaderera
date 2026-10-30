@@ -40,6 +40,15 @@ another call renders. A call whose frame never settles fails after a minute with
 [cli.md](cli.md#common-flags)), naming its t, and the calls after it run. The project's own console output goes to the server's stderr, so stdout
 carries only MCP.
 
+At `initialize` the server sends instructions: the loop (`inspect` or `render_frame` for
+numbers, `still` to look, `check`, `render`), and that a whole film at full size renders in the
+CLI. Every tool has a `title` and annotations: `readOnlyHint` on the ones that only look
+(`render_frame`, `still`, `inspect`, `compare`, `pick`, `get_camera`, `get_source`, `check`,
+`versions`, `diff`, `comments`; they still add their activity entry), and on the others
+`destructiveHint` (true for `render`, which replaces its `out`, `restore` and `undo`) and
+`idempotentHint` where the same call does the same thing again. Each property has its own
+description.
+
 ## Tools
 
 `render_frame` and `still` also take `revision?`, a saved revision's id (from `versions`, or the
@@ -65,29 +74,32 @@ at, checks or reviews a film in 16:9 and 9:16 together
 takes (`t`, `a`, `b`, `times`, `from`, `to`) is checked before anything renders, as the CLI checks
 its times: a time missing, not a number or outside the film (from 0 up to but not including its
 duration) is refused, named (`Outside the film (0 to 10 s): 11.`). Errors come back as `isError`
-with the message.
+with the message; an error that knows where in the film it is (a throw in its code, a build error,
+a shader) adds a second text block, its finding as JSON (`code`, `file`, `line`, `t`), as the CLI's
+[`--json`](cli.md#--json-one-envelope) gives it.
 
 | Tool | Input | Output |
 |---|---|---|
-| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`, or a text run with its `box`), `scale?` 1–16; `variant?`, `params?`; `revision?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side unless `full: true`; a region is enlarged `scale` times, never scaled down |
-| `still` | `times?` (seconds), `every?`; `variant?` or `variants?`, `params?`; `revision?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. With `variants`, `{ times, variants: [{ variant, width, height }] }` and one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area `requirements.json` declares dashed. At most 64 frames in all; no file is written |
-| `inspect` | `t`; `path?`; or `track` (a path), `from?`, `to?`; `variant?`, `params?` | the inspect JSON at `t`, or the value at `path`. With `track`, like `shaderera inspect --track --json` ([cli.md](cli.md#inspect)): `[{ t, value, speed? }]` at every frame from `from` (default 0) to `to` (default the duration), `speed` per second for numbers and arrays of numbers |
+| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`, or a text run with its `box`), `scale?` 1–16; `variant?`, `params?`; `revision?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side, or 2048 px with `full: true`; a region is enlarged `scale` times, the scale lowered to keep its long side at most 2048 px (the size block then has `note`, such as `scale 16 → 3 (long side ≤ 2048)`) |
+| `still` | `times?` (seconds), `every?`; `variant?` or `variants?`, `params?`; `revision?`; or `file?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. With `variants`, `{ times, variants: [{ variant, width, height }] }` and one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area `requirements.json` declares dashed. At most 64 frames in all; no file is written. With `file` (a rendered video inside the project, such as `out/x.mp4`), the sheet is of its frames as encoded, as `still --file` reads them: `{ times, file, width, height }` and the sheet; not with `variant`, `variants`, `params` or `revision`. A sheet over 2048 px on its long side comes scaled down to 2048 |
+| `inspect` | `t` or `track` (a path), not neither; `path?`; with `track`, `from?`, `to?`; `variant?`, `params?` | the inspect JSON at `t`, or the value at `path`. With `track`, like `shaderera inspect --track --json` ([cli.md](cli.md#inspect)): `[{ t, value, speed? }]` at every frame from `from` (default 0) to `to` (default the duration), `speed` per second for numbers and arrays of numbers |
 | `compare` | `a`, `b`; `path?`; `variant?`, `params?` | `{ changes, pixels }`: `diffJson` of the inspects at the two times (under `path`) and `diffPixels` of the two final frames. Not `shaderera diff`, which compares two revisions |
 | `pick` | `t`, `x`, `y` | `{ pick, object, source }`: the `Pick`, the inspected object with that `id`, its `source` |
 | `get_camera` | `t` | `{ matrices, description, path, source }`; `description` is eye, forward, up, fovY, aspect, near, far |
 | `get_source` | `id`; `t?` (default 0) | `{ path, file, line, column, around }`; `around` is ±8 numbered lines. Only a file inside the project (symbolic links followed) is read |
-| `check` | `times?` (default 20, where the CLI's `check` takes 50), `seed?`, `hdr10?`; `variants?` | like `shaderera check`: `{ times, failures, what, msPerFrame, previewVsFinal }`. `hdr10: true` checks the film's HDR10 render (its P010, the peak, the layers' light) and adds `light: { maxCll, maxFall }` in cd/m². With `variants`, `{ variants: [{ variant, ...that }] }` |
-| `render` | `from?`, `to?`, `out?`, `job?`, `hdr10?`, `softwareGpu?` | like `shaderera render`: `{ out, frames, seconds }` (needs ffmpeg). `out` must be inside the project. With `job` (a name from the `job` tool), renders that frozen job instead of the working tree. `hdr10: true` (not with `job`: a job is made with it) makes an HDR10 mp4 of a film with `hdr10` in shaderera.json and adds its measured `light` ([HDR10](delivery.md#hdr10)). A source that is not deterministic is refused and no file is left ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). A host on a software GPU is refused before anything is saved unless `softwareGpu: true` ([a software GPU](cli.md#a-software-gpu)) |
+| `check` | `samples?` (default 20, where the CLI's `check` takes 50), `seed?`, `hdr10?`; `variants?` | like `shaderera check`: `{ times, failures, what, msPerFrame, previewVsFinal }`. `hdr10: true` checks the film's HDR10 render (its P010, the peak, the layers' light) and adds `light: { maxCll, maxFall }` in cd/m². With `variants`, `{ variants: [{ variant, ...that }] }` |
+| `render` | `from?`, `to?`, `out?`, `draft?`, `variant?`, `params?`, `job?`, `hdr10?`, `softwareGpu?` | like `shaderera render`: `{ out, frames, seconds }` (needs ffmpeg). `out` must be inside the project; without it a variant and a draft go beside the main film (`out/<name>-<variant>-draft.mp4`). `draft` (a height in pixels, or `true` for 360) is a review render at that size and full fps, as `--draft`; not with `job`, nor are `variant` and `params`, which a job froze. A request with a `progressToken` gets `notifications/progress` as frames are written (`progress` of `total` frames, at most four a second). A whole film at full size is the CLI's job, in a shell. With `job` (a name from the `job` tool), renders that frozen job instead of the working tree. `hdr10: true` (not with `job`: a job is made with it) makes an HDR10 mp4 of a film with `hdr10` in shaderera.json and adds its measured `light` ([HDR10](delivery.md#hdr10)). A source that is not deterministic is refused and no file is left ([determinism.md](determinism.md#export-refuses-a-source-that-fails)). A host on a software GPU is refused before anything is saved unless `softwareGpu: true` ([a software GPU](cli.md#a-software-gpu)) |
 | `save` | `label?`, `note?` | like `shaderera save`: the revision, saved in `versions/`, with `files` as the count of its files rather than each one's hash; the same files always have the same id |
 | `versions` | — | like `shaderera versions`: `{ head, log, jobs }`: the head revision, the log of saves, restores and undos, and the render jobs |
 | `restore` | `id` | like `shaderera restore <id>`: the project becomes that revision (the working tree is saved first); returns the revision, without its files' hashes. The next call reopens the child on the restored files |
 | `undo` | — | like `shaderera undo`: the previous revision (unsaved edits are saved first); returns it as `restore` does |
 | `diff` | `a`, `b?`, `stat?` | like `shaderera diff`: `{ added, removed, changed, patch }` from revision `a` to `b` (or the working tree); `stat: true` leaves out `patch` |
-| `comments` | `state?` (`open` by default, `fixed`, `resolved`, `all`) or `id?` | like `shaderera comments --json`, the same JSON: `{ revision, head, comments }`: the working tree's id now, the head, and each comment as a thread with its replies and `stale` ([cli.md](cli.md#comments)). A comment's `t`, `point` or `box` go straight into `render_frame` (`region`) and `pick` |
+| `comments` | `state?` (an enum: `open` by default, `fixed`, `resolved`, `all`) or `id?` | like `shaderera comments --json`, the same JSON: `{ revision, head, comments }`: the working tree's id now, the head, and each comment as a thread with its replies and `stale` ([cli.md](cli.md#comments)). A comment's `t`, `point` or `box` go straight into `render_frame` (`region`) and `pick` |
 | `comment_add` | `t`, `text`; `to?`, `variant?`, `point?` `[x, y]` or `box?` `[x, y, w, h]`, `object?`, `params?` | like `shaderera comments add`: files a comment (for feedback the person gave in chat) on the tree as it is, which it saves as a revision; `{ revision, head, comments: [it] }` |
 | `comment_reply` | `id`, `text`, `fixed?` | like `shaderera comments reply`: `fixed: true` saves a revision labelled `fix <id>: <text>` and marks it fixed there, refused when nothing changed since the comment's revision; `{ revision, head, comments: [it] }` |
 | `comment_resolve` | `id`, `reopen?` | with `reopen: true`, reopens it. Without, refused: only the person resolves a comment, in the studio |
 | `job` | `variant?`, `params?`, `revision?`, `name?`, `label?`, `from?`, `to?`, `hdr10?` | the job. Freezes a revision (the project is saved first unless `revision` is given), a variant from `shaderera.json`, params over the defaults and an optional window, like `shaderera job` ([cli.md](cli.md#versions-and-jobs)); `hdr10: true` makes an HDR10 job. It never replaces a job |
+| `studio` | `stop?` | starts the project's studio as `shaderera studio --json` does ([studio.md](studio.md)) and returns its `url` event (`{ url, id, opened, project, bridge, site, api }`): the address to give the person, opened in their browser. A second call returns the same studio's latest address, with `reused: true`; a studio started elsewhere (the CLI) is named by its `pid`, not replaced. The studio runs as long as the server (it ends when the server does) or until `stop: true`, which does what `shaderera studio --stop` does to the project's studio, whoever started it. Its events are not sent over MCP: comments come through `comments` |
 | `activity_add` | `text`, `comment?` | like `shaderera activity add` ([cli.md](cli.md#activity)): the entry. A note (at most 4000 characters) of what you mean to do, about a comment when its id is given |
 | `review` | `variant?` or `variants?`, `quick?` | like `shaderera review` ([cli.md](cli.md#review)): the report JSON as text, then the contact sheet and each principal frame's thumb (shots and the last frame; not the transition samples) as PNG images. Files go to `out/review/` (a variant: `out/review/<variant>/`), and the report names them relative to the project; requirements from `requirements.json`. With `variants`, `{ variants: [{ variant, ...report }] }` as text, then each variant's contact sheet |
 
@@ -104,9 +116,11 @@ Notes from the code:
   `camera`. That is the literal of your camera object, which may be a computed one.
 - `pick` on a source without `pick` returns `{ "pick": null, "object": null, "source": null }`.
 - Images are opt-in on purpose: hashes, means and boxes are cheaper to read and compare.
-- A scaled-down image is drawn through a canvas, which premultiplies alpha; `full: true` and
-  regions are the frame's straight RGBA byte for byte. `pick`'s `x` and `y` are frame pixels, not
-  the scaled image's.
+- No tool returns an image over 2048 px on its long side (the Claude API refuses a request with
+  one over 8000 px): a bigger sheet or contact sheet is scaled down to fit.
+- A scaled-down image is drawn through a canvas, which premultiplies alpha; `full: true` on a
+  frame of at most 2048 px, and regions, are the frame's straight RGBA byte for byte. `pick`'s `x`
+  and `y` are frame pixels, not the scaled image's.
 
 ## Walk-through: a camera jump
 

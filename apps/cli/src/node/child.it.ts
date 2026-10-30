@@ -32,6 +32,33 @@ test('a hung source fails the call after timeoutMs and closes without a crash', 
   await assert.rejects(child.render(0, 'final'), /has exited/)
 })
 
+test('a host that exits fails the call with its last lines of stderr, not only its code (#530)', async () => {
+  const root = tempDir('dies')
+  cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
+  // Thrown outside any call: the host dies of it with code 1.
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io }) => {
+  const canvas = io.canvas(64, 36)
+  return {
+    render: async () => {
+      setTimeout(() => { throw new Error('the source died out of turn') })
+      await new Promise((done) => setTimeout(done, 1000))
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const project = await findProject(root)
+  const child = await openChild(project, { entryFile: await buildForNode(project) })
+  await assert.rejects(
+    child.render(0, 'final'),
+    /^Error: The source process exited \(1\)\. Its last output:\n[\s\S]*the source died out of turn/,
+  )
+  await child.close()
+})
+
 test('a frame announced whose bytes never come on the pipe fails the call after timeoutMs (#439)', async () => {
   const root = tempDir('dropped')
   cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })

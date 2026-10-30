@@ -5,7 +5,7 @@ import { type ChildProcess, fork } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import type { Socket } from 'node:net'
-import { dirname, join, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Caption, Json, Matrices, Pick, Range, SampledClip } from '@shaderera/core'
 import type { GpuOutput, HdrOutput, LightLevels, SeekStats } from '@shaderera/core/host'
@@ -14,10 +14,14 @@ import type { TextRun } from '../review/measure.ts'
 import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
 import type { Fonts, HostProfile, Request } from './host.ts'
 import { outside } from './inside.ts'
+import { readJson } from './json.ts'
 import type { Project } from './project.ts'
 import { type BakeFrames, createServices, type ServiceRequest } from './services.ts'
 
 const modules = `${sep}node_modules${sep}`
+/** How much of a host's stderr is kept, and how many of its last lines an exit's error names. */
+const STDERR_KEPT = 4000
+const STDERR_LINES = 12
 
 /**
  * The `--permission` flags for a child that reads `root` and the given package directories (real
@@ -55,7 +59,7 @@ const packageDirs = (root: string): string[] => {
     return dir
   }
   const file = join(root, 'package.json')
-  const json = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
+  const json = existsSync(file) ? readJson<{ [k: string]: object }>(file) : {}
   const deps = Object.keys({ ...json.dependencies, ...json.devDependencies })
   const local = deps.map((d) => join(root, 'node_modules', d)).filter((d) => existsSync(d))
   const dirs = [cliRoot, pkg('@shaderera/core'), pkg('@napi-rs/canvas'), ...local]
@@ -99,6 +103,50 @@ export const silentError = (who: string, ms: number, request: { type: string; t?
   new Error(
     `${who} took longer than ${ms} ms on ${callName(request)} without a sign of work: if it is working, --timeout <s> gives it longer.`,
   )
+
+/**
+ * The first frame of a stack that is in the project's own source, through the build's source map
+ * (child.ts runs the host with `--enable-source-maps`): its file relative to `root`, and its line.
+ * Frames in node_modules, in the build itself (.shaderera) and outside the project are skipped.
+ */
+export const sourceFrame = (
+  stack: string | undefined,
+  root: string,
+): { file: string; line: number; column: number } | undefined => {
+  for (const l of (stack ?? '').split('\n')) {
+    const m = /^\s*at (?:.*? \()?(.+?):(\d+):(\d+)\)?$/.exec(l)
+    if (!m) continue
+    const path = (m[1] as string).startsWith('file:') ? fileURLToPath(m[1] as string) : m[1]
+    if (!path || !isAbsolute(path) || outside(root, path)) continue
+    const file = relative(root, path).split(sep).join('/')
+    if (file.startsWith('node_modules/') || file.startsWith('.shaderera/')) continue
+    return { file, line: Number(m[2]), column: Number(m[3]) }
+  }
+  return undefined
+}
+
+/**
+ * The error a call to the source failed with, as the host sent it. A throw in the project's own
+ * code names the call and where: `render(3) threw: boom (src/composition.ts:26)`, and carries
+ * `at` (t, file, line) for its finding (errorFinding). Anything else keeps its message.
+ */
+export const callError = (
+  message: string,
+  stack: string | undefined,
+  root: string,
+  request: { type: string; t?: unknown },
+): Error => {
+  const at = sourceFrame(stack, root)
+  const t = typeof request.t === 'number' ? request.t : undefined
+  const error = at
+    ? Object.assign(
+        new Error(`${request.type}(${t ?? ''}) threw: ${message} (${at.file}:${at.line})`),
+        { at: { ...at, ...(t !== undefined ? { t: [t] } : {}) } },
+      )
+    : new Error(message)
+  error.stack = stack
+  return error
+}
 
 export type HostIdentity = {
   host: 'node' | 'browser'
@@ -211,14 +259,36 @@ export const openChild = async (
     resized?: boolean
   },
 ): Promise<Child> => {
-  const execArgv = o.trusted ? [] : permissionArgs(project.root, packageDirs(project.root))
+  const execArgv = [
+    '--enable-source-maps',
+    ...(o.trusted ? [] : permissionArgs(project.root, packageDirs(project.root))),
+  ]
   const child: ChildProcess = fork(join(here, `host${ext}`), [], {
     execArgv,
     serialization: 'advanced',
     // The project's console output goes to stderr: stdout may be the CLI's result or MCP's stream,
-    // and stdin may be MCP's too. Frames go both ways on a pipe of their own (bulk.ts).
-    stdio: ['ignore', 2, 2, 'ipc', 'overlapped'],
+    // and stdin may be MCP's too. Frames go both ways on a pipe of their own (bulk.ts). Its stderr
+    // comes through this process, which keeps the end of it for an exit to say why.
+    stdio: ['ignore', 2, 'pipe', 'ipc', 'overlapped'],
   })
+  let said = ''
+  child.stderr?.on('data', (d: Buffer) => {
+    process.stderr.write(d)
+    said = (said + d.toString()).slice(-STDERR_KEPT)
+  })
+  /** Why the host exited: its code, and its last lines of stderr once they have all come. */
+  const exitError = async (code: number | null, signal: NodeJS.Signals | null) => {
+    // At most a moment: a process the host started may hold the pipe open after it.
+    if (child.stderr && !child.stderr.readableEnded)
+      await new Promise((done) => {
+        child.stderr?.once('close', done)
+        setTimeout(done, 500).unref()
+      })
+    const last = said.trimEnd().split(/\r?\n/).slice(-STDERR_LINES).join('\n')
+    return new Error(
+      `The source process exited (${code ?? signal}).${last ? ` Its last output:\n${last}` : ''}`,
+    )
+  }
   const pipe = child.stdio[BULK_FD] as Socket
   // A host that dies takes its end with it: the call fails through its exit.
   pipe.on('error', () => {})
@@ -275,7 +345,7 @@ export const openChild = async (
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           clearTimeout(timer)
           child.off('message', onMessage)
-          fail(new Error(`The source process exited (${code ?? signal}).`))
+          void exitError(code, signal).then(fail)
         }
         const onMessage = (m: {
           id: number
@@ -314,9 +384,7 @@ export const openChild = async (
           }
           clearTimeout(timer)
           if (m.error === undefined) return done(m.result as T)
-          const error = new Error(m.error)
-          error.stack = m.stack
-          fail(error)
+          fail(callError(m.error, m.stack, project.root, request))
         }
         child.on('message', onMessage).once('exit', onExit)
         child.send({ id, request })
@@ -339,9 +407,15 @@ export const openChild = async (
       ...(o.resized ? { resized: true } : {}),
     },
     opening,
-  ).catch((error: unknown) => {
+  ).catch((error: Error) => {
     // A source that cannot open must not keep the process alive.
     child.kill()
+    // No default export: the finding points at the entry's end, where it goes.
+    if (/has no default export/.test(error.message) && !('at' in error)) {
+      const entry = resolve(project.root, project.manifest.entry)
+      const file = relative(project.root, entry).split(sep).join('/')
+      Object.assign(error, { at: { file, line: readFileSync(entry, 'utf8').split('\n').length } })
+    }
     throw error
   })
   return {

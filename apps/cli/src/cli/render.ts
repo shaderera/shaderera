@@ -74,10 +74,11 @@ import {
   requireHdr10,
   requireHdr10Ffmpeg,
 } from './ffmpeg.ts'
-import { found } from './findings.ts'
+import { EXIT, found } from './findings.ts'
 import { type FrameTime, frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
 import { openMix } from './mix.ts'
 import { blackFrame, fileTimecode, prerollOf, prerollTimes, writePreroll } from './preroll.ts'
+import { stoppable, stopRenders } from './render-stop.ts'
 
 /**
  * How many hosts an export uses by default (decision 0007): up to 4, two cores left free, at
@@ -147,6 +148,11 @@ const exportOnce = async (
     from?: number
     to?: number
     out?: string
+    /**
+     * Without `out`, the words after the project's name in the file's name (a variant's, `draft`):
+     * such a file goes beside the main film's, never over it.
+     */
+    name?: readonly string[]
     quality?: Quality
     crf?: number
     /** Each frame written; with `'recheck'`, each frame the determinism re-check rendered again. */
@@ -260,7 +266,7 @@ const exportOnce = async (
     : join(
         root,
         'out',
-        `${[basename(root), ...windowParts(from, to, manifest.duration)].join('-')}${extensionOf(codec)}`,
+        `${[basename(root), ...(o.name ?? []), ...windowParts(from, to, manifest.duration)].join('-')}${extensionOf(codec)}`,
       )
   // Anywhere else in the project, the film would be saved into every later revision.
   if (!outside(root, out) && outside(join(root, 'out'), out))
@@ -690,6 +696,16 @@ const encoderOf = (value: unknown): Encoder | 'x265' => {
   )
 }
 
+/** `--crf` (render, assemble): an integer 0–51, refused before ffmpeg would refuse it, or none. */
+export const crfOf = (value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined
+  if (!/^\d+$/.test(value) || Number(value) > 51)
+    throw new Error(
+      `--crf is a whole number 0–51, lower is better, not ${value}; without it, the quality's own.`,
+    )
+  return Number(value)
+}
+
 export const run = async (argv: readonly string[]): Promise<number> => {
   // `--draft [height]`: a flag whose value may be left out, which parseArgs cannot read.
   const drafted = draftArgs(argv)
@@ -715,6 +731,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       force: { type: 'boolean' },
       hdr10: { type: 'boolean' },
       retries: { type: 'string' },
+      stop: { type: 'boolean' },
+      json: { type: 'boolean' },
       ...DELIVERY_FLAGS,
     },
     { command: 'render', times: false },
@@ -725,9 +743,22 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (loudness !== undefined && !Number.isFinite(loudness))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
   const retries = retriesOf(v.retries)
-  requireFfmpeg()
+  const crf = crfOf(v.crf)
   const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
   const root = located.root
+  if (v.stop) {
+    const r = await stopRenders(root)
+    for (const pid of r.stopped) console.log(`Stopped the render in ${root} (pid ${pid}).`)
+    if (r.slow.length > 0) {
+      console.error(
+        `Asked the render in ${root} (pid ${r.slow.join(', ')}) to stop; it is still ending.`,
+      )
+      return EXIT.failed
+    }
+    if (r.stopped.length === 0) console.log(`No render is running in ${root}.`)
+    return EXIT.ok
+  }
+  requireFfmpeg()
   const job = typeof v.job === 'string' ? readJob(root, v.job) : undefined
   const given = Object.keys(DELIVERY_FLAGS).filter((k) => v[k as keyof typeof v] !== undefined)
   if (job && given.length > 0)
@@ -814,6 +845,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
   const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
+  // `render --stop` in the project stops a video render or a chunk as Ctrl-C does.
+  let unlisten: (() => void) | undefined
+  const listen = async () => {
+    unlisten = await stoppable(root, () =>
+      stop.abort(new Error('Stopped by render --stop: the output was left as it was.')),
+    )
+  }
   // A terminal, or a reader that asks (--progress), gets the line at every frame; a pipe (a
   // background run, --json) one line every 10 s, so a log of a long render says how far it is.
   const progress = process.stderr.isTTY || v.progress === true
@@ -871,6 +909,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       })
       process.once('SIGINT', interrupt)
       process.once('SIGTERM', interrupt)
+      await listen()
       const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame, stop.signal).finally(
         () => progress && process.stderr.write('\n'),
       )
@@ -908,17 +947,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     // Only around a chunk and the video export: a png job keeps the default Ctrl-C.
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
+    await listen()
     const ext = extensionOf(video.codec)
-    // A draft goes beside the review file and the final, never over them, and a window beside
-    // the whole film.
-    const { duration } = project.manifest
-    const span = windowParts(from ?? 0, to ?? duration, duration)
-    const named = (...parts: string[]) =>
-      join(
-        root,
-        'out',
-        `${[basename(root), ...parts, ...(draft ? ['draft'] : []), ...span].join('-')}${ext}`,
-      )
     const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
       ...video,
       from: job?.output.from ?? from,
@@ -929,13 +959,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           ? resolve(v.out)
           : job
             ? join(root, 'out', `${job.name}${ext}`)
-            : typeof v.variant === 'string'
-              ? named(safeName(v.variant))
-              : draft
-                ? named()
-                : undefined,
+            : undefined,
+      // A variant and a draft go beside the main film, never over it.
+      name: [
+        ...(typeof v.variant === 'string' ? [safeName(v.variant)] : []),
+        ...(draft ? ['draft'] : []),
+      ],
       quality: delivery.quality,
-      crf: num(v.crf),
+      crf,
       audio,
       loudness,
       onFrame,
@@ -944,24 +975,35 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       retries,
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
-    console.log(
+    const host = await child.identity()
+    // --json: what MCP `render` gives, with the revision and the host, instead of these lines.
+    const say = v.json ? () => {} : console.log
+    if (v.json)
+      console.log(
+        JSON.stringify(
+          { out, frames, seconds, workers, encoder, ...sound, revision, host },
+          null,
+          2,
+        ),
+      )
+    say(
       `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}${draft ? `, ${draft}` : ''}`,
     )
-    console.log(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
-    if (sound.light) console.log(`light: ${lightLine(sound.light)}`)
-    console.log(`revision: ${revision}`)
-    for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) console.log(f)
+    say(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
+    if (sound.light) say(`light: ${lightLine(sound.light)}`)
+    say(`revision: ${revision}`)
+    for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) say(f)
     if (sound.loudness)
-      console.log(
+      say(
         `audio: ${loudnessLine(sound.loudness)}${sound.gainDb === undefined ? '' : ` (gain ${sound.gainDb.toFixed(2)} dB for ${loudness} LUFS)`}`,
       )
-    else if (loudness !== undefined) console.log('audio: none to bring to a loudness')
-    console.log(`host: ${JSON.stringify(await child.identity())}`)
+    else if (loudness !== undefined) say('audio: none to bring to a loudness')
+    say(`host: ${JSON.stringify(host)}`)
     if (sound.time) {
       const line = frameTimeLine(sound.time)
       const hint = frameTimeHint(sound.time)
-      console.log(line)
-      if (hint) console.log(hint)
+      say(line)
+      if (hint) say(hint)
       found({
         code: 'frame-time',
         severity: 'info',
@@ -978,6 +1020,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   } finally {
     process.off('SIGINT', interrupt)
     process.off('SIGTERM', interrupt)
+    unlisten?.()
     await Promise.all(extra.map((h) => h.close()))
     await child.close()
     // The job's frozen copy goes once its hosts closed, unless another render uses it.
