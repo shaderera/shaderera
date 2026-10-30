@@ -124,14 +124,20 @@ The CLI and MCP can only show and change what the source exposes.
 ## Keep it deterministic
 
 `render(t)` is a function of `t`, the params and `host.seed`: no clocks, no `Math.random()` in
-`render`, every asset awaited in `open`. `npx shaderera check` renders sampled frames in two
-orders and compares them; export repeats the check on one frame a second of film (8 frames at
-most for a `sequential` source). The causes and fixes are in `docs/determinism.md`; each
-renderer's traps (three.js's frame clock, readback rows padded to 256 bytes, multisampling with
-blending on Dawn) are in its `docs/participants/` page. Canvas2D pixels differ slightly between
-the browser and Node: export a film from one host.
+`render` (a hash of the frame instead), every asset awaited in `open`. `npx shaderera check`
+renders sampled frames in two orders and compares them; export repeats the check on one frame a
+second of film (8 frames at most for a `sequential` source). `npx shaderera still --diff <t>`
+renders one t again after a far-away frame, for a frame that depends on history. The causes and
+fixes are in `docs/determinism.md`; each renderer's traps (three.js's frame clock, readback rows
+padded to 256 bytes, multisampling with blending on Dawn) are in its `docs/participants/` page.
+Canvas2D pixels differ slightly between the browser and Node: export a film from one host.
 A canvas kept across frames and drawn on at `imageSmoothingQuality = 'high'` keeps a trace of
 the previous frame: clear it first.
+
+- **A GPU scatter** (many writes to one pixel or cell) with float blending depends on the order
+  the GPU runs it: accumulate with integer atomics.
+- **WGSL traps:** `target` is a reserved word. Keep TypeScript and WGSL struct sizes in step and
+  write the stride down. Guard `normalize` of a zero vector and `pow` of a negative base.
 
 ## Expensive films
 
