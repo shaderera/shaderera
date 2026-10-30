@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
@@ -37,7 +37,7 @@ import { valueAt } from './inspect.ts'
 import { studios } from './mcp-studio.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { revisionHosts } from './revision-host.ts'
-import { stillTimes } from './still.ts'
+import { openFile, stillTimes } from './still.ts'
 import { nameOf, sameAsMain, variantList } from './variants.ts'
 
 type Obj = { [k: string]: Json }
@@ -248,9 +248,13 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
   ],
   [
     'still',
-    'Renders final frames and returns one contact sheet image, each frame labelled with its t: the way to look at the film. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. At most 64 frames.',
+    'Renders final frames (or, with file, reads those of a rendered video) and returns one contact sheet image, each frame labelled with its t: the way to look at the film. With variants, one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area requirements.json declares dashed. At most 64 frames.',
     {
       times: say({ type: 'array', items: num }, 'The times to look at, in seconds.'),
+      file: say(
+        str,
+        "A rendered video inside the project (out/x.mp4): the sheet is of its frames, as encoded, instead of the source's. Not with variant, variants, params or revision.",
+      ),
       every: say(num, 'Also a frame every this many seconds from 0.'),
       revision,
       ...looks,
@@ -731,6 +735,39 @@ export const createServer = (
       await Promise.all(hosts.map((o) => o.child.close()))
     }
   }
+  /** still with file: a sheet of a rendered file's frames; no child opens for it. */
+  // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+  const fileSheet = async (root: string, a: { [k: string]: any }) => {
+    if (typeof a.file !== 'string') throw new Error('file is a video file inside the project.')
+    for (const k of ['variant', 'variants', 'params', 'revision'])
+      if (a[k] !== undefined) throw new Error(`file is read as it was rendered: no ${k}.`)
+    const path = inside(root, a.file)
+    const video = openFile(path)
+    try {
+      const given = timesOf(a.times)
+      const every = typeof a.every === 'number' ? a.every : undefined
+      if (given.length === 0 && every === undefined) throw new Error('still needs times or every.')
+      const times = stillTimes(given, every, video.duration)
+      if (times.length > SHEET)
+        throw new Error(
+          `${times.length} frames: a sheet holds at most ${SHEET}. Give fewer times or a longer every.`,
+        )
+      const label = basename(path)
+      const frames = []
+      for (const t of times) frames.push({ t, label, pixels: await video.frame(t) })
+      const { width, height } = video
+      const sheet = await contactSheet(frames, width, height)
+      return [
+        {
+          type: 'text',
+          text: JSON.stringify({ times, file: slash(relative(root, path)), width, height }),
+        },
+        image(sheet.toString('base64')),
+      ]
+    } finally {
+      await video.close()
+    }
+  }
   /** The tools on versions/ alone: no child opens for them. */
   // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
   const revisions: { [name: string]: (root: string, a: { [k: string]: any }) => unknown } = {
@@ -816,6 +853,7 @@ export const createServer = (
   ): Promise<unknown> => {
     const onComments = commentTools[name]
     if (onComments) return onComments(root, a)
+    if (name === 'still' && a.file !== undefined) return fileSheet(root, a)
     // A variant or params get their own child, closed with the call; the session's child is the
     // server's own variant (`--variant`), with the defaults.
     if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')

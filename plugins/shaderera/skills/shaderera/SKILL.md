@@ -101,6 +101,9 @@ in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case come
 - **HDR10:** a film with `hdr10` in shaderera.json renders it with `render --hdr10` (`check
   --hdr10` first; `deliver --hdr10 --sdr` adds the SDR file). It needs ffmpeg 9.0 or later:
   `doctor` says so as `ffmpeg:hdr10`. See delivery.md, "HDR10".
+- **Looking at the rendered file:** `npx shaderera still --file out/<name>.mp4 --count 12 --sheet`
+  (`--from`, `--to`, `--columns`; MCP `still {file}`) gives its frames as encoded, and
+  `render` prints its loudness (`audio:` integrated LUFS and true peak). No ffmpeg command needed.
 - **Stopping a render:** `npx shaderera render --stop` in the project stops the render running
   there cleanly. Never kill processes by name or pattern: other sessions' renders and tests run
   on the same machine.
