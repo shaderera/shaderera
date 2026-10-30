@@ -167,8 +167,9 @@ page:
 4. On a `mismatch` event, relay its `text`: the page and the CLI speak different studio
    protocols (this CLI speaks v2). `update: "page"` means reload the page; `update: "cli"` means
    `npm i shaderera@latest` and run `studio` again (the command ends with exit 2).
-5. A second `url` event means no page came for the first address in 10 minutes: give the person
-   the new one.
+5. A later `url` event has a new address: no page came for the last one in 10 minutes
+   (`expired`), or the person closed the paired page (`closed`). It is not opened: give the
+   person the new one when they want the studio again.
 6. To stop it, run `npx shaderera studio --stop` in the project. Don't kill it: then the page
    only hears that the CLI left. The running command ends with `ended`, and the page is told the
    session ended. One studio runs a project at a time: a second `studio` there is refused until

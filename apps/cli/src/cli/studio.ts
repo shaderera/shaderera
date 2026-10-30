@@ -20,7 +20,8 @@ import { apiOf, openBrowser, siteOf } from './site.ts'
  * [--no-open] [--json]`: the local bridge of the studio page on the site (docs/studio.md, decision
  * 0021). Without `--connect` it makes a studio session id; with it, it takes the id the page made.
  * Either way it opens `<site>/studio/<id>#<nonce>` itself and pairs only with the page that holds
- * that nonce. Share sends films to the films API (`--api`), as `shaderera share` does. It runs
+ * that nonce. Once that page has closed for good, it ends the session and prints a new one's
+ * address, on the same bridge. Share sends films to the films API (`--api`), as `shaderera share` does. It runs
  * until Ctrl-C, SIGTERM, or (stdin a pipe) stdin closing or sending `{"stop":true}`. With `--json`, stdout is one JSON line per event, for an agent that runs it in the
  * background (docs/studio.md, "For agents").
  */
@@ -155,23 +156,31 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     }
 
   let id = v.connect ?? makeId()
-  let expired: string | undefined
+  // Whether the id is the page's (--connect), and why this is not the first id: the last one
+  // expired with no page, or its page closed for good (no page can rejoin it: the relay lets a
+  // page back only with the token its tab kept).
+  let web = v.connect !== undefined
+  let last: { expired: string } | { closed: string } | undefined
   let relay: ReturnType<typeof connectRelay>
   let end: RelayEnd | null
   // How long the relay keeps an id no CLI paired with (docs/studio.md, "Expiry"). For tests:
   // SHADERERA_STUDIO_EXPIRY_MS.
   const expiryMs = Number(process.env.SHADERERA_STUDIO_EXPIRY_MS) || 10 * 60_000
+  // For tests: SHADERERA_STUDIO_PAGE_BACK_MS (relay.ts's PAGE_BACK_MS).
+  const pageBackMs = Number(process.env.SHADERERA_STUDIO_PAGE_BACK_MS) || undefined
   let early: string | undefined
   for (;;) {
     const since = Date.now()
     // The page pairs only if it holds the nonce, which only the page opened here has.
     const nonce = makeNonce()
-    const page = pageUrl(site, id, nonce, v.connect !== undefined)
-    // A new id after one expired is printed, not opened again.
-    const opened = !v['no-open'] && !expired
-    const why = expired
-      ? `No studio page came for session ${expired} within 10 minutes: a new one.`
-      : undefined
+    const page = pageUrl(site, id, nonce, web)
+    // A new id is printed, not opened: a tab the person closed is not opened again.
+    const opened = !v['no-open'] && !last
+    const why = !last
+      ? undefined
+      : 'expired' in last
+        ? `No studio page came for session ${last.expired} within 10 minutes: a new one.`
+        : `The studio page of session ${last.closed} closed: a new one.`
     say(
       'url',
       {
@@ -182,7 +191,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         bridge: bridge.origin,
         site,
         api,
-        ...(expired ? { expired, text: why } : {}),
+        ...(last ? { ...last, text: why } : {}),
       },
       [
         ...(why ? [why] : [`project  ${root}`, `bridge   ${bridge.origin} (for ${site} only)`]),
@@ -192,20 +201,29 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     )
     if (opened) openBrowser(page)
 
+    // The paired page closed for good: this session ends, and a new one starts.
+    let paired = false
+    let left = () => {}
+    const gone = new Promise<'gone'>((done) => {
+      left = () => done('gone')
+    })
     relay = connectRelay({
       site,
       id,
       nonce,
       bridge,
       hello: { version: shadereraVersion(), os: process.platform, telemetry: telemetryStatus().on },
-      onPaired: () =>
-        say('paired', {}, 'paired: the studio page drives this project. Ctrl-C stops.'),
+      onPaired: () => {
+        paired = true
+        say('paired', {}, 'paired: the studio page drives this project. Ctrl-C stops.')
+      },
       onMismatch: (m) => say('mismatch', m, m.text, true),
       // A reload rejoins within a few seconds: only a page that does not is closed.
-      onPage: (state) =>
-        state === 'closed'
-          ? say('page-closed', {}, 'the studio page closed')
-          : say('resumed', {}, 'the studio page is back'),
+      onPage: (state) => {
+        if (state !== 'closed') return say('resumed', {}, 'the studio page is back')
+        say('page-closed', {}, 'the studio page closed')
+        if (paired) left()
+      },
       onRelay: (back) =>
         say(
           'relay',
@@ -214,16 +232,26 @@ export const run = async (argv: readonly string[]): Promise<number> => {
             ? 'the relay is back: the studio page can reach this CLI through it again'
             : 'the relay dropped this CLI; rejoining (the bridge still serves the page directly)',
         ),
+      ...(pageBackMs ? { pageBackMs } : {}),
     })
-    end = await Promise.race([relay.closed, stop.then(() => null)])
+    const next = await Promise.race([relay.closed, stop.then(() => null), gone])
+    if (next === 'gone') {
+      // Ended at the relay (1000), as Ctrl-C ends it; the bridge and its project stay.
+      await relay.close()
+      last = { closed: id }
+      id = makeId()
+      web = false
+      continue
+    }
+    end = next
     // An id this CLI made that no page came for in time: the CLI waits on a new one. An id the
     // page made (--connect) belongs to that page, and ends.
-    if (end && !end.paired && end.code === CLOSE.expired && !end.error && v.connect === undefined) {
+    if (end && !end.paired && end.code === CLOSE.expired && !end.error && !web) {
       // Only an id that lived out the relay's limit: a relay that expires ids at once would
       // have the CLI make one after another.
       const lived = Date.now() - since
       if (lived >= expiryMs * 0.9) {
-        expired = id
+        last = { expired: id }
         id = makeId()
         continue
       }

@@ -57,9 +57,12 @@ When the page closes, the CLI says so only if no page comes back within 10 secon
 a reload comes back sooner (a new `page-hello`, or a request to the bridge, directly or through
 the relay), and the CLI says "the studio page is back" instead. A request in the 2 s before the
 relay says the page left counts too: a reloaded page reaches 127.0.0.1 before the relay's word
-does. A page said closed that comes back later (a reload that waited for Connect) is back as
-well, once. Before pairing, a page that comes
-back is simply the page that pairs.
+does. Before pairing, a page that comes back is simply the page that pairs.
+
+Once the paired page has closed (it did not come back within 10 seconds), no page can rejoin its
+session: the relay lets a page back only with the token its tab kept, which went with the tab. So
+the CLI ends that session and starts a new one on the same bridge and project, with a new id and
+nonce. It prints the new address, and does not open it: the person closed that tab.
 
 **For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
 `url` event's address (or let the command open it), and read the events. stdout is one JSON object
@@ -68,10 +71,10 @@ a line, `{event, ...}`:
 | Event | Fields | When |
 |---|---|---|
 | `notice` | `text` | the first `studio` on this machine: the telemetry notice |
-| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api`; `expired`, `text` on a new id | the bridge is up; `opened` is false with `--no-open`. Again, with a new id, when no page came for the last one in 10 minutes: `expired` is that id |
+| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api`; `expired` or `closed`, and `text`, on a new id | the bridge is up; `opened` is false with `--no-open`. Again, with a new id (not opened): when no page came for the last one in 10 minutes (`expired` is that id), or after `page-closed` once paired (`closed` is that id) |
 | `paired` | | the page the CLI opened paired |
-| `page-closed` | | the page closed and did not come back within 10 s |
-| `resumed` | | once paired, the page came back: within 10 s (a reload), or later, after `page-closed` (a reload that waited for Connect) |
+| `page-closed` | | the page closed and did not come back within 10 s; once paired, a `url` event with a new id follows |
+| `resumed` | | once paired, the page came back within 10 s (a reload) |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
 | `changed`, `job`, `log`, `share`, `comment`, `agent` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start. A running job's progress comes at most every 10 % and 2 s, and every state change comes. `activity` is not sent: it is the agent's own record |
