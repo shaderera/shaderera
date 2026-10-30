@@ -328,9 +328,9 @@ the rest is the CLI's own work on each frame and, in the browser host, laying ou
 `dom`, which none of them counts. A busy encoder sets the pace, and the hosts' work on the next
 frames overlaps its wait, so the sum can then be more than the frame. When
 the encoder is idle and one of the host's parts is its largest and fills at least half of each
-host's share of the time, a second line names it: the film's own drawing points to the authoring
-guide's [Footage and stills on the GPU](authoring.md#footage-and-stills-on-the-gpu), the
-compositor and readback to [Expensive films](authoring.md#expensive-films) (more hosts, fewer
+host's share of the time, a second line names it: the film's own drawing points to the speed
+guide's [Footage and stills on the GPU](guides/speed.md#footage-and-stills-on-the-gpu), the
+compositor and readback to [Expensive films](guides/speed.md#expensive-films) (more hosts, fewer
 layers). The figures start at the first frame written: the preroll, what the hosts rendered
 before and the first frame (which compiles the shaders) are left out. The wall time does include
 the determinism re-check at the end and ffmpeg's flush. A host that cannot give its figures leaves
@@ -338,7 +338,7 @@ them out, never the render:
 
 ```
 time: 27.1 ms a frame · on the host: drawing 0.9 ms, compositor and readback 22.7 ms, waiting on io.video 0.0 ms · encoder idle (it took each frame in 3.3 ms and waited for the next)
-The compositor and readback take most of each frame while the encoder waits: every frame's layers are composited, read back and handed to the CLI on its host, so more hosts (--workers) on idle cores, fewer layers, and layers as GPU textures rather than canvases make it faster. See AUTHORING.md, "Expensive films".
+The compositor and readback take most of each frame while the encoder waits: every frame's layers are composited, read back and handed to the CLI on its host, so more hosts (--workers) on idle cores, fewer layers, and layers as GPU textures rather than canvases make it faster. See guides/speed.md, "Expensive films".
 ```
 
 With `--json` it is the `frame-time` finding (`info`), whose `measured` holds the figures as JSON:

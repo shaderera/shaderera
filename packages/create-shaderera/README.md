@@ -11,7 +11,7 @@ Makes an empty Shaderera project that is set up correctly:
 - `webgpu` (Dawn 0.6.2, the version Shaderera is tested against) as its only renderer dependency;
 - `AUTHORING.md`, the workflow for making and revising a film;
 - `guides/`, focused references for type, 3D products, photos, logos, sound, formats, revisions,
-  review and delivery;
+  review, speed and delivery;
 - `AGENTS.md` / `CLAUDE.md`, which point agents to them;
 - `.mcp.json`, Shaderera's MCP server for agents that read one;
 - `package.json` with `"license": "UNLICENSED"` (all rights reserved) until you choose a licence,

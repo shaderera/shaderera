@@ -1,4 +1,4 @@
-// The skill's studio comment loop (plugins/shaderera/skills/shaderera/SKILL.md, "Working with the
+// The skill's studio comment loop (plugins/shaderera/skills/shaderera/studio.md, "Working with the
 // person in the studio"), run by a scripted agent that uses only what the section names: the
 // person comments through the bridge, as the page does, and the agent hears it with
 // `comments --wait`, looks, fixes, checks and replies fixed, and never resolves.
@@ -22,14 +22,11 @@ const SITE = 'https://shaderera.example'
 const bin = fileURLToPath(new URL('../../bin/shaderera.js', import.meta.url))
 const skill = readFileSync(
   fileURLToPath(
-    new URL('../../../../plugins/shaderera/skills/shaderera/SKILL.md', import.meta.url),
+    new URL('../../../../plugins/shaderera/skills/shaderera/studio.md', import.meta.url),
   ),
   'utf8',
 )
-const section = skill.slice(
-  skill.indexOf('## 6. Working with the person in the studio'),
-  skill.indexOf('## 7.'),
-)
+const section = skill.slice(skill.indexOf('## Working with the person in the studio'))
 
 const root = tempDir('skill-loop')
 cpSync(fileURLToPath(new URL('../cli/fixtures/params/', import.meta.url)), root, {

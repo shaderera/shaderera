@@ -1,9 +1,9 @@
 import type { RenderTime } from '../runner/render-time.ts'
 
-/** Where AUTHORING.md says how to draw footage and stills on the GPU. */
-const GPU_FOOTAGE = 'AUTHORING.md, "Footage and stills on the GPU"'
-/** Where AUTHORING.md says when more hosts render faster. */
-const MORE_HOSTS = 'AUTHORING.md, "Expensive films"'
+/** Where the speed guide says how to draw footage and stills on the GPU. */
+const GPU_FOOTAGE = 'guides/speed.md, "Footage and stills on the GPU"'
+/** Where the speed guide says when more hosts render faster. */
+const MORE_HOSTS = 'guides/speed.md, "Expensive films"'
 
 /**
  * Where a render's frame time went (#454, #497): what `render` prints at its end, and `--json`
