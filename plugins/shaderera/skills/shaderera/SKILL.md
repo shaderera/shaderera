@@ -87,8 +87,8 @@ While you iterate, look (step 3) instead of rendering, and render only the shot 
 `render --from <s> --to <s> --out out/shot.mp4`. Render the whole film when the person asks, or
 for a review round: in the background with `--progress`, and tell them the time left from its
 first lines. A whole-film or draft render: the CLI in the background, not MCP `render`, which
-blocks, sends no progress and takes no variant, params or draft. `--workers`: see
-`node_modules/shaderera/docs/cli.md`, `render`. Why a render is slow: `guides/review.md`.
+blocks. `--workers`: see `node_modules/shaderera/docs/cli.md`, `render`. Why a render is slow:
+`guides/review.md`.
 
 To patch a window of a film already rendered, never splice files with ffmpeg by hand. A plain
 `render` keeps no chunks to reuse: render the film again. A film rendered
