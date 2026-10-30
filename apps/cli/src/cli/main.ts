@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { recordable, recordCommand } from '../project/activity.ts'
 import { COMMANDS as PLUGIN, usage as pluginUsage } from '../registry/cli.ts'
+import { closest } from './closest.ts'
 import { EXIT, errorFinding, findings, found } from './findings.ts'
 
 const usage = `Usage: shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--trusted] [--timeout <s>] [options]
@@ -150,34 +151,9 @@ export const usageOf = (command?: string): string => {
   return lines.length > 0 ? lines.join('\n') : usage
 }
 
-/** The edits (insert, delete, replace) that turn a into b. */
-const distance = (a: string, b: string): number => {
-  let row = Array.from({ length: b.length + 1 }, (_, j) => j)
-  for (let i = 1; i <= a.length; i++) {
-    const next = [i]
-    for (let j = 1; j <= b.length; j++)
-      next[j] = Math.min(
-        (row[j] as number) + 1,
-        (next[j - 1] as number) + 1,
-        (row[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1),
-      )
-    row = next
-  }
-  return row[b.length] as number
-}
-
-/** The command (or, among others, the flag) a mistyped name most likely meant: within two edits. */
-export const closest = (name: string, among: readonly string[] = commands): string | undefined => {
-  const [best] = among
-    .map((c) => ({ c, d: distance(name, c) }))
-    .filter((x) => x.d <= 2)
-    .sort((x, y) => x.d - y.d)
-  return best?.c
-}
-
 /** A name that is no command: says so on stderr, with the nearest one. */
 const unknown = (name: string): number => {
-  const near = closest(name)
+  const near = closest(name, commands)
   console.error(
     `shaderera: Unknown command: ${name}.${near ? ` Did you mean ${near}?` : ''} \`shaderera help\` lists the commands.`,
   )

@@ -1,8 +1,8 @@
 import { type Manifest, parseFps } from '@shaderera/core'
 import { paramDefaults } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
+import { closest } from './closest.ts'
 import { EXIT, errorFinding, type Finding, found } from './findings.ts'
-import { closest } from './main.ts'
 
 /**
  * Where one variant's run of a command writes: its lines, its findings and its `--json` result.

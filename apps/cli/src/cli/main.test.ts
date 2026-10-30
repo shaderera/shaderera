@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
-import { closest, usageOf } from './main.ts'
+import { closest } from './closest.ts'
+import { usageOf } from './main.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
 const cli = (...args: string[]) =>
@@ -72,7 +73,7 @@ test("comments --help prints the module's own usage, every flag included", () =>
 test('usageOf keeps every line of a command; closest stays within two edits', () => {
   assert.equal(usageOf('plan').split('\n').length, 2)
   assert.match(usageOf(), /^Usage:/)
-  assert.equal(closest('chek'), 'check')
-  assert.equal(closest('render'), 'render')
-  assert.equal(closest('zzzzzz'), undefined)
+  assert.equal(closest('chek', ['check', 'still']), 'check')
+  assert.equal(closest('render', ['render', 'review']), 'render')
+  assert.equal(closest('zzzzzz', ['check']), undefined)
 })
