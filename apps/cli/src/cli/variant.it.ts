@@ -62,7 +62,7 @@ test('still, check and review take several variants: one host each, grouped, the
   assert.equal(check.status, 0, check.stderr)
   assert.match(
     check.stdout,
-    /^main = 16:9\n16:9:\n {2}✓ deterministic.*\n.*\n9:16:\n {2}✓ deterministic/,
+    /^ {2}types not checked.*\nmain = 16:9\n16:9:\n {2}✓ deterministic.*\n.*\n9:16:\n {2}✓ deterministic/,
   )
 
   // The text runs inside a 5% safe area in both layouts; a 30% one fails each, named by variant.
