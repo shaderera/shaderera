@@ -1,6 +1,6 @@
 # API surface
 
-What each package exports at version 0.2.2, and how stable it is. The shapes themselves are in
+What each package exports, and how stable it is. The shapes themselves are in
 [protocol.md](protocol.md).
 
 | Package | What |
@@ -18,7 +18,8 @@ surface is labelled:
 - **experimental:** usable, may change in any release;
 - **internal:** for Shaderera's own packages only; no promise.
 
-Pinned by tests: `packages/core/src/api.test.ts` lists every export of each entry,
+Pinned by tests: `packages/core/src/api.test.ts` lists every export of each entry and holds the
+declarations [below](#the-types-a-film-writes-against) to the exported ones,
 `apps/cli/src/exports.test.ts` the `shaderera` package's (none but its package.json),
 `apps/cli/src/project/schema.test.ts` holds `shaderera.schema.json` to what the CLI reads, and
 `packages/create-shaderera/src/create.test.ts` fails when the empty project imports anything but a
@@ -40,18 +41,126 @@ stable entry. Adding or removing an export is therefore a visible change.
 The behaviour in [determinism.md](determinism.md) (frame identity, sequential replay, readiness,
 failure, cancellation, pixels) is part of the stable surface, not only the types.
 
+## The types a film writes against
+
+The shapes an agent writes footage, stills, sound and frames against, as `@shaderera/core`
+declares them (comments left out; `protocol.ts` has them). A test holds each declaration here to
+the exported one, so they never drift. What each field means is in [protocol.md](protocol.md).
+
+**`Io`**, `host.io`: the host's ports, paths relative to the project root. `image`, `video`,
+`cache` and `bake` are optional: check before calling.
+
+```ts
+export type Io = {
+  read(path: string): Promise<Uint8Array>
+  canvas(width: number, height: number): OffscreenCanvas
+  font(path: string, family: string): Promise<void>
+  image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage>
+  video?(path: string): Promise<Footage>
+  cache?(
+    key: string,
+    inputs: readonly string[],
+    make: () => Promise<Uint8Array>,
+  ): Promise<Uint8Array>
+  bake?(name: string): Promise<Baked>
+}
+```
+
+**`DecodedImage`**, what `io.image` gives: a PNG or JPEG, rows from the top, straight RGBA, 8 or
+16 bits a channel.
+
+```ts
+export type DecodedImage = {
+  readonly width: number
+  readonly height: number
+  readonly bits: 8 | 16
+  readonly data: Uint8Array | Uint16Array
+}
+```
+
+**`Footage`**, what `io.video` gives: a video file's frames. `frame(i)` is RGBA bytes
+(`width × height × 4`) or, with `{ format: 'yuv420p' }`, the Y'CbCr planes `colour` says how to
+read; `close()` frees the decoder when the clip's shot ends.
+
+```ts
+export type Footage = {
+  readonly width: number
+  readonly height: number
+  readonly fps: number
+  readonly frames: number
+  readonly colour: VideoColour
+  frame(index: number, options?: { format?: 'rgba' | 'yuv420p' }): Promise<Uint8Array>
+  close(): Promise<void>
+}
+
+export type VideoColour = {
+  readonly matrix: 'bt709' | 'bt601' | 'bt2020nc'
+  readonly range: 'limited' | 'full'
+  readonly chroma: 'left' | 'center' | 'topleft'
+}
+```
+
+**`videoTexture(device, clip)`**, from `@shaderera/core/gpu`: a clip's frames as an
+`rgba8unorm` texture of `host.gpu`, converted from its `yuv420p` planes on the GPU. The texture
+`frame(i)` returns is valid until the next `frame()` or `destroy()`: two frames at once need two
+helpers.
+
+```ts
+export const videoTexture: (
+  device: GPUDevice,
+  clip: Footage,
+) => { frame: (index: number) => Promise<GPUTexture>; destroy: () => void }
+```
+
+**`AudioClip`** and **`Pcm`**, what `audio()` returns: a project file (`src`) or sound made in
+code (`pcm`), placed at `at` seconds of the film; `gain` a number or a function of the film's
+time.
+
+```ts
+export type AudioClip = {
+  readonly src?: string
+  readonly pcm?: Pcm
+  readonly at: number
+  readonly from?: number
+  readonly to?: number
+  readonly gain?: number | ((t: number) => number)
+  readonly group?: string
+}
+
+export type Pcm = { readonly sampleRate: number; readonly channels: readonly Float32Array[] }
+```
+
+**`Frame`** and **`Layer`**, what `render(t)` returns: one layer or a flat stack, bottom first. A
+canvas, bitmap or video frame knows its alpha; RGBA bytes or a `GPUTexture` of `host.gpu` at the
+frame's size say how theirs is stored.
+
+```ts
+export type Frame = Layer | readonly Layer[]
+
+export type Layer =
+  | ({ readonly color: OffscreenCanvas | ImageBitmap | VideoFrame } & LayerInfo)
+  | ({
+      readonly color: Uint8Array | Uint8ClampedArray | GPUTexture
+      readonly alpha: 'premultiplied' | 'straight' | 'opaque'
+      readonly light?: Light
+    } & LayerInfo)
+
+export type LayerInfo = {
+  readonly name?: string
+  readonly final?: boolean
+  readonly depth?: Depth
+}
+```
+
 ## `@shaderera/core/gpu`: experimental
 
 `readTexture(device, texture, bytesPerTexel?)` and `readBuffer(device, buffer, size?)`: WebGPU
 readback with the row padding and staging done right. Optional; a source keeps its own device,
 resources and passes. Stable only when consumers outside this repository need it.
 
-`videoTexture(device, clip)`: an `io.video` clip's frames as an `rgba8unorm` texture at its size
-(`{ frame(i): Promise<GPUTexture>, destroy() }`). `frame(i)` asks for `yuv420p`, uploads the
-planes and converts them in a WGSL pass with the clip's `colour`, in integers, so every host gives
-the same bytes ([ADR 0027](adr/0027-video-frames-as-ycbcr.md)). The texture is the helper's, valid
-until its next `frame()` or `destroy()`. `yuv420pToRgba(planes, width, height, colour)` is the
-same conversion on the CPU, its reference.
+`videoTexture(device, clip)` ([above](#the-types-a-film-writes-against)) converts in integers, so
+every host gives the same bytes ([ADR 0027](adr/0027-video-frames-as-ycbcr.md)).
+`yuv420pToRgba(planes, width, height, colour)` is the same conversion on the CPU, its reference.
 
 ## `@shaderera/core/host`: experimental
 
