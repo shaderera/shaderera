@@ -23,9 +23,9 @@ Before you call a draft finished, look at it and check it.
    are checked with a full-size `still` at those moments, never in the draft. Render the
    full-size film only after the person approves the cut.
 5. Repair what you see, then review again. Two repair rounds at most: then stop and list what is
-   still weak, honestly, in the `weaknesses` of your summary. An agent grading its own work skews
-   positive; a separate reviewer with criteria from the brief is stricter (Anthropic, "Harness
-   design for long-running apps", 2026-03-24).
+   still weak, honestly, in your report (the `shaderera` skill, "Report"). An agent grading its
+   own work skews positive; a separate reviewer with criteria from the brief is stricter
+   (Anthropic, "Harness design for long-running apps", 2026-03-24).
 
 While you iterate, look before you render. Look at the frames a change touched (MCP `still` or
 `render_frame`, or `npx shaderera still <t>... --sheet`). When you need to see it move, render
@@ -42,8 +42,7 @@ wait in silence. When a render is slow, say why and what helps, in this order:
 - Long-GOP footage (few keyframes): reaching a frame decodes every frame since the last keyframe.
   Encode it again with more keyframes.
 
-Keep `--workers` at its default for a film that waits on its footage; more (up to the cores less
-two) help only when the film's own drawing is the bottleneck and cores are idle.
+How many hosts a render opens (`--workers`): see `docs/cli.md`, `render`.
 
 Numbers are diagnostics: contrast, exposure and motion measurements do not decide whether a dark
 frame or a pause is wrong. A passing check never means the film looks good.
