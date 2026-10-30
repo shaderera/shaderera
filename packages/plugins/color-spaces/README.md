@@ -17,7 +17,7 @@ const code = /* wgsl */ `${PRIMARY_WGSL}${SPACES_WGSL}
 @fragment fn gradeFs(i: V) -> @location(0) vec4f {
   let light = textureLoad(src, vec2u(i.pos.xy), 0).rgb;     // linear Rec.709
   let coded = linearToAcescct(toAp1 * light);
-  let graded = cdl(coded, vec3f(1.05), vec3f(-0.01), vec3f(1.0), 1.1);
+  let graded = cdl(coded, vec3f(1.05), vec3f(-0.01), vec3f(1.0), 1.0);  // saturation weighs Rec.709
   return vec4f(toRec709 * acescctToLinear(graded), 1.0);  // then the output transform
 }`
 ```
@@ -47,9 +47,11 @@ BT.2087, and back against BT.2407.
 
 Where it goes. Matrices work on linear light only, never on log or display values. A grade in a
 log working space: linear Rec.709 into AP1, `linearToAcescct`, the CDL from `color-primary`
-(it clamps to 0–1, which suits log values), `acescctToLinear`, back to Rec.709, then the
+(it clamps to 0–1, which suits ACEScct), `acescctToLinear`, back to Rec.709, then the
 output transform (`look-tonemap`, `toSrgb` from `render-srgb`). Light that leaves the Rec.709
-gamut on the way back is negative in a channel: the output transform clips it.
+gamut on the way back is negative in a channel: the output transform clips it. Grade with the CDL
+on ACEScct, not ACEScc: ACEScc goes below 0 under linear 0.0012, and the CDL's clamp at 0 lifts
+those shadows even with an identity grade.
 
 This does one job. It never guesses a file's space: the film says what its footage is. Footage
 reaches a film as 8-bit sRGB today, so camera log curves and gamuts (S-Log3, LogC3 and LogC4,
