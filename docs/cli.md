@@ -26,9 +26,12 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
 `shaderera` alone, `shaderera help` or `shaderera --help` prints the usage; `shaderera help <command>`
-or `shaderera <command> --help` (or `-h`) prints that command's lines of it. A name that is no
-command exits 2 with `shaderera: Unknown command: <name>.` on stderr, and the nearest command when
-one is within two letters (`Did you mean still?`).
+or `shaderera <command> --help` (or `-h`) prints that command's lines of it (`comments`: its own
+usage, every form). A name that is no command exits 2 with `shaderera: Unknown command: <name>.` on
+stderr, and the nearest command when one is within two letters (`Did you mean still?`). A flag the
+command does not take exits 2 the same way, with the nearest flag its help names: `Unknown flag
+--sheeet for still. Did you mean --sheet? (shaderera still --help)`; a negative time (`still -1`)
+says that times start at 0.
 
 ## Common flags
 
