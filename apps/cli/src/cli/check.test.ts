@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import type { Manifest } from '@shaderera/core'
 import { cli } from '../fixtures/cli.ts'
@@ -98,6 +99,40 @@ export default open
   const [f] = json.findings.filter((x: { code: string }) => x.code === 'determinism')
   assert.equal(f.t[0], Math.round(f.t[0] * 1000) / 1000)
   assert.doesNotMatch(f.message, /after t=-/)
+})
+
+test("a type error in src/ fails check with its file and line; --no-types skips the project's tsc", async () => {
+  const root = tempDir('types')
+  mkdirSync(join(root, 'src'))
+  mkdirSync(join(root, 'node_modules'))
+  // The project's own typescript: this repo's, linked in.
+  const typescript = dirname(createRequire(import.meta.url).resolve('typescript/package.json'))
+  symlinkSync(typescript, join(root, 'node_modules', 'typescript'), 'junction')
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/composition.ts', fps: 10, duration: 1, width: 8, height: 8 }),
+  )
+  writeFileSync(
+    join(root, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: { strict: true, noEmit: true, lib: ['ES2023'] },
+      include: ['src'],
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `const width: number = 8
+const label: number = 'eight'
+const open = () => ({ render: () => [], width, label })
+export default open
+`,
+  )
+  const r = await cli('check', '--times', '2', '--root', root, '--json')
+  assert.equal(r.status, 1, r.stdout)
+  const [f] = JSON.parse(r.stdout).findings.filter((x: { code: string }) => x.code === 'type')
+  assert.deepEqual([f.severity, f.file, f.line], ['error', 'src/composition.ts', 2])
+  assert.match(f.message, /^TS2322: Type 'string' is not assignable to type 'number'/)
+  assert.equal((await cli('check', '--times', '2', '--root', root, '--no-types')).status, 0)
 })
 
 test('diffP010 compares P010 bytes that start at an odd offset', () => {

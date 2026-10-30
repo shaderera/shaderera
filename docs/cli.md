@@ -168,14 +168,23 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 | `--seed <n>` | 1 |
 | `--hdr10` | off. Checks the film's HDR10 render ([HDR10](delivery.md#hdr10)): its P010 bytes in two orders, every frame within the mastering display's peak, every layer's `light` one it can carry. Prints the most light it saw |
 | `--variant a,b`, `--variants all` | one: each variant in its own host, at once ([several variants](#common-flags)) |
+| `--no-types` | off: the types are checked first |
 
 ```
 $ shaderera check --times 5
+✓ types: no errors (TypeScript 6.0.3)
 ✓ deterministic: 5 timestamps, two orders, inspect + pixels (49.0 ms/frame)
   preview vs final: mean 0.000, max 0 over 3 t
 ```
 
-Exit 1 when any timestamp differs. What it does: [determinism.md](determinism.md#how-check-measures-it).
+First, once, the project's types: its own `typescript` on its own `tsconfig.json`, with no emit,
+as `tsc --noEmit` would (about 1 s on a new project). Each type error is printed with its file and
+line and is a `type` finding (`error`, with `file`, `line` and `column`); the frames are still
+checked. A project with no `typescript` or no `tsconfig.json` gets one `info` line saying its
+types were not checked.
+
+Exit 1 when the types have an error or any timestamp differs. What it does:
+[determinism.md](determinism.md#how-check-measures-it).
 
 A clip `io.video` reads whose keyframes are more than 2 s apart gets a note (finding
 `keyframes`, `info`): every seek into it decodes from the keyframe before, so `check`, `still`,
@@ -1134,9 +1143,9 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
 ```
 
 - `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `shader`,
-  `build`, `gpu`, `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails;
-  `warning` and `info` never do), `message`, and when known `t`, `file` and `line` (a shader, a
-  build error, a throw in the film's code), `bbox` (frame
+  `build`, `type`, `gpu`, `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error`
+  fails; `warning` and `info` never do), `message`, and when known `t`, `file` and `line` (a
+  shader, a build error, a type error, a throw in the film's code), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
 - `result`: the command's own JSON (`inspect`, `check`, `still`, `render`, `review`, `save`,
   `job`, `diff`, `undo`, `restore`, `versions`, `doctor`, `search`, `info`, `share`, `fork`); `log`:

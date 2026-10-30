@@ -9,7 +9,7 @@ const usage = `Usage: shaderera <command> [--root <dir>] [--variant <name>] [--h
 Commands:
   inspect <t> [--path a.b] [--json]          print the source's state at t
   inspect --track a.b [--from s] [--to s] [--json]   a value at every frame, and its speed
-  check [--times 50] [--seed 1] [--hdr10]    render each t twice in two orders and compare
+  check [--times 50] [--seed 1] [--hdr10] [--no-types]   typecheck, then render each t twice in two orders and compare
   still <t>... [--every s] [--sheet] [--diff] [--compare variant] [--region x,y,w,h | --object id] [--scale n] [--out dir] [--json]   stills of any moment, and a contact sheet
   render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--master] [--crf 18] [--encoder name] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--workers n] [--software-gpu] [--hdr10] [--draft [height]] [--retries n] [--chunk i [--plan dir]] [--reuse plan --changed a-b [--fix]] [--force]   export an mp4 or a ProRes mov (--draft: 360 px high by default, full fps, out/<name>-draft.mp4) (a png job: frames + audio.wav + delivery.json)
   deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS] [--hdr10 [--sdr]] [--name batch] [--job j]... [--replace] [--software-gpu]   campaign batch into out/deliveries/<batch>/

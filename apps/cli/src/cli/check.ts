@@ -1,4 +1,6 @@
-import { relative, sep } from 'node:path'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { join, relative, sep } from 'node:path'
 import type { DeterminismReport, Manifest } from '@shaderera/core'
 import { checkDeterminism, diffPixels, frameAt } from '@shaderera/core'
 import { type LightLevels, type SeekStats, sampleTimes } from '@shaderera/core/host'
@@ -9,7 +11,7 @@ import { findProject } from '../node/project.ts'
 import { keyGaps } from '../node/services.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { EXIT } from './findings.ts'
+import { EXIT, type Finding } from './findings.ts'
 import { words16 } from './matte64.ts'
 import { direct, eachVariant, type Output } from './variants.ts'
 
@@ -138,9 +140,53 @@ export const keyframeNotes = (root: string, gaps: ReadonlyMap<string, number> = 
   })
 
 /**
- * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10] [--variant a,b | --variants all]`.
- * --hdr10: checks the hdr10 render (decision 0023): its P010 bytes, the peak and the layers' light.
- * Several variants: each in its own host, at once (eachVariant).
+ * The project's type errors: its own `typescript` on its own tsconfig.json, with no emit, each a
+ * `type` finding with its file and line. Undefined when the project has no `typescript` it can
+ * import or no tsconfig.json: nothing was checked.
+ */
+export const typeErrors = (root: string): { version: string; errors: Finding[] } | undefined => {
+  const config = join(root, 'tsconfig.json')
+  if (!existsSync(config)) return undefined
+  let ts: typeof import('typescript')
+  try {
+    ts = createRequire(join(root, 'package.json'))('typescript')
+  } catch {
+    return undefined
+  }
+  const read = ts.readConfigFile(config, ts.sys.readFile)
+  // Named, so `types` resolve from the project, not from the working directory.
+  const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, root, undefined, config)
+  const program = ts.createProgram({
+    rootNames: parsed.fileNames,
+    options: { ...parsed.options, noEmit: true },
+  })
+  const diagnostics = [
+    ...(read.error ? [read.error] : []),
+    ...parsed.errors,
+    ...ts.getPreEmitDiagnostics(program),
+  ].filter((d) => d.category === ts.DiagnosticCategory.Error)
+  const errors = diagnostics.map((d): Finding => {
+    const message = `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`
+    if (!d.file || d.start === undefined) return { code: 'type', severity: 'error', message }
+    const at = d.file.getLineAndCharacterOfPosition(d.start)
+    return {
+      code: 'type',
+      severity: 'error',
+      message,
+      file: relative(root, d.file.fileName).split(sep).join('/'),
+      line: at.line + 1,
+      column: at.character + 1,
+    }
+  })
+  return { version: ts.version, errors }
+}
+
+/**
+ * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10] [--no-types] [--variant a,b | --variants all]`.
+ * First the project's types (typeErrors), once, unless --no-types: a type error fails the check
+ * (exit 1) but the frames are still checked. --hdr10: checks the hdr10 render (decision 0023): its
+ * P010 bytes, the peak and the layers' light. Several variants: each in its own host, at once
+ * (eachVariant).
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values } = parseRendering(
@@ -150,15 +196,34 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       seed: { type: 'string' },
       hdr10: { type: 'boolean' },
       variants: { type: 'string' },
+      'no-types': { type: 'boolean' },
       json: { type: 'boolean' },
     },
     { command: 'check', times: false },
   )
+  const say = values.json ? () => {} : direct.log
   // The clips are noted once, after every variant ran: their hosts share the decoders (and so
   // the gaps), and run at once.
   const { root } = await findProject(typeof values.root === 'string' ? values.root : process.cwd())
+  let typed: number = EXIT.ok
+  if (values['no-types'] !== true) {
+    const types = typeErrors(root)
+    if (!types) {
+      const message = 'types not checked: the project has no typescript or no tsconfig.json'
+      say(`  ${message}`)
+      direct.found({ code: 'type', severity: 'info', message })
+    } else if (types.errors.length === 0) say(`✓ types: no errors (TypeScript ${types.version})`)
+    else {
+      typed = EXIT.failed
+      say(`✗ types: ${types.errors.length} error(s) (TypeScript ${types.version})`)
+      for (const f of types.errors) {
+        say(`  ✗ ${f.file ? `${f.file}:${f.line}:${f.column} ` : ''}${f.message}`)
+        direct.found(f)
+      }
+    }
+  }
   for (const file of keyGaps.keys()) if (ours(root, file)) keyGaps.delete(file)
-  const exit = await eachVariant(values, checkOne, { json: values.json === true })
+  const exit = Math.max(typed, await eachVariant(values, checkOne, { json: values.json === true }))
   for (const note of keyframeNotes(root)) {
     if (!values.json) direct.log(`! ${note}`)
     direct.found({ code: 'keyframes', severity: 'info', message: note })
