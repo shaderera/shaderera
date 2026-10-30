@@ -233,8 +233,8 @@ const tools: [string, string, { [k: string]: object }, string[]][] = [
   ],
   [
     'check',
-    `Like \`shaderera check\`: renders times sampled t (default 20, where the CLI's check takes 50) twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
-    { times: num, seed: num, hdr10: { type: 'boolean' }, ...several },
+    `Like \`shaderera check\`: renders samples t (a count: default 20, where the CLI's check takes 50) twice in two orders; returns failures and preview vs final. hdr10: true checks the hdr10 render of a film with hdr10 in shaderera.json (its P010, the peak and the layers’ light) and returns its light levels. With variants, { variants: [{ variant, ...result }] }. ${SEVERAL}`,
+    { samples: num, seed: num, hdr10: { type: 'boolean' }, ...several },
     [],
   ],
   [
@@ -487,7 +487,7 @@ export const createServer = (
       ) => Promise.all(hosts.map((o, i) => run(o, names[i])))
       if (name === 'check') {
         const results = await each((o) =>
-          checkChild(o.child, o.project.manifest, { times: a.times ?? 20, seed: a.seed }),
+          checkChild(o.child, o.project.manifest, { samples: a.samples ?? 20, seed: a.seed }),
         )
         return { ...main, variants: results.map((r, i) => ({ variant: nameOf(names[i]), ...r })) }
       }
@@ -782,7 +782,7 @@ export const createServer = (
           const hdr = a.hdr10 === true ? await open({ ...flags, root, hdr10: true }) : undefined
           try {
             return await checkChild(hdr?.child ?? c, manifest, {
-              times: a.times ?? 20,
+              samples: a.samples ?? 20,
               seed: a.seed,
             })
           } finally {

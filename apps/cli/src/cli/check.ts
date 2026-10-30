@@ -66,13 +66,13 @@ export const diffP010 = (a: Uint8Array, b: Uint8Array) => {
 export const checkChild = async (
   child: Child,
   manifest: Manifest,
-  o: { times?: number; seed?: number } = {},
+  o: { samples?: number; seed?: number } = {},
 ): Promise<CheckResult> => {
   const seed = o.seed ?? 1
-  const count = o.times ?? 50
+  const count = o.samples ?? 50
   // Fewer than two timestamps compare nothing in two orders: a check that cannot fail.
   if (!(Number.isInteger(count) && count >= 2))
-    throw new Error(`--times is a whole number of timestamps, 2 or more, not ${count}.`)
+    throw new Error(`--samples is a whole number of timestamps, 2 or more, not ${count}.`)
   if (!Number.isFinite(seed)) throw new Error(`--seed is a number, not ${o.seed}.`)
   const times = sampleTimes(manifest.fps, manifest.duration, count, seed)
   const hdr = child.has.p010 === true
@@ -134,7 +134,7 @@ export const keyframeNotes = (root: string, gaps: ReadonlyMap<string, number> = 
   })
 
 /**
- * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10] [--variant a,b | --variants all]`.
+ * `shaderera check [--samples 50] [--seed 1] [--param k=v]... [--hdr10] [--variant a,b | --variants all]`.
  * --hdr10: checks the hdr10 render (decision 0023): its P010 bytes, the peak and the layers' light.
  * Several variants: each in its own host, at once (eachVariant).
  */
@@ -142,7 +142,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const { values } = parseRendering(
     argv,
     {
-      times: { type: 'string' },
+      samples: { type: 'string' },
       seed: { type: 'string' },
       hdr10: { type: 'boolean' },
       variants: { type: 'string' },
@@ -162,13 +162,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
 }
 
 const checkOne = async (
-  v: Parameters<typeof open>[0] & { times?: string; seed?: string },
+  v: Parameters<typeof open>[0] & { samples?: string; seed?: string },
   out: Output,
 ): Promise<number> => {
   const { project, child } = await open(v)
   try {
     const r = await checkChild(child, project.manifest, {
-      times: Number(v.times ?? 50),
+      samples: Number(v.samples ?? 50),
       seed: Number(v.seed ?? 1),
     })
     const { mean, max, at } = r.previewVsFinal

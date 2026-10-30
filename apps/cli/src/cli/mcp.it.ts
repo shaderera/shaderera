@@ -94,7 +94,7 @@ test('the MCP tools render, inspect, compare, pick and read the camera of a fixt
     assert.equal(source.path, 'box')
     assert.match(source.around, /id: 'box'/)
 
-    const check = await call('check', { times: 4 })
+    const check = await call('check', { samples: 4 })
     assert.equal(check.failures.length, 0)
     await assert.rejects(call('get_source', { id: 'nope' }), /No object with id nope/)
     await assert.rejects(call('render', { out: '../escaped.mp4' }), /outside the project/)
@@ -461,7 +461,7 @@ test('MCP still, check and review take variants: one host each, one sheet side b
     assert.equal(Math.max(tallSheet.width, tallSheet.height), 2048)
 
     // 16:9 is main's size, fps, duration and params: all runs it once, and says so.
-    const check = await call('check', { times: 2, variants: 'all' })
+    const check = await call('check', { samples: 2, variants: 'all' })
     assert.equal(check.main, '16:9')
     assert.deepEqual(
       check.variants.map((v: { variant: string; failures: unknown[] }) => [

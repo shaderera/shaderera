@@ -27,7 +27,7 @@ hosts and GPUs only within a tolerance ([below](#across-hosts-and-gpus)).
 
 `shaderera check` (and MCP's `check`, and `checkDeterminism` from `@shaderera/core`):
 
-1. **Picks times.** `--times` frame-aligned timestamps (default 50; 20 over MCP): frame 0, the
+1. **Picks times.** `--samples` frame-aligned timestamps (default 50; 20 over MCP): frame 0, the
    last frame, and seeded picks between.
 2. **First pass, ascending.** For each `t`: `render(t, final)`, composited, and the SHA-256 of
    the RGBA bytes; then `inspect(t)` (if the source has it).

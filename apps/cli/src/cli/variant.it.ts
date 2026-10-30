@@ -58,7 +58,7 @@ test('still, check and review take several variants: one host each, grouped, the
   const tall = decode(readFileSync(join(out, '9_16-0.500.png')))
   assert.deepEqual([tall.width, tall.height], [1080, 1920])
 
-  const check = cli('check', '--variants', 'all', '--times', '2')
+  const check = cli('check', '--variants', 'all', '--samples', '2')
   assert.equal(check.status, 0, check.stderr)
   assert.match(
     check.stdout,

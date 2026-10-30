@@ -115,7 +115,7 @@ in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case come
 rendered partly outside the host (a bake), follow `AUTHORING.md`, "Expensive films": `open`
 kept light (sound built in `audio()`, derived bytes in `io.cache`), clips closed when their shot
 ends, per-pixel work on the GPU, footage and stills as textures sampled in WGSL rather than
-drawn with Canvas2D ("Footage and stills on the GPU"), a CPU profile before guessing, fewer `check --times`, a render
+drawn with Canvas2D ("Footage and stills on the GPU"), a CPU profile before guessing, fewer `check --samples`, a render
 in the background with its progress log, `shaderera bake`, and `still --compare` against the
 approved variant before a final.
 
