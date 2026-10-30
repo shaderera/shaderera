@@ -65,3 +65,16 @@ test('findings carry where a check is about, and a shader error its file and lin
   )
   assert.deepEqual([shader.code, shader.file, shader.line], ['shader', 'src/ramp.wgsl', 3])
 })
+
+test('--json review --quick of a clean film: what does not apply is info, never a warning', () => {
+  const root = tempDir('envelope')
+  cpSync(fileURLToPath(new URL('./fixtures/mcp/', import.meta.url)), root, { recursive: true })
+  const r = cli('review', '--root', root, '--quick', '--json')
+  assert.equal(r.status, 0, r.stderr)
+  const { findings } = envelope(r)
+  assert.ok(findings.length > 0, 'the checks that do not apply are still reported')
+  assert.deepEqual(
+    findings.filter((f: { severity: string }) => f.severity !== 'info'),
+    [],
+  )
+})
