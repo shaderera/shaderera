@@ -81,6 +81,23 @@ test('the CLI and MCP give the same JSON, and the CLI adds and replies as MCP do
       assert.equal(r.status, 0, r.stdout)
       assert.deepEqual(r.envelope.result, await call('comments', tool))
     }
+    // Each read is in the activity, the CLI's as a command as MCP's as a tool.
+    const reads = tail(root, 100).filter(
+      (e) =>
+        (e.kind === 'command' && e.command === 'comments') ||
+        (e.kind === 'tool' && e.tool === 'comments'),
+    )
+    assert.deepEqual(
+      reads.map((e) => [e.kind, (e.kind === 'command' || e.kind === 'tool') && e.ok]),
+      [
+        ['command', true],
+        ['tool', true],
+        ['command', true],
+        ['tool', true],
+        ['command', true],
+        ['tool', true],
+      ],
+    )
     const replied = await json('comments', 'reply', c.id, 'looking', '--root', root)
     assert.deepEqual(replied.envelope.result, await call('comments', { id: c.id }))
     assert.deepEqual(
