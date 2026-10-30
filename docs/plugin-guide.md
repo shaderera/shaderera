@@ -119,8 +119,8 @@ the project already has, so give files names that will not collide.
 ## Naming
 
 Official plugins are named `<category>-<thing>`, so related ones sort together and the name says
-what it is. The prefixes: `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`, `look`,
-`motion`, `render`, `review`, `text`. Examples: `audio-beat-clock`, `format-safe-areas`, `render-three-host`.
+what it is. The prefixes: `analysis`, `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`,
+`look`, `motion`, `render`, `review`, `text`. Examples: `audio-beat-clock`, `format-safe-areas`, `render-three-host`.
 
 - A published name is permanent. Renaming one breaks every project and link that uses it, so
   choose before the first `publish`.
