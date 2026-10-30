@@ -32,6 +32,7 @@ import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
+import { errorFinding } from './findings.ts'
 import { valueAt } from './inspect.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { revisionHosts } from './revision-host.ts'
@@ -904,7 +905,11 @@ export const createServer = (
       return { content, root, start }
     } catch (e) {
       if (/exited|took longer/.test(String(e))) void session?.drop()
-      return { content: [{ type: 'text', text: (e as Error).message }], isError: true, root, start }
+      // An error in the film's code (a throw, a build error, a shader): its finding, where it is.
+      const finding = errorFinding(e)
+      const content = [{ type: 'text', text: (e as Error).message }]
+      if (finding.file) content.push({ type: 'text', text: JSON.stringify(finding) })
+      return { content, isError: true, root, start }
     }
   }
   server.onclose = () => {

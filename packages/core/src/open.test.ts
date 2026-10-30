@@ -20,6 +20,10 @@ test('openSource takes a Source or calls an Open with the host', async () => {
 })
 
 test('openSource rejects a module without a usable default', async () => {
-  await assert.rejects(openSource({}, host), /no default export/)
+  await assert.rejects(openSource({}, host), /The entry module has no default export/)
+  await assert.rejects(
+    openSource({}, host, 'src/composition.ts'),
+    /src\/composition\.ts has no default export: end it with export default open/,
+  )
   await assert.rejects(openSource({ default: {} }, host), /render/)
 })

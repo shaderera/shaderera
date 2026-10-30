@@ -65,7 +65,9 @@ at, checks or reviews a film in 16:9 and 9:16 together
 takes (`t`, `a`, `b`, `times`, `from`, `to`) is checked before anything renders, as the CLI checks
 its times: a time missing, not a number or outside the film (from 0 up to but not including its
 duration) is refused, named (`Outside the film (0 to 10 s): 11.`). Errors come back as `isError`
-with the message.
+with the message; an error that knows where in the film it is (a throw in its code, a build error,
+a shader) adds a second text block, its finding as JSON (`code`, `file`, `line`, `t`), as the CLI's
+[`--json`](cli.md#--json-one-envelope) gives it.
 
 | Tool | Input | Output |
 |---|---|---|
