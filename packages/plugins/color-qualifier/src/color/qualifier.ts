@@ -25,9 +25,36 @@ export type Key = {
 // Far past any value: the bounds of a range left out, which then passes everything on the GPU too.
 const ALL = 1e30
 
-const checked = (s: number | undefined, what: string) => {
-  if ((s ?? 0) < 0) throw new Error(`color-qualifier: ${what} softness must be 0 or more, not ${s}`)
-  return s ?? 0
+// Throws on a key that is not a range: a value that is not finite, a softness or a hue width
+// below 0, or a low above its high. Returns the key.
+const checked = (key: Key) => {
+  const fail = (what: string) => {
+    throw new Error(`color-qualifier: ${what}`)
+  }
+  const finite = (name: string, v: number | undefined) => {
+    if (v !== undefined && !Number.isFinite(v)) fail(`${name} must be finite, not ${v}`)
+  }
+  const soft = (name: string, v: number | undefined) => {
+    finite(name, v)
+    if ((v ?? 0) < 0) fail(`${name} must be 0 or more, not ${v}`)
+  }
+  const { hue, saturation, luma } = key
+  if (hue) {
+    finite('hue centreDeg', hue.centreDeg)
+    soft('hue widthDeg', hue.widthDeg)
+    soft('hue softnessDeg', hue.softnessDeg)
+  }
+  for (const [name, r] of [
+    ['saturation', saturation],
+    ['luma', luma],
+  ] as const) {
+    if (!r) continue
+    finite(`${name} low`, r.low)
+    finite(`${name} high`, r.high)
+    soft(`${name} softness`, r.softness)
+    if (r.low > r.high) fail(`${name} low ${r.low} is above its high ${r.high}`)
+  }
+  return key
 }
 
 const smoothstep = (e0: number, e1: number, x: number) => {
@@ -57,22 +84,24 @@ const hueOf = ([r, g, b]: Rgb) => {
  * A grey's hue is 0° (red), so a hue range over red keys greys unless a saturation range drops them.
  */
 export const qualify = (rgb: Rgb, key: Key): number => {
+  checked(key)
   const [r, g, b] = rgb
   let m = 1
   if (key.hue) {
     const { centreDeg, widthDeg, softnessDeg } = key.hue
     const d = Math.abs(((((hueOf(rgb) - centreDeg + 180) % 360) + 360) % 360) - 180)
-    m *= within(d, 0, widthDeg / 2, checked(softnessDeg, 'hue'))
+    m *= within(d, 0, widthDeg / 2, softnessDeg ?? 0)
   }
   if (key.saturation) {
     const { low, high, softness } = key.saturation
     const hi = Math.max(r, g, b)
-    const s = hi > 0 ? (hi - Math.min(r, g, b)) / hi : 0
-    m *= within(s, low, high, checked(softness, 'saturation'))
+    // Past 1 only with a channel below 0, out of gamut: as saturated as a colour gets, so 1.
+    const s = hi > 0 ? Math.min((hi - Math.min(r, g, b)) / hi, 1) : 0
+    m *= within(s, low, high, softness ?? 0)
   }
   if (key.luma) {
     const { low, high, softness } = key.luma
-    m *= within(0.2126 * r + 0.7152 * g + 0.0722 * b, low, high, checked(softness, 'luma'))
+    m *= within(0.2126 * r + 0.7152 * g + 0.0722 * b, low, high, softness ?? 0)
   }
   return m
 }
@@ -82,14 +111,12 @@ export const qualify = (rgb: Rgb, key: Key): number => {
  * softness, 0] in degrees, then saturation and luma [low, high, softness, 0].
  */
 export const keyUniform = (key: Key) => {
-  const range = (r: Range | undefined, what: string) =>
-    r ? [r.low, r.high, checked(r.softness, what), 0] : [-ALL, ALL, 0, 0]
-  const { hue } = key
+  const range = (r: Range | undefined) =>
+    r ? [r.low, r.high, r.softness ?? 0, 0] : [-ALL, ALL, 0, 0]
+  const { hue } = checked(key)
   return new Float32Array([
-    ...(hue
-      ? [hue.centreDeg, hue.widthDeg / 2, checked(hue.softnessDeg, 'hue'), 0]
-      : [0, 180, 0, 0]),
-    ...range(key.saturation, 'saturation'),
-    ...range(key.luma, 'luma'),
+    ...(hue ? [hue.centreDeg, hue.widthDeg / 2, hue.softnessDeg ?? 0, 0] : [0, 180, 0, 0]),
+    ...range(key.saturation),
+    ...range(key.luma),
   ])
 }

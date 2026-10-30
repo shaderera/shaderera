@@ -35,7 +35,7 @@ fn qualify(c: vec3f, key: QualifierKey) -> f32 {
   let t = qualifierHue(c) - key.hue.x + 180.0;
   let d = abs(t - 360.0 * floor(t / 360.0) - 180.0);
   let hi = max(c.r, max(c.g, c.b));
-  let s = select(0.0, (hi - min(c.r, min(c.g, c.b))) / hi, hi > 0.0);
+  let s = select(0.0, min((hi - min(c.r, min(c.g, c.b))) / hi, 1.0), hi > 0.0);
   let y = dot(c, vec3f(0.2126, 0.7152, 0.0722));
   return qualifierWithin(d, vec3f(0.0, key.hue.yz))
     * qualifierWithin(s, key.saturation.xyz)

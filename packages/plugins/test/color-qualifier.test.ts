@@ -127,6 +127,39 @@ test('color-qualifier: softness 0 is hard; softness > 0 a smooth ramp, exactly 0
   )
 })
 
+test('color-qualifier: an out-of-gamut colour is fully saturated, not past the range', () => {
+  // A channel below 0 makes (max - min) / max more than 1; it counts as 1.
+  const orange: Key = {
+    hue: { centreDeg: 15, widthDeg: 40, softnessDeg: 20 },
+    saturation: { low: 0.25, high: 1, softness: 0.1 },
+  }
+  assert.equal(qualify([0.5, 0.1, -0.05], orange), 1)
+  assert.equal(qualify([1, -0.5, -0.5], { saturation: { low: 1, high: 1 } }), 1)
+})
+
+test('color-qualifier: a key that is not a range throws', () => {
+  const bad: [Key, RegExp][] = [
+    [{ hue: { centreDeg: 0, widthDeg: -10 } }, /widthDeg must be 0 or more/],
+    [{ hue: { centreDeg: Number.NaN, widthDeg: 10 } }, /centreDeg must be finite/],
+    [{ hue: { centreDeg: 0, widthDeg: Number.POSITIVE_INFINITY } }, /widthDeg must be finite/],
+    [
+      { hue: { centreDeg: 0, widthDeg: 10, softnessDeg: Number.NaN } },
+      /softnessDeg must be finite/,
+    ],
+    [{ saturation: { low: 0.6, high: 0.4 } }, /saturation low 0.6 is above its high 0.4/],
+    [{ luma: { low: Number.NaN, high: 1 } }, /luma low must be finite/],
+    [{ luma: { low: 0, high: Number.NaN } }, /luma high must be finite/],
+    [{ luma: { low: 0, high: 1, softness: Number.NaN } }, /luma softness must be finite/],
+  ]
+  for (const [key, message] of bad) {
+    assert.throws(() => qualify(grey(0.5), key), message, JSON.stringify(key))
+    assert.throws(() => keyUniform(key), message, JSON.stringify(key))
+  }
+  // A zero width and an equal low and high are ranges: one hue, one value.
+  assert.equal(qualify(atHue(120), { hue: { centreDeg: 120, widthDeg: 0 } }), 1)
+  assert.equal(qualify(grey(0.5), { luma: { low: 0.2, high: 0.2 } }), 0)
+})
+
 test('color-qualifier: a hue wheel and a grey ramp give the expected mattes', () => {
   // A wheel of hues, keyed to greens 90–150° with 10° soft edges, saturation over 0.2.
   const key: Key = {
@@ -173,7 +206,15 @@ test('color-qualifier: the WGSL gives the CPU matte, within one 8-bit step', asy
       luma: { low: 0.3, high: 0.9, softness: 0.1 },
     },
   ]
-  const inputs: Rgb[] = [...colours, grey(0), grey(1), grey(0.5), [1, 0, 0], [0, 1, 1]]
+  const inputs: Rgb[] = [
+    ...colours,
+    grey(0),
+    grey(1),
+    grey(0.5),
+    [1, 0, 0],
+    [0, 1, 1],
+    [0.5, 0.1, -0.05],
+  ]
   const n = inputs.length
   const gpu = await openFrame(1, 1)
   const module = gpu.device.createShaderModule({
