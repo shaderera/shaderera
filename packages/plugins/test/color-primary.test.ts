@@ -36,14 +36,17 @@ const spread = (n: number): Rgb[] =>
     (i * 0.7320508) % 1,
   ])
 
-test('color-primary: every default is identity', () => {
+test('color-primary: every default is identity on 0–1', () => {
   for (const c of spread(200)) {
     near(cdl(c), c, `cdl(${c})`)
     near(exposure(c), c, `exposure(${c})`)
     near(contrast(c), c, `contrast(${c})`, 1e-15)
     near(applyMatrix(whiteBalance(), c), c, `whiteBalance(${c})`, 1e-15)
   }
-  // Light past 1 goes through exposure, contrast and white balance untouched.
+  // Light past 1 and below 0 goes through exposure, contrast and white balance untouched; the CDL
+  // clamps it to 0–1, as v1.2 does.
+  near(contrast([-0.05, 0.2, 0.3]), [-0.05, 0.2, 0.3], 'contrast below 0', 1e-15)
+  near(cdl([4, 0.5, -1]), [1, 0.5, 0], 'the CDL clamps')
   near(exposure([4, 0.5, 12]), [4, 0.5, 12], 'exposure above 1')
   near(contrast([4, 0.5, 12]), [4, 0.5, 12], 'contrast above 1', 1e-14)
   near(whiteBalance(), [1, 0, 0, 0, 1, 0, 0, 0, 1], 'D65 to D65', 1e-15)
@@ -85,10 +88,13 @@ test('color-primary: exposure and contrast', () => {
   near(contrast([0.36, 0.18, 0.09], 2), [0.72, 0.18, 0.045], 'contrast 2', 1e-15)
   near(
     contrast([0.5, -1, 0.25], 0.5, 0.5),
-    [0.5, 0, Math.SQRT1_2 / 2],
-    'contrast 0.5, pivot 0.5',
+    [0.5, -1, Math.SQRT1_2 / 2],
+    'contrast 0.5, pivot 0.5: a negative passes through',
     1e-15,
   )
+  near(contrast([0, -0.2, 0.18], 3), [0, -0.2, 0.18], '0 and below pass through')
+  assert.throws(() => contrast([0.5, 0.5, 0.5], 2, 0), /pivot must be above 0, not 0/)
+  assert.throws(() => contrast([0.5, 0.5, 0.5], 2, -0.1), /pivot must be above 0/)
 })
 
 test('color-primary: Bradford gives the published matrices', () => {
@@ -125,9 +131,15 @@ test('color-primary: Bradford gives the published matrices', () => {
 })
 
 test('color-primary: Kelvin to xy', () => {
-  near(kelvinToXy(6504), [0.3127, 0.329], '6504 K is D65', 1e-3)
+  // The Planckian locus, against published black-body xy (CIE 1931 2°; illuminant A is 2856 K).
+  // 6504 K is the black body, not D65, which sits above the locus.
+  near(kelvinToXy(6504), [0.3135, 0.3236], '6504 K on the Planckian locus', 1e-3)
   near(kelvinToXy(2856), [0.4476, 0.4074], '2856 K is illuminant A', 1e-3)
-  near(kelvinToXy(5003), [0.3457, 0.3585], '5003 K is D50', 1e-3)
+  near(kelvinToXy(5000), [0.3451, 0.3516], '5000 K', 1e-3)
+  assert.ok(D65[1] - kelvinToXy(6504)[1] > 0.005, 'D65 is above the locus')
+  // No jump where the spline's pieces meet, at 2222 K and 4000 K.
+  for (const seam of [2222, 4000])
+    near(kelvinToXy(seam - 1e-6), kelvinToXy(seam), `continuous at ${seam} K`, 1e-4)
   assert.throws(() => kelvinToXy(1000), /1000 K is out of range: 1667–25000/)
   assert.throws(() => kelvinToXy(Number.NaN), /out of range/)
 })

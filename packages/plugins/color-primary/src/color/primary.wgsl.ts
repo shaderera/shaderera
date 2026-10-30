@@ -20,8 +20,9 @@ fn exposure(c: vec3f, stops: f32) -> vec3f {
   return c * exp2(stops);
 }
 
-// Contrast of scene-linear light around a pivot: pivot * (in / pivot)^amount; negatives become 0.
+// Contrast of scene-linear light around a pivot (above 0): pivot * (in / pivot)^amount; 0 and
+// negatives pass through.
 fn contrast(c: vec3f, amount: f32, pivot: f32) -> vec3f {
-  return pivot * primaryPow(max(c, vec3f(0.0)) / pivot, vec3f(amount));
+  return select(c, pivot * pow(c / pivot, vec3f(amount)), c > vec3f(0.0));
 }
 `

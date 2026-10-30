@@ -1,6 +1,6 @@
 // Primary grading on the CPU, the same values primary.wgsl.ts gives in a shader: the ASC CDL
 // (v1.2), exposure in stops, contrast around a pivot, and the white balance matrix (a Bradford
-// adaptation, Rec.709 primaries) a shader multiplies by. Every default is identity.
+// adaptation, Rec.709 primaries) a shader multiplies by. Every default is identity on 0–1.
 
 type Rgb = readonly [number, number, number]
 type Xy = readonly [number, number]
@@ -34,43 +34,44 @@ export const exposure = (rgb: Rgb, stops = 0) =>
 
 /**
  * Contrast of scene-linear light around a pivot (mid grey by default): pivot × (in / pivot)^amount,
- * a straight line in log. The pivot stays where it is; negatives become 0.
+ * a straight line in log. The pivot stays where it is; 0 and negatives pass through. A pivot
+ * of 0 or less throws.
  */
-export const contrast = (rgb: Rgb, amount = 1, pivot = 0.18) =>
-  rgb.map((v) => pivot * pow0(v / pivot, amount)) as [number, number, number]
+export const contrast = (rgb: Rgb, amount = 1, pivot = 0.18) => {
+  if (!(pivot > 0)) throw new Error(`contrast: the pivot must be above 0, not ${pivot}`)
+  return rgb.map((v) => (v > 0 ? pivot * (v / pivot) ** amount : v)) as [number, number, number]
+}
 
 /** The D65 white point (CIE 15), xy. */
 export const D65: Xy = [0.3127, 0.329]
 
 /**
- * The xy of a colour temperature in Kelvin, 1667–25000 K. From 4000 K up, the CIE daylight locus
- * (CIE 15:2004, 3.1): 6504 K is D65. Below, the Planckian locus by Kim et al.'s cubic spline
- * (US patent 7,024,034, 2006): 2856 K is illuminant A. The two loci are not joined: at 4000 K
- * daylight sits 0.007 above the Planckian in y.
+ * The xy of a colour temperature in Kelvin, 1667–25000 K: the Planckian locus by Kim et al.'s
+ * cubic spline (US patent 7,024,034, 2006), as cameras and DNG take it. 2856 K is illuminant A;
+ * 6504 K is the black body at 6504 K (0.3134, 0.3236), not D65, which sits above the locus.
  */
 export const kelvinToXy = (kelvin: number): [number, number] => {
   const t = kelvin
   if (!(t >= 1667 && t <= 25000)) throw new Error(`kelvinToXy: ${t} K is out of range: 1667–25000`)
-  if (t < 4000) {
-    const x = -0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2 + 0.8776956e3 / t + 0.17991
-    const y =
-      t < 2222
-        ? -1.1063814 * x ** 3 - 1.3481102 * x ** 2 + 2.18555832 * x - 0.20219683
-        : -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
-    return [x, y]
-  }
   const x =
-    t <= 7000
-      ? -4.607e9 / t ** 3 + 2.9678e6 / t ** 2 + 0.09911e3 / t + 0.244063
-      : -2.0064e9 / t ** 3 + 1.9018e6 / t ** 2 + 0.24748e3 / t + 0.23704
-  return [x, -3 * x * x + 2.87 * x - 0.275]
+    t < 4000
+      ? -0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2 + 0.8776956e3 / t + 0.17991
+      : -3.0258469e9 / t ** 3 + 2.1070379e6 / t ** 2 + 0.2226347e3 / t + 0.24039
+  const y =
+    t < 2222
+      ? -1.1063814 * x ** 3 - 1.3481102 * x ** 2 + 2.18555832 * x - 0.20219683
+      : t < 4000
+        ? -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+        : 3.081758 * x ** 3 - 5.8733867 * x ** 2 + 3.75112997 * x - 0.37001483
+  return [x, y]
 }
 
 const mul = (a: Mat3, b: Mat3): Mat3 =>
   Array.from({ length: 9 }, (_, k) => {
     const [i, j] = [k - (k % 3), k % 3]
-    const at = (m: Mat3, k: number) => m[k] ?? Number.NaN
-    return at(a, i) * at(b, j) + at(a, i + 1) * at(b, 3 + j) + at(a, i + 2) * at(b, 6 + j)
+    const [p = 0, q = 0, r = 0] = a.slice(i, i + 3)
+    const [u = 0, v = 0, w = 0] = [b[j], b[3 + j], b[6 + j]]
+    return p * u + q * v + r * w
   }) as unknown as Mat3
 
 const inverse = (m: Mat3): Mat3 => {
