@@ -6,7 +6,7 @@ export type ScopeFrame = {
   readonly width: number
   readonly height: number
   readonly data: Uint8Array | Uint8ClampedArray | Uint16Array
-  /** 16: values 0–65535, as a 16-bit PNG decodes. 8 when left out. */
+  /** 16: values 0–65535, as a 16-bit PNG decodes. When left out, 16 for a Uint16Array, else 8. */
   readonly bits?: 8 | 16
 }
 
@@ -40,13 +40,13 @@ export type Scopes = {
   /** By luma: shadows under 1/3, highlights from 2/3. null: no pixel in the band. */
   balance: { shadows: Balance | null; midtones: Balance | null; highlights: Balance | null }
   vectorscope: {
-    /** The mean chroma's hue, degrees from +Cb towards +Cr (0–360); null when it is grey. */
+    /** The mean chroma's hue, degrees from +Cb towards +Cr (0 up to 360): subject colour and cast together; null when `cast` is under 0.004 (one 8-bit code). */
     hueDeg: number | null
-    /** The mean chroma's distance from the centre: how strong the frame's overall cast is. */
+    /** The mean chroma's distance from the centre. A cast proper is read from `balance` in the neutrals. */
     cast: number
     /** Each pixel's distance from the centre in CbCr: 0 grey, about 0.5 a primary. */
     saturation: { mean: number; std: number }
-    /** Pixels within 30° of the skin-tone line (123°) at a saturation of 0.02–0.3: their % and mean angle from it. */
+    /** Skin-hued pixels (not people): within 15° of the skin-tone line (123°) at a saturation of 0.02–0.3, their % and mean angle from it. */
     skin: { share: number; offsetDeg: number | null }
   }
 }
@@ -78,7 +78,7 @@ const spread = (h: Uint32Array, o: number, n: number): Spread => ({
   high: percentile(h, o, n, 0.95),
 })
 
-/** The frame's scopes; `bands` column bands for the waveform and parade (8), `bins` for the histogram (16). */
+/** The frame's scopes; `bands` column bands for the waveform and parade (8), `bins` for the histogram (16), each floored and kept to 1–256. */
 export const scopes = (
   frame: ScopeFrame,
   options: { luma?: 'bt709' | 'bt2020'; bands?: number; bins?: number } = {},
@@ -89,9 +89,10 @@ export const scopes = (
   const luma = options.luma ?? 'bt709'
   const [kr, kb] = K[luma]
   const kg = 1 - kr - kb
-  const bins = options.bins ?? 16
-  const bands = Math.max(1, Math.min(options.bands ?? 8, width))
-  const scale = frame.bits === 16 ? 1 / 257 : 1
+  const count = (v: number, most: number) => Math.max(1, Math.min(Math.floor(v), most))
+  const bins = count(options.bins ?? 16, 256)
+  const bands = count(options.bands ?? 8, Math.min(256, width))
+  const scale = (frame.bits ?? (data instanceof Uint16Array ? 16 : 8)) === 16 ? 1 / 257 : 1
   const n = width * height
 
   // Channels 0–3 are R, G, B, luma: a 256-bin histogram each, and one per column band.
@@ -138,7 +139,7 @@ export const scopes = (
       sat2 += s * s
       if (s >= 0.02 && s <= 0.3) {
         const off = ((((Math.atan2(pr, pb) * DEG - SKIN_DEG) % 360) + 540) % 360) - 180
-        if (Math.abs(off) <= 30) {
+        if (Math.abs(off) <= 15) {
           skin++
           skinDeg += off
         }
@@ -171,8 +172,8 @@ export const scopes = (
     return t.n ? { share: r2((100 * t.n) / n), rg: r4(t.rg / t.n), bg: r4(t.bg / t.n) } : null
   }
   const mean = sat / n
-  const cast = r4(Math.hypot(cb / n, cr / n))
-  const hue = (Math.atan2(cr, cb) * DEG + 360) % 360
+  const chroma = Math.hypot(cb / n, cr / n)
+  const hue = r1(r1(Math.atan2(cr, cb) * DEG + 360) % 360)
   return {
     luma,
     pixels: n,
@@ -182,8 +183,8 @@ export const scopes = (
     parade: { r: columns(0), g: columns(1), b: columns(2) },
     balance: { shadows: balance(0), midtones: balance(1), highlights: balance(2) },
     vectorscope: {
-      hueDeg: cast === 0 ? null : r1(hue),
-      cast,
+      hueDeg: chroma < 0.004 ? null : hue,
+      cast: r4(chroma),
       saturation: { mean: r4(mean), std: r4(Math.sqrt(Math.max(0, sat2 / n - mean * mean))) },
       skin: { share: r2((100 * skin) / n), offsetDeg: skin ? r1(skinDeg / skin) : null },
     },

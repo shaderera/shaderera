@@ -159,3 +159,32 @@ test('analysis-scopes: BT.2020 luma weights, and 16-bit images', () => {
   near(d.levels.y.mean, 128 / 255, '16-bit grey')
   assert.throws(() => scopes({ width: 9, height: 8, data: new Uint8Array(8 * 8 * 4) }), /9 × 8/)
 })
+
+test('analysis-scopes: skin is a narrow wedge round the skin-tone line, and the hue edge cases', () => {
+  // A pinkish red at red's own angle (102.9°), 20° off the line, inside the saturation gate: not skin.
+  const pink = scopes(flat([180, 110, 110])).vectorscope
+  near(pink.hueDeg, 102.9, 'pink hue', 0.06)
+  assert.equal(pink.skin.share, 0)
+  // A cast under one 8-bit code has no hue.
+  const faint = scopes(flat([128, 128, 129])).vectorscope
+  assert.ok(faint.cast > 0 && faint.cast < 0.004, `${faint.cast}`)
+  assert.equal(faint.hueDeg, null)
+  // Just under 360°: rounded first, so never 360.
+  const violet = scopes(flat([19, 0, 208])).vectorscope.hueDeg as number
+  assert.ok(violet >= 0 && violet < 360, `${violet}`)
+  const want = hue709([19 / 255, 0, 208 / 255])
+  assert.ok(Math.min(Math.abs(violet - want), 360 - Math.abs(violet - want)) < 0.06, `${violet}`)
+})
+
+test('analysis-scopes: a Uint16Array is 16-bit without bits, and bins and bands are whole', () => {
+  const deep = new Uint16Array(8 * 8 * 4).fill(128 * 257)
+  near(scopes({ width: 8, height: 8, data: deep }).levels.y.mean, 128 / 255, 'Uint16Array grey')
+  const ramp = frame(256, 2, (x) => [x, x, x])
+  const s = scopes(ramp, { bins: 2.5, bands: 2.5 })
+  assert.equal(s.histogram.bins, 2)
+  assert.deepEqual(s.histogram.y, [50, 50])
+  assert.equal(s.waveform.length, 2)
+  near(s.waveform[1]?.median ?? null, 191 / 255, 'the right half')
+  assert.equal(scopes(ramp, { bins: 1000 }).histogram.y.length, 256)
+  assert.equal(scopes(ramp, { bands: 0 }).waveform.length, 1)
+})
