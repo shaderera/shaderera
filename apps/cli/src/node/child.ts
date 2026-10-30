@@ -18,6 +18,9 @@ import type { Project } from './project.ts'
 import { type BakeFrames, createServices, type ServiceRequest } from './services.ts'
 
 const modules = `${sep}node_modules${sep}`
+/** How much of a host's stderr is kept, and how many of its last lines an exit's error names. */
+const STDERR_KEPT = 4000
+const STDERR_LINES = 12
 
 /**
  * The `--permission` flags for a child that reads `root` and the given package directories (real
@@ -216,9 +219,28 @@ export const openChild = async (
     execArgv,
     serialization: 'advanced',
     // The project's console output goes to stderr: stdout may be the CLI's result or MCP's stream,
-    // and stdin may be MCP's too. Frames go both ways on a pipe of their own (bulk.ts).
-    stdio: ['ignore', 2, 2, 'ipc', 'overlapped'],
+    // and stdin may be MCP's too. Frames go both ways on a pipe of their own (bulk.ts). Its stderr
+    // comes through this process, which keeps the end of it for an exit to say why.
+    stdio: ['ignore', 2, 'pipe', 'ipc', 'overlapped'],
   })
+  let said = ''
+  child.stderr?.on('data', (d: Buffer) => {
+    process.stderr.write(d)
+    said = (said + d.toString()).slice(-STDERR_KEPT)
+  })
+  /** Why the host exited: its code, and its last lines of stderr once they have all come. */
+  const exitError = async (code: number | null, signal: NodeJS.Signals | null) => {
+    // At most a moment: a process the host started may hold the pipe open after it.
+    if (child.stderr && !child.stderr.readableEnded)
+      await new Promise((done) => {
+        child.stderr?.once('close', done)
+        setTimeout(done, 500).unref()
+      })
+    const last = said.trimEnd().split(/\r?\n/).slice(-STDERR_LINES).join('\n')
+    return new Error(
+      `The source process exited (${code ?? signal}).${last ? ` Its last output:\n${last}` : ''}`,
+    )
+  }
   const pipe = child.stdio[BULK_FD] as Socket
   // A host that dies takes its end with it: the call fails through its exit.
   pipe.on('error', () => {})
@@ -275,7 +297,7 @@ export const openChild = async (
         const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
           clearTimeout(timer)
           child.off('message', onMessage)
-          fail(new Error(`The source process exited (${code ?? signal}).`))
+          void exitError(code, signal).then(fail)
         }
         const onMessage = (m: {
           id: number
