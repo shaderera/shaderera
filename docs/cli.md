@@ -1114,7 +1114,7 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
 }
 ```
 
-- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `smoothing`, `shader`, `gpu`,
+- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `shader`, `gpu`,
   `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and
   `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.

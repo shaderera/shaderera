@@ -1,5 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+import { relative, sep } from 'node:path'
 import type { DeterminismReport, Manifest } from '@shaderera/core'
 import { checkDeterminism, diffPixels } from '@shaderera/core'
 import { type LightLevels, type SeekStats, sampleTimes } from '@shaderera/core/host'
@@ -10,7 +9,7 @@ import { findProject } from '../node/project.ts'
 import { keyGaps } from '../node/services.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { EXIT, type Finding } from './findings.ts'
+import { EXIT } from './findings.ts'
 import { words16 } from './matte64.ts'
 import { direct, eachVariant, type Output } from './variants.ts'
 
@@ -135,36 +134,6 @@ export const keyframeNotes = (root: string, gaps: ReadonlyMap<string, number> = 
   })
 
 /**
- * A warning for each line of the project's own code in `src/` that sets
- * `imageSmoothingQuality = 'high'` (#513): a picture drawn scaled at `'high'` keeps a trace of
- * what it is drawn over, so a canvas kept across frames makes the frame depend on the one before.
- */
-export const smoothingFindings = (root: string): Finding[] => {
-  const src = join(root, 'src')
-  if (!existsSync(src)) return []
-  return readdirSync(src, { recursive: true, encoding: 'utf8' })
-    .filter((f) => /\.[cm]?[jt]sx?$/.test(f) && !f.split(sep).includes('node_modules'))
-    .sort()
-    .flatMap((f) =>
-      readFileSync(join(src, f), 'utf8')
-        .split('\n')
-        .flatMap((text, i) => {
-          if (!/imageSmoothingQuality\s*=\s*['"`]high['"`]/.test(text)) return []
-          const file = relative(root, join(src, f)).split(sep).join('/')
-          return [
-            {
-              code: 'smoothing',
-              severity: 'warning' as const,
-              message: `${file}:${i + 1}: imageSmoothingQuality 'high' keeps a trace of what it draws over, so a canvas kept across frames depends on the frame before. Clear or fill it first each frame, or draw with globalCompositeOperation 'copy' (docs/determinism.md, "Canvas2D at 'high' keeps a trace of what it draws over").`,
-              file,
-              line: i + 1,
-            },
-          ]
-        }),
-    )
-}
-
-/**
  * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10] [--variant a,b | --variants all]`.
  * --hdr10: checks the hdr10 render (decision 0023): its P010 bytes, the peak and the layers' light.
  * Several variants: each in its own host, at once (eachVariant).
@@ -188,10 +157,6 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   for (const note of keyframeNotes(root)) {
     direct.log(`! ${note}`)
     direct.found({ code: 'keyframes', severity: 'info', message: note })
-  }
-  for (const finding of smoothingFindings(root)) {
-    direct.log(`! ${finding.message}`)
-    direct.found(finding)
   }
   return exit
 }
