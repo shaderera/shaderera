@@ -23,7 +23,8 @@ The agent skills are not copied in: the Claude Code plugin installs them in Clau
 There is no starter film and no house style (decision 0011): how the film looks is your code, in
 WGSL, three.js, Canvas2D or any library.
 
-Then `npm install`, `npx shaderera check` and `npx shaderera still 0 5 --sheet`. The reference
-is in `node_modules/shaderera/docs/`.
+Then `npm install`, `npx shaderera check`, `npx shaderera still 0 5 --sheet` and
+`npx shaderera studio`, a page on shaderera.com to watch, comment on and render the film. The
+reference is in `node_modules/shaderera/docs/`.
 
 MIT.

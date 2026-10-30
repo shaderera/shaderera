@@ -70,6 +70,11 @@ CLI shows the same things (step 3).
 5. Make the smallest change that does what was asked. Keep edits made by hand.
 6. Save a revision the person can return to: `npx shaderera save --label "<what changed>"`.
 
+**Open the studio once the first draft passes `check`** and has something to watch, without
+being asked: start it (section 5) and give the person its address. From then on, tell them what
+changed and at which times to look in the studio, not with a contact sheet they did not ask for.
+If they say no, don't open or offer it again this session.
+
 Add `--json` to any command for one envelope: `ok`, `exitCode` (0 passed, 1 the film failed a
 check, 2 the command could not run) and `findings` with `t`, `file:line` and a box.
 
@@ -155,8 +160,8 @@ needs no sign-in. The fork keeps the owner's licence; with `UNLICENSED` the owne
 right, so ask before sharing or reusing any of it.
 
 **The studio** is a page on shaderera.com that previews, renders and shares the project on this
-machine. When the person wants to review the film with you, or watch, render or share it from a
-page:
+machine. Open it after the first draft passes `check` (section 3), and whenever the person wants
+to review the film with you, or watch, render or share it from a page:
 
 1. Run `npx shaderera studio --json` in the background (`--connect <id>` when the page gave the
    person a command with an id).
@@ -238,4 +243,5 @@ asks. The `shaderera-plugins` skill says how.
 ## 8. Report
 
 Say what changed, what `check` and `review` said, and what you could not verify by looking. A
-passing check or a contrast number does not show that a frame looks good.
+passing check or a contrast number does not show that a frame looks good. With the studio open,
+point to the times to watch there instead of a contact sheet.

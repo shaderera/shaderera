@@ -77,10 +77,10 @@ Tell the person they are set up, where the project is, and what to do next:
 Start a new thread in the project folder, then describe the film in your own words: what it is
 for, its format and length, the words on screen, the music, and any brand files. For example:
 "Make a 15-second 9:16 teaser for our running shoe: the shoe turns once on a dark set, the line
-'Built for the last mile' lands on the beat, and the logo holds for the last 2 seconds. Run
-check, show me a contact sheet, then render."
-Later they can ask you to open the studio (a page on shaderera.com that previews and renders the
-project on this machine) or to share the film on shaderera.com. Sharing signs in with GitHub
+'Built for the last mile' lands on the beat, and the logo holds for the last 2 seconds."
+Once the first draft passes check, the agent in that thread opens the studio (a page on
+shaderera.com that plays and renders the project on this machine) for them to watch and comment
+on. Later they can ask it to share the film on shaderera.com. Sharing signs in with GitHub
 (`npx shaderera login`) and needs a licence: a new project is "UNLICENSED" (all rights
 reserved) until they choose one.
 ```
