@@ -1,6 +1,8 @@
-import { relative, sep } from 'node:path'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { join, relative, sep } from 'node:path'
 import type { DeterminismReport, Manifest } from '@shaderera/core'
-import { checkDeterminism, diffPixels } from '@shaderera/core'
+import { checkDeterminism, diffPixels, frameAt } from '@shaderera/core'
 import { type LightLevels, type SeekStats, sampleTimes } from '@shaderera/core/host'
 import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
@@ -9,7 +11,7 @@ import { findProject } from '../node/project.ts'
 import { keyGaps } from '../node/services.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { EXIT } from './findings.ts'
+import { EXIT, type Finding } from './findings.ts'
 import { words16 } from './matte64.ts'
 import { direct, eachVariant, type Output } from './variants.ts'
 
@@ -29,6 +31,10 @@ export type CheckResult = DeterminismReport & {
   /** Wall-clock reads inside render (counted, never blocked). */
   clock: ClockReads
 }
+
+/** What usually makes a film differ at one t, and the fix (docs/determinism.md). */
+export const CAUSES =
+  'Usually Math.random, Date.now or state carried between frames: use host.seed and derive everything from t. See docs/determinism.md.'
 
 /** One line on how a sequential source seeks, or none for a source that renders any t. */
 export const describeSeeks = (
@@ -134,9 +140,53 @@ export const keyframeNotes = (root: string, gaps: ReadonlyMap<string, number> = 
   })
 
 /**
- * `shaderera check [--samples 50] [--seed 1] [--param k=v]... [--hdr10] [--variant a,b | --variants all]`.
- * --hdr10: checks the hdr10 render (decision 0023): its P010 bytes, the peak and the layers' light.
- * Several variants: each in its own host, at once (eachVariant).
+ * The project's type errors: its own `typescript` on its own tsconfig.json, with no emit, each a
+ * `type` finding with its file and line. Undefined when the project has no `typescript` it can
+ * import or no tsconfig.json: nothing was checked.
+ */
+export const typeErrors = (root: string): { version: string; errors: Finding[] } | undefined => {
+  const config = join(root, 'tsconfig.json')
+  if (!existsSync(config)) return undefined
+  let ts: typeof import('typescript')
+  try {
+    ts = createRequire(join(root, 'package.json'))('typescript')
+  } catch {
+    return undefined
+  }
+  const read = ts.readConfigFile(config, ts.sys.readFile)
+  // Named, so `types` resolve from the project, not from the working directory.
+  const parsed = ts.parseJsonConfigFileContent(read.config ?? {}, ts.sys, root, undefined, config)
+  const program = ts.createProgram({
+    rootNames: parsed.fileNames,
+    options: { ...parsed.options, noEmit: true },
+  })
+  const diagnostics = [
+    ...(read.error ? [read.error] : []),
+    ...parsed.errors,
+    ...ts.getPreEmitDiagnostics(program),
+  ].filter((d) => d.category === ts.DiagnosticCategory.Error)
+  const errors = diagnostics.map((d): Finding => {
+    const message = `TS${d.code}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`
+    if (!d.file || d.start === undefined) return { code: 'type', severity: 'error', message }
+    const at = d.file.getLineAndCharacterOfPosition(d.start)
+    return {
+      code: 'type',
+      severity: 'error',
+      message,
+      file: relative(root, d.file.fileName).split(sep).join('/'),
+      line: at.line + 1,
+      column: at.character + 1,
+    }
+  })
+  return { version: ts.version, errors }
+}
+
+/**
+ * `shaderera check [--samples 50] [--seed 1] [--param k=v]... [--hdr10] [--no-types] [--variant a,b | --variants all]`.
+ * First the project's types (typeErrors), once, unless --no-types: a type error fails the check
+ * (exit 1) but the frames are still checked. --hdr10: checks the hdr10 render (decision 0023): its
+ * P010 bytes, the peak and the layers' light. Several variants: each in its own host, at once
+ * (eachVariant).
  */
 export const run = async (argv: readonly string[]): Promise<number> => {
   const { values } = parseRendering(
@@ -146,31 +196,57 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       seed: { type: 'string' },
       hdr10: { type: 'boolean' },
       variants: { type: 'string' },
+      'no-types': { type: 'boolean' },
+      json: { type: 'boolean' },
     },
     { command: 'check', times: false },
   )
+  const say = values.json ? () => {} : direct.log
   // The clips are noted once, after every variant ran: their hosts share the decoders (and so
   // the gaps), and run at once.
   const { root } = await findProject(typeof values.root === 'string' ? values.root : process.cwd())
+  let typed: number = EXIT.ok
+  if (values['no-types'] !== true) {
+    const types = typeErrors(root)
+    if (!types) {
+      const message = 'types not checked: the project has no typescript or no tsconfig.json'
+      say(`  ${message}`)
+      direct.found({ code: 'type', severity: 'info', message })
+    } else if (types.errors.length === 0) say(`✓ types: no errors (TypeScript ${types.version})`)
+    else {
+      typed = EXIT.failed
+      say(`✗ types: ${types.errors.length} error(s) (TypeScript ${types.version})`)
+      for (const f of types.errors) {
+        say(`  ✗ ${f.file ? `${f.file}:${f.line}:${f.column} ` : ''}${f.message}`)
+        direct.found(f)
+      }
+    }
+  }
   for (const file of keyGaps.keys()) if (ours(root, file)) keyGaps.delete(file)
-  const exit = await eachVariant(values, checkOne)
+  const exit = Math.max(typed, await eachVariant(values, checkOne, { json: values.json === true }))
   for (const note of keyframeNotes(root)) {
-    direct.log(`! ${note}`)
+    if (!values.json) direct.log(`! ${note}`)
     direct.found({ code: 'keyframes', severity: 'info', message: note })
   }
   return exit
 }
 
+/**
+ * One variant's check. `--json`: its report as MCP `check` gives it, and no lines; the findings
+ * are the same either way.
+ */
 const checkOne = async (
-  v: Parameters<typeof open>[0] & { samples?: string; seed?: string },
-  out: Output,
+  v: Parameters<typeof open>[0] & { samples?: string; seed?: string; json?: boolean },
+  given: Output,
 ): Promise<number> => {
   const { project, child } = await open(v)
+  const out = v.json ? { ...given, log: () => {} } : given
   try {
     const r = await checkChild(child, project.manifest, {
       samples: Number(v.samples ?? 50),
       seed: Number(v.seed ?? 1),
     })
+    if (v.json) out.result(r)
     const { mean, max, at } = r.previewVsFinal
     const compare = `  preview vs final: mean ${mean.toFixed(3)}, max ${max}${r.light ? ' 10-bit codes' : ''} over ${at.length} t`
     const peak = project.manifest.hdr10?.mastering.peak
@@ -192,7 +268,13 @@ const checkOne = async (
       }
       return EXIT.ok
     }
-    out.log(`✗ not deterministic: ${r.failures.length} of ${r.times.length} timestamps differ`)
+    // To the millisecond: a t is a frame's, never finer.
+    const ms = (t: number) => Math.round(t * 1000) / 1000
+    const [first] = r.failures
+    if (first)
+      out.log(
+        `✗ not deterministic: differs at t=${ms(first.t)} (frame ${frameAt(first.t, project.manifest.fps)}), the first difference found; check stops there`,
+      )
     for (const f of r.failures) {
       const detail =
         f.kind === 'inspect'
@@ -201,14 +283,11 @@ const checkOne = async (
               .map((c) => c.path)
               .join(', ')
           : `${f.first.slice(0, 12)} != ${f.second.slice(0, 12)}`
-      out.log(`  ✗ t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`)
-      out.found({
-        code: 'determinism',
-        severity: 'error',
-        message: `t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`,
-        t: [f.t],
-      })
+      const line = `t=${ms(f.t)} ${f.after === null ? 'rendered first' : `after t=${ms(f.after)}`}, ${f.kind}: ${detail}`
+      out.log(`  ✗ ${line}`)
+      out.found({ code: 'determinism', severity: 'error', message: line, t: [ms(f.t)] })
     }
+    out.log(`  ${CAUSES}`)
     out.log(compare)
     const seeks = describeSeeks(r.seeks, project.manifest.sequential)
     if (seeks) out.log(seeks)

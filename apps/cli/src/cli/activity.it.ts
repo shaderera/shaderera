@@ -32,7 +32,13 @@ test('a command run in a project appends one entry: its exit code and its findin
   assert.deepEqual(entry.args, ['--samples', '2', '--root', root])
   assert.equal(entry.exitCode, 0)
   assert.equal(entry.ok, true)
-  assert.deepEqual(entry.summary, { error: 0, warning: 0, info: 0, messages: [] })
+  // The fixture has no tsconfig.json: its types were not checked, said once as info.
+  assert.deepEqual(entry.summary, {
+    error: 0,
+    warning: 0,
+    info: 1,
+    messages: ['types not checked: the project has no typescript or no tsconfig.json'],
+  })
 
   // One that fails: its exit code and its error, counted and quoted.
   const bad = await cli('inspect', '5', '--root', root)

@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict'
-import { join } from 'node:path'
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import type { Manifest } from '@shaderera/core'
+import { cli } from '../fixtures/cli.ts'
+import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild } from '../node/fixtures/memory-child.ts'
-import { checkChild, diffP010, keyframeNotes } from './check.ts'
+import { CAUSES, checkChild, diffP010, keyframeNotes } from './check.ts'
 
 const manifest = { fps: 10, duration: 1, width: 64, height: 36 } as Manifest
 const size = { width: 64, height: 36 }
@@ -58,6 +62,77 @@ test('check passes a film that is a function of t, inspect included, and fails o
   const bad = await checkChild(stateful, manifest, { samples: 5 })
   assert.ok(bad.failures.length > 0)
   assert.equal(bad.what, 'pixels')
+})
+
+test('a film that uses Math.random fails check at its first t, with the frame and the usual causes', async () => {
+  const root = tempDir('random')
+  mkdirSync(join(root, 'src'))
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/composition.ts', fps: 30, duration: 2, width: 8, height: 8 }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `const open = ({ io }) => {
+  const canvas = io.canvas(8, 8)
+  return {
+    render: async () => {
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = \`rgb(\${Math.floor(Math.random() * 256)}, 0, 0)\`
+      ctx.fillRect(0, 0, 8, 8)
+      return { color: canvas }
+    },
+  }
+}
+export default open
+`,
+  )
+  const r = await cli('check', '--samples', '5', '--root', root)
+  assert.equal(r.status, 1, r.stderr)
+  assert.match(
+    r.stdout,
+    /^✗ not deterministic: differs at t=[\d.]+ \(frame \d+\), the first difference found; check stops there$/m,
+  )
+  assert.match(r.stdout, /^ {2}✗ t=[\d.]+ (rendered first|after t=[\d.]+), pixels: /m)
+  assert.ok(r.stdout.includes(`  ${CAUSES}`), r.stdout)
+  const json = JSON.parse((await cli('check', '--samples', '5', '--root', root, '--json')).stdout)
+  const [f] = json.findings.filter((x: { code: string }) => x.code === 'determinism')
+  assert.equal(f.t[0], Math.round(f.t[0] * 1000) / 1000)
+  assert.doesNotMatch(f.message, /after t=-/)
+})
+
+test("a type error in src/ fails check with its file and line; --no-types skips the project's tsc", async () => {
+  const root = tempDir('types')
+  mkdirSync(join(root, 'src'))
+  mkdirSync(join(root, 'node_modules'))
+  // The project's own typescript: this repo's, linked in.
+  const typescript = dirname(createRequire(import.meta.url).resolve('typescript/package.json'))
+  symlinkSync(typescript, join(root, 'node_modules', 'typescript'), 'junction')
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/composition.ts', fps: 10, duration: 1, width: 8, height: 8 }),
+  )
+  writeFileSync(
+    join(root, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: { strict: true, noEmit: true, lib: ['ES2023'] },
+      include: ['src'],
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `const width: number = 8
+const label: number = 'eight'
+const open = () => ({ render: () => [], width, label })
+export default open
+`,
+  )
+  const r = await cli('check', '--samples', '2', '--root', root, '--json')
+  assert.equal(r.status, 1, r.stdout)
+  const [f] = JSON.parse(r.stdout).findings.filter((x: { code: string }) => x.code === 'type')
+  assert.deepEqual([f.severity, f.file, f.line], ['error', 'src/composition.ts', 2])
+  assert.match(f.message, /^TS2322: Type 'string' is not assignable to type 'number'/)
+  assert.equal((await cli('check', '--samples', '2', '--root', root, '--no-types')).status, 0)
 })
 
 test('diffP010 compares P010 bytes that start at an odd offset', () => {

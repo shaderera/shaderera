@@ -26,13 +26,23 @@ import {
   windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, releaseFrozen, restore, save, slash, undo } from '../project/revisions.ts'
+import {
+  briefRevision,
+  head,
+  log,
+  releaseFrozen,
+  restore,
+  save,
+  slash,
+  undo,
+} from '../project/revisions.ts'
 import { contactSheet, type ReviewReport, review, toPng } from '../review/review.ts'
 import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { DRAFT_HEIGHT, insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
+import { errorFinding } from './findings.ts'
 import { valueAt } from './inspect.ts'
 import { studios } from './mcp-studio.ts'
 import { exportVideo, extensionOf } from './render.ts'
@@ -126,12 +136,6 @@ const draftOf = (draft: unknown): number | undefined => {
 
 /** An image content block of a base64 PNG. */
 const image = (data: string) => ({ type: 'image', data, mimeType: 'image/png' })
-
-/** A revision as a tool returns it: the count of its files, not each one's hash. */
-const briefRevision = <R extends { files: object }>({ files, ...r }: R) => ({
-  ...r,
-  files: Object.keys(files).length,
-})
 
 /** A review report as a tool returns it: its files relative to the project, with `/`. */
 const relativeReport = <R extends ReviewReport>(root: string, r: R): R => {
@@ -1217,7 +1221,11 @@ export const createServer = (
       return { content, root, start }
     } catch (e) {
       if (/exited|took longer/.test(String(e))) void session?.drop()
-      return { content: [{ type: 'text', text: (e as Error).message }], isError: true, root, start }
+      // An error in the film's code (a throw, a build error, a shader): its finding, where it is.
+      const finding = errorFinding(e)
+      const content = [{ type: 'text', text: (e as Error).message }]
+      if (finding.file) content.push({ type: 'text', text: JSON.stringify(finding) })
+      return { content, isError: true, root, start }
     }
   }
   server.onclose = () => {
