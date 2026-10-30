@@ -137,7 +137,7 @@ export const buildPlayer = async (project: Project, o: PlayerOptions): Promise<P
           },
         },
       },
-    }).catch(plainError)
+    }).catch(plainError(root))
     writeFileSync(join(outDir, 'runner.html'), page(parents))
     for (const file of o.files) {
       const to = join(outDir, 'files', file)

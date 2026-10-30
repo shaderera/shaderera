@@ -38,9 +38,15 @@ export const found = (f: Finding) => {
   findings.push(f)
 }
 
-/** The finding for an error that stopped a command: its code, and file:line for a shader. */
+/**
+ * The finding for an error that stopped a command: its code, and file:line for a shader. An error
+ * that knows where in the film it came from carries it as `at` (a throw in the source's code, a
+ * build error: node/child.ts, node/build.ts), which the finding takes over.
+ */
 export const errorFinding = (e: unknown): Finding => {
   const message = e instanceof Error ? e.message : String(e)
+  const at = (e as { at?: Partial<Finding> } | undefined)?.at
+  if (at) return { code: 'error', severity: 'error', message, ...at }
   const code = (e as { code?: unknown })?.code
   const shader =
     /WGSL error in (?:shader "[^"]*"|a shader) at (\d+):(\d+)(?: \(([^:)]+):(\d+)\))?/.exec(message)

@@ -241,6 +241,24 @@ const wasPruned = (id: string) =>
     `Revision ${id} was pruned (shaderera prune): its files are no longer kept, so it cannot be restored, compared or rendered.`,
   )
 
+/**
+ * A revision's whole id from what a person typed: the id, or a prefix of at least 4 characters
+ * that only one saved revision starts with. Several are named; none is "No revision".
+ */
+export const revisionOf = (root: string, given: string): string => {
+  if (!/^[0-9a-f]{4,15}$/.test(given)) return given
+  const dir = join(versionsOf(root), 'revisions')
+  const ids = existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.startsWith(given) && f.endsWith('.json'))
+        .map((f) => f.slice(0, -'.json'.length))
+    : []
+  if (ids.length > 1)
+    throw new Error(`Revision ${given} is ambiguous: ${ids.sort().join(', ')}. Give more of it.`)
+  if (ids.length === 0) throw new Error(`No revision ${given} (see shaderera versions).`)
+  return ids[0] as string
+}
+
 /** A revision, checked: its id is the hash of its files, and every path and hash is well formed. */
 export const readRevision = (root: string, id: string): Revision => {
   if (!/^[0-9a-f]{16}$/.test(id)) throw new Error(`No revision ${id}.`)
@@ -398,6 +416,12 @@ export const store = (
   return { ...revision, existing }
 }
 
+/** A revision as MCP and `--json` give it: the count of its files, not each one's hash. */
+export const briefRevision = <R extends { files: object }>({ files, ...r }: R) => ({
+  ...r,
+  files: Object.keys(files).length,
+})
+
 /**
  * Saves the working tree as a revision and returns it: stores it, and logs it. The same files
  * return the revision that holds them, `existing`, with its own label and note (a new label is
@@ -507,7 +531,8 @@ const checkout = (root: string, target: Revision, dir = root, link = false) => {
  * Restores a revision. The working tree is saved first, so nothing unsaved is lost: it stays
  * reachable as its own revision.
  */
-export const restore = (root: string, id: string, by: By = 'person'): Revision => {
+export const restore = (root: string, given: string, by: By = 'person'): Revision => {
+  const id = revisionOf(root, given)
   const target = readRevision(root, id)
   save(root, { by })
   checkout(root, target)

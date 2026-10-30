@@ -440,7 +440,7 @@ const handle = async (m: Request, timer: FrameTimer = timeFrame()): Promise<unkn
       },
     }
     const module = await import(pathToFileURL(m.entryFile).href)
-    const open = () => openSource(module, host)
+    const open = () => openSource(module, host, m.manifest.entry.replace(/^\.\//, ''))
     source = m.manifest.sequential
       ? await seekable(open, m.manifest, {
           checkpointMs: m.checkpointMs,
