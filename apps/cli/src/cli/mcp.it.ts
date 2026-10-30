@@ -363,7 +363,7 @@ test('variant and params reach render_frame, inspect, compare and still; --varia
   }
 })
 
-test('render_frame downscales a big frame to 1024 px on its long side unless full', async () => {
+test('render_frame downscales a big frame to 1024 px on its long side unless full, and never returns one over 2048', async () => {
   const root = tempDir('mcp-big')
   mkdirSync(join(root, 'src'))
   writeFileSync(
@@ -398,6 +398,32 @@ test('render_frame downscales a big frame to 1024 px on its long side unless ful
     const full = await call('render_frame', { t: 0, image: true, full: true })
     assert.deepEqual(JSON.parse(full.content[1].text), { width: 2000, height: 1000 })
     assert.ok(small.content[2].data.length < full.content[2].data.length)
+
+    // No image over 2048 px: the scale is clamped and the size block says so.
+    const close16 = await call('render_frame', {
+      t: 0,
+      image: true,
+      region: [0, 0, 600, 300],
+      scale: 16,
+    })
+    assert.deepEqual(JSON.parse(close16.content[1].text), {
+      width: 1800,
+      height: 900,
+      region: { x: 0, y: 0, width: 600, height: 300 },
+      scale: 3,
+      note: 'scale 16 → 3 (long side ≤ 2048)',
+    })
+    const png16 = decode(Buffer.from(close16.content[2].data, 'base64'))
+    assert.deepEqual([png16.width, png16.height], [1800, 900])
+    const whole = await call('render_frame', {
+      t: 0,
+      image: true,
+      region: [0, 0, 2000, 1000],
+      scale: 3,
+    })
+    const size = JSON.parse(whole.content[1].text)
+    assert.deepEqual([size.width, size.height, size.scale], [2000, 1000, 1])
+    assert.equal(size.note, 'scale 3 → 1 (long side ≤ 2048)')
   } finally {
     await close()
   }
@@ -432,6 +458,10 @@ test('MCP still, check and review take variants: one host each, one sheet side b
     })
     const sheet = decode(Buffer.from(still.content[1].data, 'base64'))
     assert.deepEqual([sheet.width, sheet.height], [8 + 1280 + 8 + 405 + 8, 8 + 2 * (720 + 44 + 8)])
+    // 16 portrait frames make a sheet ~2900 px tall: it comes scaled to 2048.
+    const tall = await call('still', { every: 0.125, variant: '9:16' })
+    const tallSheet = decode(Buffer.from(tall.content[1].data, 'base64'))
+    assert.equal(Math.max(tallSheet.width, tallSheet.height), 2048)
 
     // 16:9 is main's size, fps, duration and params: all runs it once, and says so.
     const check = await call('check', { times: 2, variants: 'all' })

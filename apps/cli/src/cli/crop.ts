@@ -57,16 +57,19 @@ export const objectRegion = (json: Json, id: string): Region => {
 
 /**
  * The region of straight RGBA pixels, clamped to the frame, enlarged `scale` times by repeating
- * pixels (nearest neighbour), so every source pixel shows as a square block, never blurred.
+ * pixels (nearest neighbour), so every source pixel shows as a square block, never blurred. With
+ * `longest`, the scale is lowered (never below 1) so the long side stays at most that; `scale` is
+ * the one used.
  */
 export const crop = (
   px: Uint8Array,
   frame: { width: number; height: number },
   region: Region,
-  scale = 1,
-): { pixels: Uint8Array; width: number; height: number; region: Region } => {
-  if (!Number.isInteger(scale) || scale < 1 || scale > 16)
-    throw new Error(`A scale is a whole number from 1 to 16, not ${scale}.`)
+  asked = 1,
+  longest = Infinity,
+): { pixels: Uint8Array; width: number; height: number; region: Region; scale: number } => {
+  if (!Number.isInteger(asked) || asked < 1 || asked > 16)
+    throw new Error(`A scale is a whole number from 1 to 16, not ${asked}.`)
   const x0 = Math.max(0, Math.floor(region.x))
   const y0 = Math.max(0, Math.floor(region.y))
   const x1 = Math.min(frame.width, Math.ceil(region.x + region.width))
@@ -75,6 +78,7 @@ export const crop = (
     throw new Error(
       `The region ${JSON.stringify(region)} is outside the ${frame.width}×${frame.height} frame.`,
     )
+  const scale = Math.min(asked, Math.max(1, Math.floor(longest / Math.max(x1 - x0, y1 - y0))))
   const w = (x1 - x0) * scale
   const h = (y1 - y0) * scale
   const out = new Uint8Array(w * h * 4)
@@ -88,5 +92,6 @@ export const crop = (
     width: w,
     height: h,
     region: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+    scale,
   }
 }
