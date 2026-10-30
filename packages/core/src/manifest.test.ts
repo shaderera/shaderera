@@ -25,14 +25,42 @@ test('checkManifest lists every problem', () => {
   assert.throws(() => checkManifest({ ...good, dom: './d.ts' }), /dom needs the browser host/)
   checkManifest({ ...good, dom: './d.ts', host: 'browser' })
   // An NTSC rate is its fraction, however it is written.
-  assert.equal(checkManifest({ ...good, fps: 29.97 }).fps, 30000 / 1001)
-  assert.equal(checkManifest({ ...good, fps: '24000/1001' }).fps, 24000 / 1001)
+  assert.equal(checkManifest({ ...good, fps: 29.97, duration: 1.001 }).fps, 30000 / 1001)
+  assert.equal(checkManifest({ ...good, fps: '24000/1001', duration: 1.001 }).fps, 24000 / 1001)
   assert.throws(
     () => checkManifest({ ...good, dom: './d.ts', host: 'browser', domScale: 1.5 }),
     /domScale must be 1, 2, 3 or 4/,
   )
   assert.throws(() => checkManifest({ ...good, domScale: 2 }), /domScale needs dom/)
   assert.throws(() => checkManifest([]), /object/)
+})
+
+test('a duration is whole frames: one that is not names the nearest that are', () => {
+  assert.throws(() => checkManifest({ ...good, fps: 25, duration: 110.62 }), {
+    message: 'shaderera.json: duration 110.62 s is 2765.5 frames at 25 fps; use 110.6 or 110.64',
+  })
+  assert.throws(
+    () => checkManifest({ ...good, fps: 25, duration: 0.01 }),
+    /duration 0.01 s is 0.25 frames at 25 fps; use 0.04$/,
+  )
+  checkManifest({ ...good, fps: 25, duration: 110.64 })
+  // At an NTSC rate 10 s is 299.7 frames; the whole ones are given exactly and read back as whole.
+  assert.throws(
+    () => checkManifest({ ...good, fps: 29.97, duration: 10 }),
+    /duration 10 s is 299.7 frames at 29.97 fps; use 9.976633333333334 or 10.01$/,
+  )
+  checkManifest({ ...good, fps: '30000/1001', duration: 10.01 })
+  checkManifest({ ...good, fps: 29.97, duration: (299 * 1001) / 30000 })
+  // A variant is judged at its own rate, or the film's.
+  assert.throws(
+    () => checkManifest({ ...good, variants: { cut: { duration: 0.55 } } }),
+    /variants.cut.duration 0.55 s is 16.5 frames at 30 fps; use 0.5333333333333333 or 0.5666666666666667/,
+  )
+  assert.throws(
+    () => checkManifest({ ...good, variants: { pal: { fps: 25, duration: 1.98 } } }),
+    /variants.pal.duration 1.98 s is 49.5 frames at 25 fps; use 1.96 or 2/,
+  )
+  checkManifest({ ...good, variants: { pal: { fps: 25 }, short: { duration: 0.5 } } })
 })
 
 test('variants are designed outputs: sizes, lengths and params, checked like the manifest', () => {

@@ -134,7 +134,23 @@ const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v)
 
-const variantProblems = (variants: unknown): string[] => {
+/**
+ * The problem with a duration that is not a whole number of frames at this rate, naming the
+ * nearest durations that are, or null. Within 1e-9 s of a frame counts as whole, the same slack
+ * frameTimes gives, so frameCount is that whole number and an encoder writes as many.
+ */
+const durationProblem = (duration: unknown, fps: unknown, at: string): string | null => {
+  const r = parseFps(fps)
+  if (!positive(duration) || !r) return null
+  const frames = ((duration as number) * r.num) / r.den
+  if ((Math.abs(frames - Math.round(frames)) * r.den) / r.num < 1e-9) return null
+  const below = Math.floor(frames)
+  const near = [below, below + 1].filter((f) => f > 0).map((f) => String((f * r.den) / r.num))
+  return `${at}duration ${duration} s is ${Number(frames.toFixed(3))} frames at ${fps} fps; use ${near.join(' or ')}`
+}
+
+/** Problems with `variants`; a variant's length is judged at its own rate, or the film's. */
+const variantProblems = (variants: unknown, film: Record<string, unknown>): string[] => {
   if (!isObject(variants)) return ['variants must be an object']
   return Object.entries(variants).flatMap(([name, v]) => {
     if (!isObject(v)) return [`variants.${name} must be an object`]
@@ -144,6 +160,10 @@ const variantProblems = (variants: unknown): string[] => {
         p.push(`variants.${name}.${key} must be a positive integer`)
     if (v.duration !== undefined && !positive(v.duration))
       p.push(`variants.${name}.duration must be a positive number`)
+    const frames =
+      (v.duration !== undefined || v.fps !== undefined) &&
+      durationProblem(v.duration ?? film.duration, v.fps ?? film.fps, `variants.${name}.`)
+    if (frames) p.push(frames)
     if (v.fps !== undefined && !parseFps(v.fps))
       p.push(`variants.${name}.fps must be a positive number or a fraction such as "24000/1001"`)
     if (v.params !== undefined && !isObject(v.params))
@@ -200,6 +220,8 @@ export const checkManifest = (value: unknown): Manifest => {
   if (typeof m.entry !== 'string' || m.entry === '')
     problems.push('entry must be a non-empty string')
   if (!positive(m.duration)) problems.push('duration must be a positive number')
+  const frames = durationProblem(m.duration, m.fps, '')
+  if (frames) problems.push(frames)
   if (!parseFps(m.fps))
     problems.push('fps must be a positive number or a fraction such as "24000/1001"')
   for (const key of ['width', 'height'] as const) {
@@ -237,7 +259,7 @@ export const checkManifest = (value: unknown): Manifest => {
     problems.push('dom needs the browser host: add "host": "browser"')
   if (m.$schema !== undefined && typeof m.$schema !== 'string')
     problems.push('$schema must be a string')
-  if (m.variants !== undefined) problems.push(...variantProblems(m.variants))
+  if (m.variants !== undefined) problems.push(...variantProblems(m.variants, m))
   if (m.bakes !== undefined) problems.push(...bakeProblems(m.bakes))
   if (m.requires !== undefined) problems.push(...requiresProblems(m.requires))
   if (m.hdr10 !== undefined) problems.push(...hdr10Problems(m.hdr10))

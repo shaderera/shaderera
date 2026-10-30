@@ -229,10 +229,10 @@ const probeRate = (file: string) => {
 test("a chunk carries its job's frame rate, a variant's own too, and assembles at it (#442)", {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
-  // Rawvideo's own rate is 25: none of these is.
+  // Rawvideo's own rate is 25: none of these is. At 30000/1001 the lengths are whole frames too.
   const cases = [
     { fps: 30 as number | string, rate: '30/1', num: 30, den: 1 },
-    { fps: '30000/1001', rate: '30000/1001', num: 30000, den: 1001 },
+    { fps: '30000/1001', rate: '30000/1001', num: 30000, den: 1001, duration: 1.001 },
     { fps: 30, variant: 24, rate: '24/1', num: 24, den: 1 },
   ]
   for (const c of cases) {
@@ -244,6 +244,11 @@ test("a chunk carries its job's frame rate, a variant's own too, and assembles a
     const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
     manifest.fps = c.fps
     if (c.variant) manifest.variants.square.fps = c.variant
+    if (c.duration) {
+      manifest.duration = c.duration
+      for (const v of Object.values(manifest.variants) as { duration: number }[])
+        v.duration = c.duration / 2
+    }
     writeFileSync(join(root, 'shaderera.json'), JSON.stringify(manifest))
     const job = await cli(root, 'job', '--name', 'r', ...(c.variant ? ['--variant', 'square'] : []))
     assert.equal(job.status, 0, job.stderr)
