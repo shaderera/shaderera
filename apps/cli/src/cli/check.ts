@@ -1,6 +1,6 @@
 import { relative, sep } from 'node:path'
 import type { DeterminismReport, Manifest } from '@shaderera/core'
-import { checkDeterminism, diffPixels } from '@shaderera/core'
+import { checkDeterminism, diffPixels, frameAt } from '@shaderera/core'
 import { type LightLevels, type SeekStats, sampleTimes } from '@shaderera/core/host'
 import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
@@ -29,6 +29,10 @@ export type CheckResult = DeterminismReport & {
   /** Wall-clock reads inside render (counted, never blocked). */
   clock: ClockReads
 }
+
+/** What usually makes a film differ at one t, and the fix (docs/determinism.md). */
+export const CAUSES =
+  'Usually Math.random, Date.now or state carried between frames: use host.seed and derive everything from t. See docs/determinism.md.'
 
 /** One line on how a sequential source seeks, or none for a source that renders any t. */
 export const describeSeeks = (
@@ -199,7 +203,13 @@ const checkOne = async (
       }
       return EXIT.ok
     }
-    out.log(`✗ not deterministic: ${r.failures.length} of ${r.times.length} timestamps differ`)
+    // To the millisecond: a t is a frame's, never finer.
+    const ms = (t: number) => Math.round(t * 1000) / 1000
+    const [first] = r.failures
+    if (first)
+      out.log(
+        `✗ not deterministic: differs at t=${ms(first.t)} (frame ${frameAt(first.t, project.manifest.fps)}), the first difference found; check stops there`,
+      )
     for (const f of r.failures) {
       const detail =
         f.kind === 'inspect'
@@ -208,14 +218,11 @@ const checkOne = async (
               .map((c) => c.path)
               .join(', ')
           : `${f.first.slice(0, 12)} != ${f.second.slice(0, 12)}`
-      out.log(`  ✗ t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`)
-      out.found({
-        code: 'determinism',
-        severity: 'error',
-        message: `t=${f.t} after t=${f.after ?? '-'} ${f.kind}: ${detail}`,
-        t: [f.t],
-      })
+      const line = `t=${ms(f.t)} ${f.after === null ? 'rendered first' : `after t=${ms(f.after)}`}, ${f.kind}: ${detail}`
+      out.log(`  ✗ ${line}`)
+      out.found({ code: 'determinism', severity: 'error', message: line, t: [ms(f.t)] })
     }
+    out.log(`  ${CAUSES}`)
     out.log(compare)
     const seeks = describeSeeks(r.seeks, project.manifest.sequential)
     if (seeks) out.log(seeks)
