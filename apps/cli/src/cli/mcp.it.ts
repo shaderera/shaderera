@@ -490,6 +490,32 @@ test('render takes draft, variant and params, and reports its frames as progress
   }
 })
 
+test("still with file looks at a rendered file's frames, not the source's (#537)", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = copy('./fixtures/mcp/')
+  const { call, close } = await connect(root)
+  try {
+    await call('render', { out: 'out/film.mp4' })
+    const sheet = await call('still', { file: 'out/film.mp4', times: [0, 0.5] })
+    assert.deepEqual(JSON.parse(sheet.content[0].text), {
+      times: [0, 0.5],
+      file: 'out/film.mp4',
+      width: 64,
+      height: 36,
+    })
+    assert.equal(sheet.content[1].mimeType, 'image/png')
+    await assert.rejects(call('still', { file: 'out/film.mp4', times: [2] }), /Outside the film/)
+    await assert.rejects(
+      call('still', { file: 'out/film.mp4', times: [0], variant: 'short' }),
+      /no variant/,
+    )
+    await assert.rejects(call('still', { file: '../x.mp4', times: [0] }), /outside the project/)
+  } finally {
+    await close()
+  }
+})
+
 test("render of a job renders the job's frozen delivery, not a default mp4", {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {

@@ -210,13 +210,17 @@ WGSL error in shader "field" at 3:7 (src/field.wgsl:3): 'set' is a reserved keyw
 ## `still`
 
 Stills of any moment straight from the source, rendered by the same host as `check` and export
-(so the same errors fail them), for looking while you work.
+(so the same errors fail them), for looking while you work. With `--file`, of a rendered file
+instead: the frames as they were encoded.
 
 | Flag | Default |
 |---|---|
 | `<t>...`, `--time <s>` (repeatable) | the times, see [the common flags](#common-flags): `still 6` fails on a 6 s film |
+| `--file <video>` | none: render the source. A rendered file (`out/x.mp4`) instead: each t is the file's frame shown at t, read as `io.video` reads a clip, written as `<name>-<t>.png` beside it in `stills/` (`--out` as below), and the sheet `<name>-sheet.png`. Not with `--variant`, `--compare`, `--region`, `--object`, `--diff` or `--param`, which render the source |
 | `--every <s>` | also a frame every s seconds from 0 |
+| `--count <n>`, `--from <s>`, `--to <s>` | also n frames evenly from `--from` (0) up to before `--to` (the end): `--from 2 --to 8 --count 12` is every 0.5 s from 2 to 7.5 |
 | `--sheet` | also a contact sheet, `<variant>-sheet.png`. With several variants, one sheet of them side by side instead, `<a>-<b>-sheet.png`: a row per t, each variant's frame at the same height (at most 720 px), labelled with its name, t and size, and the safe area requirements.json declares for it drawn as a dashed line. Only the sheet is scaled and drawn on: each still is the same bytes as a still of that variant alone |
+| `--columns <n>` | 4: how many frames across the `--sheet` (not the side-by-side one of several variants) |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
 | `--out <dir>` | `out/stills/` |
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |

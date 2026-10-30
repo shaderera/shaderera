@@ -174,13 +174,14 @@ export const pngWriter = () => {
   }
 }
 
-/** A grid of frames, each labelled with its t and shot label underneath. */
+/** A grid of frames, `columns` (4) across, each labelled with its t and shot label underneath. */
 export const contactSheet = (
   frames: readonly { t: number; label: string; pixels: Uint8Array }[],
   width: number,
   height: number,
+  columns = 4,
 ): Promise<Buffer> => {
-  const cols = Math.min(4, Math.max(1, frames.length))
+  const cols = Math.min(columns, Math.max(1, frames.length))
   const rows = Math.ceil(frames.length / cols)
   const tileW = Math.min(width, Math.floor((THUMB - 8 * (cols + 1)) / cols))
   const tileH = Math.round((height * tileW) / width)
