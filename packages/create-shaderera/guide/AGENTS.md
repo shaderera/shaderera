@@ -29,6 +29,8 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
 - Look at the frames, not only the numbers: `npx shaderera still <t>... --sheet`, a detail with
   `--region x,y,w,h --scale 8`, or the MCP server (`npx shaderera mcp`, `render_frame` with
   `image: true`). Read motion as a curve: `npx shaderera inspect --track <path>`.
+- The studio shows a film's variants side by side on one timeline (the person picks which in its
+  header): do not build a joined variant to show them together.
 - Build it so it renders fast (`AUTHORING.md`, "Expensive films" and "Footage and stills on the
   GPU"):
   - do decoding, baking and other one-off work in `open`, not in `render(t)`;

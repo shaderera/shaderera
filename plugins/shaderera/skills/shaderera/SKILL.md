@@ -176,6 +176,10 @@ page:
 
 Reviewing the film there with the person is section 6.
 
+A film with variants plays in the studio side by side, one runner a variant on one timeline, all
+of them until the person picks some in the page's header: do not build a joined variant to show
+them together.
+
 The code and renders stay on this machine: the page reads them from a bridge on 127.0.0.1. Only
 a share sends the project. The relay on shaderera.com pairs the two and carries sealed traffic
 when the browser blocks 127.0.0.1 (Safari, Brave; then there is no live preview, but export and
