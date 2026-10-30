@@ -43,6 +43,32 @@ test('--json review: its report as result, a declared rule that fails as an erro
   )
 })
 
+test('--json: save, diff, undo, restore, check and inspect --path give their result as fields', () => {
+  const root = tempDir('envelope')
+  cpSync(fileURLToPath(new URL('./fixtures/mcp/', import.meta.url)), root, { recursive: true })
+  const json = (...args: string[]) => {
+    const r = cli(...args, '--root', root, '--json')
+    assert.equal(r.status, 0, r.stdout)
+    const e = envelope(r)
+    assert.equal(e.log, undefined, r.stdout)
+    return e.result
+  }
+  const a = json('save', '--label', 'first')
+  assert.deepEqual([typeof a.id, a.label, typeof a.files], ['string', 'first', 'number'])
+  writeFileSync(join(root, 'notes.txt'), 'more')
+  const b = json('save')
+  assert.deepEqual(json('diff', a.id, b.id, '--stat'), {
+    added: ['notes.txt'],
+    removed: [],
+    changed: [],
+  })
+  assert.equal(json('undo').id, a.id)
+  assert.equal(json('restore', b.id).id, b.id)
+  const check = json('check', '--times', '2')
+  assert.deepEqual([check.failures, check.times.length], [[], 2])
+  assert.equal(json('inspect', '0.5', '--path', 'box.x'), 15)
+})
+
 test('findings carry where a check is about, and a shader error its file and line', () => {
   const [f] = checkFindings([
     {

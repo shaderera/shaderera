@@ -146,6 +146,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       seed: { type: 'string' },
       hdr10: { type: 'boolean' },
       variants: { type: 'string' },
+      json: { type: 'boolean' },
     },
     { command: 'check', times: false },
   )
@@ -153,24 +154,30 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // the gaps), and run at once.
   const { root } = await findProject(typeof values.root === 'string' ? values.root : process.cwd())
   for (const file of keyGaps.keys()) if (ours(root, file)) keyGaps.delete(file)
-  const exit = await eachVariant(values, checkOne)
+  const exit = await eachVariant(values, checkOne, { json: values.json === true })
   for (const note of keyframeNotes(root)) {
-    direct.log(`! ${note}`)
+    if (!values.json) direct.log(`! ${note}`)
     direct.found({ code: 'keyframes', severity: 'info', message: note })
   }
   return exit
 }
 
+/**
+ * One variant's check. `--json`: its report as MCP `check` gives it, and no lines; the findings
+ * are the same either way.
+ */
 const checkOne = async (
-  v: Parameters<typeof open>[0] & { times?: string; seed?: string },
-  out: Output,
+  v: Parameters<typeof open>[0] & { times?: string; seed?: string; json?: boolean },
+  given: Output,
 ): Promise<number> => {
   const { project, child } = await open(v)
+  const out = v.json ? { ...given, log: () => {} } : given
   try {
     const r = await checkChild(child, project.manifest, {
       times: Number(v.times ?? 50),
       seed: Number(v.seed ?? 1),
     })
+    if (v.json) out.result(r)
     const { mean, max, at } = r.previewVsFinal
     const compare = `  preview vs final: mean ${mean.toFixed(3)}, max ${max}${r.light ? ' 10-bit codes' : ''} over ${at.length} t`
     const peak = project.manifest.hdr10?.mastering.peak

@@ -29,6 +29,8 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     to: { type: 'string' },
     replace: { type: 'boolean' },
     hdr10: { type: 'boolean' },
+    // The job is printed as JSON either way: `--json` puts it in the envelope as `result`.
+    json: { type: 'boolean' },
     ...DELIVERY_FLAGS,
   })
   const delivery = deliveryOf(v)
