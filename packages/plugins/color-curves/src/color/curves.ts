@@ -2,7 +2,8 @@
 // bake into a color-lut 1D LUT, which lut1d and applyLut apply. Hue curves (hue vs saturation,
 // hue vs hue) bake into a table over hue, which curves.wgsl.ts applies in a shader and
 // applyHueCurves applies on the CPU with the same values. Every curve is a monotone cubic through
-// its points (Fritsch–Carlson): exact at them, never past them, flat beyond the ends.
+// its points (Fritsch–Butland tangents, as PCHIP has inside; each end piece's own slope at the
+// ends): exact at them, never past them, flat beyond the ends.
 
 import type { Lut } from './lut.ts'
 
@@ -102,6 +103,8 @@ export type RgbCurves = {
  * on the GPU; `writeCube` writes it as a file.
  */
 export const curvesLut = (curves: RgbCurves, size = 1024): Lut => {
+  if (!Number.isInteger(size) || size < 2)
+    throw new Error(`curvesLut: size must be 2 or more, not ${size}`)
   const master = spline(curves.master ?? [])
   const channel = [curves.red, curves.green, curves.blue].map((p) => spline(p ?? []))
   const table = new Float64Array(size * 3)
@@ -128,6 +131,8 @@ export type HueCurves = {
  * `applyLut`: hue wraps, and a LUT clamps.
  */
 export const hueCurvesLut = (curves: HueCurves, size = 256): Lut => {
+  if (!Number.isInteger(size) || size < 2)
+    throw new Error(`hueCurvesLut: size must be 2 or more, not ${size}`)
   const sat = curves.hueVsSat?.length ? hueSpline(curves.hueVsSat) : () => 1
   const hue = hueSpline(curves.hueVsHue ?? [])
   const table = new Float64Array(size * 3)
