@@ -23,7 +23,7 @@ import { basename, extname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { frameTimes, type Json, type Manifest } from '@shaderera/core'
 import { withVariant } from '@shaderera/core/host'
-import { childOptions, insideFilm, open } from '../cli/args.ts'
+import { childOptions, DRAFT_HEIGHT, draftSize, insideFilm, open } from '../cli/args.ts'
 import { defaultWorkers, exportVideo } from '../cli/render.ts'
 import { LoginNeeded, shareProject, titleOf } from '../cli/share.ts'
 import { DEFAULT_API } from '../cli/site.ts'
@@ -47,7 +47,7 @@ import {
   setState,
   type Thread,
 } from '../project/comments.ts'
-import { manifestAt, openRevision } from '../project/jobs.ts'
+import { manifestAt, openRevision, windowOf } from '../project/jobs.ts'
 import {
   changedFiles,
   type Files,
@@ -102,6 +102,8 @@ export type BridgeReply =
   | { status: 302; location: string }
 
 export type Format = 'mp4' | 'mov' | 'png'
+/** A video render's window (seconds) and draft height, as `render --from --to --draft` take them. */
+type Window = { from?: number; to?: number; draft?: number }
 const TYPES: Record<Format, string> = { mp4: 'video/mp4', mov: 'video/quicktime', png: 'image/png' }
 
 type Job = {
@@ -560,13 +562,14 @@ export const startBridge = async (o: {
     })
   const render = async (
     job: Job,
-    r: { variant?: string; params: object; t: number; revision?: string },
+    r: { variant?: string; params: object; t: number; revision?: string } & Window,
     signal: AbortSignal,
   ) => {
     const flags = {
       ...o.hostFlags,
       root,
       ...(r.variant ? { variant: r.variant } : {}),
+      ...(r.draft ? { draft: r.draft } : {}),
       param: Object.entries(r.params).map(([k, v]) => `${k}=${JSON.stringify(v)}`),
     }
     // A revision renders from its frozen copy, on one host; the tree, on as many as it takes.
@@ -577,6 +580,14 @@ export const startBridge = async (o: {
     } = r.revision
       ? await openRevision(root, r.revision, {
           ...(r.variant ? { variant: r.variant } : {}),
+          ...(r.draft
+            ? {
+                size: draftSize(
+                  withVariant(manifestAt(root, r.revision), r.variant).manifest,
+                  r.draft,
+                ),
+              }
+            : {}),
           params: r.params as { [key: string]: Json },
           host: o.hostFlags?.host,
           ...childOptions(o.hostFlags ?? {}),
@@ -611,8 +622,13 @@ export const startBridge = async (o: {
         codec: job.format === 'mov' ? 'prores-hq' : 'h264',
         out: job.file,
         workers: opener
-          ? defaultWorkers(manifest, frameTimes(manifest.fps, 0, manifest.duration).length)
+          ? defaultWorkers(
+              manifest,
+              frameTimes(manifest.fps, r.from ?? 0, r.to ?? manifest.duration).length,
+            )
           : 1,
+        ...(r.from !== undefined ? { from: r.from } : {}),
+        ...(r.to !== undefined ? { to: r.to } : {}),
         ...(opener ? { more } : {}),
         revision: traced,
         signal,
@@ -656,10 +672,12 @@ export const startBridge = async (o: {
     params: object,
     t: number,
     revision?: string,
+    window: Window = {},
   ) => {
     const id = randomBytes(6).toString('hex')
-    // A variant's name may hold what a file name cannot (`16:9`), as in project/jobs.ts.
-    const name = `${basename(root)}${variant ? `-${variant.replace(/[^\p{L}\p{M}\p{N}_.-]/gu, '_')}` : ''}${revision ? `-${revision}` : ''}-${id}.${format}`
+    // A variant's name may hold what a file name cannot (`16:9`), as in project/jobs.ts; a window
+    // adds its seconds and a draft says so, as render names them, so one never replaces another.
+    const name = `${basename(root)}${variant ? `-${variant.replace(/[^\p{L}\p{M}\p{N}_.-]/gu, '_')}` : ''}${revision ? `-${revision}` : ''}${window.from !== undefined || window.to !== undefined ? `-${(window.from ?? 0).toFixed(1)}-${window.to === undefined ? 'end' : window.to.toFixed(1)}` : ''}${window.draft ? '-draft' : ''}-${id}.${format}`
     const job: Job = {
       id,
       state: 'queued',
@@ -681,7 +699,13 @@ export const startBridge = async (o: {
         // The queue goes on at a cancel, while the render winds down (its host closing).
         const rendering = render(
           job,
-          { ...(variant ? { variant } : {}), params, t, ...(revision ? { revision } : {}) },
+          {
+            ...(variant ? { variant } : {}),
+            params,
+            t,
+            ...(revision ? { revision } : {}),
+            ...window,
+          },
           signal,
         )
         rendering.catch(() => {})
@@ -825,6 +849,9 @@ export const startBridge = async (o: {
         format?: unknown
         t?: unknown
         revision?: unknown
+        from?: unknown
+        to?: unknown
+        draft?: unknown
       }
       // Every field is checked before a job is queued: a bad one opens no host, saves nothing.
       const format = body.format as Format
@@ -875,7 +902,31 @@ export const startBridge = async (o: {
               error: `t ${t} is outside the film${v === undefined ? '' : ` "${v}"`} (0 to ${duration} s)`,
             })
         }
-      const queued = names.map((v) => queueJob(format, v, params, t, revision))
+      // A window and a draft, a video's only: checked as render checks --from, --to and --draft.
+      const draft = body.draft === true ? DRAFT_HEIGHT : body.draft
+      if (
+        draft !== undefined &&
+        (typeof draft !== 'number' || !Number.isInteger(draft) || draft < 2)
+      )
+        return json(400, { error: 'draft is true or a height in pixels, such as 360' })
+      const window: Window = {
+        ...(body.from !== undefined ? { from: body.from as number } : {}),
+        ...(body.to !== undefined ? { to: body.to as number } : {}),
+        ...(draft !== undefined ? { draft: draft as number } : {}),
+      }
+      if (Object.keys(window).length > 0 && format === 'png')
+        return json(400, { error: 'from, to and draft are for a video (mp4 or mov)' })
+      for (const v of names)
+        try {
+          windowOf(
+            v === undefined ? manifest : withVariant(manifest, v).manifest,
+            window.from,
+            window.to,
+          )
+        } catch (error) {
+          return json(400, { error: (error as Error).message })
+        }
+      const queued = names.map((v) => queueJob(format, v, params, t, revision, window))
       return json(200, many === undefined ? { job: queued[0] } : { jobs: queued })
     }
     const cancel = /^POST \/render\/([0-9a-f]+)\/cancel$/.exec(route)

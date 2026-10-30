@@ -635,6 +635,11 @@ test('/render refuses a bad request up front, naming the field', async () => {
     [{ format: 'png', t: -1 }, /^t .*outside the film/],
     [{ format: 'png', t: 1e9 }, /^t .*outside the film/],
     [{ format: 'png', variant: 'nowhere' }, /variant "nowhere"/],
+    [{ format: 'png', draft: true }, /for a video/],
+    [{ format: 'mp4', draft: 1 }, /draft is true or a height/],
+    [{ format: 'mp4', from: 'a' }, /Not a time in seconds: from/],
+    [{ format: 'mp4', from: 0.8, to: 0.2 }, /must be after/],
+    [{ format: 'mp4', to: 1e9 }, /outside/],
   ] as const) {
     const r = await call(bridge.port, {
       method: 'POST',
