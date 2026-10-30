@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { tempDir } from '../fixtures/temp.ts'
 import { closest, usageOf } from './main.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
@@ -31,6 +32,20 @@ test('help <command> and <command> --help print that command, help alone all of 
   assert.match(all.stdout, /^Usage: shaderera <command>/)
   assert.match(all.stdout, /inspect/)
   assert.equal(cli('help', 'nope').status, 2)
+})
+
+test('shaderera alone fits one screen and names studio; outside a project, how to start one', () => {
+  const r = cli()
+  assert.equal(r.status, 0, r.stderr)
+  assert.ok(r.stdout.split('\n').length <= 15, r.stdout)
+  assert.match(r.stdout, /^ {2}studio /m)
+  assert.match(r.stdout, /shaderera help lists every command/)
+  const none = spawnSync(process.execPath, [main, 'still', '0'], {
+    cwd: tempDir('no-project'),
+    encoding: 'utf8',
+  })
+  assert.equal(none.status, 2)
+  assert.match(none.stderr, /Start one with npx create-shaderera@latest <dir>, or pass --root\./)
 })
 
 test('an unknown flag names the nearest one; a negative time says times start at 0', () => {

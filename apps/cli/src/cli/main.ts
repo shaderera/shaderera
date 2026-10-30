@@ -53,6 +53,16 @@ check, still and review take several variants (--variant a,b or --variants all):
 
 Stills: still (out/stills/). A review with technical checks: review (out/review/).`
 
+/** What `shaderera` alone prints: the commands a person starts with, and where the rest are. */
+const FIRST = `Usage: shaderera <command> [options], in a project's folder
+
+  check        check that every frame is a function of t
+  still <t>    a still of any moment, in out/stills/
+  render       export the film, to out/
+  studio       open the film in the studio on shaderera.com
+
+shaderera help lists every command and flag; shaderera <command> --help, one command's.`
+
 const commands = [
   'inspect',
   'check',
@@ -206,8 +216,12 @@ const unknownFlag = (command: string, help: string, e: unknown): Error | undefin
 
 const main = async (argv: readonly string[]): Promise<number> => {
   const [command, ...rest] = argv
+  if (!command) {
+    console.log(FIRST)
+    return EXIT.ok
+  }
   // `help [command]`, `<command> --help`: that command's help; no command: all of the usage.
-  if (!command || command === 'help' || command === '--help' || command === '-h') {
+  if (command === 'help' || command === '--help' || command === '-h') {
     const about = rest.find((a) => !a.startsWith('-'))
     if (about && !commands.includes(about)) return unknown(about)
     console.log(about ? await helpOf(about) : usage)
