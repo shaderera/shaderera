@@ -33,7 +33,8 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
   header): do not build a joined variant to show them together.
 - Build it so it renders fast (`AUTHORING.md`, "Expensive films" and "Footage and stills on the
   GPU"):
-  - do decoding, baking and other one-off work in `open`, not in `render(t)`;
+  - keep `open` light: decode once per host there, put sound work in `audio()` and derived
+    bytes in `io.cache`, and use `shaderera bake` for outside programs;
   - put footage and stills on GPU textures and sample them in WGSL, a still once and a footage
     frame once a frame; keep Canvas2D for type and small shapes, and never do per-pixel work in
     JS at every frame;
@@ -42,8 +43,8 @@ This is a Shaderera project: the film is `render(t)` in `src/`, with metadata in
 - While you iterate, look at the frames a change touched, and render only the shot that changed
   (`render --from <s> --to <s> --out out/shot.mp4`). Render the whole film when the person asks,
   in the background with `--progress`, and tell them the time left (`guides/review.md`).
-- Renders pile up in `out/` and revisions in `versions/`: delete the renders nobody needs, and
-  `npx shaderera prune --dry-run` shows the revisions it can remove.
+- Renders pile up in `out/` and revisions in `versions/`: `npx shaderera prune --dry-run` shows
+  what it would free. Never delete `out/`, `versions/` or jobs without asking.
 - Add `--json` to any command for one envelope to read: `ok`, `exitCode` (0 passed, 1 the film
   failed a check, 2 the command could not run) and `findings` with t, file:line and bbox. When
   something on the machine is missing, `npx shaderera doctor` says what and how to fix it.

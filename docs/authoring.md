@@ -1,7 +1,7 @@
 # Authoring a Shaderera film
 
-For the person and the agent making or revising a film in this project (Shaderera 0.2.2). The
-project is ordinary code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
+For the person and the agent making or revising a film in this project. The project is ordinary
+code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
 ids, params and requirements in its `README.md`. There is no scene format to fill in: the film is
 the source. The reference is in `node_modules/shaderera/docs/` (below, `docs/`: the protocol,
 determinism, the CLI, MCP, delivery, and `participants/` per renderer); the task checklists are in
@@ -169,9 +169,8 @@ command that prints nothing looks frozen.
 - **Render in the background with progress.** `npx shaderera render 2> render.log` writes
   `frame 120/360  2.1 fps  1:53 left` to stderr every 10 s (`--progress`: every frame); read the
   end of the log to say how far it is, instead of guessing.
-- **More hosts on a big machine.** `render` opens at most 4 hosts. When each host process uses
-  well under a core and the machine has idle cores, `--workers` up to its cores less two renders
-  faster; chunks (`plan`, `render --chunk`) are for several machines, not for one.
+- **More hosts on a big machine.** `render` opens at most 4 hosts; when to give more
+  (`--workers`) is in `docs/cli.md`, `render`.
 - **Bake what the host cannot run.** When a frame needs a program project code may not start (a
   native denoiser that keeps history, a simulation in another tool), or minutes of work that
   another program does better, make those frames a bake: declare it in `shaderera.json` `bakes`

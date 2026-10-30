@@ -83,9 +83,8 @@ check, 2 the command could not run) and `findings` with `t`, `file:line` and a b
 While you iterate, look (step 3) instead of rendering, and render only the shot that changed:
 `render --from <s> --to <s> --out out/shot.mp4`. Render the whole film when the person asks, or
 for a review round: in the background with `--progress`, and tell them the time left from its
-first lines. Keep `--workers` at its default for a film that waits on its footage; more (up to
-the cores less two) help only when its own drawing is the bottleneck and cores are idle. Why a
-render is slow: `guides/review.md`.
+first lines. `--workers`: see `node_modules/shaderera/docs/cli.md`, `render`. Why a render is
+slow: `guides/review.md`.
 
 ```bash
 npx shaderera review                      # frames, a contact sheet and technical checks
@@ -143,9 +142,8 @@ here, a poster and a short loop, as a new film or a new version of it:
    (all rights reserved). Ask the person which licence they want before changing it, for
    example `MIT` so others may fork and reuse the film.
 2. **`npx shaderera share --dry-run`** sends nothing and needs no sign-in: it lists the files,
-   the bytes, what it leaves out, and every limit the version would break. shaderera.com's API
-   takes at most 32 MiB a file and 64 MiB a version (source, player, poster and loop, each
-   distinct file once). A large video is the usual cause: shorten or compress it.
+   the bytes, what it leaves out, and every limit the version would break, as shaderera.com's
+   API sets them (`--json`: `limits`). A large video is the usual cause: shorten or compress it.
 3. **`npx shaderera share --yes`** (off a terminal it needs `--yes`) once the person has
    approved what the dry run listed. It prints the film's page,
    `https://shaderera.com/film/<id>`.
@@ -170,7 +168,7 @@ to review the film with you, or watch, render or share it from a page:
 3. Read the events as they come: `paired`, `job`, `share`, `comment`, `agent`, `relay`,
    `page-closed`, `resumed`, `ended`.
 4. On a `mismatch` event, relay its `text`: the page and the CLI speak different studio
-   protocols (this CLI speaks v2). `update: "page"` means reload the page; `update: "cli"` means
+   protocols. `update: "page"` means reload the page; `update: "cli"` means
    `npm i shaderera@latest` and run `studio` again (the command ends with exit 2).
 5. A later `url` event has a new address: no page came for the last one in 10 minutes
    (`expired`), or the paired page closed (`closed`). It is not opened: give the person the
