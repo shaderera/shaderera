@@ -69,8 +69,8 @@ with the message.
 
 | Tool | Input | Output |
 |---|---|---|
-| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`, or a text run with its `box`), `scale?` 1–16; `variant?`, `params?`; `revision?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side unless `full: true`; a region is enlarged `scale` times, never scaled down |
-| `still` | `times?` (seconds), `every?`; `variant?` or `variants?`, `params?`; `revision?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. With `variants`, `{ times, variants: [{ variant, width, height }] }` and one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area `requirements.json` declares dashed. At most 64 frames in all; no file is written |
+| `render_frame` | `t`; `final?` (default true; `false` renders `preview`); `camera?` `{view, projection}`; `image?`, `full?`; `region?` `[x, y, w, h]` or `object?` (an id with a `bbox`, or a text run with its `box`), `scale?` 1–16; `variant?`, `params?`; `revision?` | `{ sha256, meanRgba, alphaBox, layers, ms }`. With `image: true`, then the image's `{ width, height }` (and the `region` and `scale` when one is given) and a PNG block. The whole frame is scaled down to 1024 px on its long side, or 2048 px with `full: true`; a region is enlarged `scale` times, the scale lowered to keep its long side at most 2048 px (the size block then has `note`, such as `scale 16 → 3 (long side ≤ 2048)`) |
+| `still` | `times?` (seconds), `every?`; `variant?` or `variants?`, `params?`; `revision?` | like `shaderera still <t>... --sheet`: `{ times }`, then one contact sheet PNG of the final frames, each labelled with its t. `every` adds every `every` seconds from 0. With `variants`, `{ times, variants: [{ variant, width, height }] }` and one sheet of them side by side: a row per t, each variant at the same height, labelled with its name, t and size, the safe area `requirements.json` declares dashed. At most 64 frames in all; no file is written. A sheet over 2048 px on its long side comes scaled down to 2048 |
 | `inspect` | `t`; `path?`; or `track` (a path), `from?`, `to?`; `variant?`, `params?` | the inspect JSON at `t`, or the value at `path`. With `track`, like `shaderera inspect --track --json` ([cli.md](cli.md#inspect)): `[{ t, value, speed? }]` at every frame from `from` (default 0) to `to` (default the duration), `speed` per second for numbers and arrays of numbers |
 | `compare` | `a`, `b`; `path?`; `variant?`, `params?` | `{ changes, pixels }`: `diffJson` of the inspects at the two times (under `path`) and `diffPixels` of the two final frames. Not `shaderera diff`, which compares two revisions |
 | `pick` | `t`, `x`, `y` | `{ pick, object, source }`: the `Pick`, the inspected object with that `id`, its `source` |
@@ -104,9 +104,11 @@ Notes from the code:
   `camera`. That is the literal of your camera object, which may be a computed one.
 - `pick` on a source without `pick` returns `{ "pick": null, "object": null, "source": null }`.
 - Images are opt-in on purpose: hashes, means and boxes are cheaper to read and compare.
-- A scaled-down image is drawn through a canvas, which premultiplies alpha; `full: true` and
-  regions are the frame's straight RGBA byte for byte. `pick`'s `x` and `y` are frame pixels, not
-  the scaled image's.
+- No tool returns an image over 2048 px on its long side (the Claude API refuses a request with
+  one over 8000 px): a bigger sheet or contact sheet is scaled down to fit.
+- A scaled-down image is drawn through a canvas, which premultiplies alpha; `full: true` on a
+  frame of at most 2048 px, and regions, are the frame's straight RGBA byte for byte. `pick`'s `x`
+  and `y` are frame pixels, not the scaled image's.
 
 ## Walk-through: a camera jump
 

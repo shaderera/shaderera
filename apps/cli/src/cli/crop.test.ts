@@ -22,6 +22,15 @@ test('a crop is clamped to the frame and enlarged by whole pixels', () => {
   )
 })
 
+test('a crop lowers its scale to keep the long side within longest, never below 1', () => {
+  const px = new Uint8Array(600 * 10 * 4)
+  const frame = { width: 600, height: 10 }
+  const c = crop(px, frame, { x: 0, y: 0, width: 600, height: 10 }, 16, 2048)
+  assert.deepEqual([c.scale, c.width, c.height], [3, 1800, 30])
+  assert.equal(crop(px, frame, { x: 0, y: 0, width: 600, height: 10 }, 16, 500).scale, 1)
+  assert.equal(crop(px, frame, { x: 0, y: 0, width: 10, height: 10 }, 16, 2048).scale, 16)
+})
+
 test('an object region comes from its bbox in inspect, else its box', () => {
   const json: Json = {
     shots: [

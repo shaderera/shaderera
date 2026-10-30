@@ -3,6 +3,7 @@ import { join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { diffJson, diffPixels, type Json, type Matrices, sha256 } from '@shaderera/core'
 import { describeCamera } from '../camera/describe.ts'
 import { shadereraVersion } from '../deliver/environment.ts'
@@ -134,6 +135,24 @@ const relativeReport = <R extends ReviewReport>(root: string, r: R): R => {
 
 /** The long side of render_frame's image unless `full`: a full HD PNG is ~3 MB of base64. */
 const IMAGE = 1024
+/**
+ * The longest side of any image a tool returns: the Claude API refuses a request with an image over
+ * 8000 px, and shows one over 2000 px no sharper.
+ */
+const LONGEST = 2048
+
+/** A PNG scaled down, when it is bigger, to LONGEST px on its long side. */
+const fitted = async (png: Buffer): Promise<Buffer> => {
+  // The IHDR chunk: width and height, big-endian, at bytes 16 and 20.
+  const [width, height] = [png.readUInt32BE(16), png.readUInt32BE(20)]
+  const k = LONGEST / Math.max(width, height)
+  if (k >= 1) return png
+  const w = Math.max(1, Math.round(width * k))
+  const h = Math.max(1, Math.round(height * k))
+  const ctx = createCanvas(w, h).getContext('2d')
+  ctx.drawImage(await loadImage(png), 0, 0, w, h)
+  return ctx.canvas.encode('png')
+}
 /** The most frames one `still` sheet holds. */
 const SHEET = 64
 /** The tools that take `variant` and `params`, and the ones that return content blocks. */
@@ -161,16 +180,16 @@ const SEVERAL =
 const tools: [string, string, { [k: string]: object }, string[]][] = [
   [
     'render_frame',
-    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side unless full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look. variant (from shaderera.json) and params (over its defaults) render that version. revision (a saved revision id, from versions or a comment) renders that revision from its frozen copy instead of the files as they are now.',
+    'Renders t; returns sha256, mean RGBA, alpha bounding box, layers and ms (a PNG only with image: true, at most 1024 px on its long side, or 2048 with full: true). camera ({view, projection}) applies to this frame only. region ([x, y, width, height] in frame pixels) or object (an inspected id with a bbox, or a text run with its box) makes the image that part of the frame, enlarged scale times (whole pixels, 1–16) for a close look; the scale is lowered to keep the long side at most 2048 px, and the size block says so. variant (from shaderera.json) and params (over its defaults) render that version. revision (a saved revision id, from versions or a comment) renders that revision from its frozen copy instead of the files as they are now.',
     {
       t: num,
       final: { type: 'boolean' },
       camera: obj,
       image: { type: 'boolean' },
       full: { type: 'boolean' },
-      region: { type: 'array', items: num },
+      region: { type: 'array', items: num, minItems: 4, maxItems: 4 },
       object: str,
-      scale: num,
+      scale: { type: 'integer', minimum: 1, maximum: 16 },
       revision: str,
       ...looks,
     },
@@ -651,7 +670,8 @@ export const createServer = (
                 : undefined
             if (!region) {
               const { width, height } = manifest
-              const k = a.full === true ? 1 : Math.min(1, IMAGE / Math.max(width, height))
+              const most = a.full === true ? LONGEST : IMAGE
+              const k = Math.min(1, most / Math.max(width, height))
               const size = {
                 width: Math.max(1, Math.round(width * k)),
                 height: Math.max(1, Math.round(height * k)),
@@ -659,20 +679,34 @@ export const createServer = (
               const data =
                 k === 1
                   ? png(r.pixels, width, height)
-                  : (await toPng(r.pixels, width, height, IMAGE)).toString('base64')
+                  : (await toPng(r.pixels, width, height, most)).toString('base64')
               return [text, { type: 'text', text: JSON.stringify(size) }, image(data)]
             }
-            const part = crop(r.pixels, manifest, region, a.scale ?? 1)
+            const asked = a.scale ?? 1
+            const part = crop(r.pixels, manifest, region, asked, LONGEST)
+            // A region over LONGEST at scale 1 is scaled down whole.
+            const k = Math.min(1, LONGEST / Math.max(part.width, part.height))
+            const size = {
+              width: Math.max(1, Math.round(part.width * k)),
+              height: Math.max(1, Math.round(part.height * k)),
+            }
+            const scale = Number((part.scale * k).toFixed(3))
             const where = {
               type: 'text',
               text: JSON.stringify({
-                width: part.width,
-                height: part.height,
+                ...size,
                 region: part.region,
-                scale: a.scale ?? 1,
+                scale,
+                ...(scale < asked
+                  ? { note: `scale ${asked} → ${scale} (long side ≤ ${LONGEST})` }
+                  : {}),
               }),
             }
-            return [text, where, image(png(part.pixels, part.width, part.height))]
+            const data =
+              k === 1
+                ? png(part.pixels, part.width, part.height)
+                : (await toPng(part.pixels, part.width, part.height, LONGEST)).toString('base64')
+            return [text, where, image(data)]
           } finally {
             if (a.camera) await c.override(null)
           }
@@ -900,7 +934,16 @@ export const createServer = (
         if (params.name !== 'diff') await session.drop()
         return onVersions(root, a)
       })
-      const content = IMAGES.has(params.name) ? r : [{ type: 'text', text: JSON.stringify(r) }]
+      // A sheet of many frames can be taller than any client takes: every image is fitted.
+      const content = IMAGES.has(params.name)
+        ? await Promise.all(
+            (r as { type: string; data?: string }[]).map(async (b) =>
+              b.type === 'image' && b.data
+                ? { ...b, data: (await fitted(Buffer.from(b.data, 'base64'))).toString('base64') }
+                : b,
+            ),
+          )
+        : [{ type: 'text', text: JSON.stringify(r) }]
       return { content, root, start }
     } catch (e) {
       if (/exited|took longer/.test(String(e))) void session?.drop()
