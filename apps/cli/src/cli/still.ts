@@ -37,7 +37,7 @@ export const stillTimes = (
     const { count, from = 0, to = duration } = span
     if (!(Number.isInteger(count) && count >= 1))
       throw new Error(`--count is a whole number of frames, 1 or more, not ${count}.`)
-    if (!(to > from)) throw new Error(`--from ${from} is not before --to ${to}.`)
+    if (!(to > from)) throw new Error(`--to must be after --from (${from}–${to} s).`)
     for (let i = 0; i < count; i++)
       times.push(Number((from + ((to - from) * i) / count).toFixed(6)))
   }

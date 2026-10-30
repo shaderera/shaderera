@@ -16,7 +16,10 @@ test('stillTimes adds count times evenly from --from up to before --to', () => {
   )
   assert.deepEqual(stillTimes([], undefined, 10, { count: 4 }), [0, 2.5, 5, 7.5])
   assert.throws(() => stillTimes([], undefined, 10, { count: 0 }), /--count is a whole number/)
-  assert.throws(() => stillTimes([], undefined, 10, { count: 2, from: 5, to: 5 }), /not before/)
+  assert.throws(
+    () => stillTimes([], undefined, 10, { count: 2, from: 5, to: 3 }),
+    /^Error: --to must be after --from \(5–3 s\)\.$/,
+  )
   assert.throws(
     () => stillTimes([], undefined, 10, { count: 2, from: 11, to: 12 }),
     /Outside the film/,
