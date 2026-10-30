@@ -66,7 +66,8 @@ export const kelvinToXy = (kelvin: number): [number, number] => {
   return [x, y]
 }
 
-const mul = (a: Mat3, b: Mat3): Mat3 =>
+/** Two matrices multiplied: applying mul(a, b) is applying b, then a. */
+export const mul = (a: Mat3, b: Mat3): Mat3 =>
   Array.from({ length: 9 }, (_, k) => {
     const [i, j] = [k - (k % 3), k % 3]
     const [p = 0, q = 0, r = 0] = a.slice(i, i + 3)
@@ -74,7 +75,8 @@ const mul = (a: Mat3, b: Mat3): Mat3 =>
     return p * u + q * v + r * w
   }) as unknown as Mat3
 
-const inverse = (m: Mat3): Mat3 => {
+/** A matrix's inverse. */
+export const inverse = (m: Mat3): Mat3 => {
   const [a, b, c, d, e, f, g, h, i] = m
   const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
   return [

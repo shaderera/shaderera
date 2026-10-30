@@ -35,7 +35,8 @@ const swatch = cdl([0.4, 0.35, 0.3], [1.1, 1, 0.9], [0, 0, 0.02], [1, 1, 1], 0.9
 - `whiteBalance(source, target)` (CPU): the 3×3 matrix that shows what the source white lit as if
   the target lit it, D65 by default, through a Bradford adaptation, for linear Rec.709 / sRGB
   primaries. `wb * c` in WGSL; `applyMatrix(wb, c)` on the CPU; `toMat3x3f(wb)` lays it out as a
-  `mat3x3f` for a buffer. `bradford(source, target)` is the same adaptation on XYZ.
+  `mat3x3f` for a buffer. `bradford(source, target)` is the same adaptation on XYZ, and
+  `mul(a, b)` (b, then a) and `inverse(m)` chain and undo matrices.
 - `kelvinToXy(kelvin)` (CPU): a colour temperature's white, 1667–25000 K, on the Planckian
   locus by Kim et al.'s cubic spline, as cameras and DNG take it. 2856 K is illuminant A; 6504 K
   is the black body at 6504 K (0.3134, 0.3236), not D65 (0.3127, 0.3290), which sits above the

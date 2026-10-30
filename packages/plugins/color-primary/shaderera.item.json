@@ -21,7 +21,7 @@
     "shader",
     "wgsl"
   ],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "licence": "MIT",
   "files": ["src/color/primary.ts", "src/color/primary.wgsl.ts"]
 }
