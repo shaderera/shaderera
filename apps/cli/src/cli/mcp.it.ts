@@ -119,7 +119,10 @@ test('every time a tool takes is checked first, naming the input', async () => {
     await assert.rejects(call('still', { times: ['a'] }), /Not a time in seconds: "a"/)
     await assert.rejects(call('still', { times: [0, 2] }), /Outside the film \(0 to 1 s\): 2\./)
     await assert.rejects(call('render', { from: 'a' }), /Not a time in seconds: from "a"/)
-    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /The window 0\.8–0\.2 s/)
+    await assert.rejects(
+      call('render', { from: 0.8, to: 0.2 }),
+      /--to must be after --from \(0\.8–0\.2 s\)/,
+    )
   } finally {
     await close()
   }
@@ -132,7 +135,7 @@ test('a bad render range leaves the encoder of the next render as it was', {
   const { call, close } = await connect(root)
   try {
     const before = await call('render', { out: 'out/before.mp4' })
-    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /The window/)
+    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /--to must be after --from/)
     const after = await call('render', { out: 'out/after.mp4' })
     assert.equal(after.encoder, before.encoder)
   } finally {
@@ -722,7 +725,7 @@ test('inspect with track returns the curve inspect --track gives', async () => {
     assert.ok(whole.length > curve.length)
     await assert.rejects(
       call('inspect', { track: 'box.x', from: 0.5, to: 0.2 }),
-      /The window 0.5–0.2 s/,
+      /--to must be after --from \(0\.5–0\.2 s\)/,
     )
     await assert.rejects(call('inspect', { track: 'box.x', to: 'x' }), /Not a time in seconds: to/)
     await assert.rejects(call('inspect', { track: 'nope' }), /Nothing at nope/)

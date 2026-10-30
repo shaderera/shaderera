@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Placement } from '../deliver/placement.ts'
+import { readJson } from '../node/json.ts'
 import type { CaptionLimits } from '../review/measure.ts'
 import type { Timing } from '../review/timing.ts'
 
@@ -99,7 +100,7 @@ export const REQUIREMENTS = 'requirements.json'
 export const readRequirements = (root: string): Requirements => {
   const file = join(root, REQUIREMENTS)
   if (!existsSync(file)) return { version: 1 }
-  const value = JSON.parse(readFileSync(file, 'utf8')) as Requirements
+  const value = readJson<Requirements>(file)
   if (value === null || typeof value !== 'object' || value.version !== 1)
     throw new Error(`${REQUIREMENTS}: expected an object with "version": 1`)
   return value

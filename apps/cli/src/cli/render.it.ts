@@ -60,7 +60,7 @@ test('a piped render reports every frame only when asked (a parent process asks)
   // A window that is not one is refused before ffmpeg runs.
   const backwards = render('--from', '0.8', '--to', '0.2')
   assert.equal(backwards.status, 2)
-  assert.match(backwards.stderr, /The window 0\.8–0\.2 s is outside 0–1 s\./)
+  assert.match(backwards.stderr, /--to must be after --from \(0\.8–0\.2 s\)\./)
   assert.doesNotMatch(backwards.stderr, /ffmpeg|failed where it worked/)
   assert.match(render('--from', 'a').stderr, /Not a time in seconds: a\./)
 })
@@ -216,6 +216,13 @@ test('render saves the revision it renders and tags the file; render --job saves
   const versions = async () => JSON.parse((await cli('versions', '--json')).stdout).result
   assert.equal((await versions()).head, id)
   assert.equal(probe(out).revision, id)
+  // --json: the file, the frames and the revision as fields, not lines.
+  const json = JSON.parse((await cli('render', '--out', out, '--json')).stdout)
+  assert.deepEqual(
+    [json.result.out, json.result.frames, json.result.revision, json.log],
+    [out, 10, id, undefined],
+  )
+  assert.equal(json.result.host.host, 'node')
 
   // Unchanged files: the same revision, and save says so instead of echoing its label.
   assert.equal(
@@ -223,8 +230,12 @@ test('render saves the revision it renders and tags the file; render --job saves
     `same files as revision ${id}; label added`,
   )
 
-  const job = await cli('job', '--name', 'final', '--to', '0.5')
+  const job = await cli('job', '--name', 'final', '--to', '0.5', '--json')
   assert.equal(job.status, 0, job.stderr)
+  assert.deepEqual(
+    [JSON.parse(job.stdout).result.name, JSON.parse(job.stdout).result.revision],
+    ['final', id],
+  )
   writeFileSync(join(root, 'notes.txt'), 'a change after the job')
   const saves = (await versions()).log.length
   const frozen = await cli('render', '--job', 'final')

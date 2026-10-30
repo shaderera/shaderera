@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { closest, usageOf } from './main.ts'
+import { tempDir } from '../fixtures/temp.ts'
+import { closest } from './closest.ts'
+import { usageOf } from './main.ts'
 
 const main = fileURLToPath(new URL('./main.ts', import.meta.url))
 const cli = (...args: string[]) =>
@@ -33,10 +35,45 @@ test('help <command> and <command> --help print that command, help alone all of 
   assert.equal(cli('help', 'nope').status, 2)
 })
 
+test('shaderera alone fits one screen and names studio; outside a project, how to start one', () => {
+  const r = cli()
+  assert.equal(r.status, 0, r.stderr)
+  assert.ok(r.stdout.split('\n').length <= 15, r.stdout)
+  assert.match(r.stdout, /^ {2}studio /m)
+  assert.match(r.stdout, /shaderera help lists every command/)
+  const none = spawnSync(process.execPath, [main, 'still', '0'], {
+    cwd: tempDir('no-project'),
+    encoding: 'utf8',
+  })
+  assert.equal(none.status, 2)
+  assert.match(none.stderr, /Start one with npx create-shaderera@latest <dir>, or pass --root\./)
+})
+
+test('an unknown flag names the nearest one; a negative time says times start at 0', () => {
+  const r = cli('still', '0', '--sheeet')
+  assert.equal(r.status, 2)
+  assert.match(
+    r.stderr,
+    /Unknown flag --sheeet for still\. Did you mean --sheet\? \(shaderera still --help\)/,
+  )
+  // A common flag is suggested too.
+  assert.match(cli('check', '--rooot', '.').stderr, /Did you mean --root\?/)
+  assert.doesNotMatch(cli('check', '--zzzzzz').stderr, /Did you mean/)
+  assert.match(cli('still', '-1').stderr, /Times start at 0: -1 is before the film/)
+})
+
+test("comments --help prints the module's own usage, every flag included", () => {
+  const r = cli('comments', '--help')
+  assert.equal(r.status, 0, r.stderr)
+  for (const flag of ['--at', '--point', '--box', '--fixed', '--wait'])
+    assert.ok(r.stdout.includes(flag), flag)
+  assert.match(r.stdout, /resolve: the person, in the studio/)
+})
+
 test('usageOf keeps every line of a command; closest stays within two edits', () => {
   assert.equal(usageOf('plan').split('\n').length, 2)
   assert.match(usageOf(), /^Usage:/)
-  assert.equal(closest('chek'), 'check')
-  assert.equal(closest('render'), 'render')
-  assert.equal(closest('zzzzzz'), undefined)
+  assert.equal(closest('chek', ['check', 'still']), 'check')
+  assert.equal(closest('render', ['render', 'review']), 'render')
+  assert.equal(closest('zzzzzz', ['check']), undefined)
 })

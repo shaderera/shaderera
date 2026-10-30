@@ -7,7 +7,8 @@ import { open, parseRendering } from './args.ts'
 import { EXIT, type Finding } from './findings.ts'
 import { eachVariant, type Output } from './variants.ts'
 
-const SEVERITY = { fail: 'error', unknown: 'warning', info: 'info' } as const
+// `unknown` is a check that does not apply or was not run (`--quick`): information, not a warning.
+const SEVERITY = { fail: 'error', unknown: 'info', info: 'info' } as const
 
 /** A review's checks as findings: a failing check is an error, one per place it is about. */
 export const checkFindings = (checks: readonly Check[], output?: string): Finding[] =>

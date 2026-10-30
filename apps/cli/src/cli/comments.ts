@@ -16,11 +16,12 @@ import {
 import type { By } from '../project/revisions.ts'
 import { EXIT } from './findings.ts'
 
-const USAGE = `Usage: shaderera comments [list] [--state open|fixed|resolved|all] [--json]
+/** What `comments --help` prints (main.ts): every form and flag. */
+export const usage = `Usage: shaderera comments [list] [--state open|fixed|resolved|all] [--json]
        shaderera comments show <id> [--json]
        shaderera comments add --at <t>[-<t2>] [--variant v] [--point x,y | --box x,y,w,h] <text>
        shaderera comments reply <id> [--fixed] <text>
-       shaderera comments resolve <id> | reopen <id>
+       shaderera comments reopen <id>   (resolve: the person, in the studio)
        shaderera comments --wait [--json]`
 
 /** The CLI never writes as the person: only the studio page does (decision 0025). */
@@ -93,12 +94,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   }
   const id = () => {
     const x = rest[0]
-    if (!x) throw new Error(`comments ${what} needs a comment id.\n${USAGE}`)
+    if (!x) throw new Error(`comments ${what} needs a comment id.\n${usage}`)
     return x
   }
   const text = (from: number) => {
     const t = rest.slice(from).join(' ')
-    if (!t) throw new Error(`comments ${what} needs its text.\n${USAGE}`)
+    if (!t) throw new Error(`comments ${what} needs its text.\n${usage}`)
     return t
   }
 
@@ -121,7 +122,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       print(listing(root, { id: id() }), true)
       return EXIT.ok
     case 'add': {
-      if (!v.at) throw new Error(`comments add needs --at <t> or --at <t>-<t2>.\n${USAGE}`)
+      if (!v.at) throw new Error(`comments add needs --at <t> or --at <t>-<t2>.\n${usage}`)
       const m = /^([0-9.]+)(?:-([0-9.]+))?$/.exec(v.at)
       if (!m) throw new Error(`--at is <t> or <t>-<t2> in seconds, not ${v.at}.`)
       const c = await addComment(
@@ -151,6 +152,6 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       return EXIT.ok
     }
     default:
-      throw new Error(`No comments ${what}.\n${USAGE}`)
+      throw new Error(`No comments ${what}.\n${usage}`)
   }
 }

@@ -695,6 +695,16 @@ const encoderOf = (value: unknown): Encoder | 'x265' => {
   )
 }
 
+/** `--crf` (render, assemble): an integer 0–51, refused before ffmpeg would refuse it, or none. */
+export const crfOf = (value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined
+  if (!/^\d+$/.test(value) || Number(value) > 51)
+    throw new Error(
+      `--crf is a whole number 0–51, lower is better, not ${value}; without it, the quality's own.`,
+    )
+  return Number(value)
+}
+
 export const run = async (argv: readonly string[]): Promise<number> => {
   // `--draft [height]`: a flag whose value may be left out, which parseArgs cannot read.
   const drafted = draftArgs(argv)
@@ -720,6 +730,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       force: { type: 'boolean' },
       hdr10: { type: 'boolean' },
       retries: { type: 'string' },
+      json: { type: 'boolean' },
       ...DELIVERY_FLAGS,
     },
     { command: 'render', times: false },
@@ -730,6 +741,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (loudness !== undefined && !Number.isFinite(loudness))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
   const retries = retriesOf(v.retries)
+  const crf = crfOf(v.crf)
   requireFfmpeg()
   const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
   const root = located.root
@@ -931,7 +943,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
         ...(draft ? ['draft'] : []),
       ],
       quality: delivery.quality,
-      crf: num(v.crf),
+      crf,
       audio,
       loudness,
       onFrame,
@@ -940,24 +952,35 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       retries,
       ...(v.encoder === undefined ? {} : { encoder: encoderOf(v.encoder) }),
     }).finally(() => progress && process.stderr.write('\n'))
-    console.log(
+    const host = await child.identity()
+    // --json: what MCP `render` gives, with the revision and the host, instead of these lines.
+    const say = v.json ? () => {} : console.log
+    if (v.json)
+      console.log(
+        JSON.stringify(
+          { out, frames, seconds, workers, encoder, ...sound, revision, host },
+          null,
+          2,
+        ),
+      )
+    say(
       `${out}\n${frames} frames in ${seconds.toFixed(1)} s on ${workers} host(s), ${encoder}${draft ? `, ${draft}` : ''}`,
     )
-    console.log(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
-    if (sound.light) console.log(`light: ${lightLine(sound.light)}`)
-    console.log(`revision: ${revision}`)
-    for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) console.log(f)
+    say(`file: ${probeLine(sound.probe)}${sound.bits === 16 ? ', from 16-bit frames' : ''}`)
+    if (sound.light) say(`light: ${lightLine(sound.light)}`)
+    say(`revision: ${revision}`)
+    for (const f of [...(sound.stems ?? []), ...(sound.captions ?? [])]) say(f)
     if (sound.loudness)
-      console.log(
+      say(
         `audio: ${loudnessLine(sound.loudness)}${sound.gainDb === undefined ? '' : ` (gain ${sound.gainDb.toFixed(2)} dB for ${loudness} LUFS)`}`,
       )
-    else if (loudness !== undefined) console.log('audio: none to bring to a loudness')
-    console.log(`host: ${JSON.stringify(await child.identity())}`)
+    else if (loudness !== undefined) say('audio: none to bring to a loudness')
+    say(`host: ${JSON.stringify(host)}`)
     if (sound.time) {
       const line = frameTimeLine(sound.time)
       const hint = frameTimeHint(sound.time)
-      console.log(line)
-      if (hint) console.log(hint)
+      say(line)
+      if (hint) say(hint)
       found({
         code: 'frame-time',
         severity: 'info',

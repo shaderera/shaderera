@@ -243,6 +243,7 @@ export const doctor = async (cwd: string): Promise<DoctorItem[]> => {
     needed: browser,
     ...(chrome ? {} : { fix: 'Install Google Chrome, or set CHROME to its executable.' }),
   })
+  items.push(studioItem(defaultBrowser()))
   let api: string | undefined
   try {
     api = apiOf()
@@ -354,6 +355,74 @@ export const signInItem = async (api: string): Promise<DoctorItem> => {
     return { ...base, status: 'warn', detail: `a token for ${api}, not checked: ${message}` }
   }
   return { ...base, status: 'warn', detail: `not signed in to ${api}`, fix: signInHint(api) }
+}
+
+/**
+ * The default browser's id as the system names it (`ChromeHTML`, `com.apple.safari`,
+ * `firefox.desktop`), or undefined when it cannot tell. `studio` opens its page in it.
+ */
+export const defaultBrowser = (): string | undefined => {
+  const out = (cmd: string, args: string[]) =>
+    spawnSync(cmd, args, { encoding: 'utf8', timeout: 5000 }).stdout ?? ''
+  if (process.platform === 'win32')
+    return /ProgId\s+REG_SZ\s+(\S+)/.exec(
+      out('reg', [
+        'query',
+        'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice',
+        '/v',
+        'ProgId',
+      ]),
+    )?.[1]
+  if (process.platform === 'darwin') {
+    const handlers = out('defaults', [
+      'read',
+      'com.apple.LaunchServices/com.apple.launchservices.secure',
+      'LSHandlers',
+    ])
+    // No handler of its own for https: Safari, macOS's own.
+    const https = handlers.split('}').find((h) => /LSHandlerURLScheme = https;/.test(h))
+    return /LSHandlerRoleAll = "?([^";]+)"?;/.exec(https ?? '')?.[1] ?? 'com.apple.safari'
+  }
+  return out('xdg-settings', ['get', 'default-web-browser']).trim() || undefined
+}
+
+/**
+ * Whether the studio page, opened in the default browser, reaches this machine's bridge on
+ * 127.0.0.1: Chrome and Edge do; Safari and Brave block it, and the page then works through the
+ * relay with no preview (docs/studio.md); Firefox is untested.
+ */
+export const studioItem = (browser: string | undefined): DoctorItem => {
+  const id = (browser ?? '').toLowerCase()
+  const name = /brave/.test(id)
+    ? 'Brave'
+    : /edge/.test(id)
+      ? 'Edge'
+      : /chrom/.test(id)
+        ? 'Chrome'
+        : /safari/.test(id)
+          ? 'Safari'
+          : /firefox/.test(id)
+            ? 'Firefox'
+            : undefined
+  const base = { id: 'studio', needed: false }
+  const fix = 'Make Chrome the default browser, or open the studio link in Chrome.'
+  if (name === 'Chrome' || name === 'Edge')
+    return { ...base, status: 'ok', detail: `${name} is the default browser: it reaches 127.0.0.1` }
+  if (name === 'Firefox')
+    return { ...base, status: 'warn', detail: 'Firefox is the default browser: untested', fix }
+  if (name)
+    return {
+      ...base,
+      status: 'warn',
+      detail: `${name} is the default browser: it blocks 127.0.0.1, so the studio has no preview`,
+      fix,
+    }
+  return {
+    ...base,
+    status: 'warn',
+    detail: `the default browser${browser ? ` (${browser})` : ''} is not one the studio knows`,
+    fix,
+  }
 }
 
 /** Whether the project can be shared: it declares a licence (package.json's `license`). */
