@@ -5,6 +5,7 @@ import type { Manifest } from '@shaderera/core'
 import { checkManifest } from '@shaderera/core/host'
 import { shadereraVersion } from '../deliver/environment.ts'
 import { assertRequirements } from '../registry/requires.ts'
+import { jsonOf } from './json.ts'
 
 export type Project = { readonly root: string; readonly manifest: Manifest }
 
@@ -26,7 +27,7 @@ export const findProject = async (cwd: string): Promise<Project> => {
   const text = await readFile(file, 'utf8')
   let parsed: unknown
   try {
-    parsed = JSON.parse(text)
+    parsed = jsonOf(text)
   } catch (error) {
     throw new Error(`${file} is not valid JSON: ${(error as Error).message}`)
   }

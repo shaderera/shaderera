@@ -14,6 +14,7 @@ import type { TextRun } from '../review/measure.ts'
 import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
 import type { Fonts, HostProfile, Request } from './host.ts'
 import { outside } from './inside.ts'
+import { readJson } from './json.ts'
 import type { Project } from './project.ts'
 import { type BakeFrames, createServices, type ServiceRequest } from './services.ts'
 
@@ -55,7 +56,7 @@ const packageDirs = (root: string): string[] => {
     return dir
   }
   const file = join(root, 'package.json')
-  const json = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
+  const json = existsSync(file) ? readJson<{ [k: string]: object }>(file) : {}
   const deps = Object.keys({ ...json.dependencies, ...json.devDependencies })
   const local = deps.map((d) => join(root, 'node_modules', d)).filter((d) => existsSync(d))
   const dirs = [cliRoot, pkg('@shaderera/core'), pkg('@napi-rs/canvas'), ...local]

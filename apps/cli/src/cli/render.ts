@@ -690,6 +690,16 @@ const encoderOf = (value: unknown): Encoder | 'x265' => {
   )
 }
 
+/** `--crf` (render, assemble): an integer 0–51, refused before ffmpeg would refuse it, or none. */
+export const crfOf = (value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined
+  if (!/^\d+$/.test(value) || Number(value) > 51)
+    throw new Error(
+      `--crf is a whole number 0–51, lower is better, not ${value}; without it, the quality's own.`,
+    )
+  return Number(value)
+}
+
 export const run = async (argv: readonly string[]): Promise<number> => {
   // `--draft [height]`: a flag whose value may be left out, which parseArgs cannot read.
   const drafted = draftArgs(argv)
@@ -726,6 +736,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   if (loudness !== undefined && !Number.isFinite(loudness))
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
   const retries = retriesOf(v.retries)
+  const crf = crfOf(v.crf)
   requireFfmpeg()
   const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
   const root = located.root
@@ -936,7 +947,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
                 ? named()
                 : undefined,
       quality: delivery.quality,
-      crf: num(v.crf),
+      crf,
       audio,
       loudness,
       onFrame,
