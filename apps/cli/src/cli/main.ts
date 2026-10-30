@@ -9,7 +9,7 @@ Commands:
   inspect <t> [--path a.b] [--json]          print the source's state at t
   check [--samples 50] [--seed 1] [--hdr10]  render each t twice in two orders and compare
   still <t>... [--every s] [--sheet] [--diff] [--compare variant] [--out dir] [--json]   stills of any moment, and a contact sheet
-  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--crf 18] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--software-gpu] [--hdr10] [--draft [height]] [--retries n]   export an mp4 or a ProRes mov (--draft: 360 px high by default, full fps, out/<name>-draft.mp4) (a png job: frames + audio.wav + delivery.json)
+  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--crf 18] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--software-gpu] [--hdr10] [--draft [height]] [--retries n] [--stop]   export an mp4 or a ProRes mov (--draft: 360 px high by default, full fps, out/<name>-draft.mp4) (a png job: frames + audio.wav + delivery.json)
   deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS] [--hdr10 [--sdr]] [--name batch] [--job j]... [--replace] [--software-gpu]   campaign batch into out/deliveries/<batch>/
   plan --job j [--chunks 4] [--out dir]        split a job into chunks any machine renders (render --job j --chunk i)
   plan --status --plan dir [--verify]        which chunks of a plan are done, missing, stale, partial or claimed

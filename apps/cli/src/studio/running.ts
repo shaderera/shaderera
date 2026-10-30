@@ -40,14 +40,16 @@ const alive = (pid: number): boolean => {
 /** Windows' own tools, by path: a whoami on PATH may be another (Git's). */
 const system32 = (exe: string) => join(process.env.SystemRoot ?? 'C:/Windows', 'System32', exe)
 
+/** The studio's folder in the project, made private (privateDir). */
+export const privateFolder = (root: string): string => privateDir(folderOf(root))
+
 /**
- * Makes the folder private before any file is made in it: on Windows its inherited entries are
+ * Makes a folder private before any file is made in it: on Windows its inherited entries are
  * replaced with one for the user's SID, inherited by every file made in it (mode bits do nothing
  * there, and a project outside the profile inherits read for `BUILTIN\Users` from `C:\`); on
  * macOS and Linux it is mode 0700.
  */
-export const privateFolder = (root: string): string => {
-  const dir = folderOf(root)
+export const privateDir = (dir: string): string => {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   if (process.platform !== 'win32') {
     chmodSync(dir, 0o700)
