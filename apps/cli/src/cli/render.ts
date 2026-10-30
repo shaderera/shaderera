@@ -1,7 +1,13 @@
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { exportFrames, frameTimes, type Manifest, type Sink } from '@shaderera/core'
+import {
+  exportFrames,
+  frameTimes,
+  type Manifest,
+  NotDeterministic,
+  type Sink,
+} from '@shaderera/core'
 import { type LightLevels, toSrt, toVtt, windowCaptions } from '@shaderera/core/host'
 import {
   chunkFrames,
@@ -507,6 +513,9 @@ const exportOnce = async (
     for (const f of sidecars) rmSync(f, { force: true })
     // Only stems this render wrote: the previous film's stay with it.
     if (stemsWritten) rmSync(`${base}.stems`, { recursive: true, force: true })
+    // A refused export leaves the previous film in place: say so, so it is not taken for this one.
+    if (error instanceof NotDeterministic && existsSync(out))
+      error.message += ` ${out} still holds the previous export, from ${statSync(out).mtime.toLocaleString()}.`
     throw error
   } finally {
     await Promise.all(opened.map((h) => h.close()))

@@ -61,17 +61,18 @@ shaderera: Not exported: the source is not deterministic (t=0 after t=0.9: pixel
 ```
 
 (A captured run on `apps/cli/src/cli/fixtures/stateful`, whose picture counts the frames rendered
-before it.) For a source that renders any t, the gate costs one render a second of film (about
-3 % at 30 fps), with the params, seed, size and camera of the export; `check` samples the whole
-film in two orders. The grid is the film's, not the export's: the whole film and the chunk of a
-plan that hold a window (`render --from/--to`) re-check every frame the window re-checks, so the
-two never disagree about a frame because one of them did not look at it. A window shorter than a second may hold no frame of
-the grid. An export spread over several hosts (`render --workers`, a chunk) sends the frames round
-the hosts, and splits the re-check evenly between them, run at once: a frame is rendered again on
-a host other than the one that first rendered it, and each host shuffles its own share. So the
-hosts must agree with each other, not only with themselves (with 2 hosts at an even fps, every
-frame of the grid was host 0's, so host 0 takes back half of them). Meanwhile the progress line
-says `re-checking 12/20`.
+before it.) A refused export leaves the previous one at the output, and the error says so, with the
+time it was written. For a source that renders any t, the gate costs one render a second of film
+(about 3 % at 30 fps), with the params, seed, size and camera of the export; `check` samples the
+whole film in two orders. The grid is the film's, not the export's: the whole film and the chunk of
+a plan that hold a window (`render --from/--to`) re-check every frame the window re-checks, so the
+two never disagree about a frame because one of them did not look at it. A window shorter than a
+second may hold no frame of the grid. An export spread over several hosts (`render --workers`, a
+chunk) sends the frames round the hosts, and splits the re-check evenly between them, run at once: a
+frame is rendered again on a host other than the one that first rendered it, and each host shuffles
+its own share. So the hosts must agree with each other, not only with themselves (with 2 hosts at an
+even fps, every frame of the grid was host 0's, so host 0 takes back half of them). Meanwhile the
+progress line says `re-checking 12/20`.
 
 A `sequential` source is different: it reaches an earlier frame by replaying from frame 0 (or
 from a checkpoint), so each frame re-checked out of order can cost a replay of the film, and one a
