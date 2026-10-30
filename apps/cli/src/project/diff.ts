@@ -1,19 +1,29 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createTwoFilesPatch } from 'diff'
-import { changedFiles, type Files, fileAt, readRevision, scanProject } from './revisions.ts'
+import {
+  changedFiles,
+  type Files,
+  fileAt,
+  readRevision,
+  revisionOf,
+  scanProject,
+} from './revisions.ts'
 
 const TEXT = /\.(ts|tsx|js|mjs|cjs|json|md|txt|css|html|svg|glsl|wgsl)$/i
 
 /**
  * What changed between two revisions, or a revision and the working tree (`b` omitted): the
- * files added, removed and changed, and a unified diff of the text files.
+ * files added, removed and changed, and a unified diff of the text files. Each revision may be a
+ * unique prefix of its id (revisionOf).
  */
 export const diffRevisions = (
   root: string,
-  a: string,
-  b?: string,
+  first: string,
+  second?: string,
 ): { added: string[]; removed: string[]; changed: string[]; patch: string } => {
+  const a = revisionOf(root, first)
+  const b = second === undefined ? undefined : revisionOf(root, second)
   const from = readRevision(root, a).files
   const to: Files = b ? readRevision(root, b).files : scanProject(root)
   const files = changedFiles(from, to)

@@ -38,7 +38,12 @@ says that times start at 0.
 
 - **`--root <dir>`**: where to start looking for `shaderera.json`. Default: the working
   directory. The CLI walks up to the nearest directory that has one, so it works from `src/`.
-- **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused.
+  None up to the root says how to start one (`npx create-shaderera@latest <dir>`). A
+  `shaderera.json` or `requirements.json` that starts with a BOM (PowerShell's `Set-Content
+  -Encoding utf8` writes one) is read as if it did not.
+- **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused,
+  naming the declared one it most likely meant: the one with the same numbers (`16:9`, `Did you
+  mean cover-16x9?`), else one within two letters.
   In the files named after it (`out/<project>-<variant>.mp4`, `out/stills/<variant>-<t>.png`,
   `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
   `main` names the manifest's own output, as in `deliver`. The source gets the name as
@@ -76,8 +81,10 @@ The commands that render the source (`check`, `inspect`, `still`, `render`, `rev
 
 - **`--param k=v`** (repeatable): a param over the defaults and the variant's; the value is JSON
   when it parses (`--param count=4096`, `--param look=ascii`). A name the manifest's `params`
-  schema does not declare is refused: `Unknown params: x. shaderera.json declares a, b.` `render
-  --job` refuses it: a job froze its params.
+  schema does not declare is refused: `Unknown params: x. shaderera.json declares a, b.` So is a
+  name it lists in `required` that has no value (`Missing params: title. …`), and a value whose
+  JSON type is not its property's `type` (`Param speed is a number, not "fast".`); no other
+  keyword is checked. `render --job` refuses it: a job froze its params.
 - **`<t>...`** or **`--time <s>`** (repeatable): times in seconds, inside the film: from 0 up to
   but not including the duration (the last frame is at duration − 1/fps). `inspect` takes one,
   `still` any number; the others take none and refuse them.
@@ -293,7 +300,7 @@ of footage it takes a moment, not the time to read all of it.
 | `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a window that is not the whole film adds its seconds, `out/<name>-4.0-6.5.mp4` for `--from 4 --to 6.5`, so it never replaces the full film; a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
 | `--master` | off: review quality (crf 16, preset veryfast). On: crf 10, preset veryfast ([quality](delivery.md#quality-and-encoders)) |
-| `--crf <n>` | the quality's |
+| `--crf <n>` | the quality's. A whole number 0–51, lower is better; anything else is refused before anything renders |
 | `--bitrate <rate>` \| `--maxrate <rate>` | none: crf. A constant rate such as `15M`, or the crf capped at a rate ([rate control](delivery.md#rate-control)) |
 | `--no-edit-list` | off. An mp4 without edit lists ([edit lists](delivery.md#edit-lists)) |
 | `--stems` | off. One WAV per clip `group` beside the file ([stems](delivery.md#stems-and-captions)) |
@@ -435,7 +442,9 @@ says it is the fallback adapter (`isFallbackAdapter`). `doctor` warns on it as i
 
 ## Versions and jobs
 
-A project's saved revisions and render jobs live in `versions/` (keep it with the project):
+A project's saved revisions and render jobs live in `versions/` (keep it with the project). A
+revision is named by its 16-character id or by a prefix of at least 4 characters that only it
+starts with (`restore 8d61`); a prefix several start with is refused, naming them:
 
 | Command | What it does |
 |---|---|

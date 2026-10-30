@@ -60,7 +60,7 @@ test('a piped render reports every frame only when asked (a parent process asks)
   // A window that is not one is refused before ffmpeg runs.
   const backwards = render('--from', '0.8', '--to', '0.2')
   assert.equal(backwards.status, 2)
-  assert.match(backwards.stderr, /The window 0\.8–0\.2 s is outside 0–1 s\./)
+  assert.match(backwards.stderr, /--to must be after --from \(0\.8–0\.2 s\)\./)
   assert.doesNotMatch(backwards.stderr, /ffmpeg|failed where it worked/)
   assert.match(render('--from', 'a').stderr, /Not a time in seconds: a\./)
 })

@@ -6,7 +6,7 @@ import { retriesOf } from '../node/retry.ts'
 import { openJob, videoOptionsOf } from '../project/jobs.ts'
 import { childOptions, parse } from './args.ts'
 import { loudnessLine, probeLine } from './ffmpeg.ts'
-import { exportVideo, extensionOf, lightLine } from './render.ts'
+import { crfOf, exportVideo, extensionOf, lightLine } from './render.ts'
 
 /**
  * `shaderera assemble --plan <dir> [--out file] [--mixed-hosts] [--no-audio] [--loudness=LUFS]
@@ -30,6 +30,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     retries: { type: 'string' },
   })
   const retries = retriesOf(v.retries)
+  const crf = crfOf(v.crf)
   if (typeof v.plan !== 'string') throw new Error('assemble needs --plan <dir>.')
   const dir = resolve(v.plan)
   const plan = readPlan(dir)
@@ -50,7 +51,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           ? resolve(v.out)
           : join(root, 'out', `${job.name}${extensionOf(video.codec)}`),
       quality: job.delivery.quality,
-      ...(v.crf === undefined ? {} : { crf: Number(v.crf) }),
+      ...(crf === undefined ? {} : { crf }),
       revision: job.revision,
       retries,
       audio: v['no-audio'] !== true,

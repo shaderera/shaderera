@@ -242,7 +242,7 @@ test('a bad window is refused before ffmpeg runs, and keeps the GPU encoder', {
     const { lines } = await quietly(async () => {
       await assert.rejects(
         exportVideo(project, child, { ...o, from: 8, to: 2 }),
-        /The window 8–2 s is outside 0–10 s\./,
+        /--to must be after --from \(8–2 s\)\./,
       )
       await assert.rejects(
         exportVideo(project, child, { ...o, from: 'a' as unknown as number }),
