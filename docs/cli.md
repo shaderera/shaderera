@@ -692,7 +692,8 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 - **Requirements:** `requirements.json` in the root, or `--requirements file` (below).
 - **Checks:** each prints `✓` (pass), `✗` (fail), `?` (unknown: could not be measured, or
   nothing to check against) or `·` (info: measured, with nothing in requirements.json to judge it
-  against), its title and what it measured. A check that cannot be measured is never a pass.
+  against), its title and what it measured. A check that cannot be measured is never a pass. With
+  `--json`, a `?` check is an `info` finding, as a `·` one is: only a `✗` is not (`error`).
 - **Only what is declared is judged.** Errors fail always: determinism, readback, missing glyphs,
   failed assets. Craft rules fail only when requirements.json sets them: `endHold`,
   `readingTime`, `textOverlap`, `noBlankFrames`, `safeArea`, `captions` (and exact `copy`, which
