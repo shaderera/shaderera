@@ -38,5 +38,11 @@ The LUT's input and output spaces are its author's: a LUT made for log footage w
 one that gives display values gives display values out. The plugin converts no spaces; convert
 before and after it in your own shader. No LUT ships with it.
 
+Where it goes in a film that works in linear light: a display LUT (most creative LUTs, Rec.709 in
+and out) goes after the tone map (`look-tonemap`) and `toSrgb` (`render-srgb`), and nothing
+encodes again after it. A log-to-display LUT takes log-encoded light and replaces the tone map and
+the encoding. Light past `DOMAIN_MAX` clamps to the last entry, so a LUT made for SDR clips an
+`hdr10` film's highlights: use it on the `sdr` range only.
+
 This does one job. There is no trilinear option. The WGSL and the CPU agree within one 8-bit step,
 and the test checks it on the GPU with a 33³ LUT read from its file.
