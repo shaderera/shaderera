@@ -1129,5 +1129,12 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
   `warning` and `info` never do), `message`, and when known `t`, `file` and `line` (a shader, a
   build error, a throw in the film's code), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
-- `result`: the command's own JSON (`inspect`, `still`, `review`, `versions`, `doctor`,
-  `search`, `info`, `share`, `fork`); `log`: the lines any other command printed.
+- `result`: the command's own JSON (`inspect`, `check`, `still`, `render`, `review`, `save`,
+  `job`, `diff`, `undo`, `restore`, `versions`, `doctor`, `search`, `info`, `share`, `fork`); `log`:
+  the lines any other command printed. `render`, `save`, `job`, `diff`, `check`, `undo` and
+  `restore` give the object their [MCP tool](mcp.md) returns: `render` its `out`, `frames`,
+  `seconds`, `encoder`, `probe` and the rest, with its `revision` and `host` (a chunk, a png job and
+  `--reuse` still print lines, in `log`); `save`, `undo` and `restore` the revision (`id`,
+  `label`, `files` as a count); `job` the job; `diff` `added`, `removed`, `changed` and `patch`;
+  `check` its report (`failures`, `times`, `previewVsFinal`…). `inspect --path a.b` gives only the
+  value there.

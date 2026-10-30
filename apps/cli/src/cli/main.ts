@@ -99,9 +99,16 @@ const commands = [
 /** Commands whose own `--json` prints their result as JSON: the envelope carries it as `result`. */
 const OWN_JSON = new Set([
   'inspect',
+  'check',
   'plan',
   'still',
+  'render',
   'review',
+  'save',
+  'job',
+  'diff',
+  'undo',
+  'restore',
   'versions',
   'comments',
   'doctor',

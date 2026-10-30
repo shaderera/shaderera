@@ -25,7 +25,16 @@ import {
   windowOf,
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
-import { head, log, releaseFrozen, restore, save, slash, undo } from '../project/revisions.ts'
+import {
+  briefRevision,
+  head,
+  log,
+  releaseFrozen,
+  restore,
+  save,
+  slash,
+  undo,
+} from '../project/revisions.ts'
 import { contactSheet, type ReviewReport, review, toPng } from '../review/review.ts'
 import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
@@ -116,12 +125,6 @@ const timesOf = (times: unknown): number[] => {
 
 /** An image content block of a base64 PNG. */
 const image = (data: string) => ({ type: 'image', data, mimeType: 'image/png' })
-
-/** A revision as a tool returns it: the count of its files, not each one's hash. */
-const briefRevision = <R extends { files: object }>({ files, ...r }: R) => ({
-  ...r,
-  files: Object.keys(files).length,
-})
 
 /** A review report as a tool returns it: its files relative to the project, with `/`. */
 const relativeReport = <R extends ReviewReport>(root: string, r: R): R => {

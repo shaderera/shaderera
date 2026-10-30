@@ -398,6 +398,12 @@ export const store = (
   return { ...revision, existing }
 }
 
+/** A revision as MCP and `--json` give it: the count of its files, not each one's hash. */
+export const briefRevision = <R extends { files: object }>({ files, ...r }: R) => ({
+  ...r,
+  files: Object.keys(files).length,
+})
+
 /**
  * Saves the working tree as a revision and returns it: stores it, and logs it. The same files
  * return the revision that holds them, `existing`, with its own label and note (a new label is
