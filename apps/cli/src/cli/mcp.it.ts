@@ -426,6 +426,67 @@ test('render_frame downscales a big frame to 1024 px on its long side unless ful
   }
 })
 
+test('render takes draft, variant and params, and reports its frames as progress', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('mcp-draft')
+  mkdirSync(join(root, 'src'))
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({
+      entry: './src/composition.ts',
+      fps: 10,
+      duration: 1,
+      width: 1280,
+      height: 720,
+      params: { type: 'object', properties: { grey: { type: 'number', default: 0 } } },
+      variants: { short: { label: 'half', duration: 0.5 } },
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io, manifest, params }) => {
+  const { width, height } = manifest
+  const canvas = io.canvas(width, height)
+  return {
+    render: async () => {
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = \`rgb(\${params.grey}, 0, 0)\`
+      ctx.fillRect(0, 0, width, height)
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const server = createServer(root)
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: 'test', version: '0' })
+  await Promise.all([server.connect(a), client.connect(b)])
+  try {
+    const steps: { progress: number; total?: number }[] = []
+    const r = (await client.callTool(
+      { name: 'render', arguments: { draft: 360, variant: 'short', params: { grey: 200 } } },
+      undefined,
+      { onprogress: (p) => steps.push(p) },
+    )) as { content: { text: string }[]; isError?: boolean }
+    assert.equal(r.isError, undefined, r.content[0]?.text)
+    const done = JSON.parse(r.content[0]?.text as string)
+    // Beside the main film, never over it, at 640×360: the variant's 0.5 s at 10 fps.
+    assert.match(done.out, /-short-draft\.mp4$/)
+    assert.deepEqual([done.probe.video.width, done.probe.video.height], [640, 360])
+    assert.equal(done.frames, 5)
+    assert.deepEqual(steps.at(-1), { progress: 5, total: 5 })
+    const job = (await client.callTool({
+      name: 'render',
+      arguments: { job: 'nope', draft: true },
+    })) as { content: { text: string }[]; isError?: boolean }
+    assert.equal(job.isError, true)
+  } finally {
+    await client.close()
+  }
+})
+
 test("render of a job renders the job's frozen delivery, not a default mp4", {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {

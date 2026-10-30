@@ -147,6 +147,11 @@ const exportOnce = async (
     from?: number
     to?: number
     out?: string
+    /**
+     * Without `out`, the words after the project's name in the file's name (a variant's, `draft`):
+     * such a file goes beside the main film's, never over it.
+     */
+    name?: readonly string[]
     quality?: Quality
     crf?: number
     /** Each frame written; with `'recheck'`, each frame the determinism re-check rendered again. */
@@ -260,7 +265,7 @@ const exportOnce = async (
     : join(
         root,
         'out',
-        `${[basename(root), ...windowParts(from, to, manifest.duration)].join('-')}${extensionOf(codec)}`,
+        `${[basename(root), ...(o.name ?? []), ...windowParts(from, to, manifest.duration)].join('-')}${extensionOf(codec)}`,
       )
   // Anywhere else in the project, the film would be saved into every later revision.
   if (!outside(root, out) && outside(join(root, 'out'), out))
@@ -909,16 +914,6 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
     const ext = extensionOf(video.codec)
-    // A draft goes beside the review file and the final, never over them, and a window beside
-    // the whole film.
-    const { duration } = project.manifest
-    const span = windowParts(from ?? 0, to ?? duration, duration)
-    const named = (...parts: string[]) =>
-      join(
-        root,
-        'out',
-        `${[basename(root), ...parts, ...(draft ? ['draft'] : []), ...span].join('-')}${ext}`,
-      )
     const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
       ...video,
       from: job?.output.from ?? from,
@@ -929,11 +924,12 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           ? resolve(v.out)
           : job
             ? join(root, 'out', `${job.name}${ext}`)
-            : typeof v.variant === 'string'
-              ? named(safeName(v.variant))
-              : draft
-                ? named()
-                : undefined,
+            : undefined,
+      // A variant and a draft go beside the main film, never over it.
+      name: [
+        ...(typeof v.variant === 'string' ? [safeName(v.variant)] : []),
+        ...(draft ? ['draft'] : []),
+      ],
       quality: delivery.quality,
       crf: num(v.crf),
       audio,
