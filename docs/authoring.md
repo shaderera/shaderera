@@ -165,7 +165,7 @@ command that prints nothing looks frozen.
   readback take most of each frame, return fewer layers, return GPU textures rather than canvases
   (a canvas is uploaded every frame), and use more hosts (`--workers`, below).
 - **Check with fewer frames.** `check` renders every timestamp twice; at 5 s a frame, the default
-  50 take over eight minutes. `npx shaderera check --times 4` still compares two orders.
+  50 take over eight minutes. `npx shaderera check --samples 4` still compares two orders.
 - **Render in the background with progress.** `npx shaderera render 2> render.log` writes
   `frame 120/360  2.1 fps  1:53 left` to stderr every 10 s (`--progress`: every frame); read the
   end of the log to say how far it is, instead of guessing.

@@ -82,7 +82,7 @@ Noto Sans Thai Bold and Noto Sans Bold baked to MSDF, at 84 px, against the Canv
   zero-advance marks with their own offsets, 26 clusters: what HarfBuzz shaping of Thai looks like.
 - Wrapping at 700 px: raw text breaks only at the space (UTF-16 index 21); with U+200B it breaks
   at a word boundary (27 of 45).
-- In a shot of four type runs (Node, Dawn): `check --times 20` deterministic at 19.9 ms per
+- In a shot of four type runs (Node, Dawn): `check --samples 20` deterministic at 19.9 ms per
   frame; 150 frames in 2.5 s.
 
 Not verified: per-glyph advances and offsets against HarfBuzz (Canvas2D exposes only the total

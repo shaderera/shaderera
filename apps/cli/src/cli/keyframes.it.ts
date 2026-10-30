@@ -61,7 +61,7 @@ test('check --variants notes a long keyframe gap once, for the clip that has it'
   const root = film()
   const r = spawnSync(
     process.execPath,
-    [main, 'check', '--times', '6', '--variants', 'long,short', '--root', root, '--json'],
+    [main, 'check', '--samples', '6', '--variants', 'long,short', '--root', root, '--json'],
     { encoding: 'utf8' },
   )
   assert.equal(r.status, 0, r.stderr)
@@ -74,7 +74,7 @@ test('check --variants notes a long keyframe gap once, for the clip that has it'
   const one = (variant: string) =>
     spawnSync(
       process.execPath,
-      [main, 'check', '--times', '6', '--variant', variant, '--root', root],
+      [main, 'check', '--samples', '6', '--variant', variant, '--root', root],
       {
         encoding: 'utf8',
       },

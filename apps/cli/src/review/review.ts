@@ -427,7 +427,7 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
       detail: 'skipped (quick)',
     })
   } else {
-    const r = await checkChild(child, o.project.manifest, { times: 6 })
+    const r = await checkChild(child, o.project.manifest, { samples: 6 })
     const at = [...new Set(r.failures.map((f) => f.t))]
     checks.push({
       id: 'determinism',

@@ -22,14 +22,14 @@ const project = () => {
 
 test('a command run in a project appends one entry: its exit code and its findings counted', async () => {
   const root = project()
-  const ran = await cli('check', '--times', '2', '--root', root)
+  const ran = await cli('check', '--samples', '2', '--root', root)
   assert.equal(ran.status, 0, ran.stderr)
   const [entry, ...more] = tail(root, 10)
   assert.equal(more.length, 0)
   assert.ok(entry?.kind === 'command')
   assert.equal(entry.by, 'cli')
   assert.equal(entry.command, 'check')
-  assert.deepEqual(entry.args, ['--times', '2', '--root', root])
+  assert.deepEqual(entry.args, ['--samples', '2', '--root', root])
   assert.equal(entry.exitCode, 0)
   assert.equal(entry.ok, true)
   // The fixture has no tsconfig.json: its types were not checked, said once as info.
@@ -75,7 +75,7 @@ test('a log that cannot be written leaves the exit code as it was', async () => 
   const root = project()
   // The log a folder, so every append fails, whatever the platform makes of read-only folders.
   mkdirSync(join(root, '.shaderera', 'activity.jsonl'), { recursive: true })
-  assert.equal((await cli('check', '--times', '2', '--root', root)).status, 0)
+  assert.equal((await cli('check', '--samples', '2', '--root', root)).status, 0)
   assert.equal((await cli('inspect', '5', '--root', root)).status, 2)
 })
 

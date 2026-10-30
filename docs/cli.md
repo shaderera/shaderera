@@ -164,14 +164,14 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 
 | Flag | Default |
 |---|---|
-| `--times <n>` | 50 |
+| `--samples <n>` | 50 |
 | `--seed <n>` | 1 |
 | `--hdr10` | off. Checks the film's HDR10 render ([HDR10](delivery.md#hdr10)): its P010 bytes in two orders, every frame within the mastering display's peak, every layer's `light` one it can carry. Prints the most light it saw |
 | `--variant a,b`, `--variants all` | one: each variant in its own host, at once ([several variants](#common-flags)) |
 | `--no-types` | off: the types are checked first |
 
 ```
-$ shaderera check --times 5
+$ shaderera check --samples 5
 ✓ types: no errors (TypeScript 6.0.3)
 ✓ deterministic: 5 timestamps, two orders, inspect + pixels (49.0 ms/frame)
   preview vs final: mean 0.000, max 0 over 3 t
@@ -850,7 +850,7 @@ to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It f
 
 ```
 $ shaderera activity
-2026-10-25 10:42:07  cli    check --times 4: exit 0
+2026-10-25 10:42:07  cli    check --samples 4: exit 0
 2026-10-25 10:42:31  agent  render_frame: ok in 48 ms  .shaderera/activity/mh6x2k8q0007-3fa1c2d9.png
 2026-10-25 10:43:02  agent  Making the logo bigger (comment c7)
 ```

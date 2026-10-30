@@ -72,13 +72,13 @@ export const diffP010 = (a: Uint8Array, b: Uint8Array) => {
 export const checkChild = async (
   child: Child,
   manifest: Manifest,
-  o: { times?: number; seed?: number } = {},
+  o: { samples?: number; seed?: number } = {},
 ): Promise<CheckResult> => {
   const seed = o.seed ?? 1
-  const count = o.times ?? 50
+  const count = o.samples ?? 50
   // Fewer than two timestamps compare nothing in two orders: a check that cannot fail.
   if (!(Number.isInteger(count) && count >= 2))
-    throw new Error(`--times is a whole number of timestamps, 2 or more, not ${count}.`)
+    throw new Error(`--samples is a whole number of timestamps, 2 or more, not ${count}.`)
   if (!Number.isFinite(seed)) throw new Error(`--seed is a number, not ${o.seed}.`)
   const times = sampleTimes(manifest.fps, manifest.duration, count, seed)
   const hdr = child.has.p010 === true
@@ -182,7 +182,7 @@ export const typeErrors = (root: string): { version: string; errors: Finding[] }
 }
 
 /**
- * `shaderera check [--times 50] [--seed 1] [--param k=v]... [--hdr10] [--no-types] [--variant a,b | --variants all]`.
+ * `shaderera check [--samples 50] [--seed 1] [--param k=v]... [--hdr10] [--no-types] [--variant a,b | --variants all]`.
  * First the project's types (typeErrors), once, unless --no-types: a type error fails the check
  * (exit 1) but the frames are still checked. --hdr10: checks the hdr10 render (decision 0023): its
  * P010 bytes, the peak and the layers' light. Several variants: each in its own host, at once
@@ -192,7 +192,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const { values } = parseRendering(
     argv,
     {
-      times: { type: 'string' },
+      samples: { type: 'string' },
       seed: { type: 'string' },
       hdr10: { type: 'boolean' },
       variants: { type: 'string' },
@@ -236,14 +236,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
  * are the same either way.
  */
 const checkOne = async (
-  v: Parameters<typeof open>[0] & { times?: string; seed?: string; json?: boolean },
+  v: Parameters<typeof open>[0] & { samples?: string; seed?: string; json?: boolean },
   given: Output,
 ): Promise<number> => {
   const { project, child } = await open(v)
   const out = v.json ? { ...given, log: () => {} } : given
   try {
     const r = await checkChild(child, project.manifest, {
-      times: Number(v.times ?? 50),
+      samples: Number(v.samples ?? 50),
       seed: Number(v.seed ?? 1),
     })
     if (v.json) out.result(r)

@@ -64,7 +64,7 @@ test('--json: save, diff, undo, restore, check and inspect --path give their res
   })
   assert.equal(json('undo').id, a.id)
   assert.equal(json('restore', b.id).id, b.id)
-  const check = json('check', '--times', '2')
+  const check = json('check', '--samples', '2')
   assert.deepEqual([check.failures, check.times.length], [[], 2])
   assert.equal(json('inspect', '0.5', '--path', 'box.x'), 15)
 })
