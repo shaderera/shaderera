@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import type { Manifest } from '@shaderera/core'
+import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild } from '../node/fixtures/memory-child.ts'
-import { checkChild, diffP010, keyframeNotes } from './check.ts'
+import { checkChild, diffP010, keyframeNotes, smoothingFindings } from './check.ts'
 
 const manifest = { fps: 10, duration: 1, width: 64, height: 36 } as Manifest
 const size = { width: 64, height: 36 }
@@ -89,4 +91,32 @@ test("check notes the project's own clips whose keyframes are more than 2 s apar
     note('assets/footage/long.mp4', '8.3'),
     note('..clip.mp4', '3.0'),
   ])
+})
+
+test("check warns at each line of the project's own src that draws at imageSmoothingQuality 'high'", () => {
+  const root = tempDir('smoothing')
+  mkdirSync(join(root, 'src', 'looks'), { recursive: true })
+  mkdirSync(join(root, 'src', 'node_modules', 'pkg'), { recursive: true })
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    "ctx.imageSmoothingEnabled = true\nctx.imageSmoothingQuality = 'high'\n",
+  )
+  writeFileSync(join(root, 'src', 'looks', 'grain.js'), 'g.imageSmoothingQuality="high"\n')
+  writeFileSync(join(root, 'src', 'low.ts'), "ctx.imageSmoothingQuality = 'low'\n")
+  writeFileSync(join(root, 'src', 'notes.md'), "imageSmoothingQuality = 'high'\n")
+  writeFileSync(
+    join(root, 'src', 'node_modules', 'pkg', 'a.js'),
+    "c.imageSmoothingQuality = 'high'\n",
+  )
+  const found = smoothingFindings(root)
+  assert.deepEqual(
+    found.map((f) => [f.code, f.severity, f.file, f.line]),
+    [
+      ['smoothing', 'warning', 'src/composition.ts', 2],
+      ['smoothing', 'warning', 'src/looks/grain.js', 1],
+    ],
+  )
+  assert.match(found[0]?.message ?? '', /^src\/composition\.ts:2: .*docs\/determinism\.md/)
+  // A project without src finds nothing.
+  assert.deepEqual(smoothingFindings(tempDir('no-src')), [])
 })

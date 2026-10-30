@@ -61,7 +61,8 @@ shaderera: Not exported: the source is not deterministic (t=0 after t=0.9: pixel
 ```
 
 (A captured run on `apps/cli/src/cli/fixtures/stateful`, whose picture counts the frames rendered
-before it.) For a source that renders any t, the gate costs one render a second of film (about
+before it.) A film `render` finds already at the output stays: it is the previous export, and the error says so,
+with the time it was written. For a source that renders any t, the gate costs one render a second of film (about
 3 % at 30 fps), with the params, seed, size and camera of the export; `check` samples the whole
 film in two orders. The grid is the film's, not the export's: the whole film and the chunk of a
 plan that hold a window (`render --from/--to`) re-check every frame the window re-checks, so the
@@ -110,6 +111,9 @@ Draw at `'high'` over a known background each frame: `clearRect` (or fill) the c
 draw with `globalCompositeOperation = 'copy'`: then the same picture gives the same pixels
 whatever the canvas held. The host does not clear a film's canvases for it, since a canvas drawn
 once in `open` and kept is the film's to keep.
+
+`check` warns at each line of the project's own `src/` that sets `imageSmoothingQuality = 'high'`
+(finding `smoothing`, with its file and line), pointing here.
 
 ## Pure and sequential sources
 
