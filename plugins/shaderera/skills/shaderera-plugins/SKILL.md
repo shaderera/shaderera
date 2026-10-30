@@ -57,7 +57,7 @@ npx shaderera add camera-keyframes look-vignette   # several at once: all of the
   another plugin needs a version outside it, `add` refuses and names both. Name a version in
   that range, or add them one at a time.
 - **`--site <dir>`** wants a folder of published plugins (with an `index.json`). If it says the folder
-  holds plugin sources, publish them into a folder first (section 6), then add from that.
+  holds plugin sources, publish them into a folder first (section 5), then add from that.
 
 Then read the copied files: the comment at the top says what the module does and how. Wire it
 into `render(t)`, pass the film's own times, fonts and sizes, and change anything the brief needs
@@ -85,34 +85,7 @@ If the project keeps a `PLUGIN-GAPS.md` and a search the person asked for found 
 or an added plugin needed real changes, add a line to it: the date, what was searched for, what
 the film needed, and what you did. Do not create the file or search just to fill it.
 
-## 5. Craft that accepted films paid for
-
-These held across films. They are not a style: the brief still sets the look.
-
-- **Measure the music before cutting to it.** Analyse the exact file that plays, and take every
-  time from that analysis. Listen to check the tempo: a measured BPM can be a ratio of the real
-  one.
-- **Name what the picture does while it does it.** A caption that arrives after the moment, or
-  covers it, is worse than none. Keep the biggest moment of the music clear of all text.
-- **Endings need room.** A song that stops dead needs a tail and real silence; hold
-  the last picture into the silence.
-- **A variant is relaid, never cropped.** Each format gets its own layout and safe area, and a
-  tall frame opens the lens instead of losing the sides.
-- **Look at frames, not numbers.** Stills of the moments that changed and a contact sheet, each
-  variant included. Say what you did not judge by eye or ear.
-- **You cannot hear or watch playback, so turn both into pictures.** Render the film, then draw
-  the sound (spectrogram, waveform, onsets) and how much the picture changes every frame on one
-  timeline, with strips of every frame around each moment that should hit, and measure picture
-  against sound in ms. Judge sync, pacing and density from those before asking the person; then
-  ask them to listen to the final, which no picture replaces.
-- **Determinism:** `render(t)` is a function of t. No `Math.random`, no wall clock, hashes of the
-  frame instead. GPU float blending in a scatter is order-dependent: use integer atomics.
-  `npx shaderera still --diff <t>` and `npx shaderera check` catch a frame that depends on history.
-- **WGSL traps:** `target` is a reserved word. Keep TypeScript and WGSL struct sizes in step and
-  write the stride down. Guard `normalize` of a zero vector and `pow` of a negative base. Copy
-  rows from a texture are padded to 256 bytes.
-
-## 6. When the person asks you to publish a piece
+## 5. When the person asks you to publish a piece
 
 Publish only what the person asks to share, and only from a clip they have accepted. Do not
 propose pieces on your own. A piece too tied to its film to be made generic without a rewrite
