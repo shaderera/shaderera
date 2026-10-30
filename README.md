@@ -49,6 +49,9 @@ them a pure function of `t`: scrub back and the same frame comes back.
 
 ## Quick start
 
+New to Shaderera? Start with [your first 10 minutes](docs/start.md) and
+[using the studio](docs/using-the-studio.md), written for people, not agents.
+
 You need Node.js 24 or newer and [ffmpeg](https://ffmpeg.org/download.html) on the PATH.
 Chrome is needed only for the browser host (DOM and WebGPU in a page). `npx shaderera doctor`
 says what your machine has and lacks.
