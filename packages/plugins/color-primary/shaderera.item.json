@@ -1,0 +1,27 @@
+{
+  "name": "color-primary",
+  "type": "component",
+  "title": "Color Primary",
+  "description": "Primary grading as numbers: the ASC CDL v1.2, exposure in stops, contrast around a pivot, and white balance by Bradford from a Kelvin or xy white; WGSL and CPU with the same values, every default identity on 0–1",
+  "category": "Color",
+  "tags": [
+    "asc cdl",
+    "cdl",
+    "slope offset power",
+    "saturation",
+    "exposure",
+    "contrast",
+    "white balance",
+    "bradford",
+    "kelvin",
+    "colour temperature",
+    "grade",
+    "colour grading",
+    "colour",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/color/primary.ts", "src/color/primary.wgsl.ts"]
+}
