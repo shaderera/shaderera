@@ -156,7 +156,9 @@ right, so ask before sharing or reusing any of it.
 
 **The studio** is a page on shaderera.com that previews, renders and shares the project on this
 machine. When the person wants to review the film with you, or watch, render or share it from a
-page:
+page, call MCP `studio`: it starts the studio (or returns the one it started) and gives its
+`url` event, which you give the person, and it runs as long as the MCP server; `studio {stop:
+true}` stops it. Without MCP, or to read its events:
 
 1. Run `npx shaderera studio --json` in the background (`--connect <id>` when the page gave the
    person a command with an id).
