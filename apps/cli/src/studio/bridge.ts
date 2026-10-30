@@ -48,6 +48,7 @@ import {
   type Thread,
 } from '../project/comments.ts'
 import { manifestAt, openRevision } from '../project/jobs.ts'
+import { outputRequirements, type Requirements, readRequirements } from '../project/requirements.ts'
 import {
   changedFiles,
   type Files,
@@ -235,6 +236,28 @@ const sizesOf = (manifest: Manifest) =>
       return [name, { width, height, duration, fps }]
     }),
   )
+
+/**
+ * Each output's safe area, as `still --sheet` draws it: `main` and each variant → its margins, an
+ * output with none left out. requirements.json unread: none, so /info still answers.
+ */
+const safeAreasOf = (root: string, manifest: Manifest) => {
+  let req: Requirements
+  try {
+    req = readRequirements(root)
+  } catch {
+    return {}
+  }
+  return Object.fromEntries(
+    ['main', ...Object.keys(manifest.variants ?? {})].flatMap((name) => {
+      const { safeArea } = outputRequirements(req, {
+        ...(name === 'main' ? {} : { variant: name }),
+        ...manifest,
+      })
+      return safeArea ? [[name, safeArea]] : []
+    }),
+  )
+}
 
 /**
  * `Content-Disposition` for a file to save: the name in ASCII (anything else, `"` and `\` as
@@ -719,6 +742,7 @@ export const startBridge = async (o: {
           manifest,
           variants: manifest.variants ?? {},
           sizes: sizesOf(manifest),
+          safeAreas: safeAreasOf(root, manifest),
           schema: manifest.params ?? null,
         },
         telemetry: telemetryStatus().on,

@@ -770,6 +770,13 @@ test('a film in two ratios: /info gives their sizes, /runner frames each, /rende
     })
     // The variants stay in shaderera.json's own shape.
     assert.deepEqual(info.film.variants, manifest.variants)
+    // No requirements.json: no safe area; one for the film: every output's, as a sheet draws it.
+    assert.deepEqual(info.film.safeAreas, {})
+    const margins = { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 }
+    writeFileSync(join(two, 'requirements.json'), JSON.stringify({ version: 1, safeArea: margins }))
+    const safe = jsonOf(await call(b.port, { path: '/info', headers: asPage(b) }))
+    assert.deepEqual(safe.film.safeAreas, { main: margins, '16:9': margins, '9:16': margins })
+    rmSync(join(two, 'requirements.json'))
 
     // One frame a variant: the runner page gets the name, and the bridge knows every one.
     const runner = (variant: string) =>
