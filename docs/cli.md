@@ -267,7 +267,7 @@ assembled after; they are for several machines.
 The file is written as `<out>.<pid>.partial` (the render's process id, so two renders to one
 `<out>` never share it) and renamed to `<out>` only when it is complete: while a render runs,
 `<out>` is the previous film or nothing, never half a film. A render that fails or is
-stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
+stopped (Ctrl-C, or `render --stop`) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
 kept as `<out>.<pid>.partial` and the error says so. A render killed outright (the process ended,
 the power cut) cannot clean up: the next render of the same `<out>` removes the `.partial` files
@@ -277,6 +277,14 @@ its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU devic
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
 memory. This holds for `render`, `render --chunk` and `deliver`.
+
+**`render --stop`**, run in the project (or with `--root`), stops every video render and
+`render --chunk` running there, as Ctrl-C does: each closes its hosts, leaves no `.partial`, and
+fails with `Stopped by render --stop`. It waits for them to end and exits 0, or 1 when one is
+still ending after a minute; with none running it exits 0 and says so. A render that runs keeps
+`.shaderera/render/<pid>.json` (its pid, a port on 127.0.0.1 and a stop token, readable by the
+user only), as `studio --stop` reaches the studio. A png job's handoff and `--reuse` are not
+reached; stop those with Ctrl-C.
 
 Nothing is retried unless asked. With `--retries <n>`, `render` (and `render --chunk`) retries a
 frame whose host failed in a way a fresh host may not repeat: the host process crashed or exited,
@@ -325,6 +333,7 @@ of footage it takes a moment, not the time to read all of it.
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
 | `--software-gpu` | off: a host on a software GPU is refused ([below](#a-software-gpu)). On: it renders, and says so on stderr |
 | `--retries <n>` | 0: a transient host or encoder failure fails the render. n: retried up to n times with backoff ([above](#render)) |
+| `--stop` | renders nothing: stops the renders running in the project ([above](#render)) |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:

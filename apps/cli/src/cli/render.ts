@@ -74,10 +74,11 @@ import {
   requireHdr10,
   requireHdr10Ffmpeg,
 } from './ffmpeg.ts'
-import { found } from './findings.ts'
+import { EXIT, found } from './findings.ts'
 import { type FrameTime, frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
 import { openMix } from './mix.ts'
 import { blackFrame, fileTimecode, prerollOf, prerollTimes, writePreroll } from './preroll.ts'
+import { stoppable, stopRenders } from './render-stop.ts'
 
 /**
  * How many hosts an export uses by default (decision 0007): up to 4, two cores left free, at
@@ -730,6 +731,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       force: { type: 'boolean' },
       hdr10: { type: 'boolean' },
       retries: { type: 'string' },
+      stop: { type: 'boolean' },
       json: { type: 'boolean' },
       ...DELIVERY_FLAGS,
     },
@@ -742,9 +744,21 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     throw new Error('--loudness needs LUFS, such as -23 or -14.')
   const retries = retriesOf(v.retries)
   const crf = crfOf(v.crf)
-  requireFfmpeg()
   const located = await findProject(typeof v.root === 'string' ? v.root : process.cwd())
   const root = located.root
+  if (v.stop) {
+    const r = await stopRenders(root)
+    for (const pid of r.stopped) console.log(`Stopped the render in ${root} (pid ${pid}).`)
+    if (r.slow.length > 0) {
+      console.error(
+        `Asked the render in ${root} (pid ${r.slow.join(', ')}) to stop; it is still ending.`,
+      )
+      return EXIT.failed
+    }
+    if (r.stopped.length === 0) console.log(`No render is running in ${root}.`)
+    return EXIT.ok
+  }
+  requireFfmpeg()
   const job = typeof v.job === 'string' ? readJob(root, v.job) : undefined
   const given = Object.keys(DELIVERY_FLAGS).filter((k) => v[k as keyof typeof v] !== undefined)
   if (job && given.length > 0)
@@ -831,6 +845,13 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
   const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
+  // `render --stop` in the project stops a video render or a chunk as Ctrl-C does.
+  let unlisten: (() => void) | undefined
+  const listen = async () => {
+    unlisten = await stoppable(root, () =>
+      stop.abort(new Error('Stopped by render --stop: the output was left as it was.')),
+    )
+  }
   // A terminal, or a reader that asks (--progress), gets the line at every frame; a pipe (a
   // background run, --json) one line every 10 s, so a log of a long render says how far it is.
   const progress = process.stderr.isTTY || v.progress === true
@@ -888,6 +909,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       })
       process.once('SIGINT', interrupt)
       process.once('SIGTERM', interrupt)
+      await listen()
       const r = await renderChunk(hosts, plan, Number(v.chunk), dir, onFrame, stop.signal).finally(
         () => progress && process.stderr.write('\n'),
       )
@@ -925,6 +947,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     // Only around a chunk and the video export: a png job keeps the default Ctrl-C.
     process.once('SIGINT', interrupt)
     process.once('SIGTERM', interrupt)
+    await listen()
     const ext = extensionOf(video.codec)
     const { out, frames, seconds, workers, encoder, ...sound } = await exportVideo(project, child, {
       ...video,
@@ -997,6 +1020,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   } finally {
     process.off('SIGINT', interrupt)
     process.off('SIGTERM', interrupt)
+    unlisten?.()
     await Promise.all(extra.map((h) => h.close()))
     await child.close()
     // The job's frozen copy goes once its hosts closed, unless another render uses it.
