@@ -18,11 +18,13 @@ const text = writeCdl([{ id: 'sh010', ...grade }], 'cc')
   `.ccc` a `<ColorCorrectionCollection>` of them, a `.cdl` a `<ColorDecisionList>` of
   `<ColorDecision>`s each holding one. It gives an array of
   `{ id?, description?, slope: [r, g, b], offset: [r, g, b], power: [r, g, b], saturation }`, one
-  per `<ColorCorrection>`, in the file's order. A missing `SOPNode` (or `Slope`, `Offset`, `Power`)
-  or `SatNode` is identity. It reads what tools write: the v1.01 or v1.2 namespace, a namespace
+  per `<ColorCorrection>`, in the file's order. The values are read inside their nodes only, as
+  OpenColorIO reads them. A missing `SOPNode` or `SatNode` is identity; a `SOPNode` needs all of
+  `Slope`, `Offset` and `Power`. It reads what tools write: the v1.01 or v1.2 namespace, a namespace
   prefix, `SATNode` for `SatNode`, an XML declaration, comments, CRLF, a BOM, numbers spread over
-  lines. A bad file throws and says what is wrong: no `ColorCorrection`, one not closed, a value
-  that is not three numbers (saturation one).
+  lines, CDATA. A bad file throws and says what is wrong: no `ColorCorrection`, a tag or comment
+  not closed, a value that is not three finite numbers (saturation one), a slope or saturation below
+  0, a power of 0 or below, an id used twice.
 - `writeCdl(corrections, form)`: the corrections as `'cc'` (exactly one), `'ccc'` or `'cdl'` text,
   in the v1.2 namespace, `id` and description escaped. Reading it again gives the same corrections.
 

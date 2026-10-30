@@ -161,7 +161,7 @@ test('color-cdl-files: what real tools write is read', () => {
     },
   ])
   const prefixed = readCdl(
-    '<cdl:ColorCorrection xmlns:cdl="urn:ASC:CDL:v1.2" id="x"><cdl:SOPNode><cdl:Slope>2 1 1</cdl:Slope></cdl:SOPNode></cdl:ColorCorrection>',
+    '<cdl:ColorCorrection xmlns:cdl="urn:ASC:CDL:v1.2" id="x"><cdl:SOPNode><cdl:Slope>2 1 1</cdl:Slope><cdl:Offset>0 0 0</cdl:Offset><cdl:Power>1 1 1</cdl:Power></cdl:SOPNode></cdl:ColorCorrection>',
   )
   assert.deepEqual(prefixed[0]?.slope, [2, 1, 1])
 })
@@ -188,6 +188,81 @@ test('color-cdl-files: bad files are refused, saying what is wrong', () => {
     () => readCdl(`<ColorCorrectionCollection>${cc('a')}<ColorCorrection id="c"><SOPNode>`),
     /ColorCorrection 2 is not closed/,
   )
+})
+
+const identity = { slope: [1, 1, 1], offset: [0, 0, 0], power: [1, 1, 1], saturation: 1 }
+
+test('color-cdl-files: values are read only inside their nodes, as OpenColorIO reads them', () => {
+  // Shaped like OCIO's cdl_test_ASC_SAT.cc and cdl_test_ASC_SOP.cc: values outside their node.
+  const [sat] = readCdl(`<ColorCorrection id="sat">
+  <SOPNode><Slope>1 1 1</Slope><Offset>0 0 0</Offset><Power>1 1 1</Power></SOPNode>
+  <Saturation>0.42</Saturation>
+</ColorCorrection>`)
+  assert.equal(sat?.saturation, 1)
+  const [sop] = readCdl(`<ColorCorrection id="sop">
+  <SatNode><Description>ASC_SOP</Description><Saturation>1</Saturation></SatNode>
+  <Slope>2 2 2</Slope><Offset>0.1 0.1 0.1</Offset><Power>2 2 2</Power>
+</ColorCorrection>`)
+  assert.deepStrictEqual(sop, { id: 'sop', ...identity })
+})
+
+test('color-cdl-files: a SOPNode needs Slope, Offset and Power', () => {
+  assert.throws(
+    () => readCdl('<ColorCorrection><SOPNode/></ColorCorrection>'),
+    /SOPNode needs Slope, Offset and Power/,
+  )
+  assert.throws(
+    () =>
+      readCdl(
+        '<ColorCorrection><SOPNode><slope>1 1 1</slope><Offset>0 0 0</Offset><Power>1 1 1</Power></SOPNode></ColorCorrection>',
+      ),
+    /Slope is missing/,
+  )
+  assert.throws(
+    () =>
+      readCdl(
+        '<ColorCorrection><SOPNode><Slope>1 1 1</Slope><Offset>0 0 0</Offset></SOPNode></ColorCorrection>',
+      ),
+    /Power is missing/,
+  )
+})
+
+test('color-cdl-files: CDATA is text, not tags', () => {
+  const [c] = readCdl(`<ColorCorrection>
+  <Description><![CDATA[a < b & <Slope>9 9 9</Slope>]]></Description>
+</ColorCorrection>`)
+  assert.deepStrictEqual(c, { description: 'a < b & <Slope>9 9 9</Slope>', ...identity })
+  assert.throws(() => readCdl(`${cc('a')}<![CDATA[ open`), /comment or CDATA is not closed/)
+})
+
+test('color-cdl-files: values out of the ASC ranges are refused', () => {
+  assert.throws(() => readCdl(cc('a', '1 1e400 1')), /Slope needs 3 numbers, not "1 1e400 1"/)
+  assert.throws(() => readCdl(cc('a', '1 -0.1 1')), /Slope must be 0 or above/)
+  assert.throws(() => readCdl(cc('a', '1 1 1', '-0.5')), /Saturation must be 0 or above/)
+  assert.throws(
+    () => readCdl(cc('a').replace('<Power>1 1 1', '<Power>1 0 1')),
+    /Power must be above 0/,
+  )
+  assert.deepEqual(readCdl(cc('a', '0 0 0', '0'))[0]?.slope, [0, 0, 0])
+})
+
+test('color-cdl-files: an id used twice in one file is refused', () => {
+  assert.throws(
+    () => readCdl(`<ColorCorrectionCollection>${cc('a')}${cc('a')}</ColorCorrectionCollection>`),
+    /the id "a" is used twice/,
+  )
+  assert.equal(readCdl(`${cc('')}${cc('')}<ColorCorrection/><ColorCorrection/>`).length, 4)
+})
+
+test('color-cdl-files: an unclosed comment does not bring a correction back', () => {
+  assert.throws(() => readCdl(`${cc('a')}<!-- ${cc('b')}`), /comment or CDATA is not closed/)
+})
+
+test('color-cdl-files: the id is the id attribute, quoted values whole', () => {
+  assert.equal(readCdl('<ColorCorrection data-id="no"/>')[0]?.id, undefined)
+  assert.equal(readCdl('<ColorCorrection data-id="no" id="yes"/>')[0]?.id, 'yes')
+  assert.equal(readCdl('<ColorCorrection id="a>b"/>')[0]?.id, 'a>b')
+  assert.equal(readCdl(cc('a>b'))[0]?.id, 'a>b')
 })
 
 test('color-cdl-files: a correction read from a file, through color-primary, gives the value worked by hand', () => {
