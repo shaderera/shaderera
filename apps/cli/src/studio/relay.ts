@@ -80,6 +80,8 @@ export const connectRelay = (o: {
   nonce: string
   bridge: Pick<Bridge, 'port' | 'secret' | 'handle' | 'onEvent' | 'onVisit'>
   hello: { version: string; os: string; telemetry: boolean }
+  /** The page proved the nonce and was sent the bridge; its `paired` comes after. */
+  onBridge?: () => void
   onPaired?: () => void
   /**
    * The page left and did not come back within `pageBackMs` (`closed`), or, once paired, came
@@ -258,6 +260,7 @@ export const connectRelay = (o: {
       if (typeof proof?.nonce !== 'string' || !sameNonce(proof.nonce, o.nonce)) return
       key = k
       send({ type: 'bridge', ...(await seal(k, { port: o.bridge.port, secret: o.bridge.secret })) })
+      o.onBridge?.()
     } else if (m.type === 'paired') {
       paired = true
       o.onPaired?.()

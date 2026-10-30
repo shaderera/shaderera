@@ -542,6 +542,85 @@ test('shaderera studio: an id no page came for gives a new id and url, and goes 
   }
 })
 
+/** A studio whose paired page closed for good: the old session, its page and the standby's url. */
+const closedPage = async (slow: Awaited<ReturnType<typeof startRelay>>) => {
+  const id = makeId()
+  const first = page(slow.origin, id)
+  const s = studioJson(slow.origin, ['--connect', id], {
+    env: { SHADERERA_STUDIO_PAGE_BACK_MS: '300' },
+  })
+  const url = await s.event((e) => e.event === 'url')
+  const { bridge } = await first.pair(new URL(url.url as string).hash.slice(1))
+  await s.event((e) => e.event === 'paired')
+  first.ws.close()
+  const next = await s.event((e) => e.event === 'url' && e.id !== id)
+  assert.equal(next.closed, id)
+  assert.equal(next.opened, false)
+  assert.match(String(next.text), /closed: a new one/)
+  // The CLI made this id: no ?from=web.
+  assert.equal(new URL(next.url as string).search, '')
+  // The old session stays: a tab the browser discarded comes back with its token.
+  assert.equal(slow.sessions.get(id)?.ended, undefined)
+  return { s, id, bridge, url, next }
+}
+
+test('shaderera studio: once the paired page closed, a page on the standby url wins', async () => {
+  const slow = await startRelay()
+  const { s, id, url, next } = await closedPage(slow)
+  try {
+    // The same bridge pairs with a page on the new id, and the old session ends.
+    const second = page(slow.origin, next.id as string)
+    const { bridge } = await second.pair(new URL(next.url as string).hash.slice(1))
+    assert.equal(bridge.port, Number(new URL(url.bridge as string).port))
+    // Its requests to the bridge are not the old page back.
+    const r = await call(bridge.port, {
+      path: '/info',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${bridge.secret}` },
+    })
+    assert.equal(r.status, 200)
+    await s.event(() => s.events().filter((e) => e.event === 'paired').length === 2)
+    for (let i = 0; i < 100 && !slow.sessions.get(id)?.ended; i++)
+      await new Promise((r) => setTimeout(r, 20))
+    assert.equal(slow.sessions.get(id)?.ended, true)
+    assert.ok(!s.events().some((e) => e.event === 'ended' || e.event === 'resumed'), s.out())
+    second.ws.close()
+  } finally {
+    s.cli.stdin?.end()
+    await s.exited
+    await slow.close()
+  }
+})
+
+test('shaderera studio: once the paired page closed, the old page back closes the standby', async () => {
+  const slow = await startRelay()
+  const { s, id, bridge, next } = await closedPage(slow)
+  try {
+    // The standby's CLI on the relay: it joins just after its url is said.
+    for (let i = 0; i < 100 && !slow.sessions.get(next.id as string)?.cli; i++)
+      await new Promise((r) => setTimeout(r, 20))
+    const standby = slow.sessions.get(next.id as string)
+    assert.ok(standby?.cli)
+    // The old tab back (its relay socket rejoins with its token, which the CLI does not hear):
+    // its first request to the bridge.
+    const r = await call(bridge.port, {
+      path: '/info',
+      headers: { Origin: slow.origin, Authorization: `Bearer ${bridge.secret}` },
+    })
+    assert.equal(r.status, 200)
+    await s.event((e) => e.event === 'resumed')
+    for (let i = 0; i < 100 && standby.cli; i++) await new Promise((r) => setTimeout(r, 20))
+    assert.equal(standby.cli, undefined)
+    assert.equal(slow.sessions.get(id)?.ended, undefined)
+    await new Promise((r) => setTimeout(r, 400))
+    assert.equal(s.events().filter((e) => e.event === 'url').length, 2, s.out())
+    assert.ok(!s.events().some((e) => e.event === 'ended'), s.out())
+  } finally {
+    s.cli.stdin?.end()
+    await s.exited
+    await slow.close()
+  }
+})
+
 test('shaderera studio: a page that leaves before pairing is no reload', async () => {
   const slow = await startRelay()
   const id = makeId()
