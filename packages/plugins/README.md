@@ -15,11 +15,12 @@ its options as parameters, defaults that render well. Once added, a plugin is th
 code, to change freely.
 
 Plugins are named `<category>-<thing>`, so related ones sort together and the name says what it
-is: `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`,
+is: `analysis`, `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`,
 `text`.
 
 | Plugin | Type | What it does | From |
 |---|---|---|---|
+| `analysis-scopes` | component | a frame as scope numbers: levels, black and white points, % clipped and crushed per channel, histogram, waveform and RGB parade by column band, balance in shadows, midtones and highlights, a vectorscope summary with skin tones against the skin-tone line; no scope images | #568: films came out dark, and an agent cannot grade what it cannot measure |
 | `asset-provenance` | component | where each outside file came from: a record per file (source, licence, author, segment, sha256), the ASSETS.md table and the description's credits | an in-house explainer film, 2026-10-16 |
 | `audio-beat-clock` | component | measure a song (tempo fitted to its onsets, bars, onsets, bands); a clock, band levels and hits at render time | opening film; tempo fit from later in-house films |
 | `audio-hall-ending` | component | an ending that rings out in a hall and dies to silence (ffmpeg) | opening film |
