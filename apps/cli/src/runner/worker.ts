@@ -512,7 +512,7 @@ const api = {
             ...(o.revision ? { module: url(manifest.dom) } : {}),
           },
         })
-      const open = () => openSource(module, host)
+      const open = () => openSource(module, host, manifest.entry.replace(/^\.\//, ''))
       // A sequential source steps skipped frames itself; each gets the DOM drawn at its own t.
       const prepare = async (at: number) => ({ dom: await domAt(at) })
       source = manifest.sequential ? await seekable(open, manifest, { prepare }) : await open()

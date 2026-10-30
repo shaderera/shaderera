@@ -78,8 +78,12 @@ The commands that render the source (`check`, `inspect`, `still`, `render`, `rev
   but not including the duration (the last frame is at duration − 1/fps). `inspect` takes one,
   `still` any number; the others take none and refuse them.
 
-The project's own console output goes to stderr, so stdout carries only the command's result. Set
-`SHADERERA_DEBUG=1` to print a full error with its stack.
+The project's own console output goes to stderr, so stdout carries only the command's result. An
+error in the film's code says where in its source: a throw as `render(3) threw: boom
+(src/composition.ts:26)` or `open() threw: …`, a syntax error with Vite's `─[ file:line:col ]`, a
+missing default export as `src/composition.ts has no default export: end it with export default
+open.`; its finding carries `file`, `line` and, for a render, `t`. Set `SHADERERA_DEBUG=1` to print
+a full error with its stack, mapped to the source.
 
 While `render`, `render --chunk` or `assemble` hands frames to ffmpeg, an ffmpeg that exits
 before the last frame (even with 0, as it does when it runs out of memory reading its input) fails
@@ -1114,9 +1118,10 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
 }
 ```
 
-- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `shader`, `gpu`,
-  `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and
-  `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
+- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `shader`,
+  `build`, `gpu`, `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails;
+  `warning` and `info` never do), `message`, and when known `t`, `file` and `line` (a shader, a
+  build error, a throw in the film's code), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
 - `result`: the command's own JSON (`inspect`, `still`, `review`, `versions`, `doctor`,
   `search`, `info`, `share`, `fork`); `log`: the lines any other command printed.
