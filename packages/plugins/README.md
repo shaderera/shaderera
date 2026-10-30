@@ -15,7 +15,7 @@ its options as parameters, defaults that render well. Once added, a plugin is th
 code, to change freely.
 
 Plugins are named `<category>-<thing>`, so related ones sort together and the name says what it
-is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`,
+is: `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`,
 `text`.
 
 | Plugin | Type | What it does | From |
@@ -28,6 +28,7 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `camera-ken-burns` | component | the crop of a still a frame shows: framed on a box with headroom, moved between two framings at an even speed (scale in log space), kept inside the picture | an explainer film on cats in art (POC), 2026-10-15 |
 | `camera-keyframes` | component | a 3D camera as shots: orbit, dolly, crane, cut, exact framing, lenses in mm, shift, focus; WebGPU or three.js; core's camera contract; the lens rule for tall frames | opening film, ideas from camera-controls and Cinemachine |
 | `camera-shake` | component | breathe, handheld, impact: seeded noise as a formula of t, scaled by an envelope | ideas from drei CameraShake |
+| `color-lut` | component | a .cube LUT (1D or 3D) read, applied and written: tetrahedral in WGSL from a 3D texture and on the CPU with the same values; the LUT's spaces are its author's, none ship | #568: a person's own grade in and out of Shaderera |
 | `font-ibm-plex-mono` | media | IBM Plex Mono, OFL | opening film |
 | `font-ibm-plex-sans` | media | IBM Plex Sans, OFL | an in-house film |
 | `font-instrument-serif` | media | Instrument Serif, OFL | an in-house film |

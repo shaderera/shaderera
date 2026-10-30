@@ -72,6 +72,7 @@ What is on the shelf:
   - `render-three-textures`: images from `io.image` as three.js textures and atlases;
   - `image-to-png`: WebP, AVIF, GIF and video frames converted to PNG once (ffmpeg);
   - `render-canvas-texture`: a Canvas2D canvas or RGBA bytes as a GPU texture for a WGSL pass;
+  - `color-lut`: a person's own .cube LUT read, applied (WGSL and CPU) and written back;
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;
