@@ -132,6 +132,10 @@ A named output the film is designed for (a size, a length, params), laid out by 
 code from that manifest.
 _Avoid_: crop, version
 
+**Duration**:
+A film's or a variant's length: a whole number of frames at its fps.
+_Avoid_: a length in seconds that is not whole frames
+
 ### Hosts
 
 **Host**:

@@ -223,7 +223,7 @@ it, before any frame.
 |---|---|---|
 | `entry` | yes | the module that default-exports the `Open` or `Source` |
 | `fps` | yes | a number or a fraction (`"24000/1001"`); 23.976, 29.97 and 59.94 mean their fractions, and the host gives the source that exact number |
-| `duration`, `width`, `height` | yes | seconds; integer pixels |
+| `duration`, `width`, `height` | yes | seconds, a whole number of frames at `fps` (110.62 at 25 fps is refused: use 110.6 or 110.64); integer pixels |
 | `params` | no | a JSON Schema (`type: 'object'`) of what the host passes to `open` |
 | `seed` | no | the only randomness a source may use |
 | `sequential` | no | `true`: state carries from frame to frame; or a whole number, the [lookback](determinism.md#lookback) in frames ([determinism.md](determinism.md#pure-and-sequential-sources)) |
@@ -262,7 +262,7 @@ timecode is drop-frame at 29.97 and 59.94.
 }
 ```
 
-Each may override `width`, `height`, `duration` and `fps`, set params, and declare `preroll`,
+Each may override `width`, `height`, `duration` (whole frames at the variant's `fps`) and `fps`, set params, and declare `preroll`,
 `timecode` and `textless`. A host opens the source with the variant applied to `host.manifest`
 and its params over the defaults (`withVariant` in `@shaderera/core/host`), and gives its name as
 `host.variant` (`undefined` for the manifest's own output; a `dom` module gets it too). Every

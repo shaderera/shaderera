@@ -21,7 +21,7 @@
     },
     "fps": { "$ref": "#/definitions/fps" },
     "duration": {
-      "description": "In seconds.",
+      "description": "In seconds, a whole number of frames at fps.",
       "type": "number",
       "exclusiveMinimum": 0
     },

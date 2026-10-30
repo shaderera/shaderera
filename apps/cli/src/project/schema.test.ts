@@ -12,7 +12,7 @@ const full = {
   shaderera: 'manifest/1',
   entry: './src/composition.ts',
   fps: '24000/1001',
-  duration: 10,
+  duration: 10.01,
   width: 1920,
   height: 1080,
   params: { type: 'object' },
