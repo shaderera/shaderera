@@ -56,6 +56,7 @@ Sound made in code is never the lesser choice.
 Review's diagnostics list the clips and how much of the film they cover. You cannot hear or
 watch playback, so turn both into pictures: render the film, then draw the sound (spectrogram,
 waveform, onsets) and how much the picture changes every frame on one timeline, with strips of
-every frame around each moment that should hit, and measure picture against sound in ms. Judge
-sync from those. Then end with the times of the cues worth listening to (the hits, the cuts, a
+every frame around each moment that should hit, and measure picture against sound in ms. The
+`review-av-timeline` plumbing plugin does this: give it the times of the hits and it reports the
+picture-to-sound offset at each in ms. Judge sync from those. Then end with the times of the cues worth listening to (the hits, the cuts, a
 duck under a voice) for the person to check by ear, and do not say that it sounds right.

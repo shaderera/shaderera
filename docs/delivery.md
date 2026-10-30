@@ -400,7 +400,10 @@ npx shaderera assemble --plan out/spot.plan       # one encode, with the whole w
 ## Re-rendering only what an edit changed
 
 A frame is a function of the revision and `t`, so after a small edit the frames the edit did not
-touch are already rendered, losslessly, in the earlier plan's chunks.
+touch are already rendered, losslessly, in the earlier plan's chunks. This is how a window of a
+rendered film is patched: never splice a re-rendered window into the film with ffmpeg by hand.
+It needs the earlier render as a plan (`plan`, `render --chunk`, `assemble`, above); a plain
+`render` keeps no chunks, so a film rendered that way is rendered again.
 
 ```sh
 npx shaderera job --name spot-v2                  # the edited revision

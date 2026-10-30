@@ -56,7 +56,10 @@ CLI shows the same things (step 3).
    and review can read it. Text is a run with `box: [x, y, width, height]` in frame pixels:
    `{ id: 'title', text: 'Hello', box: [160, 236, 420, 84] }`. Review skips any other shape with
    no warning (`node_modules/shaderera/docs/protocol.md`, "Text runs").
-3. Check after every edit: `npx shaderera check`. `render(t)` must stay a function of `t`.
+3. Check after every edit: `npx shaderera check`. `render(t)` must stay a function of `t`. On
+   ✗: `npx shaderera still --diff <t>` at the t it names, then
+   `node_modules/shaderera/docs/determinism.md`, "What breaks it". A `clock` warning means
+   `render` read `Date`, `performance.now` or `requestAnimationFrame`.
 4. Look, through MCP whenever its tools are there: each CLI call starts the film cold (seconds
    on a real film), where an MCP call reuses the open one (tens of milliseconds). MCP `still`
    (a contact sheet) or `render_frame` with `image: true` (scaled to 1024 px; `full` or a
@@ -83,8 +86,15 @@ check, 2 the command could not run) and `findings` with `t`, `file:line` and a b
 While you iterate, look (step 3) instead of rendering, and render only the shot that changed:
 `render --from <s> --to <s> --out out/shot.mp4`. Render the whole film when the person asks, or
 for a review round: in the background with `--progress`, and tell them the time left from its
-first lines. `--workers`: see `node_modules/shaderera/docs/cli.md`, `render`. Why a render is
-slow: `guides/review.md`.
+first lines. A whole-film or draft render: the CLI in the background, not MCP `render`, which
+blocks, sends no progress and takes no variant, params or draft. `--workers`: see
+`node_modules/shaderera/docs/cli.md`, `render`. Why a render is slow: `guides/review.md`.
+
+To patch a window of a film already rendered, never splice files with ffmpeg by hand. A plain
+`render` keeps no chunks to reuse: render the film again. A film rendered
+as a job's plan (`job`, `plan`, `render --chunk`, `assemble`) is patched with `render --job <new>
+--reuse <old plan> --changed <from>-<to>`, then `assemble`: delivery.md, "Re-rendering only what
+an edit changed".
 
 ```bash
 npx shaderera review                      # frames, a contact sheet and technical checks
