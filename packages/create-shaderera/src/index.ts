@@ -57,6 +57,7 @@ console.log(`Created ${inPlace ? `${name} here` : target}. Next:
 ${cd}  npm install
   npx shaderera check
   npx shaderera still 0 5 --sheet
+  npx shaderera studio    # a page on shaderera.com to watch, comment on and render the film
 
 The film is render(t) in src/composition.ts. AUTHORING.md is the workflow, guides/ the focused
 references, node_modules/shaderera/docs/ the reference.`)
