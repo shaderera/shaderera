@@ -8,12 +8,18 @@ import { assertRequirements } from '../registry/requires.ts'
 
 export type Project = { readonly root: string; readonly manifest: Manifest }
 
+/** No project at or above `cwd`: the error, with how to start one. */
+export const noProject = (cwd: string) =>
+  new Error(
+    `No shaderera.json in ${resolve(cwd)} or above it. Start one with npx create-shaderera@latest <dir>, or pass --root.`,
+  )
+
 /** The nearest directory at or above `cwd` with a shaderera.json, and its checked manifest. */
 export const findProject = async (cwd: string): Promise<Project> => {
   let dir = resolve(cwd)
   while (!existsSync(join(dir, 'shaderera.json'))) {
     const parent = dirname(dir)
-    if (parent === dir) throw new Error(`No shaderera.json in ${resolve(cwd)} or above it.`)
+    if (parent === dir) throw noProject(cwd)
     dir = parent
   }
   const file = join(dir, 'shaderera.json')

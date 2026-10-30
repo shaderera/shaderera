@@ -25,7 +25,8 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
-`shaderera` alone, `shaderera help` or `shaderera --help` prints the usage; `shaderera help <command>`
+`shaderera` alone prints the commands a person starts with (`check`, `still`, `render`, `studio`)
+and where the rest are. `shaderera help` or `shaderera --help` prints the whole usage; `shaderera help <command>`
 or `shaderera <command> --help` (or `-h`) prints that command's lines of it (`comments`: its own
 usage, every form). A name that is no command exits 2 with `shaderera: Unknown command: <name>.` on
 stderr, and the nearest command when one is within two letters (`Did you mean still?`). A flag the
@@ -760,8 +761,10 @@ WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
 [above](#required-plugins)). Each lack says how to fix it. It also says whether this machine is
 signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERERA_API` names
-another) and whether the project can be shared (`share`: the licence it declares). Neither is
-needed, so neither fails `doctor`.
+another), whether the default browser shows the [studio](studio.md) (`studio`: Chrome and Edge
+reach 127.0.0.1; Safari and Brave block it, so the studio works through the relay with no
+preview; Firefox is untested; the fix is Chrome) and whether the project can be shared (`share`:
+the licence it declares). None of these is needed, so none fails `doctor`.
 
 Inside a project it also says what takes its disk space, in binary units (1 MiB is 2²⁰ bytes;
 `prune` prints decimal MB), one line per kind that has any: the working tree (the files a save
