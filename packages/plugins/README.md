@@ -30,6 +30,7 @@ is: `analysis`, `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`, 
 | `camera-keyframes` | component | a 3D camera as shots: orbit, dolly, crane, cut, exact framing, lenses in mm, shift, focus; WebGPU or three.js; core's camera contract; the lens rule for tall frames | opening film, ideas from camera-controls and Cinemachine |
 | `camera-shake` | component | breathe, handheld, impact: seeded noise as a formula of t, scaled by an envelope | ideas from drei CameraShake |
 | `color-lut` | component | a .cube LUT (1D or 3D) read, applied and written: tetrahedral in WGSL from a 3D texture and on the CPU with the same values; the LUT's spaces are its author's, none ship | #568: a person's own grade in and out of Shaderera |
+| `color-primary` | component | primary grading as numbers: the ASC CDL v1.2 (slope, offset, power, saturation, clamped as the spec does), exposure in stops, contrast around a pivot, white balance by Bradford from a Kelvin or xy white; WGSL and CPU with the same values, every default identity | #568: the balance pass every grade starts with |
 | `font-ibm-plex-mono` | media | IBM Plex Mono, OFL | opening film |
 | `font-ibm-plex-sans` | media | IBM Plex Sans, OFL | an in-house film |
 | `font-instrument-serif` | media | Instrument Serif, OFL | an in-house film |

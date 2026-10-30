@@ -73,6 +73,7 @@ What is on the shelf:
   - `image-to-png`: WebP, AVIF, GIF and video frames converted to PNG once (ffmpeg);
   - `render-canvas-texture`: a Canvas2D canvas or RGBA bytes as a GPU texture for a WGSL pass;
   - `color-lut`: a person's own .cube LUT read, applied (WGSL and CPU) and written back;
+  - `color-primary`: the ASC CDL, exposure, contrast and white balance (Bradford, from Kelvin), WGSL and CPU;
   - `analysis-scopes`: a frame as scope numbers (levels, waveform, parade, balance, vectorscope) to grade from;
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
