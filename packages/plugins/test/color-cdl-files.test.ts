@@ -204,6 +204,15 @@ test('color-cdl-files: values are read only inside their nodes, as OpenColorIO r
   <Slope>2 2 2</Slope><Offset>0.1 0.1 0.1</Offset><Power>2 2 2</Power>
 </ColorCorrection>`)
   assert.deepStrictEqual(sop, { id: 'sop', ...identity })
+  // OCIO's own cdl_test_ASC_SOP.cc: the values and Description sit in an element that is not a node.
+  const [asc] = readCdl(`<ColorCorrection id="foo">
+  <ASC_SOP>
+    <Description>this is a description</Description>
+    <Slope>1.1 1.2 1.3</Slope><Offset>2.1 2.2 2.3</Offset><Power>3.1 3.2 3.3</Power>
+  </ASC_SOP>
+  <SatNode><Saturation>0.42</Saturation></SatNode>
+</ColorCorrection>`)
+  assert.deepStrictEqual(asc, { id: 'foo', ...identity, saturation: 0.42 })
 })
 
 test('color-cdl-files: a SOPNode needs Slope, Offset and Power', () => {

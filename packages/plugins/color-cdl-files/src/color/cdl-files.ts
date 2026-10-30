@@ -27,7 +27,6 @@ const tag = (name: string) => `<(?:[\\w.-]+:)?${name}(?=[\\s/>])`
 const close = (name: string) => `</(?:[\\w.-]+:)?${name}\\s*>`
 // A tag's attributes, skipping quoted values, so `id="a>b"` stays one attribute.
 const ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*?`
-const NODES = '(SOPNode|SatNode|SATNode)'
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 const fromXml = (s: string) =>
@@ -119,9 +118,12 @@ export const readCdl = (file: string): Cdl[] => {
       if (ids.has(id)) throw new Error(`.cdl: the id "${id}" is used twice`)
       ids.add(id)
     }
-    // The correction's own Description, not one inside its SOPNode or SatNode.
+    // The correction's own Description, not one inside a node or any other child element.
     const own = body.replace(
-      new RegExp(`${tag(NODES)}${ATTRS}(?:/>|>[\\s\\S]*?${close('\\1')})`, 'g'),
+      new RegExp(
+        `${tag('(?!Description(?=[\\s/>]))([\\w.-]+)')}${ATTRS}(?:/>|>[\\s\\S]*?${close('\\1')})`,
+        'g',
+      ),
       '',
     )
     const description = text(own, 'Description', where)
