@@ -44,6 +44,7 @@ import { checkChild } from './check.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { errorFinding } from './findings.ts'
 import { valueAt } from './inspect.ts'
+import { studios } from './mcp-studio.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { revisionHosts } from './revision-host.ts'
 import { stillTimes } from './still.ts'
@@ -482,6 +483,18 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
     writing('Review the film', { idempotentHint: true }),
   ],
   [
+    'studio',
+    "Starts the project's studio (or reuses the one this server started) and returns its address: the page where the person watches the film and comments on it, opened in their browser. It runs as long as this server, or until stop. A studio started elsewhere is named by its pid.",
+    {
+      stop: say(
+        bool,
+        "Stop the project's studio instead, whoever started it, as shaderera studio --stop does.",
+      ),
+    },
+    [],
+    writing('Open the studio', { idempotentHint: true }),
+  ],
+  [
     'activity_add',
     'Adds a note of what you mean to do to the activity the studio shows. Only for what you mean to do: every tool call is recorded already. Returns the entry.',
     {
@@ -498,7 +511,7 @@ const INSTRUCTIONS = `Shaderera's tools look at and check a film made in code: a
 The loop: inspect or render_frame for numbers (state, hashes, boxes at t) → still to look at frames → edit the source → check that it is deterministic → render a short window or a draft.
 Numbers are cheaper than pictures: images are opt-in, and at most 2048 px.
 A whole film at full size renders in the CLI (npx shaderera render) in a shell, not here.
-comments are the person's notes from the studio: reply with comment_reply, and fixed: true once the change is made.`
+studio opens the page where the person watches and comments; comments are their notes from it: reply with comment_reply, and fixed: true once the change is made.`
 
 /** The tools whose PNG is kept as their activity entry's image (decision 0025). */
 const PICTURED = new Set(['still', 'render_frame'])
@@ -580,9 +593,22 @@ const projectOf = async (dir: string, root: unknown) => {
  */
 export const createServer = (
   dir: string,
-  flags: { trusted?: boolean; timeout?: string; variant?: string; host?: string } = {},
+  flags: {
+    trusted?: boolean
+    timeout?: string
+    variant?: string
+    host?: string
+    /** More flags for every `shaderera studio` the studio tool starts (tests: --site, --no-open). */
+    studio?: readonly string[]
+  } = {},
 ) => {
   const sessions = new Map<string, NodeSession>()
+  const studio = studios([
+    ...(flags.host ? ['--host', flags.host] : []),
+    ...(flags.trusted ? ['--trusted'] : []),
+    ...(flags.timeout ? ['--timeout', flags.timeout] : []),
+    ...(flags.studio ?? []),
+  ])
   // render_frame and still with a revision: its frozen copy in its own host, kept for the next call.
   const frozen = revisionHosts({
     host: flags.host,
@@ -1135,6 +1161,7 @@ export const createServer = (
         if (!tools.some(([n]) => n === params.name)) throw new Error(`Unknown tool ${params.name}.`)
         root = (await projectOf(dir, a.root)).root
         if (params.name === 'activity_add') return addNote(root, a)
+        if (params.name === 'studio') return a.stop === true ? studio.stop(root) : studio.open(root)
         session = sessionOf(root)
         const onVersions = revisions[params.name]
         if (!onVersions) return call(root, session, params.name, a, progress)
@@ -1164,6 +1191,7 @@ export const createServer = (
     }
   }
   server.onclose = () => {
+    studio.close()
     for (const session of sessions.values()) session.close()
     void frozen.drop()
   }
