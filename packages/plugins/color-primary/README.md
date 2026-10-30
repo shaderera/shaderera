@@ -55,4 +55,4 @@ All of it goes before a display LUT (`color-lut`), which comes last.
 
 This does one job. Tint is not here: move the source xy off the locus yourself. Nor is
 lift/gamma/gain: there is no one standard mapping of it to the CDL, so it is left out rather than
-guessed. There is no CDL file reader (`.cdl`, `.cc`, `.ccc`) and no unclamped CDL variant.
+guessed. CDL files (`.cdl`, `.cc`, `.ccc`) are read and written by `color-cdl-files`. There is no unclamped CDL variant.
