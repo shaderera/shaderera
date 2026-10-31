@@ -26,7 +26,7 @@ test('a bake is made and stamped, read by the host, and refused when stale or ch
     return decode(readFileSync(join(out, `main-${Number(t).toFixed(3)}.png`))).data[0]
   }
   // Every command that opens the source refuses it alike: all three once, then one each.
-  const all = [['check', '--times', '2'], ['still', '0'], ['render']]
+  const all = [['check', '--samples', '2'], ['still', '0'], ['render']]
   const refused = async (pattern: RegExp, commands = all) => {
     for (const command of commands) {
       const r = await cli(...command)
@@ -54,7 +54,7 @@ test('a bake is made and stamped, read by the host, and refused when stale or ch
   writeFileSync(join(root, 'level.txt'), '90')
   await refused(
     /Bake glow is stale: level\.txt changed since it was made\. Run shaderera bake glow\./,
-    [['check', '--times', '2']],
+    [['check', '--samples', '2']],
   )
   assert.equal((await cli('bake', 'glow')).status, 0)
   assert.equal(await grey('0.5'), 95)
@@ -148,7 +148,7 @@ test('a bake stamps only what this run wrote, follows the project when it moves,
   cpSync(join(root, 'tools'), join(root, 'node_modules', 'x'), { recursive: true })
   assert.equal((await cli(root, 'bake')).status, 0)
   writeFileSync(join(root, 'node_modules', 'x', 'make.mjs'), '// changed')
-  assert.equal((await cli(root, 'check', '--times', '2')).status, 0)
+  assert.equal((await cli(root, 'check', '--samples', '2')).status, 0)
   // A job lists the inputs from its revision by the same rules, so the stamp matches it.
   const job = await cli(root, 'job', '--name', 'dot')
   assert.equal(job.status, 0, job.stderr)
@@ -162,7 +162,7 @@ test('a bake stamps only what this run wrote, follows the project when it moves,
   const moved = join(tempDir('moved'), 'film')
   cpSync(base, join(moved, '..'), { recursive: true })
   rmSync(join(base, 'glow'), { recursive: true })
-  assert.equal((await cli(moved, 'check', '--times', '2')).status, 0)
+  assert.equal((await cli(moved, 'check', '--samples', '2')).status, 0)
 
   // In the project, a bake's folder goes under out/.
   declare((b) => {

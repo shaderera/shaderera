@@ -1,5 +1,6 @@
 import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
+import { noProject } from '../node/project.ts'
 import type { Item } from './item.ts'
 import { npm } from './npm.ts'
 import { installedPackage, installedVersion, readRequires, setRequirement } from './requires.ts'
@@ -11,7 +12,7 @@ export const findRoot = (cwd: string): string => {
   let dir = resolvePath(cwd)
   while (!existsSync(join(dir, 'shaderera.json'))) {
     const parent = dirname(dir)
-    if (parent === dir) throw new Error(`No shaderera.json in ${resolvePath(cwd)} or above it.`)
+    if (parent === dir) throw noProject(cwd)
     dir = parent
   }
   return dir

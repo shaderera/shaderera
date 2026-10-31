@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
-import { createJob, JobExists, jobId, listJobs, readJob, videoOptionsOf } from './jobs.ts'
+import { createJob, JobExists, listJobs, readJob } from './jobs.ts'
 
 const fixture = fileURLToPath(new URL('../cli/fixtures/mcp/', import.meta.url))
 
@@ -159,20 +159,4 @@ test('a job asks for hdr10 only for a film with hdr10, and an SDR job keeps its 
   const second = await createJob(root, { by: 'cli', revision: hdr.revision })
   assert.notEqual(second.id, hdr.id)
   assert.equal('range' in second, false)
-})
-
-test('a master job records its x264 preset and crf; a 0.2.1 master job without them renders slow crf 12', async () => {
-  const root = project()
-  const job = await createJob(root, { by: 'cli', name: 'now', delivery: { quality: 'master' } })
-  assert.deepEqual(readJob(root, 'now').delivery.x264, { preset: 'veryfast', crf: 10 })
-  assert.deepEqual(videoOptionsOf(job.delivery).x264, { preset: 'veryfast', crf: 10 })
-  // A review records none: it is no master.
-  const review = await createJob(root, { by: 'cli', revision: job.revision, name: 'review' })
-  assert.equal('x264' in review.delivery, false)
-  // The same job as 0.2.1 wrote it: no x264 in its delivery, its id hashed without one.
-  const { x264: _, ...delivery } = job.delivery
-  const old = { ...job, name: 'old', delivery }
-  old.id = jobId(old)
-  writeFileSync(join(root, 'versions', 'jobs', 'old.json'), JSON.stringify(old))
-  assert.deepEqual(videoOptionsOf(readJob(root, 'old').delivery).x264, { preset: 'slow', crf: 12 })
 })

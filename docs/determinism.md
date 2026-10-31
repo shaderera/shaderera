@@ -27,7 +27,7 @@ hosts and GPUs only within a tolerance ([below](#across-hosts-and-gpus)).
 
 `shaderera check` (and MCP's `check`, and `checkDeterminism` from `@shaderera/core`):
 
-1. **Picks times.** `--times` frame-aligned timestamps (default 50; 20 over MCP): frame 0, the
+1. **Picks times.** `--samples` frame-aligned timestamps (default 50; 20 over MCP): frame 0, the
    last frame, and seeded picks between.
 2. **First pass, ascending.** For each `t`: `render(t, final)`, composited, and the SHA-256 of
    the RGBA bytes; then `inspect(t)` (if the source has it).
@@ -38,12 +38,15 @@ hosts and GPUs only within a tolerance ([below](#across-hosts-and-gpus)).
 5. **Preview vs final** at three of the times: mean and max channel difference. Reported, not
    failed.
 
-A failure names the time, what came before it and what changed, and exits 1:
+The check stops at the first time that differs. The failure names that time (to the millisecond)
+and its frame, what was rendered before it (`rendered first` when nothing was), what changed and
+the usual causes, and exits 1:
 
 ```
-✗ not deterministic: 1 of 5 timestamps differ
-  ✗ t=2 after t=3.9 inspect: title.opacity
-  ✗ t=2 after t=3.9 pixels: <first 12 hex> != <first 12 hex>
+✗ not deterministic: differs at t=2 (frame 60), the first difference found; check stops there
+  ✗ t=2 after t=3.9, inspect: title.opacity
+  ✗ t=2 after t=3.9, pixels: <first 12 hex> != <first 12 hex>
+  Usually Math.random, Date.now or state carried between frames: use host.seed and derive everything from t. See docs/determinism.md.
 ```
 
 ## Export refuses a source that fails
@@ -61,17 +64,18 @@ shaderera: Not exported: the source is not deterministic (t=0 after t=0.9: pixel
 ```
 
 (A captured run on `apps/cli/src/cli/fixtures/stateful`, whose picture counts the frames rendered
-before it.) For a source that renders any t, the gate costs one render a second of film (about
-3 % at 30 fps), with the params, seed, size and camera of the export; `check` samples the whole
-film in two orders. The grid is the film's, not the export's: the whole film and the chunk of a
-plan that hold a window (`render --from/--to`) re-check every frame the window re-checks, so the
-two never disagree about a frame because one of them did not look at it. A window shorter than a second may hold no frame of
-the grid. An export spread over several hosts (`render --workers`, a chunk) sends the frames round
-the hosts, and splits the re-check evenly between them, run at once: a frame is rendered again on
-a host other than the one that first rendered it, and each host shuffles its own share. So the
-hosts must agree with each other, not only with themselves (with 2 hosts at an even fps, every
-frame of the grid was host 0's, so host 0 takes back half of them). Meanwhile the progress line
-says `re-checking 12/20`.
+before it.) A refused export leaves the previous one at the output, and the error says so, with the
+time it was written. For a source that renders any t, the gate costs one render a second of film
+(about 3 % at 30 fps), with the params, seed, size and camera of the export; `check` samples the
+whole film in two orders. The grid is the film's, not the export's: the whole film and the chunk of
+a plan that hold a window (`render --from/--to`) re-check every frame the window re-checks, so the
+two never disagree about a frame because one of them did not look at it. A window shorter than a
+second may hold no frame of the grid. An export spread over several hosts (`render --workers`, a
+chunk) sends the frames round the hosts, and splits the re-check evenly between them, run at once: a
+frame is rendered again on a host other than the one that first rendered it, and each host shuffles
+its own share. So the hosts must agree with each other, not only with themselves (with 2 hosts at an
+even fps, every frame of the grid was host 0's, so host 0 takes back half of them). Meanwhile the
+progress line says `re-checking 12/20`.
 
 A `sequential` source is different: it reaches an earlier frame by replaying from frame 0 (or
 from a checkpoint), so each frame re-checked out of order can cost a replay of the film, and one a

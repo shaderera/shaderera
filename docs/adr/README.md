@@ -57,5 +57,8 @@ One file per decision, in the order they were made.
   decodes on several threads and further ahead, over the same pipe (step 1); a ring in shared
   memory only if the pipe hop is still over a third of the wait (step 2, deferred, needs a native
   module); the same bytes; hardware decode allowed but not the default yet (amends 0007).
+- [0031](0031-footage-at-ten-bits.md): footage at 10 bits, as `yuv420p10` Y'CbCr planes a film
+  asks for per call, converted by core's `videoTexture` to exact half float; RGBA and 8-bit
+  planes unchanged (amends 0027).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.

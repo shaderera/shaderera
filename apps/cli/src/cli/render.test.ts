@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
@@ -17,7 +17,7 @@ import {
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
 
-test('render refuses a source that is not deterministic and leaves no file', {
+test('render refuses a source that is not deterministic, leaves no file, and names the previous one', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
   const project = memoryProject()
@@ -32,9 +32,22 @@ test('render refuses a source that is not deterministic and leaves no file', {
   // An explicit encoder: no GPU probe, which would write the real ~/.shaderera/encoders.json.
   await assert.rejects(
     exportVideo(project, child, { out, revision: 'test', encoder: 'x264' }),
-    /Not exported: the source is not deterministic \(t=[\d.]+ after t=[\d.]+: pixels/,
+    (e: Error) =>
+      /Not exported: the source is not deterministic \(t=[\d.]+ after t=[\d.]+: pixels[^)]*\)\.$/.test(
+        e.message,
+      ),
   )
   assert.equal(existsSync(out), false)
+  // An earlier export there stays, and the refusal says so, with its time.
+  writeFileSync(out, 'the previous film')
+  const when = statSync(out).mtime.toLocaleString()
+  await assert.rejects(
+    exportVideo(project, child, { out, revision: 'test', encoder: 'x264' }),
+    (e: Error) =>
+      e.message.endsWith(` ${out} still holds the previous export, from ${when}.`) &&
+      /not deterministic/.test(e.message),
+  )
+  assert.equal(readFileSync(out, 'utf8'), 'the previous film')
 })
 
 test('an encode that runs out of memory once succeeds with --retries 1, and fails without', {
@@ -229,7 +242,7 @@ test('a bad window is refused before ffmpeg runs, and keeps the GPU encoder', {
     const { lines } = await quietly(async () => {
       await assert.rejects(
         exportVideo(project, child, { ...o, from: 8, to: 2 }),
-        /The window 8–2 s is outside 0–10 s\./,
+        /--to must be after --from \(8–2 s\)\./,
       )
       await assert.rejects(
         exportVideo(project, child, { ...o, from: 'a' as unknown as number }),

@@ -239,6 +239,8 @@ test('a new folder named on the command line gets the project and a cd in the ne
   const { status, stdout, stderr } = run(cwd, 'My Film')
   assert.equal(status, 0, stderr)
   assert.match(stdout, /^Created My Film\. Next:\n\n {2}cd My Film\n/)
+  // The steps end with the studio, in one line that says what it is.
+  assert.match(stdout, /\n {2}npx shaderera studio +# a page on shaderera\.com[^\n]*\n\n/)
   assert.equal(
     JSON.parse(readFileSync(join(cwd, 'My Film', 'package.json'), 'utf8')).name,
     'my-film',

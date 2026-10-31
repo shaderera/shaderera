@@ -25,16 +25,25 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 | [`studio`, `telemetry`](#studio-telemetry) | the local bridge of the studio page on shaderera.com, and its telemetry switch |
 | [`mcp`](#mcp) | serve the CLI as MCP tools over stdio |
 
-`shaderera` alone, `shaderera help` or `shaderera --help` prints the usage; `shaderera help <command>`
-or `shaderera <command> --help` (or `-h`) prints that command's lines of it. A name that is no
-command exits 2 with `shaderera: Unknown command: <name>.` on stderr, and the nearest command when
-one is within two letters (`Did you mean still?`).
+`shaderera` alone prints the commands a person starts with (`check`, `still`, `render`, `studio`)
+and where the rest are. `shaderera help` or `shaderera --help` prints the whole usage; `shaderera help <command>`
+or `shaderera <command> --help` (or `-h`) prints that command's lines of it (`comments`: its own
+usage, every form). A name that is no command exits 2 with `shaderera: Unknown command: <name>.` on
+stderr, and the nearest command when one is within two letters (`Did you mean still?`). A flag the
+command does not take exits 2 the same way, with the nearest flag its help names: `Unknown flag
+--sheeet for still. Did you mean --sheet? (shaderera still --help)`; a negative time (`still -1`)
+says that times start at 0.
 
 ## Common flags
 
 - **`--root <dir>`**: where to start looking for `shaderera.json`. Default: the working
   directory. The CLI walks up to the nearest directory that has one, so it works from `src/`.
-- **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused.
+  None up to the root says how to start one (`npx create-shaderera@latest <dir>`). A
+  `shaderera.json` or `requirements.json` that starts with a BOM (PowerShell's `Set-Content
+  -Encoding utf8` writes one) is read as if it did not.
+- **`--variant <name>`**: open the project as one of its `variants`. An unknown name is refused,
+  naming the declared one it most likely meant: the one with the same numbers (`16:9`, `Did you
+  mean cover-16x9?`), else one within two letters.
   In the files named after it (`out/<project>-<variant>.mp4`, `out/stills/<variant>-<t>.png`,
   `out/review/<variant>/`), what a file name cannot hold becomes `_`: `16:9` is `16_9`.
   `main` names the manifest's own output, as in `deliver`. The source gets the name as
@@ -72,14 +81,20 @@ The commands that render the source (`check`, `inspect`, `still`, `render`, `rev
 
 - **`--param k=v`** (repeatable): a param over the defaults and the variant's; the value is JSON
   when it parses (`--param count=4096`, `--param look=ascii`). A name the manifest's `params`
-  schema does not declare is refused: `Unknown params: x. shaderera.json declares a, b.` `render
-  --job` refuses it: a job froze its params.
+  schema does not declare is refused: `Unknown params: x. shaderera.json declares a, b.` So is a
+  name it lists in `required` that has no value (`Missing params: title. …`), and a value whose
+  JSON type is not its property's `type` (`Param speed is a number, not "fast".`); no other
+  keyword is checked. `render --job` refuses it: a job froze its params.
 - **`<t>...`** or **`--time <s>`** (repeatable): times in seconds, inside the film: from 0 up to
   but not including the duration (the last frame is at duration − 1/fps). `inspect` takes one,
   `still` any number; the others take none and refuse them.
 
-The project's own console output goes to stderr, so stdout carries only the command's result. Set
-`SHADERERA_DEBUG=1` to print a full error with its stack.
+The project's own console output goes to stderr, so stdout carries only the command's result. An
+error in the film's code says where in its source: a throw as `render(3) threw: boom
+(src/composition.ts:26)` or `open() threw: …`, a syntax error with Vite's `─[ file:line:col ]`, a
+missing default export as `src/composition.ts has no default export: end it with export default
+open.`; its finding carries `file`, `line` and, for a render, `t`. Set `SHADERERA_DEBUG=1` to print
+a full error with its stack, mapped to the source.
 
 While `render`, `render --chunk` or `assemble` hands frames to ffmpeg, an ffmpeg that exits
 before the last frame (even with 0, as it does when it runs out of memory reading its input) fails
@@ -149,18 +164,27 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 
 | Flag | Default |
 |---|---|
-| `--times <n>` | 50 |
+| `--samples <n>` | 50 |
 | `--seed <n>` | 1 |
 | `--hdr10` | off. Checks the film's HDR10 render ([HDR10](delivery.md#hdr10)): its P010 bytes in two orders, every frame within the mastering display's peak, every layer's `light` one it can carry. Prints the most light it saw |
 | `--variant a,b`, `--variants all` | one: each variant in its own host, at once ([several variants](#common-flags)) |
+| `--no-types` | off: the types are checked first |
 
 ```
-$ shaderera check --times 5
+$ shaderera check --samples 5
+✓ types: no errors (TypeScript 6.0.3)
 ✓ deterministic: 5 timestamps, two orders, inspect + pixels (49.0 ms/frame)
   preview vs final: mean 0.000, max 0 over 3 t
 ```
 
-Exit 1 when any timestamp differs. What it does: [determinism.md](determinism.md#how-check-measures-it).
+First, once, the project's types: its own `typescript` on its own `tsconfig.json`, with no emit,
+as `tsc --noEmit` would (about 1 s on a new project). Each type error is printed with its file and
+line and is a `type` finding (`error`, with `file`, `line` and `column`); the frames are still
+checked. A project with no `typescript` or no `tsconfig.json` gets one `info` line saying its
+types were not checked.
+
+Exit 1 when the types have an error or any timestamp differs. What it does:
+[determinism.md](determinism.md#how-check-measures-it).
 
 A clip `io.video` reads whose keyframes are more than 2 s apart gets a note (finding
 `keyframes`, `info`): every seek into it decodes from the keyframe before, so `check`, `still`,
@@ -170,6 +194,15 @@ from the packets it read to seek; with several variants, each clip is noted once
 
 ```
 ! assets/footage/surf.mp4: keyframes up to 8.3 s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to 8.3 s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).
+```
+
+A clip of more than 8 bits (`clip.bits`) gets a warning (finding `footage-space`) when the film
+opened it without saying its curve (`io.video(path, { transfer, gamut })` with a `transfer`,
+[protocol](protocol.md#open-host-and-io)), and another (`footage-bits`) when the film read it
+only at 8 bits, so a grade bands. Neither fails the check.
+
+```
+! assets/footage/a7s.mp4: 10-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it, from the camera's settings or the file's tags: io.video(path, { transfer, gamut }).
 ```
 
 A shader that does not compile fails `check`, `still`, `render` and every other command that
@@ -186,13 +219,17 @@ WGSL error in shader "field" at 3:7 (src/field.wgsl:3): 'set' is a reserved keyw
 ## `still`
 
 Stills of any moment straight from the source, rendered by the same host as `check` and export
-(so the same errors fail them), for looking while you work.
+(so the same errors fail them), for looking while you work. With `--file`, of a rendered file
+instead: the frames as they were encoded.
 
 | Flag | Default |
 |---|---|
 | `<t>...`, `--time <s>` (repeatable) | the times, see [the common flags](#common-flags): `still 6` fails on a 6 s film |
+| `--file <video>` | none: render the source. A rendered file (`out/x.mp4`) instead: each t is the file's frame shown at t, read as `io.video` reads a clip, written as `<name>-<t>.png` beside it in `stills/` (`--out` as below), and the sheet `<name>-sheet.png`. Not with `--variant`, `--compare`, `--region`, `--object`, `--diff` or `--param`, which render the source |
 | `--every <s>` | also a frame every s seconds from 0 |
+| `--count <n>`, `--from <s>`, `--to <s>` | also n frames evenly from `--from` (0) up to before `--to` (the end): `--from 2 --to 8 --count 12` is every 0.5 s from 2 to 7.5 |
 | `--sheet` | also a contact sheet, `<variant>-sheet.png`. With several variants, one sheet of them side by side instead, `<a>-<b>-sheet.png`: a row per t, each variant's frame at the same height (at most 720 px), labelled with its name, t and size, and the safe area requirements.json declares for it drawn as a dashed line. Only the sheet is scaled and drawn on: each still is the same bytes as a still of that variant alone |
+| `--columns <n>` | 4: how many frames across the `--sheet` (not the side-by-side one of several variants) |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
 | `--out <dir>` | `out/stills/` |
 | `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png` |
@@ -243,7 +280,7 @@ assembled after; they are for several machines.
 The file is written as `<out>.<pid>.partial` (the render's process id, so two renders to one
 `<out>` never share it) and renamed to `<out>` only when it is complete: while a render runs,
 `<out>` is the previous film or nothing, never half a film. A render that fails or is
-stopped (Ctrl-C) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
+stopped (Ctrl-C, or `render --stop`) leaves no `.partial` and `<out>` as it was, its stems included. When the film is
 finished but `<out>` cannot be replaced (on Windows, a player holding it open), the new film is
 kept as `<out>.<pid>.partial` and the error says so. A render killed outright (the process ended,
 the power cut) cannot clean up: the next render of the same `<out>` removes the `.partial` files
@@ -253,6 +290,14 @@ its frame (`Frame 214 (t 7.133 s) failed: …`). With several hosts, a GPU devic
 removed, out of memory) or a host process that crashed in native code, at a frame or while the
 hosts open, names the `--workers` used and says to render with fewer: each host holds its own GPU
 memory. This holds for `render`, `render --chunk` and `deliver`.
+
+**`render --stop`**, run in the project (or with `--root`), stops every video render and
+`render --chunk` running there, as Ctrl-C does: each closes its hosts, leaves no `.partial`, and
+fails with `Stopped by render --stop`. It waits for them to end and exits 0, or 1 when one is
+still ending after a minute; with none running it exits 0 and says so. A render that runs keeps
+`.shaderera/render/<pid>.json` (its pid, a port on 127.0.0.1 and a stop token, readable by the
+user only), as `studio --stop` reaches the studio. A png job's handoff and `--reuse` are not
+reached; stop those with Ctrl-C.
 
 Nothing is retried unless asked. With `--retries <n>`, `render` (and `render --chunk`) retries a
 frame whose host failed in a way a fresh host may not repeat: the host process crashed or exited,
@@ -284,8 +329,8 @@ of footage it takes a moment, not the time to read all of it.
 | `--from <s>`, `--to <s>` | 0, `duration`. A window outside the film, or `--to` before `--from`, is refused before anything renders |
 | `--out <file>` | `<root>/out/<root folder name>.mp4` (`.mov` for ProRes); a window that is not the whole film adds its seconds, `out/<name>-4.0-6.5.mp4` for `--from 4 --to 6.5`, so it never replaces the full film; a given path is relative to the working directory, and inside the project it must be under `out/` (anything else in the project is saved into each revision) |
 | `--format <f>` | `mp4` (H.264); `prores-hq` or `prores-4444` ([ProRes](delivery.md#prores)). A png handoff is a job's: `shaderera job --png` |
-| `--master` | off: review quality (crf 16, preset veryfast). On: crf 10, preset veryfast, recorded in a job; a master job made by 0.2.1 or earlier renders crf 12, preset slow ([quality](delivery.md#quality-and-encoders)) |
-| `--crf <n>` | the quality's |
+| `--master` | off: review quality (crf 16, preset veryfast). On: crf 10, preset veryfast ([quality](delivery.md#quality-and-encoders)) |
+| `--crf <n>` | the quality's. A whole number 0–51, lower is better; anything else is refused before anything renders |
 | `--bitrate <rate>` \| `--maxrate <rate>` | none: crf. A constant rate such as `15M`, or the crf capped at a rate ([rate control](delivery.md#rate-control)) |
 | `--no-edit-list` | off. An mp4 without edit lists ([edit lists](delivery.md#edit-lists)) |
 | `--stems` | off. One WAV per clip `group` beside the file ([stems](delivery.md#stems-and-captions)) |
@@ -294,13 +339,14 @@ of footage it takes a moment, not the time to read all of it.
 | `--encoder <name>` | `x264`, `nvenc`, `qsv`, `amf` or `videotoolbox`. A review: the first GPU encoder of those that takes the frame size with this ffmpeg on this machine (with `--bitrate` or `--maxrate`, `nvenc` only), else `x264`; a master: `x264` ([encoders](delivery.md#quality-and-encoders)). `--crf n` gives a GPU encoder cq n + 1 (NVENC: constant QP n + 1). With `--hdr10`: `x265`, `nvenc` or `videotoolbox` (HEVC), `x265` for a master |
 | `--draft [height]` | off. 360 px high (or the height given, never above the film's) at the film's full fps, to `out/<name>-draft.mp4` ([below](#a-draft)); refused with a job |
 | `--hdr10` | off. An HDR10 mp4 (HEVC Main 10), or with `--format prores-hq\|prores-4444` an HDR10 ProRes mov, of a film whose shaderera.json has `hdr10`, through one lossless chunk ([HDR10](delivery.md#hdr10)); refused without `hdr10`, on ffmpeg before 9.0, on a host without a GPUDevice, and with a job (it froze its range: `job --hdr10`) |
-| `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome. Each open `io.video` clip holds `2n + 1` frames kept plus `min(n + 1, 64 MiB / frame)` (at least 1) decoded ahead, a frame being width × height × 4 bytes (1.5 for `yuv420p`, a decoder of its own): 9 kept and 5 ahead, about 116 MB, for 1080p on 4 hosts; 9 and 2, about 365 MB, for 4K on 4 hosts |
+| `--workers <n>` | up to 4, two cores left free, at least 30 frames each; always 1 for a `sequential` source. Each is its own process, or its own Chrome. Each open `io.video` clip holds `2n + 1` frames kept plus `min(n + 1, 64 MiB / frame)` (at least 1) decoded ahead, a frame being width × height × 4 bytes (1.5 for `yuv420p`, 3 for `yuv420p10`, each a decoder of its own): 9 kept and 5 ahead, about 116 MB, for 1080p on 4 hosts; 9 and 2, about 365 MB, for 4K on 4 hosts |
 | `--progress` | off: a terminal gets the progress line at every frame, a pipe (a background run, `--json`) one line every 10 s; on, a pipe gets it at every frame too. Each says the frame, the fps so far and the time left at that pace: `frame 120/600  23.4 fps  0:20 left`; after the last frame, the determinism re-check's frames: `re-checking 12/20` |
 | `--job <name\|file>` | none: render the working tree. With a job, its frozen revision, variant, params, seed, window and delivery; `--format`, `--bitrate` and the other delivery flags are then refused |
 | `--chunk <i>`, `--plan <dir>` | with `--job`: one chunk of a [plan](#plan-render---chunk-assemble) |
 | `--reuse <plan>`, `--changed <from>-<to>[,…]`, `--fix` | with `--job`: a plan that renders only the changed spans and takes every other frame from an earlier plan of the film ([below](#plan-render---chunk-assemble)) |
 | `--software-gpu` | off: a host on a software GPU is refused ([below](#a-software-gpu)). On: it renders, and says so on stderr |
 | `--retries <n>` | 0: a transient host or encoder failure fails the render. n: retried up to n times with backoff ([above](#render)) |
+| `--stop` | renders nothing: stops the renders running in the project ([above](#render)) |
 
 Progress goes to stderr, the result to stdout. Every render prints the file as ffprobe reads it
 and, with audio, its loudness measured on the file:
@@ -427,7 +473,9 @@ says it is the fallback adapter (`isFallbackAdapter`). `doctor` warns on it as i
 
 ## Versions and jobs
 
-A project's saved revisions and render jobs live in `versions/` (keep it with the project):
+A project's saved revisions and render jobs live in `versions/` (keep it with the project). A
+revision is named by its 16-character id or by a prefix of at least 4 characters that only it
+starts with (`restore 8d61`); a prefix several start with is refused, naming them:
 
 | Command | What it does |
 |---|---|
@@ -666,7 +714,8 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 - **Requirements:** `requirements.json` in the root, or `--requirements file` (below).
 - **Checks:** each prints `✓` (pass), `✗` (fail), `?` (unknown: could not be measured, or
   nothing to check against) or `·` (info: measured, with nothing in requirements.json to judge it
-  against), its title and what it measured. A check that cannot be measured is never a pass.
+  against), its title and what it measured. A check that cannot be measured is never a pass. With
+  `--json`, a `?` check is an `info` finding, as a `·` one is: only a `✗` is not (`error`).
 - **Only what is declared is judged.** Errors fail always: determinism, readback, missing glyphs,
   failed assets. Craft rules fail only when requirements.json sets them: `endHold`,
   `readingTime`, `textOverlap`, `noBlankFrames`, `safeArea`, `captions` (and exact `copy`, which
@@ -753,8 +802,10 @@ WebGPU gets, asked in a throwaway headless Chrome), and more than one `webgpu`
 installed, which crashes a host, and a package plugin the project requires and lacks (`requires`,
 [above](#required-plugins)). Each lack says how to fix it. It also says whether this machine is
 signed in to the films API (`sign-in`: as whom, which API, until when; `SHADERERA_API` names
-another) and whether the project can be shared (`share`: the licence it declares). Neither is
-needed, so neither fails `doctor`.
+another), whether the default browser shows the [studio](studio.md) (`studio`: Chrome and Edge
+reach 127.0.0.1; Safari and Brave block it, so the studio works through the relay with no
+preview; Firefox is untested; the fix is Chrome) and whether the project can be shared (`share`:
+the licence it declares). None of these is needed, so none fails `doctor`.
 
 Inside a project it also says what takes its disk space, in binary units (1 MiB is 2²⁰ bytes;
 `prune` prints decimal MB), one line per kind that has any: the working tree (the files a save
@@ -805,10 +856,11 @@ to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It f
   `{kind: "command", command, args, exitCode, ok, summary}`, `by: "cli"`. `summary` is its findings
   counted by severity and the first three messages: `{error, warning, info, messages}`.
   `still --sheet` keeps its contact sheet as the entry's `image`. The ones that only read add
-  none: `versions`, `diff`, `doctor`, `help`, `activity`, and `comments` `list`, `show` and
-  `--wait`; nor do `mcp`, `studio` (they record their own) and `--help`. The `comments` that
-  write (`add`, `reply`, `resolve`, `reopen`) add one only when they fail: done, the comment is the
-  record. Nothing is written outside a project.
+  none: `versions`, `diff`, `doctor`, `help` and `activity`; nor do `mcp`, `studio` (they record
+  their own) and `--help`. The `comments` that write (`add`, `reply`, `resolve`, `reopen`) add one
+  only when they fail: done, the comment is the record. The `comments` reads (`list`, `show`, and
+  `--wait` when it returns) add one when they succeed, as MCP's `comments` tool does, so the studio
+  can show that the agent read them. Nothing is written outside a project.
 - **Every MCP tool call** adds one (`comment_add`, `comment_reply` and `comment_resolve` only
   when they fail): `{kind: "tool", tool, ok, ms, summary}`, `by: "agent"`
   ([mcp.md](mcp.md#tools)).
@@ -821,7 +873,7 @@ to show ([decision 0025](adr/0025-comments-and-activity-in-the-studio.md)). It f
 
 ```
 $ shaderera activity
-2026-10-25 10:42:07  cli    check --times 4: exit 0
+2026-10-25 10:42:07  cli    check --samples 4: exit 0
 2026-10-25 10:42:31  agent  render_frame: ok in 48 ms  .shaderera/activity/mh6x2k8q0007-3fa1c2d9.png
 2026-10-25 10:43:02  agent  Making the logo bigger (comment c7)
 ```
@@ -1114,9 +1166,18 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
 }
 ```
 
-- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `shader`, `gpu`,
-  `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and
-  `info` never do), `message`, and when known `t`, `file` and `line` (a shader), `bbox` (frame
+- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`,
+  `footage-space`, `footage-bits`, `shader`, `build`, `type`, `gpu`, `usage`, `environment`,
+  `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and `info` never do),
+  `message`, and when known `t`, `file` and `line` (a shader, a build error, a type error, a
+  throw in the film's code), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
-- `result`: the command's own JSON (`inspect`, `still`, `review`, `versions`, `doctor`,
-  `search`, `info`, `share`, `fork`); `log`: the lines any other command printed.
+- `result`: the command's own JSON (`inspect`, `check`, `still`, `render`, `review`, `save`,
+  `job`, `diff`, `undo`, `restore`, `versions`, `doctor`, `search`, `info`, `share`, `fork`); `log`:
+  the lines any other command printed. `render`, `save`, `job`, `diff`, `check`, `undo` and
+  `restore` give the object their [MCP tool](mcp.md) returns: `render` its `out`, `frames`,
+  `seconds`, `encoder`, `probe` and the rest, with its `revision` and `host` (a chunk, a png job and
+  `--reuse` still print lines, in `log`); `save`, `undo` and `restore` the revision (`id`,
+  `label`, `files` as a count); `job` the job; `diff` `added`, `removed`, `changed` and `patch`;
+  `check` its report (`failures`, `times`, `previewVsFinal`…). `inspect --path a.b` gives only the
+  value there.

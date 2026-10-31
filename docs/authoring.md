@@ -1,7 +1,7 @@
 # Authoring a Shaderera film
 
-For the person and the agent making or revising a film in this project (Shaderera 0.2.1). The
-project is ordinary code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
+For the person and the agent making or revising a film in this project. The project is ordinary
+code: `render(t)` in `src/`, metadata in `shaderera.json`, and this project's
 ids, params and requirements in its `README.md`. There is no scene format to fill in: the film is
 the source. The reference is in `node_modules/shaderera/docs/` (below, `docs/`: the protocol,
 determinism, the CLI, MCP, delivery, and `participants/` per renderer); the task checklists are in
@@ -72,6 +72,12 @@ What is on the shelf:
   - `render-three-textures`: images from `io.image` as three.js textures and atlases;
   - `image-to-png`: WebP, AVIF, GIF and video frames converted to PNG once (ffmpeg);
   - `render-canvas-texture`: a Canvas2D canvas or RGBA bytes as a GPU texture for a WGSL pass;
+  - `color-cdl-files`: ASC CDL files (.cc, .ccc, .cdl) read into the numbers `color-primary` takes, and written back;
+  - `color-curves`: RGB curves and hue vs saturation and hue vs hue from points, a monotone cubic, WGSL and CPU;
+  - `color-lut`: a person's own .cube LUT read, applied (WGSL and CPU) and written back;
+  - `color-primary`: the ASC CDL, exposure, contrast and white balance (Bradford, from Kelvin), WGSL and CPU;
+  - `color-qualifier`: a hue, saturation and luma key to a soft matte, so a grade touches one colour only, WGSL and CPU;
+  - `analysis-scopes`: a frame as scope numbers (levels, waveform, parade, balance, vectorscope) to grade from;
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;
@@ -124,14 +130,20 @@ The CLI and MCP can only show and change what the source exposes.
 ## Keep it deterministic
 
 `render(t)` is a function of `t`, the params and `host.seed`: no clocks, no `Math.random()` in
-`render`, every asset awaited in `open`. `npx shaderera check` renders sampled frames in two
-orders and compares them; export repeats the check on one frame a second of film (8 frames at
-most for a `sequential` source). The causes and fixes are in `docs/determinism.md`; each
-renderer's traps (three.js's frame clock, readback rows padded to 256 bytes, multisampling with
-blending on Dawn) are in its `docs/participants/` page. Canvas2D pixels differ slightly between
-the browser and Node: export a film from one host.
+`render` (a hash of the frame instead), every asset awaited in `open`. `npx shaderera check`
+renders sampled frames in two orders and compares them; export repeats the check on one frame a
+second of film (8 frames at most for a `sequential` source). `npx shaderera still --diff <t>`
+renders one t again after a far-away frame, for a frame that depends on history. The causes and
+fixes are in `docs/determinism.md`; each renderer's traps (three.js's frame clock, readback rows
+padded to 256 bytes, multisampling with blending on Dawn) are in its `docs/participants/` page.
+Canvas2D pixels differ slightly between the browser and Node: export a film from one host.
 A canvas kept across frames and drawn on at `imageSmoothingQuality = 'high'` keeps a trace of
 the previous frame: clear it first.
+
+- **A GPU scatter** (many writes to one pixel or cell) with float blending depends on the order
+  the GPU runs it: accumulate with integer atomics.
+- **WGSL traps:** `target` is a reserved word. Keep TypeScript and WGSL struct sizes in step and
+  write the stride down. Guard `normalize` of a zero vector and `pow` of a negative base.
 
 ## Expensive films
 
@@ -165,13 +177,12 @@ command that prints nothing looks frozen.
   readback take most of each frame, return fewer layers, return GPU textures rather than canvases
   (a canvas is uploaded every frame), and use more hosts (`--workers`, below).
 - **Check with fewer frames.** `check` renders every timestamp twice; at 5 s a frame, the default
-  50 take over eight minutes. `npx shaderera check --times 4` still compares two orders.
+  50 take over eight minutes. `npx shaderera check --samples 4` still compares two orders.
 - **Render in the background with progress.** `npx shaderera render 2> render.log` writes
   `frame 120/360  2.1 fps  1:53 left` to stderr every 10 s (`--progress`: every frame); read the
   end of the log to say how far it is, instead of guessing.
-- **More hosts on a big machine.** `render` opens at most 4 hosts. When each host process uses
-  well under a core and the machine has idle cores, `--workers` up to its cores less two renders
-  faster; chunks (`plan`, `render --chunk`) are for several machines, not for one.
+- **More hosts on a big machine.** `render` opens at most 4 hosts; when to give more
+  (`--workers`) is in `docs/cli.md`, `render`.
 - **Bake what the host cannot run.** When a frame needs a program project code may not start (a
   native denoiser that keeps history, a simulation in another tool), or minutes of work that
   another program does better, make those frames a bake: declare it in `shaderera.json` `bakes`
@@ -215,7 +226,16 @@ for the clip's Y'CbCr planes (1.5 bytes a pixel, not RGBA's 4: footage-heavy fil
 and converts them on the GPU, the same bytes in every host. Its `frame(i)` gives an `rgba8unorm`
 texture to sample in place of `footage.write`; it is valid until the next `frame()`, so a
 dissolve between two frames uses two helpers. Its pixels are close to `clip.frame(i)`'s RGBA,
-not equal: switching a film changes its pixels once.
+not equal: switching a film changes its pixels once. Footage of more than 8 bits (`clip.bits`:
+phone HEVC, camera log) bands when a grade lifts or stretches it at 8: `videoTexture(host.gpu,
+clip, { bits: 10 })` asks for its 10-bit planes (`yuv420p10`, 3 bytes a pixel) and gives an
+`rgba16float` texture of R'G'B' code values, superwhites kept past 1 and no transfer curve, for
+the grade to read. Say what the file is where the film opens it, as camera files often do not
+tag a log curve: `io.video('assets/a7s.mp4', { transfer: 'slog3', gamut: 'sgamut3cine' })`.
+The clip carries it as `clip.space` for the grade (`color-spaces`); the engine converts nothing.
+Take it from the camera's settings or the file's tags (phone HDR is usually `hlg` or `pq` with
+`rec2020`). `check` warns of a file of more than 8 bits with no `transfer` declared, or read
+only at 8 bits.
 
 `docs/participants/webgpu.md`, "Footage and stills", has the whole film: the WGSL pass, `picture`
 (a texture with mip levels), `fit` (cover and contain as a uv rectangle) and `pass`. Never blur by

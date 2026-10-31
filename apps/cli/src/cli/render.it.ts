@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import {
   copyFileSync,
   cpSync,
@@ -12,6 +12,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { cli as run } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
@@ -60,9 +61,60 @@ test('a piped render reports every frame only when asked (a parent process asks)
   // A window that is not one is refused before ffmpeg runs.
   const backwards = render('--from', '0.8', '--to', '0.2')
   assert.equal(backwards.status, 2)
-  assert.match(backwards.stderr, /The window 0\.8–0\.2 s is outside 0–1 s\./)
+  assert.match(backwards.stderr, /--to must be after --from \(0\.8–0\.2 s\)\./)
   assert.doesNotMatch(backwards.stderr, /ffmpeg|failed where it worked/)
   assert.match(render('--from', 'a').stderr, /Not a time in seconds: a\./)
+})
+
+test('render --stop ends the render running in the project cleanly, and says when none runs (#531)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const bin = fileURLToPath(new URL('../../bin/shaderera.js', import.meta.url))
+  const root = tempDir('render-stop')
+  mkdirSync(join(root, 'src'))
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/composition.ts', fps: 30, duration: 2, width: 64, height: 36 }),
+  )
+  // 100 ms a frame: a 2 s film takes 6 s, long enough to be stopped.
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io }) => {
+  const canvas = io.canvas(64, 36)
+  return {
+    render: async () => {
+      await new Promise((done) => setTimeout(done, 100))
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const stop = () =>
+    spawnSync(process.execPath, [bin, 'render', '--stop', '--root', root], { encoding: 'utf8' })
+  const none = stop()
+  assert.equal(none.status, 0, none.stderr)
+  assert.match(none.stdout, /No render is running/)
+
+  const render = spawn(process.execPath, [bin, 'render', '--root', root, '--progress'])
+  let err = ''
+  render.stderr.on('data', (d: Buffer) => {
+    err += d.toString()
+  })
+  const exited = new Promise<number>((done) => render.on('close', (c) => done(c ?? -1)))
+  // Stopped once frames are coming.
+  while (!/frame \d+\/60/.test(err)) await sleep(100)
+  const stopped = stop()
+  assert.equal(stopped.status, 0, stopped.stderr)
+  assert.match(stopped.stdout, new RegExp(`Stopped the render in .* \\(pid ${render.pid}\\)`))
+  assert.notEqual(await exited, 0)
+  assert.match(err, /Stopped by render --stop: the output was left as it was/)
+  // Nothing half-written, and nothing left to reach.
+  assert.deepEqual(
+    readdirSync(join(root, 'out')).filter((f) => /\.partial|\.mp4$/.test(f)),
+    [],
+  )
+  assert.deepEqual(readdirSync(join(root, '.shaderera', 'render')), [])
 })
 
 test("a render's frame time adds up: the hosts' drawing, io.video, compositor and readback and the encoder make the frame (#497)", {
@@ -216,6 +268,13 @@ test('render saves the revision it renders and tags the file; render --job saves
   const versions = async () => JSON.parse((await cli('versions', '--json')).stdout).result
   assert.equal((await versions()).head, id)
   assert.equal(probe(out).revision, id)
+  // --json: the file, the frames and the revision as fields, not lines.
+  const json = JSON.parse((await cli('render', '--out', out, '--json')).stdout)
+  assert.deepEqual(
+    [json.result.out, json.result.frames, json.result.revision, json.log],
+    [out, 10, id, undefined],
+  )
+  assert.equal(json.result.host.host, 'node')
 
   // Unchanged files: the same revision, and save says so instead of echoing its label.
   assert.equal(
@@ -223,8 +282,12 @@ test('render saves the revision it renders and tags the file; render --job saves
     `same files as revision ${id}; label added`,
   )
 
-  const job = await cli('job', '--name', 'final', '--to', '0.5')
+  const job = await cli('job', '--name', 'final', '--to', '0.5', '--json')
   assert.equal(job.status, 0, job.stderr)
+  assert.deepEqual(
+    [JSON.parse(job.stdout).result.name, JSON.parse(job.stdout).result.revision],
+    ['final', id],
+  )
   writeFileSync(join(root, 'notes.txt'), 'a change after the job')
   const saves = (await versions()).log.length
   const frozen = await cli('render', '--job', 'final')

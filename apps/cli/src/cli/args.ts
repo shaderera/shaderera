@@ -8,6 +8,7 @@ import { hostOpener, openHosts } from '../node/open-host.ts'
 import { findProject, type Project } from '../node/project.ts'
 import { checkBakes } from '../project/bakes.ts'
 import { effectiveParams } from '../project/jobs.ts'
+import { variantList } from './variants.ts'
 
 /**
  * The common flags: `--root`, `--variant`, `--trusted`, `--timeout <s>` and `--host node|browser`
@@ -123,6 +124,8 @@ export const open = async (
 ): Promise<{ project: Project; child: Child; more: () => Promise<Child>; extra: Child[] }> => {
   const found = await findProject(typeof flags.root === 'string' ? flags.root : process.cwd())
   const name = typeof flags.variant === 'string' ? flags.variant : undefined
+  // An unknown name is refused naming the nearest declared one.
+  if (name !== undefined) variantList([name], found.manifest)
   const { manifest, params: variantParams } = withVariant(found.manifest, name)
   const draft = typeof flags.draft === 'number' ? draftSize(manifest, flags.draft) : undefined
   const size = draft ?? resized

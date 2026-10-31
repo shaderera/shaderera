@@ -57,21 +57,28 @@ When the page closes, the CLI says so only if no page comes back within 10 secon
 a reload comes back sooner (a new `page-hello`, or a request to the bridge, directly or through
 the relay), and the CLI says "the studio page is back" instead. A request in the 2 s before the
 relay says the page left counts too: a reloaded page reaches 127.0.0.1 before the relay's word
-does. A page said closed that comes back later (a reload that waited for Connect) is back as
-well, once. Before pairing, a page that comes
-back is simply the page that pairs.
+does. Before pairing, a page that comes back is simply the page that pairs.
 
-**For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
+Once the paired page has closed (it did not come back within 10 seconds), a closed tab cannot
+rejoin its session: the relay lets a page back only with the token its tab kept, which went with
+the tab. So the CLI starts a standby session on the same bridge and project, with a new id and
+nonce, and prints its address. It does not open it: the person closed that tab. The old session
+stays, for a tab that comes back with its token (one the browser discarded, a laptop that slept).
+The first page back wins: a page that pairs on the new address ends the old session, and the old
+page back closes the standby. There is one standby at a time; one whose id expires is replaced by
+a new one.
+
+**For agents.** With MCP, the `studio` tool starts it and returns the `url` event below, and `studio {stop: true}` stops it ([mcp.md](mcp.md#tools)). Without MCP, or to read its events, run `shaderera studio --json` in the background, give the person the
 `url` event's address (or let the command open it), and read the events. stdout is one JSON object
 a line, `{event, ...}`:
 
 | Event | Fields | When |
 |---|---|---|
 | `notice` | `text` | the first `studio` on this machine: the telemetry notice |
-| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api`; `expired`, `text` on a new id | the bridge is up; `opened` is false with `--no-open`. Again, with a new id, when no page came for the last one in 10 minutes: `expired` is that id |
+| `url` | `url`, `id`, `opened`, `project`, `bridge`, `site`, `api`; `expired` or `closed`, and `text`, on a new id | the bridge is up; `opened` is false with `--no-open`. Again, with a new id (not opened): when no page came for the last one in 10 minutes (`expired` is that id), or after `page-closed` once paired (`closed` is that id, whose page may still come back) |
 | `paired` | | the page the CLI opened paired |
-| `page-closed` | | the page closed and did not come back within 10 s |
-| `resumed` | | once paired, the page came back: within 10 s (a reload), or later, after `page-closed` (a reload that waited for Connect) |
+| `page-closed` | | the page closed and did not come back within 10 s; once paired, a `url` event with a standby id follows |
+| `resumed` | | once paired, the page came back: within 10 s (a reload), or later, after `page-closed` (a discarded tab, a laptop that slept), which closes the standby |
 | `mismatch` | `update` (`page`, `cli`), `text` | the page speaks another protocol: which side to update (below) |
 | `relay` | `state` (`dropped`, `back`, `closed`), `code` with `closed` | the relay dropped the CLI, let it back, or closed for good once paired (the bridge still serves) |
 | `changed`, `job`, `log`, `share`, `comment`, `agent` | as on `/events` (below) | the bridge's events. `changed` can come before `paired`: the bridge watches the files from its start. A running job's progress comes at most every 10 % and 2 s, and every state change comes. `activity` is not sent: it is the agent's own record |
@@ -240,7 +247,7 @@ the bridge closes that connection after it.
 ```json
 {
   "version": "…",
-  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
+  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "safeAreas": { … }, "schema": { … } },
   "telemetry": true,
   "revision": "…",
   "head": "…",
@@ -257,6 +264,9 @@ the bridge closes that connection after it.
 - `sizes` is each variant's output as a host opens it, the film's own values filled in: name →
   `{ width, height, duration, fps }` (`{}` when there are none), for a page that lays out one
   frame a variant.
+- `safeAreas` is each output's safe area from requirements.json, the one `still --sheet` draws:
+  `main` (the film itself) or a variant's name → `{ top, right, bottom, left }` as fractions. An
+  output with none is left out, so it is `{}` when requirements.json sets none or can't be read.
 - `schema` is shaderera.json's `params` schema, or `null`.
 - `revision` is the working tree's id now: the 16-hex id `shaderera save` would give it.
 - `head` is the revision last saved or restored, or `null`.
@@ -341,7 +351,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
   `progress` runs from 0 to 1. A frame that never settles (no sign of work for a minute) fails its job
   (`--timeout`, [cli.md](cli.md#common-flags)), its error naming t, and the next job runs.
 
-### `POST /render {variant? | variants?, params?, format, t?, revision?}` → `{job}` or `{jobs}`
+### `POST /render {variant? | variants?, params?, format, t?, revision?, from?, to?, draft?}` → `{job}` or `{jobs}`
 
 Renders on your machine, with the CLI's own hosts and ffmpeg, one job at a time in the order
 asked. Every field is checked first: a bad one is `400`, and nothing is queued or saved.
@@ -362,11 +372,19 @@ asked. Every field is checked first: a bad one is `400`, and nothing is queued o
 - **`revision`** renders a saved revision instead of the tree, from its frozen copy, on one host.
   Its own variants, params and length apply. An id that is not 16 hex digits is `400`; one the
   project does not keep is `404`.
+- **`from`** and **`to`** (seconds) render a window of a video, as `render --from --to` does; a
+  window outside the film (each variant asked), `to` not after `from`, or one that holds no frame is
+  `400`.
+- **`draft`** is `true` (360 px high) or a height in pixels, as `render --draft` takes it: the
+  film at that height and full fps, never above its own size; a source that draws at a size of its
+  own fails the job, as the draft says. With `revision` too, so the page can loop a draft of a take.
+- `from`, `to` and `draft` are for `mp4` and `mov`: with `png` they are `400`.
 - **The project is saved as a revision first** (without `revision`), and a video is tagged with
   its revision, as `render` does.
 - **Its end is an activity entry** (`render`), done or failed.
 - **The file stays in the project**, as
-  `out/studio/<project>[-<variant>][-<revision>]-<job>.<mp4|mov|png>`.
+  `out/studio/<project>[-<variant>][-<revision>][-<from>-<to>][-draft]-<job>.<mp4|mov|png>`
+  (`-0.5-1.0` with one decimal, `end` for a window to the end).
   In the variant's name, anything but letters and digits (in any script), `_`, `.` and `-`
   becomes `_` (`16:9` is `16_9`, `tête` stays `tête`).
 - **Only the newest export is kept** for each variant and format: when a job is done, the older
