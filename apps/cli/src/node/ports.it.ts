@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { yuv420pToRgba } from '@shaderera/core/gpu'
+import { yuv420p10ToRgba, yuv420pToRgba } from '@shaderera/core/gpu'
 import { encode as encodePng } from 'fast-png'
 import jpeg from 'jpeg-js'
 import { tempDir } from '../fixtures/temp.ts'
@@ -58,6 +58,12 @@ spawnSync('ffmpeg', [
   'yuv420p',
   join(root, 'assets', 'clip.mp4'),
 ])
+// A 10-bit HEVC, BT.709 limited (ADR 0031).
+spawnSync('ffmpeg', [
+  ...['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=32x16:r=10:d=1'],
+  ...['-c:v', 'libx265', '-x265-params', 'log-level=error', '-pix_fmt', 'yuv420p10le'],
+  ...['-colorspace', 'bt709', '-color_range', 'tv', join(root, 'assets', 'clip10.mp4')],
+])
 // ADR 0027's fixtures for videoTexture: every matrix, range and siting, odd sizes, the code
 // extremes and hard edges, as planes the film converts on the GPU.
 const fixtures = [
@@ -86,6 +92,14 @@ const fixtures = [
   ),
 )
 writeFileSync(join(root, 'assets', 'fixtures.json'), JSON.stringify(fixtures))
+// And at 10 bits (ADR 0031): the 10-bit code extremes.
+const fixtures10 = fixtures.map((x) => ({
+  ...x,
+  planes: x.planes.map((_, i) =>
+    i % 3 ? ([0, 64, 512, 940, 960, 1023][(i * 7) % 6] as number) : (i * 37 + x.h) & 1023,
+  ),
+}))
+writeFileSync(join(root, 'assets', 'fixtures10.json'), JSON.stringify(fixtures10))
 writeFileSync(
   join(root, 'shaderera.json'),
   JSON.stringify({ entry: './src/c.ts', fps: 10, duration: 1, width: 8, height: 8 }),
@@ -106,11 +120,22 @@ export default async ({ io, gpu }) => {
   const texture = videoTexture(gpu, clip)
   const converted = await readTexture(gpu, await texture.frame(3))
   texture.destroy()
+  const deep = await io.video('assets/clip10.mp4')
+  const ten = await deep.frame(3, { format: 'yuv420p10' })
+  const texture10 = videoTexture(gpu, deep, { bits: 10 })
+  const converted10 = await readTexture(gpu, await texture10.frame(3), 8)
+  texture10.destroy()
   const fixtures = JSON.parse(new TextDecoder().decode(await io.read('assets/fixtures.json')))
   const references = []
   for (const { w, h, colour, planes } of fixtures) {
     const v = videoTexture(gpu, { width: w, height: h, colour, frame: async () => new Uint8Array(planes) })
     references.push(await hex(await readTexture(gpu, await v.frame(0))))
+    v.destroy()
+  }
+  const references10 = []
+  for (const { w, h, colour, planes } of JSON.parse(new TextDecoder().decode(await io.read('assets/fixtures10.json')))) {
+    const v = videoTexture(gpu, { width: w, height: h, colour, frame: async () => new Uint16Array(planes) }, { bits: 10 })
+    references10.push(await hex(await readTexture(gpu, await v.frame(0), 8)))
     v.destroy()
   }
   let made = 0
@@ -126,6 +151,9 @@ export default async ({ io, gpu }) => {
       yuv: await Promise.all(yuv.map(hex)),
       converted: await hex(converted),
       references,
+      ten: { bits: deep.bits, colour: deep.colour, samples: ten instanceof Uint16Array, hash: await hex(new Uint8Array(ten.buffer, ten.byteOffset, ten.byteLength)) },
+      converted10: await hex(converted10),
+      references10,
       derived: Array.from(derived),
       made,
     }),
@@ -147,6 +175,9 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
       yuv: string[]
       converted: string
       references: string[]
+      ten: { bits: number; colour: unknown; samples: boolean; hash: string }
+      converted10: string
+      references10: string[]
       derived: number[]
     }
     assert.equal(j.png.bits, 16)
@@ -194,6 +225,30 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
       j.references,
       fixtures.map((x) => sha(yuv420pToRgba(new Uint8Array(x.planes), x.w, x.h, x.colour))),
       'videoTexture is the reference, byte for byte',
+    )
+    // yuv420p10: a 10-bit file's own samples, as a Uint16Array; videoTexture at 10 bits the
+    // reference's half floats.
+    const samples10 = spawnSync(
+      'ffmpeg',
+      [
+        ...['-v', 'error', '-i', join(root, 'assets', 'clip10.mp4')],
+        ...['-vf', 'select=eq(n\\,3)', '-fps_mode', 'passthrough', '-f', 'rawvideo', '-'],
+      ],
+      { maxBuffer: 1 << 24 },
+    ).stdout
+    const hd = { matrix: 'bt709', range: 'limited', chroma: 'left' } as const
+    assert.deepEqual(j.ten, { bits: 10, colour: hd, samples: true, hash: sha(samples10) })
+    const u16 = (b: Uint8Array) => new Uint16Array(b.buffer, b.byteOffset, b.length / 2)
+    assert.equal(
+      j.converted10,
+      sha(new Uint8Array(yuv420p10ToRgba(u16(samples10), 32, 16, hd).buffer)),
+    )
+    assert.deepEqual(
+      j.references10,
+      fixtures10.map((x) =>
+        sha(new Uint8Array(yuv420p10ToRgba(new Uint16Array(x.planes), x.w, x.h, x.colour).buffer)),
+      ),
+      'videoTexture at 10 bits is the reference, byte for byte',
     )
     assert.deepEqual(j.derived, [7, 8, 9])
   } finally {

@@ -226,7 +226,11 @@ for the clip's Y'CbCr planes (1.5 bytes a pixel, not RGBA's 4: footage-heavy fil
 and converts them on the GPU, the same bytes in every host. Its `frame(i)` gives an `rgba8unorm`
 texture to sample in place of `footage.write`; it is valid until the next `frame()`, so a
 dissolve between two frames uses two helpers. Its pixels are close to `clip.frame(i)`'s RGBA,
-not equal: switching a film changes its pixels once.
+not equal: switching a film changes its pixels once. Footage of more than 8 bits (`clip.bits`:
+phone HEVC, camera log) bands when a grade lifts or stretches it at 8: `videoTexture(host.gpu,
+clip, { bits: 10 })` asks for its 10-bit planes (`yuv420p10`, 3 bytes a pixel) and gives an
+`rgba16float` texture of R'G'B' code values, superwhites kept past 1 and no transfer curve, for
+the grade to read.
 
 `docs/participants/webgpu.md`, "Footage and stills", has the whole film: the WGSL pass, `picture`
 (a texture with mip levels), `fit` (cover and contain as a uv rectangle) and `pass`. Never blur by

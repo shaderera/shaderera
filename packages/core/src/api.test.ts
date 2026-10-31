@@ -23,6 +23,7 @@ test('the stable and experimental entries export exactly what docs/api.md lists'
     'readBuffer',
     'readTexture',
     'videoTexture',
+    'yuv420p10ToRgba',
     'yuv420pToRgba',
   ])
   assert.deepEqual(await keys('./host.ts'), [

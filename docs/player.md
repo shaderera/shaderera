@@ -36,7 +36,10 @@ A static player has no CLI process behind it, so its worker answers what the CLI
   CLI's, not the same bytes: the browser's colour conversion differs from ffmpeg's (about 32 dB
   PSNR on a test pattern's saturated edges). `frame(i, { format: 'yuv420p' })` is the proxy's own
   planes as I420 (`colour` BT.709, limited, chroma sited left; NV12 is split into I420), close to
-  the CLI's planes of the original, not the same.
+  the CLI's planes of the original, not the same. `{ format: 'yuv420p10' }` is those 8-bit planes
+  shifted up two bits, so a film that asks for 10 bits runs and gives the same shapes, but it
+  bands where the original's 10 bits would not: the proxy has no more than 8. `bits` is the
+  original's.
 - `io.bake`: the bake's frames, the same bytes as the CLI reads. A bake that was never made, is
   stale or has a changed frame fails the build, naming `shaderera bake <name>`.
 - `io.cache`: kept in memory for the page's life.
@@ -158,8 +161,9 @@ configureRunner({
   files: new URL('../files/', import.meta.url).href,
   // What answers io.video, io.cache and io.bake, in place of the CLI's process.
   ask: {
-    videoOpen: async (path) => ({ width, height, fps, frames, colour }),
-    // format 'rgba': straight RGBA, full range, 4 bytes a pixel; 'yuv420p': I420 in colour.
+    videoOpen: async (path) => ({ width, height, fps, frames, bits, colour }),
+    // format 'rgba': straight RGBA, full range, 4 bytes a pixel; 'yuv420p': I420 in colour;
+    // 'yuv420p10': I420 in 16-bit little-endian samples, as bytes.
     videoFrame: async (path, index, format) => bytes,
     videoClose: async (path) => {},
     cacheGet: async (hash) => bytesOrNull,

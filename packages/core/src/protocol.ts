@@ -230,9 +230,9 @@ export type Io = {
   /**
    * A video file's frames, decoded in software by the host's ffmpeg: `frame(i)` is frame i as
    * straight RGBA (sRGB, full range, by the file's own colour tags), or with `{ format: 'yuv420p' }`
-   * as the file's Y'CbCr planes (`colour` says how to read them; `videoTexture` in
-   * `@shaderera/core/gpu` converts them on the GPU), the same bytes every time, read in order
-   * fastest. Which frame a t shows is the film's choice (`fps` is the file's).
+   * (or `'yuv420p10'`, 10 bits) as the file's Y'CbCr planes (`colour` says how to read them;
+   * `videoTexture` in `@shaderera/core/gpu` converts them on the GPU), the same bytes every time,
+   * read in order fastest. Which frame a t shows is the film's choice (`fps` is the file's).
    */
   video?(path: string): Promise<Footage>
   /**
@@ -285,13 +285,18 @@ export type Footage = {
   /** The file's frame rate. */
   readonly fps: number
   readonly frames: number
-  /** How its `yuv420p` planes are read. */
+  /** The file's sample depth, from its pixel format (ADR 0031): 9 bits count as 10, 14 as 16. */
+  readonly bits: 8 | 10 | 12 | 16
+  /** How its `yuv420p` and `yuv420p10` planes are read. */
   readonly colour: VideoColour
   /**
    * Frame `index` (0-based): straight RGBA bytes, `width × height × 4` (the default), or `yuv420p`:
    * I420, the Y plane then Cb then Cr, rows from the top with no padding, Y `width × height` and
-   * Cb and Cr each `ceil(width / 2) × ceil(height / 2)`. A clip with alpha refuses `yuv420p`.
+   * Cb and Cr each `ceil(width / 2) × ceil(height / 2)`. `yuv420p10` (ADR 0031): the same planes
+   * at 10 bits, a `Uint16Array` of that many samples (12 bits reduced, 8 shifted up). A clip with
+   * alpha refuses both.
    */
+  frame(index: number, options: { format: 'yuv420p10' }): Promise<Uint16Array>
   frame(index: number, options?: { format?: 'rgba' | 'yuv420p' }): Promise<Uint8Array>
   /**
    * Stops the decoder and frees its buffers: a film with many clips closes each when its shot

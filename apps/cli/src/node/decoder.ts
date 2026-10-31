@@ -3,14 +3,18 @@ import { spawn } from 'node:child_process'
 import type { VideoInfo } from './services.ts'
 import { type SpawnTurn, spawnInTurn } from './spawn-turn.ts'
 
-/** How io.video hands a frame over (ADR 0027): straight RGBA, or the file's Y'CbCr planes (I420). */
-export type VideoFormat = 'rgba' | 'yuv420p'
+/**
+ * How io.video hands a frame over (ADR 0027): straight RGBA, or the file's Y'CbCr planes (I420),
+ * at 8 bits or at 10 in 16-bit little-endian samples (ADR 0031).
+ */
+export type VideoFormat = 'rgba' | 'yuv420p' | 'yuv420p10'
 
 /** A frame's bytes in `format` at `width` × `height`. */
 export const frameBytes = (format: VideoFormat, width: number, height: number) =>
-  format === 'yuv420p'
-    ? width * height + 2 * Math.ceil(width / 2) * Math.ceil(height / 2)
-    : width * height * 4
+  format === 'rgba'
+    ? width * height * 4
+    : (format === 'yuv420p10' ? 2 : 1) *
+      (width * height + 2 * Math.ceil(width / 2) * Math.ceil(height / 2))
 
 /**
  * Where a file's frames are, for a decoder that starts near a frame instead of at frame 0: each
@@ -157,7 +161,8 @@ export const videoDecoder = (
   file: string,
   /**
    * `scaled`: the frames at `width` × `height`, not the file's own size (a draft's, scaledVideo).
-   * `format`: straight RGBA (the default), or the file's planes as `yuv420p` in `info.colour`.
+   * `format`: straight RGBA (the default), or the file's planes as `yuv420p` or `yuv420p10` in
+   * `info.colour`.
    */
   info: VideoInfo & { scaled?: boolean; format?: VideoFormat },
   keep: () => number = () => 1,
@@ -207,10 +212,12 @@ export const videoDecoder = (
   const resize = info.scaled ? `w=${info.width}:h=${info.height}:flags=area:` : ''
   // RGBA: converted by the file's own colour tags. yuv420p (ADR 0027, 1): the file's matrix, range
   // and siting, named so swscale keeps them; an 8-bit 4:2:0 file passes through unconverted.
+  // yuv420p10 (ADR 0031, 1): the same at 10 bits, so a 10-bit 4:2:0 file passes through, an 8-bit
+  // limited one is shifted up two bits and a 12-bit one reduced (dithered) by swscale.
   const { matrix, range, chroma } = info.colour
   const convert =
-    info.format === 'yuv420p'
-      ? `out_color_matrix=${matrix === 'bt2020nc' ? 'bt2020' : matrix}:out_range=${range === 'full' ? 'pc' : 'tv'}:out_chroma_loc=${chroma},format=yuv420p`
+    info.format === 'yuv420p' || info.format === 'yuv420p10'
+      ? `out_color_matrix=${matrix === 'bt2020nc' ? 'bt2020' : matrix}:out_range=${range === 'full' ? 'pc' : 'tv'}:out_chroma_loc=${chroma},format=${info.format === 'yuv420p10' ? 'yuv420p10le' : 'yuv420p'}`
       : 'in_color_matrix=auto:in_range=auto:out_range=full,format=rgba'
   const start = (from: number) => {
     proc?.kill()
