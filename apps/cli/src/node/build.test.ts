@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import type { Manifest } from '@shaderera/core'
-import { alive, buildNode } from './build.ts'
+import { alive } from '../deliver/claim.ts'
+import { buildNode } from './build.ts'
 
 test('a process this user may not signal is alive', {
   skip: process.getuid?.() === 0 && 'root may signal any process',

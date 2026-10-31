@@ -600,6 +600,7 @@ export const startBridge = async (o: {
       project: opened,
       child,
       more: opener,
+      close,
     } = r.revision
       ? await openRevision(root, r.revision, {
           ...(r.variant ? { variant: r.variant } : {}),
@@ -615,7 +616,7 @@ export const startBridge = async (o: {
           host: o.hostFlags?.host,
           ...childOptions(o.hostFlags ?? {}),
         }).then((x) => ({ ...x, more: undefined }))
-      : await open(flags)
+      : { ...(await open(flags)), close: undefined }
     // A cancelled job's hosts are closed, every one: a frame that never settles ends with them.
     const hosts = [child]
     const more = async () => {
@@ -668,7 +669,8 @@ export const startBridge = async (o: {
       })
     } finally {
       signal.removeEventListener('abort', closeChild)
-      await child.close()
+      // A revision's close also releases its frozen copy.
+      await (close ? close() : child.close())
     }
   }
 

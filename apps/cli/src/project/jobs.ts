@@ -5,7 +5,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -29,6 +28,7 @@ import {
   releaseFrozen,
   revisionOf,
   save,
+  writeAtomic,
 } from './revisions.ts'
 
 /**
@@ -281,19 +281,24 @@ export const effectiveParams = (
 /**
  * Builds a revision's frozen copy for Node and finds the installed packages it executes: what
  * the build imports, with what they depend on, and `webgpu` when installed (the Node host loads it
- * for a GPU source).
+ * for a GPU source). It holds a use of the copy (releaseFrozen) only when it returns.
  */
 const frozenBuild = async (root: string, revision: string, variant: string | undefined) => {
   const dir = materialize(root, revision)
-  const { manifest } = withVariant(manifestAt(root, revision), variant)
-  const project: Project = { root: dir, manifest }
-  const built = await buildNode(project)
-  const { packages, missing } = installedPackages(dir, built.packages, ['webgpu'])
-  if (missing.length > 0)
-    throw new Error(
-      `Revision ${revision} imports ${missing.join(', ')}, which ${missing.length > 1 ? 'are' : 'is'} not installed.`,
-    )
-  return { project, entryFile: built.entryFile, packages }
+  try {
+    const { manifest } = withVariant(manifestAt(root, revision), variant)
+    const project: Project = { root: dir, manifest }
+    const built = await buildNode(project)
+    const { packages, missing } = installedPackages(dir, built.packages, ['webgpu'])
+    if (missing.length > 0)
+      throw new Error(
+        `Revision ${revision} imports ${missing.join(', ')}, which ${missing.length > 1 ? 'are' : 'is'} not installed.`,
+      )
+    return { project, entryFile: built.entryFile, packages }
+  } catch (error) {
+    releaseFrozen(root, revision)
+    throw error
+  }
 }
 
 /**
@@ -376,9 +381,8 @@ export const createJob = async (
   const lock = LOCKS.find((l) => files[l])
   const bakes = pinBakes(root, declared, revision, files)
   // Built only to find the packages: the copy goes unless a render is using it.
-  const { packages } = await frozenBuild(root, revision, o.variant).finally(() =>
-    releaseFrozen(root, revision),
-  )
+  const { packages } = await frozenBuild(root, revision, o.variant)
+  releaseFrozen(root, revision)
   const frozen = {
     shaderera: 'job/3' as const,
     revision,
@@ -415,8 +419,7 @@ export const createJob = async (
   }
   mkdirSync(jobsDir(root), { recursive: true })
   const file = join(jobsDir(root), `${job.name}.json`)
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(job, null, 1)}\n`)
+  const text = `${JSON.stringify(job, null, 1)}\n`
   if (o.replace) {
     let was: unknown
     try {
@@ -424,11 +427,13 @@ export const createJob = async (
     } catch {
       was = undefined
     }
-    renameSync(tmp, file)
+    writeAtomic(file, text)
     // Another job under the name: its first render pins its own host.
     if (was !== job.id) rmSync(pinFile(root, job.name), { force: true })
     return job
   }
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  writeFileSync(tmp, text)
   try {
     // A hard link fails when the name is taken, so two writers never both claim it.
     linkSync(tmp, file)
@@ -493,13 +498,18 @@ export const listJobs = (root: string): Job[] =>
  */
 export const verifyJob = async (root: string, job: Job) => {
   const built = await frozenBuild(root, job.revision, job.variant)
-  const changes = packageChanges(job.inputs.packages, built.packages)
-  if (job.inputs.shaderera !== shadereraVersion())
-    changes.push(
-      `it was made with Shaderera ${job.inputs.shaderera} and this is ${shadereraVersion()}`,
-    )
-  if (changes.length > 0) throw new ChangedEnvironment(job, changes)
-  return { ...built, bakes: checkJobBakes(job) }
+  try {
+    const changes = packageChanges(job.inputs.packages, built.packages)
+    if (job.inputs.shaderera !== shadereraVersion())
+      changes.push(
+        `it was made with Shaderera ${job.inputs.shaderera} and this is ${shadereraVersion()}`,
+      )
+    if (changes.length > 0) throw new ChangedEnvironment(job, changes)
+    return { ...built, bakes: checkJobBakes(job) }
+  } catch (error) {
+    releaseFrozen(root, job.revision)
+    throw error
+  }
 }
 
 /**
@@ -548,12 +558,16 @@ export const openJob = async (
   extra: (manifest: Manifest) => number = () => 0,
 ): Promise<{ project: Project; child: Child; more: () => Promise<Child>; extra: Child[] }> => {
   const built = await verifyJob(root, job)
-  const more = await frozenOpener(root, built, job, o)
+  // A job that fails to open gives its frozen copy back: the caller releases only an open one.
+  const release = (error: unknown): never => {
+    releaseFrozen(root, job.revision)
+    throw error
+  }
+  const more = await frozenOpener(root, built, job, o).catch(release)
   // The extra hosts a run needs open at once with the first (openHosts).
-  const [child, ...others] = (await openHosts(more, 1 + extra(built.project.manifest))) as [
-    Child,
-    ...Child[],
-  ]
+  const [child, ...others] = (await openHosts(more, 1 + extra(built.project.manifest)).catch(
+    release,
+  )) as [Child, ...Child[]]
   try {
     const now = await child.identity()
     const file = pinFile(root, job.name)
@@ -585,7 +599,7 @@ export const openJob = async (
     }
   } catch (error) {
     await Promise.all([child, ...others].map((h) => h.close()))
-    throw error
+    release(error)
   }
   // Another host on the same frozen build, for a parallel export.
   return { project: built.project, child, more, extra: others }

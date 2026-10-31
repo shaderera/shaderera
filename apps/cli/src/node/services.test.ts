@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
+import { alive } from '../deliver/claim.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import {
   cacheLimit,
@@ -50,14 +51,6 @@ test('an HLS playlist naming a file outside the project is refused, naming the c
   )
   assert.throws(() => probeVideo(playlist), /clip\.m3u8 is a playlist \(hls\)/)
 })
-
-const alive = (pid: number) => {
-  try {
-    return process.kill(pid, 0)
-  } catch {
-    return false
-  }
-}
 
 test('two video frames asked at once both arrive, each the right one', {
   skip: !ffmpeg && 'no ffmpeg',
@@ -271,6 +264,22 @@ test('past its limit the cache drops the least recently used entries, a get coun
   assert.deepEqual(await get('b'), bytes(1000, 1))
   const kept = readdirSync(dir).filter((n) => /^[0-9a-f]{64}$/.test(n))
   assert.equal(kept.length, 3)
+})
+
+test('a put removes a half-written file a killed host left over an hour ago, never a fresh one', async () => {
+  const root = tempDir('cache')
+  const s = createServices(root)
+  const dir = join(root, '.shaderera', 'cache')
+  await s.handle({ op: 'cache-put', hash: key('a'), bytes: bytes(1000, 1) })
+  const old = join(dir, `${key('b')}.11111`)
+  const fresh = join(dir, `${key('c')}.22222`)
+  writeFileSync(old, bytes(5000, 2))
+  writeFileSync(fresh, bytes(5000, 2))
+  const at = new Date(Date.now() - 61 * 60_000)
+  utimesSync(old, at, at)
+  await s.handle({ op: 'cache-put', hash: key('d'), bytes: bytes(1000, 1) })
+  assert.equal(existsSync(old), false)
+  assert.equal(existsSync(fresh), true)
 })
 
 test('an entry larger than the limit is kept alone, and the limit comes from the environment', async () => {

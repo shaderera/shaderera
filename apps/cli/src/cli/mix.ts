@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { GainCurve, Pcm, SampledClip } from '@shaderera/core'
 import { gainAt } from '@shaderera/core/host'
-import { type Loudness, measureLoudness } from './ffmpeg.ts'
+import { type Loudness, measureLoudness, s } from './ffmpeg.ts'
 
 /** The stretch of the composition the mix covers, in seconds: the file's start and end. */
 export type Window = { readonly from: number; readonly to: number }
@@ -156,8 +156,6 @@ export const mixWav = (
 const PRIMING = 1024
 
 const RATE = 48000
-
-const s = (n: number) => String(Number(n.toFixed(6)))
 
 /**
  * A heard clip: its file (a project file, or a temporary WAV for `pcm`), for a gain that changes

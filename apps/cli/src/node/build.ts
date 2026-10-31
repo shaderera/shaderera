@@ -1,22 +1,24 @@
 import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
-import { join, relative, resolve, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { build } from 'vite'
+import { alive } from '../deliver/claim.ts'
 import { packageOf } from '../project/dependencies.ts'
 import { stamp } from '../stamp/plugin.ts'
 import type { Project } from './project.ts'
 
 let builds = 0
+/**
+ * This process's builds a host opened, by folder: how many of their hosts run. One whose hosts all
+ * exited goes at the next build here (sweep), so a long MCP session keeps no pile of them. Not on
+ * the exit itself: a host reopened after a failed frame (reopening) opens the same build again.
+ */
+const hosted = new Map<string, number>()
 
-/** Whether a process is still running. */
-export const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    // EPERM: it runs, as another user.
-    return (e as { code?: string }).code === 'EPERM'
-  }
+/** A host opened (+1) or exited (-1) on the build at `entryFile`. */
+export const hostOfBuild = (entryFile: string, change: 1 | -1) => {
+  const dir = dirname(entryFile)
+  hosted.set(dir, (hosted.get(dir) ?? 0) + change)
 }
 
 /**
@@ -43,8 +45,8 @@ export const plainError =
   }
 
 /**
- * Removes the builds of processes that have exited, and the single shared build of versions
- * before 2026-10-12 (`.shaderera/node/entry.js`). Processes that build at once (the chunks of one
+ * Removes the builds of processes that have exited, this process's builds whose hosts all exited
+ * (hosted), and the single shared build of versions before 2026-10-12 (`.shaderera/node/entry.js`). Processes that build at once (the chunks of one
  * job, in one frozen copy) all find the same exited build: each moves it aside to a name of its
  * own first, so only the one whose move succeeds removes it. Two removals of one folder at once
  * fail with EPERM on Windows (#433). What cannot be removed now (a file held open) is left for a
@@ -54,7 +56,9 @@ const sweep = (dir: string) => {
   if (!existsSync(dir)) return
   for (const name of readdirSync(dir)) {
     const pid = /^(\d+)-\d+(\.removing)?$/.exec(name)?.[1]
-    if (pid ? !alive(Number(pid)) : /\.js$/.test(name)) {
+    const done = hosted.get(join(dir, name)) === 0
+    if (done) hosted.delete(join(dir, name))
+    if (done || (pid ? !alive(Number(pid)) : /\.js$/.test(name))) {
       const aside = join(dir, `${process.pid}-${builds++}.removing`)
       try {
         renameSync(join(dir, name), aside)

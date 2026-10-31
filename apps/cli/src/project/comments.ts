@@ -1,14 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import {
   appendFileSync,
-  closeSync,
   existsSync,
-  fstatSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
-  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -22,7 +18,7 @@ import { type Json, type Manifest, parseFps } from '@shaderera/core'
 import { checkManifest, withVariant } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
 import { ID_ALPHABET } from '../studio/pairing.ts'
-import { type By, fileAt, head, save, scanProject, treeId } from './revisions.ts'
+import { type By, endsWithNewline, fileAt, head, save, scanProject, treeId } from './revisions.ts'
 
 /**
  * Comments on the film (decision 0025): what the person leaves at a moment of it, and the replies.
@@ -46,7 +42,7 @@ export type CommentState = 'open' | 'fixed' | 'resolved' | 'deleted'
  * The frame that shows at t: floor(t·fps), with 1e-6 for t that fall just short of a frame in
  * floating point. The product's one rule, the studio page's readout's: 2.4608 s at 60 fps is 147.
  */
-export const frameAt = (t: number, fps: number) => Math.floor(t * fps + 1e-6)
+export const frameShownAt = (t: number, fps: number) => Math.floor(t * fps + 1e-6)
 
 /** A time for a person to read: to the millisecond (the JSON keeps t whole). */
 export const seconds = (t: number) => `${Number(t.toFixed(3))} s`
@@ -252,20 +248,6 @@ export const withCommentsLock = async <T>(
   }
 }
 
-/** Whether the file ends in a newline (or is empty): a torn last line must not swallow the next. */
-const endsWithNewline = (file: string) => {
-  const fd = openSync(file, 'r')
-  try {
-    const { size } = fstatSync(fd)
-    if (size === 0) return true
-    const last = Buffer.alloc(1)
-    readSync(fd, last, 0, 1, size - 1)
-    return last[0] === 0x0a
-  } finally {
-    closeSync(fd)
-  }
-}
-
 /**
  * Appends one operation, under the lock. A comment without an id gets a new one, checked against
  * every id in the file. Returns the operation as written.
@@ -409,8 +391,8 @@ export const addComment = async (root: string, c: NewComment, by: By): Promise<T
     revision,
     ...(c.variant !== undefined ? { variant: c.variant } : {}),
     t: c.t,
-    frame: frameAt(c.t, fps),
-    ...(c.to !== undefined ? { to: c.to, toFrame: frameAt(c.to, fps) } : {}),
+    frame: frameShownAt(c.t, fps),
+    ...(c.to !== undefined ? { to: c.to, toFrame: frameShownAt(c.to, fps) } : {}),
     ...(point ? { point } : {}),
     ...(box ? { box } : {}),
     ...(point || box ? { size: [manifest.width, manifest.height] as [number, number] } : {}),

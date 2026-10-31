@@ -11,6 +11,7 @@ import type { Caption, Json, Matrices, Pick, Range, SampledClip } from '@shadere
 import type { GpuOutput, HdrOutput, LightLevels, SeekStats } from '@shaderera/core/host'
 import { paramDefaults } from '@shaderera/core/host'
 import type { TextRun } from '../review/measure.ts'
+import { hostOfBuild } from './build.ts'
 import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
 import type { Fonts, HostProfile, Request } from './host.ts'
 import { outside } from './inside.ts'
@@ -271,6 +272,7 @@ export const openChild = async (
     // comes through this process, which keeps the end of it for an exit to say why.
     stdio: ['ignore', 2, 'pipe', 'ipc', 'overlapped'],
   })
+  hostOfBuild(o.entryFile, 1)
   let said = ''
   child.stderr?.on('data', (d: Buffer) => {
     process.stderr.write(d)
@@ -316,6 +318,7 @@ export const openChild = async (
   // Its clips' decoders end after it exits; close() waits for them too.
   let released: Promise<void> = Promise.resolve()
   child.once('exit', () => {
+    hostOfBuild(o.entryFile, -1)
     // Never awaited when the CLI does not close the host: a failure must not go unhandled.
     released = services.close().catch(() => {})
   })

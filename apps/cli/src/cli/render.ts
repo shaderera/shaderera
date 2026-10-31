@@ -488,6 +488,9 @@ const exportOnce = async (
         `The film is finished, but ${out} could not be replaced (${(error as NodeJS.ErrnoException).code}): is it open in another program? The new film is ${partial}; close ${out} and rename it.`,
       )
     }
+    // The previous film's captions and stems go with it: this render writes its own, if any.
+    for (const f of [`${base}.srt`, `${base}.vtt`, `${base}.stems`])
+      rmSync(f, { recursive: true, force: true })
     stemsWritten = o.stems === true && mix.clips.length > 0
     const stems = stemsWritten ? mix.stems(`${base}.stems`) : undefined
     const clock = await clockOf(hosts)

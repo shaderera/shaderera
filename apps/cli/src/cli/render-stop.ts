@@ -7,7 +7,7 @@ import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { alive } from '../node/build.ts'
+import { alive } from '../deliver/claim.ts'
 import { HOST } from '../node/runner-server.ts'
 import { privateDir } from '../studio/running.ts'
 

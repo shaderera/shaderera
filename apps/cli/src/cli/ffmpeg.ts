@@ -228,7 +228,8 @@ export const HDR10 = [
   'topleft',
 ] as const
 
-const s = (n: number) => String(Number(n.toFixed(6)))
+/** A number as an ffmpeg argument: 6 decimals at most, no trailing zeros. */
+export const s = (n: number) => String(Number(n.toFixed(6)))
 
 /** `h264` in an mp4; ProRes 422 HQ, or ProRes 4444 with its alpha, in a mov. */
 export type Codec = 'h264' | 'prores-hq' | 'prores-4444'
