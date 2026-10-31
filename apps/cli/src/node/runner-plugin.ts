@@ -153,7 +153,10 @@ export const runnerPlugin = (
                               op,
                               path: q('path'),
                               index: Number(q('index')),
-                              format: q('format') === 'yuv420p' ? 'yuv420p' : 'rgba',
+                              format:
+                                q('format') === 'yuv420p' || q('format') === 'yuv420p10'
+                                  ? q('format')
+                                  : 'rgba',
                             }
                           : op === 'video-close'
                             ? { op, path: q('path') }

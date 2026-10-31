@@ -3,8 +3,8 @@ import type { Open } from '@shaderera/core'
 /**
  * A film for the web player's tests: frame t is the clip's frame floor(t × fps), as io.video gives
  * it (assets/clip.mp4, made by the test: ffmpeg's testsrc2, 320×180, 30 fps, 1 s). inspect says
- * which frame that is, its yuv420p planes (base64) and colour, and what io.bake and io.cache
- * answered.
+ * which frame that is, its yuv420p and yuv420p10 planes (base64) and colour, and what io.bake and
+ * io.cache answered.
  */
 const open: Open = async ({ io }) => {
   if (!io.video || !io.bake || !io.cache)
@@ -29,10 +29,17 @@ const open: Open = async ({ io }) => {
   return {
     render: async (t) => ({ color: await clip.frame(at(t)), alpha: 'opaque', name: 'clip' }),
     inspect: async (t) => ({
-      clip: { width: clip.width, height: clip.height, fps: clip.fps, frames: clip.frames },
+      clip: {
+        width: clip.width,
+        height: clip.height,
+        fps: clip.fps,
+        frames: clip.frames,
+        bits: clip.bits,
+      },
       frame: at(t),
       colour: clip.colour,
       planes: base64(await clip.frame(at(t), { format: 'yuv420p' })),
+      planes10: base64(new Uint8Array((await clip.frame(at(t), { format: 'yuv420p10' })).buffer)),
       level: {
         frames: level.frames,
         first: (await level.read(0))[0] ?? null,

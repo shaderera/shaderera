@@ -127,7 +127,7 @@ type Io = {
   font(path: string, family: string): Promise<void>       // registers a font for the 2D context
   // Both Shaderera hosts provide these (optional for other hosts):
   image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage> // PNG or JPEG, straight RGBA, 8 or 16 bits
-  video?(path: string): Promise<Footage>                  // { width, height, fps, frames, colour, frame(i, { format }), close() }
+  video?(path: string): Promise<Footage>                  // { width, height, fps, frames, bits, colour, frame(i, { format }), close() }
   cache?(key: string, inputs: string[], make: () => Promise<Uint8Array>): Promise<Uint8Array>
   bake?(name: string): Promise<Baked>                     // { frames, read(i), image(i) }
 }
@@ -187,6 +187,17 @@ it, before any frame.
   bytes are close to the RGBA path's (about 34 dB PSNR on a test pattern), not equal: swscale
   takes a 2×2 block's chroma as it is. Another host that offers `io.video` and cannot give planes
   throws a message naming the format.
+- `frame(i, { format: 'yuv420p10' })` ([ADR 0031](adr/0031-footage-at-ten-bits.md)) is the same
+  planes at 10 bits, a `Uint16Array` of `width × height + 2 × cw × ch` samples (16-bit, the
+  10-bit value in the low bits, as ffmpeg's `yuv420p10le`). ffmpeg keeps the file's matrix and
+  range and changes only the pixel format: a 10-bit 4:2:0 file passes through as its own
+  samples, a 12-bit file is reduced to 10 (swscale dithers), a 4:2:2 or 4:4:4 file is subsampled
+  as above, and an 8-bit limited-range file is shifted up two bits (a full-range one is scaled to
+  0–1023, its top two bits repeated below). A clip with alpha refuses it, naming `rgba`. `bits` (`8 | 10 | 12 | 16`) is the file's
+  sample depth, from its pixel format. `videoTexture(device, clip, { bits: 10 })` converts these
+  planes into an `rgba16float` texture: R'G'B' code values, 0–1 for the nominal range, superwhites
+  and out-of-gamut values kept (clamped only past ±2), no transfer curve, each value an integer
+  k / 1024 so every host stores the same bits as `yuv420p10ToRgba`.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and
   runs: `make` runs only when nothing is kept for the key with the input files as they are now (a
   changed input is another entry). Put a version in the key when the making changes. The cache

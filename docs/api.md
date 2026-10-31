@@ -80,7 +80,8 @@ export type DecodedImage = {
 
 **`Footage`**, what `io.video` gives: a video file's frames. `frame(i)` is RGBA bytes
 (`width × height × 4`) or, with `{ format: 'yuv420p' }`, the Y'CbCr planes `colour` says how to
-read; `close()` frees the decoder when the clip's shot ends.
+read, or with `{ format: 'yuv420p10' }` the same planes at 10 bits, a `Uint16Array`. `bits` is the
+file's sample depth. `close()` frees the decoder when the clip's shot ends.
 
 ```ts
 export type Footage = {
@@ -88,7 +89,9 @@ export type Footage = {
   readonly height: number
   readonly fps: number
   readonly frames: number
+  readonly bits: 8 | 10 | 12 | 16
   readonly colour: VideoColour
+  frame(index: number, options: { format: 'yuv420p10' }): Promise<Uint16Array>
   frame(index: number, options?: { format?: 'rgba' | 'yuv420p' }): Promise<Uint8Array>
   close(): Promise<void>
 }
@@ -100,15 +103,18 @@ export type VideoColour = {
 }
 ```
 
-**`videoTexture(device, clip)`**, from `@shaderera/core/gpu`: a clip's frames as an
-`rgba8unorm` texture of `host.gpu`, converted from its `yuv420p` planes on the GPU. The texture
-`frame(i)` returns is valid until the next `frame()` or `destroy()`: two frames at once need two
-helpers.
+**`videoTexture(device, clip, options?)`**, from `@shaderera/core/gpu`: a clip's frames as an
+`rgba8unorm` texture of `host.gpu`, converted from its `yuv420p` planes on the GPU. With
+`{ bits: 10 }` it converts the `yuv420p10` planes into an `rgba16float` texture: R'G'B' code
+values, 0–1 for the nominal range, superwhites and out-of-gamut values kept, no transfer curve.
+The texture `frame(i)` returns is valid until the next `frame()` or `destroy()`: two frames at
+once need two helpers.
 
 ```ts
 export const videoTexture: (
   device: GPUDevice,
   clip: Footage,
+  options?: { bits?: 8 | 10 | undefined },
 ) => { frame: (index: number) => Promise<GPUTexture>; destroy: () => void }
 ```
 
@@ -161,6 +167,9 @@ resources and passes. Stable only when consumers outside this repository need it
 `videoTexture(device, clip)` ([above](#the-types-a-film-writes-against)) converts in integers, so
 every host gives the same bytes ([ADR 0027](adr/0027-video-frames-as-ycbcr.md)).
 `yuv420pToRgba(planes, width, height, colour)` is the same conversion on the CPU, its reference.
+`yuv420p10ToRgba(planes, width, height, colour)` is the reference at 10 bits
+([ADR 0031](adr/0031-footage-at-ten-bits.md)): a `Uint16Array` of half floats, the bits the
+`rgba16float` texture holds.
 
 ## `@shaderera/core/host`: experimental
 

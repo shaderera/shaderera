@@ -19,9 +19,15 @@ export type Ask = {
     height: number
     fps: number
     frames: number
+    bits: 8 | 10 | 12 | 16
     colour: VideoColour
   }>
-  videoFrame(path: string, index: number, format: 'rgba' | 'yuv420p'): Promise<Uint8Array>
+  /** The frame's bytes; `yuv420p10`'s 16-bit samples little-endian, as bytes. */
+  videoFrame(
+    path: string,
+    index: number,
+    format: 'rgba' | 'yuv420p' | 'yuv420p10',
+  ): Promise<Uint8Array>
   videoClose(path: string): Promise<void>
   bakeOpen(name: string): Promise<{ frames: number }>
   bakeFrame(name: string, index: number): Promise<Uint8Array>
@@ -75,18 +81,20 @@ export const extraIo = (
     },
     video: async (path): Promise<Footage> => {
       const info = await ask.videoOpen(path)
-      return {
-        ...info,
-        frame: (index, options) => {
-          const format = options?.format ?? 'rgba'
-          if (format !== 'rgba' && format !== 'yuv420p')
-            throw new Error(
-              `io.video(${path}): frame format is 'rgba' or 'yuv420p', not ${format}.`,
-            )
-          return timeVideo(() => ask.videoFrame(path, index, format))
-        },
-        close: () => ask.videoClose(path),
+      const frame = async (index: number, options?: { format?: string }) => {
+        const format = options?.format ?? 'rgba'
+        if (format !== 'rgba' && format !== 'yuv420p' && format !== 'yuv420p10')
+          throw new Error(
+            `io.video(${path}): frame format is 'rgba', 'yuv420p' or 'yuv420p10', not ${format}.`,
+          )
+        const bytes = await timeVideo(() => ask.videoFrame(path, index, format))
+        if (format !== 'yuv420p10') return bytes
+        // 16-bit samples (ADR 0031, 1): a view needs an even offset, so bytes at an odd one (in
+        // a larger message) are copied.
+        const own = bytes.byteOffset % 2 ? bytes.slice() : bytes
+        return new Uint16Array(own.buffer, own.byteOffset, own.byteLength / 2)
       }
+      return { ...info, frame: frame as Footage['frame'], close: () => ask.videoClose(path) }
     },
     cache: async (key, inputs, make) => {
       // The key, then each input's path and content hash: a changed file is another entry.

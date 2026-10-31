@@ -38,10 +38,23 @@ export type VideoInfo = {
   height: number
   fps: number
   frames: number
+  /** Its sample depth (sampleBits). */
+  bits: 8 | 10 | 12 | 16
   /** Its `yuv420p` planes' colour, as the decoder makes them (videoColour). */
   colour: VideoColour
-  /** Its pixel format carries alpha: it refuses `yuv420p`. */
+  /** Its pixel format carries alpha: it refuses `yuv420p` and `yuv420p10`. */
   alpha: boolean
+}
+
+/**
+ * The sample depth of an ffprobe `pix_fmt` (ADR 0031, 1), as `Footage.bits` names it: 9 bits count
+ * as 10 and 14 as 16; 48- and 64-bit RGB are 16.
+ */
+export const sampleBits = (pixFmt: string): VideoInfo['bits'] => {
+  const n = /(?:rgba?|bgra?)(?:48|64)/.test(pixFmt)
+    ? 16
+    : Number((/(?:p|gray)(\d\d?)(?:le|be)$/.exec(pixFmt) ?? /^p0(\d\d)/.exec(pixFmt))?.[1] ?? 8)
+  return n <= 8 ? 8 : n <= 10 ? 10 : n <= 12 ? 12 : 16
 }
 
 /** ffprobe's matrices as the RGBA path's `in_color_matrix=auto` reads them; others are BT.601. */
@@ -110,6 +123,7 @@ export const probeVideo = (file: string): VideoInfo => {
     height: Number(s.height),
     fps: d ? (n as number) / d : (n as number),
     frames: Number(s.nb_read_packets),
+    bits: sampleBits(String(s.pix_fmt)),
     colour: videoColour(s as { [k: string]: string }),
     alpha: /^(yuva|gbrap|ya\d|rgba|bgra|argb|abgr)/.test(String(s.pix_fmt)),
   }
@@ -152,9 +166,9 @@ export const videoReader = (
 ) => {
   const scaled = scale !== 1
   const info = scaled ? scaledVideo(probeVideo(file), scale) : probeVideo(file)
-  // yuv420p has no alpha: dropping it would change the look without the author (ADR 0027, 1).
-  if (format === 'yuv420p' && info.alpha)
-    throw new Error(`${file} has alpha, which yuv420p cannot carry: ask for its frames as rgba.`)
+  // The planes have no alpha: dropping it would change the look without the author (ADR 0027, 1).
+  if (format !== 'rgba' && info.alpha)
+    throw new Error(`${file} has alpha, which ${format} cannot carry: ask for its frames as rgba.`)
   const { turn, transfer } = lendTurns()
   const worker = new Worker(thread, {
     workerData: { file, info, scaled, format, turn },

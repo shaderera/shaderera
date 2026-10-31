@@ -9,7 +9,9 @@
 // media/<path>.json) and decodes it with WebCodecs, through Mediabunny. Frame i is straight,
 // full-range RGBA, as the CLI hands it over; the browser's decoder and colour conversion make it
 // close to ffmpeg's, not the same bytes. As yuv420p it is the proxy's own planes (BT.709 limited,
-// the chroma sited left), as I420: close to the CLI's planes of the original, not the same.
+// the chroma sited left), as I420: close to the CLI's planes of the original, not the same. As
+// yuv420p10 it is those planes shifted up two bits (ADR 0031, 4): the 8-bit proxy's codes, which
+// band where the original's 10 bits would not.
 // io.bake reads the frames the build copied to bakes/<name>/, the same bytes as the CLI's.
 // io.cache is kept in memory.
 //
@@ -34,8 +36,10 @@ type Info = {
   height: number
   fps: number
   frames: number
+  /** The original's sample depth, not the proxy's. */
+  bits: 8 | 10 | 12 | 16
   colour: VideoColour
-  /** The original's pixel format carries alpha (node/services.ts probeVideo): no yuv420p. */
+  /** The original's pixel format carries alpha (node/services.ts probeVideo): no planes. */
   alpha?: boolean
 }
 
@@ -89,28 +93,38 @@ const rgba = async (sample: VideoSample, info: Info): Promise<Uint8Array> => {
 
 /**
  * The decoder's planes as I420, tight (ADR 0027, 1): Y, then Cb, then Cr. NV12 (Cb and Cr
- * interleaved) is split; any other format (with alpha, more than 8 bits) is refused.
+ * interleaved) is split; any other format (with alpha, more than 8 bits) is refused. `ten`: as
+ * `yuv420p10` (ADR 0031), 16-bit little-endian samples, 8-bit planes shifted up two bits and a
+ * viewer's own 10-bit file's (I420P10) as they are.
  */
-const i420 = async (sample: VideoSample, info: Info, what: string): Promise<Uint8Array> => {
-  if (info.alpha || (sample.format !== 'I420' && sample.format !== 'NV12'))
+const i420 = async (
+  sample: VideoSample,
+  info: Info,
+  what: string,
+  ten: boolean,
+): Promise<Uint8Array> => {
+  const deep = ten && sample.format === 'I420P10'
+  if (info.alpha || (sample.format !== 'I420' && sample.format !== 'NV12' && !deep))
     throw new Error(
-      `${what} decodes as ${info.alpha ? 'a format with alpha' : sample.format}, not yuv420p: ask for its frames as rgba.`,
+      `${what} decodes as ${info.alpha ? 'a format with alpha' : sample.format}, not ${ten ? 'yuv420p10' : 'yuv420p'}: ask for its frames as rgba.`,
     )
   const { width: w, height: h } = info
   const cw = Math.ceil(w / 2)
   const ch = Math.ceil(h / 2)
+  // Bytes a sample.
+  const n = deep ? 2 : 1
   const raw = new Uint8Array(sample.allocationSize())
   const [y, u, v] = await sample.copyTo(raw)
-  const out = new Uint8Array(w * h + 2 * cw * ch)
+  const out = new Uint8Array((w * h + 2 * cw * ch) * n)
   const rows = (p: PlaneLayout, width: number, height: number, at: number) => {
     for (let r = 0; r < height; r++)
       out.set(
-        raw.subarray(p.offset + r * p.stride, p.offset + r * p.stride + width),
-        at + r * width,
+        raw.subarray(p.offset + r * p.stride, p.offset + r * p.stride + width * n),
+        (at + r * width) * n,
       )
   }
   rows(y as PlaneLayout, w, h, 0)
-  if (sample.format === 'I420') {
+  if (sample.format !== 'NV12') {
     rows(u as PlaneLayout, cw, ch, w * h)
     rows(v as PlaneLayout, cw, ch, w * h + cw * ch)
   } else {
@@ -121,7 +135,16 @@ const i420 = async (sample: VideoSample, info: Info, what: string): Promise<Uint
         out[w * h + cw * ch + r * cw + c] = raw[p.offset + r * p.stride + 2 * c + 1] as number
       }
   }
-  return out
+  if (!ten || deep) return out
+  return new Uint8Array(Uint16Array.from(out, (s) => s << 2).buffer)
+}
+
+/** A viewer's own file's sample depth, from its first frame's format (I420P10 is 10 bits). */
+const depthOf = async (sink: VideoSampleSink, first: number): Promise<Info['bits']> => {
+  const sample = await sink.getSample(first)
+  const format = sample?.format ?? ''
+  sample?.close()
+  return format.includes('P10') ? 10 : format.includes('P12') ? 12 : 8
 }
 
 /**
@@ -152,21 +175,29 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
       const track = await decodable(input, name)
       const stats = await track.computePacketStats()
       const space = await track.getColorSpace()
+      const first = await track.getFirstTimestamp()
+      const sink = new VideoSampleSink(track)
       return {
         info: {
           width: track.displayWidth,
           height: track.displayHeight,
           fps: stats.averagePacketRate,
           frames: stats.packetCount,
+          bits: await depthOf(sink, first),
           // As the file tags it, BT.601 limited untagged (node/services.ts videoColour).
           colour: {
-            matrix: space.matrix === 'bt709' ? 'bt709' : 'bt601',
+            matrix:
+              space.matrix === 'bt709'
+                ? 'bt709'
+                : space.matrix === 'bt2020-ncl'
+                  ? 'bt2020nc'
+                  : 'bt601',
             range: space.fullRange ? 'full' : 'limited',
             chroma: 'left',
           },
         },
-        first: await track.getFirstTimestamp(),
-        sink: new VideoSampleSink(track),
+        first,
+        sink,
         input,
         next: 0,
       }
@@ -205,7 +236,7 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
     clip: Clip,
     path: string,
     index: number,
-    format: 'rgba' | 'yuv420p',
+    format: 'rgba' | 'yuv420p' | 'yuv420p10',
   ): Promise<Uint8Array> => {
     const { info } = clip
     if (!Number.isInteger(index) || index < 0 || index >= info.frames)
@@ -225,9 +256,9 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
         continue
       }
       try {
-        return format === 'yuv420p'
-          ? await i420(value, info, `io.video(${path})`)
-          : await rgba(value, info)
+        return format === 'rgba'
+          ? await rgba(value, info)
+          : await i420(value, info, `io.video(${path})`, format === 'yuv420p10')
       } finally {
         value.close()
       }

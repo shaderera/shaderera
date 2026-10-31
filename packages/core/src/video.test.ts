@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { readTexture } from './gpu.ts'
 import type { Footage, VideoColour } from './protocol.ts'
-import { videoTexture, yuv420pToRgba } from './video.ts'
+import { videoTexture, yuv420p10ToRgba, yuv420pToRgba } from './video.ts'
 
 /** I420 bytes of a frame whose every pixel has one Y, Cb and Cr. */
 const flat = (width: number, height: number, y: number, cb: number, cr: number) => {
@@ -83,6 +83,68 @@ test('yuv420pToRgba: chroma upsampled from where it is sited', () => {
     )
 })
 
+/** I420 at 10 bits (ADR 0031) of a frame whose every pixel has one Y, Cb and Cr. */
+const flat10 = (width: number, height: number, y: number, cb: number, cr: number) =>
+  Uint16Array.from(flat(width, height, 0, 0, 0), (_, i) =>
+    i < width * height
+      ? y
+      : i < width * height + Math.ceil(width / 2) * Math.ceil(height / 2)
+        ? cb
+        : cr,
+  )
+/** A half float's value. */
+const half = (h: number) => {
+  const e = (h >> 10) & 31
+  const m = h & 1023
+  const v = e === 0 ? m / 2 ** 24 : (1 + m / 1024) * 2 ** (e - 15)
+  return h & 0x8000 ? -v : v
+}
+/** Pixel `i` of half-float RGBA, in 1024ths. */
+const pixel10 = (rgba: Uint16Array, i = 0) =>
+  [...rgba.subarray(i * 4, i * 4 + 4)].map((h) => half(h) * 1024)
+
+// Worked by hand from the standards: 10-bit limited is Y 64–940 and C 64–960 (centre 512), full
+// 0–1023; the output is k / 1024 with k rounded half up and clamped to −2048…2047.
+test('yuv420p10ToRgba: code values in 1024ths, superwhites and negatives kept', () => {
+  const at = (c: VideoColour, y: number, cb: number, cr: number) =>
+    pixel10(yuv420p10ToRgba(flat10(2, 2, y, cb, cr), 2, 2, c))
+  const hd = colour('bt709', 'limited')
+  assert.deepEqual(at(hd, 64, 512, 512), [0, 0, 0, 1024], 'black')
+  assert.deepEqual(at(hd, 940, 512, 512), [1024, 1024, 1024, 1024], 'white')
+  assert.deepEqual(at(hd, 502, 512, 512), [512, 512, 512, 1024], '438 / 876 = ½')
+  // Superwhite: 955 / 876 × 1024 = 1116.35.
+  assert.deepEqual(at(hd, 1019, 512, 512), [1116, 1116, 1116, 1024], 'past 1, kept')
+  // BT.709: R = (Y-64)/876 + 1.5748 (Cr-512)/896: Cr 64 is -0.7874, -806.3 in 1024ths.
+  assert.deepEqual(at(hd, 64, 512, 64).slice(0, 1), [-806], 'below 0, kept')
+  // The corners pass ±2 and clamp: B = 959/876 + 1.8814 × 511/896 = 2.168 (BT.2020).
+  assert.deepEqual(at(colour('bt2020nc', 'limited'), 1023, 1023, 512).slice(2, 3), [2047])
+  // Full range: Y / 1023 and (C-512) / 1023. JFIF: R = Y + 1.402 (Cr-512) / 1023 × 1024.
+  const jpeg = colour('bt601', 'full', 'center')
+  assert.deepEqual(at(jpeg, 0, 512, 512), [0, 0, 0, 1024])
+  assert.deepEqual(at(jpeg, 1023, 512, 512), [1024, 1024, 1024, 1024])
+  // 300 / 1023 × 1024 = 300.29, + 1.402 × 100 / 1023 × 1024 = 140.33: 440.6.
+  assert.deepEqual(at(jpeg, 300, 512, 612).slice(0, 1), [441])
+})
+
+test('yuv420p10ToRgba: chroma upsampled as yuv420pToRgba sites it', () => {
+  // The 8-bit test's frames shifted up two bits, in JFIF: R = Y + 1.402 (Cr-512) / 1023 × 1024.
+  const across = Uint16Array.from(
+    [128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 178],
+    (v) => v << 2,
+  )
+  const reds = (rgba: Uint16Array) => [0, 1, 2, 3].map((i) => pixel10(rgba, i)[0])
+  // Y 512 is 512.5; Cr 612 (the mean) adds 140.33, 712 280.66.
+  assert.deepEqual(
+    reds(yuv420p10ToRgba(across, 4, 2, colour('bt601', 'full', 'left'))),
+    [513, 653, 793, 793],
+  )
+  // Between: Cr 562 (¾ 512 + ¼ 712) adds 70.16, 662 210.49.
+  assert.deepEqual(
+    reds(yuv420p10ToRgba(across, 4, 2, colour('bt601', 'full', 'center'))),
+    [513, 583, 723, 793],
+  )
+})
+
 /**
  * videoTexture on Dawn (from apps/cli/fixtures/particles) against the reference, byte for byte.
  * Needs a GPU: without one this fails, it does not skip.
@@ -118,24 +180,74 @@ test('videoTexture gives the reference bytes on the GPU: every matrix, range and
         for (const chroma of ['left', 'center', 'topleft'] as const) {
           const c = { matrix, range, chroma }
           const bytes = fixture(width, height, width * 7 + height)
-          const clip: Footage = {
+          const clip = {
             width,
             height,
             fps: 1,
             frames: 1,
+            bits: 8,
             colour: c,
-            frame: async (_, o) => {
+            frame: async (_: number, o?: { format?: string }) => {
               assert.equal(o?.format, 'yuv420p')
               return bytes
             },
             close: async () => {},
-          }
+          } as Footage
           const v = videoTexture(device, clip)
           try {
             const got = await readTexture(device, await v.frame(0))
             const want = yuv420pToRgba(bytes, width, height, c)
             assert.ok(
               Buffer.from(got).equals(Buffer.from(want)),
+              `${width}×${height} ${matrix} ${range} ${chroma}`,
+            )
+          } finally {
+            v.destroy()
+          }
+        }
+})
+
+/** 10-bit samples from the code extremes and hard edges: 0, 64, 512, 940, 960, 1023 and noise. */
+const fixture10 = (width: number, height: number, seed: number) => {
+  const n = width * height + 2 * Math.ceil(width / 2) * Math.ceil(height / 2)
+  const codes = [0, 64, 512, 940, 960, 1023]
+  let s = seed
+  return Uint16Array.from({ length: n }, () => {
+    s = (s * 1103515245 + 12345) >>> 0
+    return s % 3 === 0 ? (s >>> 8) & 1023 : (codes[(s >>> 8) % codes.length] as number)
+  })
+}
+
+test('videoTexture at 10 bits gives the reference half floats on the GPU: every matrix, range and siting, odd sizes', async () => {
+  for (const [width, height] of [
+    [16, 8],
+    [7, 5],
+    [33, 1],
+  ] as const)
+    for (const matrix of ['bt709', 'bt601', 'bt2020nc'] as const)
+      for (const range of ['limited', 'full'] as const)
+        for (const chroma of ['left', 'center', 'topleft'] as const) {
+          const c = { matrix, range, chroma }
+          const samples = fixture10(width, height, width * 7 + height)
+          const clip = {
+            width,
+            height,
+            fps: 1,
+            frames: 1,
+            bits: 10,
+            colour: c,
+            frame: async (_: number, o?: { format?: string }) => {
+              assert.equal(o?.format, 'yuv420p10')
+              return samples
+            },
+            close: async () => {},
+          } as Footage
+          const v = videoTexture(device, clip, { bits: 10 })
+          try {
+            const got = await readTexture(device, await v.frame(0), 8)
+            const want = yuv420p10ToRgba(samples, width, height, c)
+            assert.ok(
+              Buffer.from(got).equals(Buffer.from(want.buffer)),
               `${width}×${height} ${matrix} ${range} ${chroma}`,
             )
           } finally {

@@ -4,9 +4,31 @@ import { copyFileSync, existsSync, readdirSync, utimesSync, writeFileSync } from
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { cacheLimit, clipDecoders, createServices, keyGaps, videoReader } from './services.ts'
+import {
+  cacheLimit,
+  clipDecoders,
+  createServices,
+  keyGaps,
+  sampleBits,
+  videoReader,
+} from './services.ts'
 
 const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
+
+test("a clip's bits are its pixel format's sample depth", () => {
+  const of = (pix: string[]) => pix.map(sampleBits)
+  assert.deepEqual(of(['yuv420p', 'yuvj420p', 'nv12', 'rgba', 'gray']), [8, 8, 8, 8, 8])
+  assert.deepEqual(
+    of(['yuv420p10le', 'p010le', 'yuv422p10be', 'gray10le', 'yuv420p9le']),
+    [10, 10, 10, 10, 10],
+  )
+  assert.deepEqual(of(['yuv444p12le', 'yuva444p12le', 'gbrp12le']), [12, 12, 12])
+  assert.deepEqual(
+    of(['yuv420p16le', 'p016le', 'rgb48be', 'rgba64le', 'gray16le', 'gbrp14le']),
+    [16, 16, 16, 16, 16, 16],
+  )
+})
+
 const clip = () => {
   const root = tempDir('video')
   const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '8']
@@ -282,8 +304,22 @@ test("a draft's clips come scaled as its frame is, from a decoder of their own",
     const open = (s: ReturnType<typeof createServices>) =>
       s.handle({ op: 'video-open', path: 'v.mp4' })
     const colour = { matrix: 'bt601', range: 'limited', chroma: 'left' }
-    assert.deepEqual(await open(full), { width: 64, height: 36, fps: 10, frames: 8, colour })
-    assert.deepEqual(await open(draft), { width: 32, height: 18, fps: 10, frames: 8, colour })
+    assert.deepEqual(await open(full), {
+      width: 64,
+      height: 36,
+      fps: 10,
+      frames: 8,
+      bits: 8,
+      colour,
+    })
+    assert.deepEqual(await open(draft), {
+      width: 32,
+      height: 18,
+      fps: 10,
+      frames: 8,
+      bits: 8,
+      colour,
+    })
     const frame = (s: ReturnType<typeof createServices>) =>
       s.handle({ op: 'video-frame', path: 'v.mp4', index: 3 }) as Promise<Uint8Array>
     const [big, small] = [await frame(full), await frame(draft)]
@@ -306,7 +342,7 @@ test("a draft's clips come scaled as its frame is, from a decoder of their own",
   }
 })
 
-test('a clip asked for in both formats runs a decoder for each, and one with alpha refuses yuv420p', {
+test('a clip asked for in two formats runs a decoder for each, and one with alpha refuses yuv420p and yuv420p10', {
   skip: !ffmpeg && 'no ffmpeg',
   timeout: 30_000,
 }, async () => {
@@ -325,13 +361,26 @@ test('a clip asked for in both formats runs a decoder for each, and one with alp
       index: 1,
       format: 'yuv420p',
     })) as Uint8Array
-    assert.deepEqual([rgba.length, yuv.length], [64 * 36 * 4, 64 * 36 * 1.5])
-    assert.equal(clipDecoders().length - before, 2)
+    const ten = (await s.handle({
+      op: 'video-frame',
+      path: 'v.mp4',
+      index: 1,
+      format: 'yuv420p10',
+    })) as Uint8Array
+    assert.deepEqual(
+      [rgba.length, yuv.length, ten.length],
+      [64 * 36 * 4, 64 * 36 * 1.5, 64 * 36 * 3],
+    )
+    assert.equal(clipDecoders().length - before, 3)
     await s.handle({ op: 'video-close', path: 'v.mp4' })
     assert.equal(clipDecoders().length, before, 'both closed')
     await assert.rejects(
       s.handle({ op: 'video-frame', path: 'alpha.mov', index: 0, format: 'yuv420p' }),
       /alpha.*rgba/,
+    )
+    await assert.rejects(
+      s.handle({ op: 'video-frame', path: 'alpha.mov', index: 0, format: 'yuv420p10' }),
+      /alpha.*yuv420p10.*rgba/,
     )
     assert.equal(
       ((await s.handle({ op: 'video-frame', path: 'alpha.mov', index: 0 })) as Uint8Array).length,
