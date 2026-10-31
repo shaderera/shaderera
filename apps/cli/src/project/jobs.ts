@@ -604,7 +604,8 @@ export const videoOptionsOf = (d: Partial<Delivery>) => ({
  * Opens a saved revision (not a job) in its own host, from its frozen copy, as `openJob` does: the
  * revision's own manifest, `variant` and `params` over its defaults, and the bakes its stamps pin
  * for it. `close` ends the host and releases the copy, which stays in the pool of frozen copies
- * (revisions.ts). An unknown revision says "No revision", a pruned one "was pruned".
+ * (revisions.ts). An unknown revision says "No revision", a pruned one "was pruned". `size` opens
+ * it at another frame size (a draft's, args.ts draftSize), its clips scaled by as much.
  */
 export const openRevision = async (
   root: string,
@@ -615,6 +616,7 @@ export const openRevision = async (
     host?: unknown
     trusted?: boolean
     timeoutMs?: number
+    size?: { width: number; height: number }
   } = {},
 ): Promise<{ project: Project; child: Child; close: () => Promise<void> }> => {
   const built = await frozenBuild(root, revision, o.variant)
@@ -635,6 +637,10 @@ export const openRevision = async (
         revision,
         ...(o.variant ? { variant: o.variant } : {}),
         params,
+        ...(o.size ? { size: o.size } : {}),
+        ...(o.size && o.size.height !== manifest.height
+          ? { videoScale: o.size.height / manifest.height }
+          : {}),
         bakes,
         trusted: o.trusted,
         timeoutMs: o.timeoutMs,
@@ -643,7 +649,9 @@ export const openRevision = async (
     )
     const child = await more()
     return {
-      project: built.project,
+      project: o.size
+        ? { ...built.project, manifest: { ...built.project.manifest, ...o.size } }
+        : built.project,
       child,
       close: async () => {
         try {
