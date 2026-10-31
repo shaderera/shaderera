@@ -50,24 +50,31 @@ const startChrome = (chrome: string, flags: string[]) => {
   const browser: ChildProcess = spawn(chrome, [...flags, '--do-not-de-elevate', 'about:blank'], {
     stdio: 'ignore',
   })
-  const exited = new Promise<string>((done) =>
-    browser.once('exit', (code, signal) => done(`it exited (${signal ?? code})`)),
-  )
+  // A missing executable emits only `error`: unhandled, it would end this process.
+  const exited = new Promise<string>((done) => {
+    browser.once('exit', (code, signal) => done(`it exited (${signal ?? code})`))
+    browser.once('error', (e) => done(`it could not start (${e.message})`))
+  })
   return { browser, exited }
 }
 
-/** The DevTools socket of the page of the Chrome started on `profile`. */
-const pageSocket = async (profile: string): Promise<string> => {
+/** The DevTools socket of the page of the Chrome started on `profile`, unless it ends first. */
+const pageSocket = async (profile: string, exited: Promise<string>): Promise<string> => {
+  let gone: string | undefined
+  void exited.then((why) => {
+    gone = why
+  })
   // Chrome creates the file before it has written it, and on Windows may still hold it open
   // (EBUSY): read until its first line is a port.
   const portFile = join(profile, 'DevToolsActivePort')
   let devtools = ''
-  for (let i = 0; i < 200 && !/^\d+$/.test(devtools); i++) {
+  for (let i = 0; i < 200 && !/^\d+$/.test(devtools) && !gone; i++) {
     try {
       devtools = readFileSync(portFile, 'utf8').split('\n')[0] ?? ''
     } catch {}
     if (!/^\d+$/.test(devtools)) await sleep(100)
   }
+  if (gone) throw new Error(`Chrome did not report its DevTools port: ${gone}.`)
   if (!/^\d+$/.test(devtools)) throw new Error('Chrome did not report its DevTools port.')
   const targets = (await (await fetch(`http://127.0.0.1:${devtools}/json`)).json()) as {
     type: string
@@ -161,7 +168,7 @@ export const browserAdapter = async (chrome: string): Promise<AdapterInfo | null
     '--no-default-browser-check',
   ])
   try {
-    const cdp = await session(await pageSocket(profile), exited, {
+    const cdp = await session(await pageSocket(profile, exited), exited, {
       ms: 30_000,
       expired: () => browser.kill(),
     })
@@ -329,7 +336,7 @@ export const openBrowserChild = async (
     }
   }
   try {
-    const socket = await pageSocket(profile)
+    const socket = await pageSocket(profile, exited)
     const timeout = {
       ms: o.openTimeoutMs ?? o.timeoutMs ?? TIMEOUT,
       expired: () => browser.kill(),
