@@ -156,14 +156,16 @@ it, before any frame.
   decoded there: each host decodes it itself, with the same module. The web player's worker decodes from `files/` with the same module, so the same bytes. Other formats
   are converted to PNG once (the plugin `image-to-png`).
 - `io.video` opens a video file for its frames. The CLI's process decodes it in software with ffmpeg
-  (one thread), by the file's own colour tags to full-range RGBA, and hands frame i over; frames
+  (on four frame threads, the same bytes as one), by the file's own colour tags to full-range RGBA, and hands frame i over; frames
   read in order stream. A frame far from the one before (a jump back, a chunk's first frame) starts
-  the decoder (on four threads) at the keyframe before it, not at frame 0, when the file's packets
+  the decoder at the keyframe before it, not at frame 0, when the file's packets
   say which frame is which (H.264, HEVC, ProRes, DNxHD, MJPEG); each frame is checked by its
   timestamp, and any other file, or a frame that does not check, decodes from frame 0 as before. One
   decoder serves every Node host of a render: a frame is decoded once, however many hosts there are,
   and the last few decoded (two a host and one) are kept, so a frame asked a little out of order is
-  not decoded again; one before them restarts the decoder. Which frame a t shows is the film's
+  not decoded again; one before them restarts the decoder. It decodes as many again ahead of the
+  latest frame asked (at most 128 MiB of them, [ADR 0030](adr/0030-footage-frames-decoded-ahead.md)),
+  so a host's next frame is usually decoded before it asks. Which frame a t shows is the film's
   choice (`fps` is the file's). The same frame is the same bytes in both hosts (tested against
   ffmpeg's own decode). In a draft render ([`render --draft`](cli.md#a-draft)), whose frame is
   smaller than the film's, the decoder scales the frames by as much each side, and `width` and
