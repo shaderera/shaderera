@@ -4,15 +4,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { alive } from '../deliver/claim.ts'
 import { tempDir } from '../fixtures/temp.ts'
-
-const alive = (pid: number) => {
-  try {
-    return process.kill(pid, 0)
-  } catch {
-    return false
-  }
-}
 
 /** A project whose source holds the host's event loop, as Dawn's GPU object does. */
 const held = () => {

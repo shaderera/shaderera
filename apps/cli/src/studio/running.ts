@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { alive } from '../deliver/claim.ts'
 import { HOST } from '../node/runner-server.ts'
 
 /** A studio that claimed the project and is starting, or one whose bridge is up. */
@@ -26,16 +27,6 @@ export class StudioRunning extends Error {}
 
 const folderOf = (root: string): string => join(root, '.shaderera', 'studio')
 export const runningFile = (root: string): string => join(folderOf(root), 'bridge.json')
-
-/** Whether a process with this pid is there (EPERM: there, another user's). */
-const alive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
 
 /** Windows' own tools, by path: a whoami on PATH may be another (Git's). */
 const system32 = (exe: string) => join(process.env.SystemRoot ?? 'C:/Windows', 'System32', exe)

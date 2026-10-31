@@ -2,6 +2,7 @@ import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { build } from 'vite'
+import { alive } from '../deliver/claim.ts'
 import { packageOf } from '../project/dependencies.ts'
 import { stamp } from '../stamp/plugin.ts'
 import type { Project } from './project.ts'
@@ -18,17 +19,6 @@ const hosted = new Map<string, number>()
 export const hostOfBuild = (entryFile: string, change: 1 | -1) => {
   const dir = dirname(entryFile)
   hosted.set(dir, (hosted.get(dir) ?? 0) + change)
-}
-
-/** Whether a process is still running. */
-export const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    // EPERM: it runs, as another user.
-    return (e as { code?: string }).code === 'EPERM'
-  }
 }
 
 /**
