@@ -230,7 +230,10 @@ not equal: switching a film changes its pixels once. Footage of more than 8 bits
 phone HEVC, camera log) bands when a grade lifts or stretches it at 8: `videoTexture(host.gpu,
 clip, { bits: 10 })` asks for its 10-bit planes (`yuv420p10`, 3 bytes a pixel) and gives an
 `rgba16float` texture of R'G'B' code values, superwhites kept past 1 and no transfer curve, for
-the grade to read.
+the grade to read. Say what the file is where the film opens it, as camera files often do not
+tag a log curve: `io.video('assets/a7s.mp4', { transfer: 'slog3', gamut: 'sgamut3cine' })`.
+The clip carries it as `clip.space` for the grade (`color-spaces`); the engine converts nothing.
+`check` warns of a file of more than 8 bits with no space declared, or read only at 8 bits.
 
 `docs/participants/webgpu.md`, "Footage and stills", has the whole film: the WGSL pass, `picture`
 (a texture with mip levels), `fit` (cover and contain as a uv rectangle) and `pass`. Never blur by

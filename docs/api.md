@@ -56,7 +56,7 @@ export type Io = {
   canvas(width: number, height: number): OffscreenCanvas
   font(path: string, family: string): Promise<void>
   image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage>
-  video?(path: string): Promise<Footage>
+  video?(path: string, space?: FootageSpace): Promise<Footage>
   cache?(
     key: string,
     inputs: readonly string[],
@@ -81,7 +81,9 @@ export type DecodedImage = {
 **`Footage`**, what `io.video` gives: a video file's frames. `frame(i)` is RGBA bytes
 (`width × height × 4`) or, with `{ format: 'yuv420p' }`, the Y'CbCr planes `colour` says how to
 read, or with `{ format: 'yuv420p10' }` the same planes at 10 bits, a `Uint16Array`. `bits` is the
-file's sample depth. `close()` frees the decoder when the clip's shot ends.
+file's sample depth. `space` is what the film said the file is when it opened it
+(`io.video(path, { transfer, gamut })`), absent when it said nothing; the engine converts
+nothing by it, `color-spaces` reads it. `close()` frees the decoder when the clip's shot ends.
 
 ```ts
 export type Footage = {
@@ -91,6 +93,7 @@ export type Footage = {
   readonly frames: number
   readonly bits: 8 | 10 | 12 | 16
   readonly colour: VideoColour
+  readonly space?: FootageSpace
   frame(index: number, options: { format: 'yuv420p10' }): Promise<Uint16Array>
   frame(index: number, options?: { format?: 'rgba' | 'yuv420p' }): Promise<Uint8Array>
   close(): Promise<void>
@@ -100,6 +103,29 @@ export type VideoColour = {
   readonly matrix: 'bt709' | 'bt601' | 'bt2020nc'
   readonly range: 'limited' | 'full'
   readonly chroma: 'left' | 'center' | 'topleft'
+}
+
+export type FootageSpace = {
+  readonly transfer?:
+    | 'bt709'
+    | 'srgb'
+    | 'pq'
+    | 'hlg'
+    | 'slog3'
+    | 'logc3'
+    | 'logc4'
+    | 'vlog'
+    | 'clog3'
+  readonly gamut?:
+    | 'rec709'
+    | 'rec2020'
+    | 'p3d65'
+    | 'sgamut3'
+    | 'sgamut3cine'
+    | 'awg3'
+    | 'awg4'
+    | 'vgamut'
+    | 'cinemagamut'
 }
 ```
 

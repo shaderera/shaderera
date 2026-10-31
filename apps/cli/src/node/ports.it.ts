@@ -12,7 +12,7 @@ import { openBrowserChild } from './browser.ts'
 import { buildForNode } from './build.ts'
 import { type Child, openChild } from './child.ts'
 import { findProject } from './project.ts'
-import { stillsDecoded } from './services.ts'
+import { deepFootage, stillsDecoded } from './services.ts'
 
 /**
  * io.image, io.video and io.cache, in the Node host and the browser host:
@@ -120,7 +120,7 @@ export default async ({ io, gpu }) => {
   const texture = videoTexture(gpu, clip)
   const converted = await readTexture(gpu, await texture.frame(3))
   texture.destroy()
-  const deep = await io.video('assets/clip10.mp4')
+  const deep = await io.video('assets/clip10.mp4', { transfer: 'slog3', gamut: 'sgamut3cine' })
   const ten = await deep.frame(3, { format: 'yuv420p10' })
   const texture10 = videoTexture(gpu, deep, { bits: 10 })
   const converted10 = await readTexture(gpu, await texture10.frame(3), 8)
@@ -151,7 +151,7 @@ export default async ({ io, gpu }) => {
       yuv: await Promise.all(yuv.map(hex)),
       converted: await hex(converted),
       references,
-      ten: { bits: deep.bits, colour: deep.colour, samples: ten instanceof Uint16Array, hash: await hex(new Uint8Array(ten.buffer, ten.byteOffset, ten.byteLength)) },
+      ten: { bits: deep.bits, colour: deep.colour, space: deep.space, plain: 'space' in clip, samples: ten instanceof Uint16Array, hash: await hex(new Uint8Array(ten.buffer, ten.byteOffset, ten.byteLength)) },
       converted10: await hex(converted10),
       references10,
       derived: Array.from(derived),
@@ -175,7 +175,14 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
       yuv: string[]
       converted: string
       references: string[]
-      ten: { bits: number; colour: unknown; samples: boolean; hash: string }
+      ten: {
+        bits: number
+        colour: unknown
+        space: unknown
+        plain: boolean
+        samples: boolean
+        hash: string
+      }
       converted10: string
       references10: string[]
       derived: number[]
@@ -237,7 +244,16 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
       { maxBuffer: 1 << 24 },
     ).stdout
     const hd = { matrix: 'bt709', range: 'limited', chroma: 'left' } as const
-    assert.deepEqual(j.ten, { bits: 10, colour: hd, samples: true, hash: sha(samples10) })
+    // The space the film declared (#575), and none on the clip it declared none for.
+    const space = { transfer: 'slog3', gamut: 'sgamut3cine' }
+    assert.deepEqual(j.ten, {
+      bits: 10,
+      colour: hd,
+      space,
+      plain: false,
+      samples: true,
+      hash: sha(samples10),
+    })
     const u16 = (b: Uint8Array) => new Uint16Array(b.buffer, b.byteOffset, b.length / 2)
     assert.equal(
       j.converted10,
@@ -277,8 +293,15 @@ test('io.cache makes once and keeps it for the next host; a changed input makes 
 })
 
 test('the browser host decodes, reads and converts on the GPU the same bytes as the Node host', async () => {
-  const children: Child[] = [await node(), await openBrowserChild(project, {})]
+  const children: Child[] = [await node()]
   try {
+    // The browser host's way to the CLI's process says the space was declared (#575).
+    deepFootage.clear()
+    children.push(await openBrowserChild(project, {}))
+    assert.deepEqual(
+      [...deepFootage.values()],
+      [{ bits: 10, declared: true, at8: false, at10: true }],
+    )
     const [n, b] = await Promise.all(children.map((c) => c.inspect(0)))
     assert.deepEqual(b, n)
   } finally {

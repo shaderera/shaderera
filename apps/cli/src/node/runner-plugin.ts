@@ -147,7 +147,7 @@ export const runnerPlugin = (
                     : op === 'image-data'
                       ? { op, key: q('key') }
                       : op === 'video-open'
-                        ? { op, path: q('path') }
+                        ? { op, path: q('path'), declared: q('declared') === '1' }
                         : op === 'video-frame'
                           ? {
                               op,

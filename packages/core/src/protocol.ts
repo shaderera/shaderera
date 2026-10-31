@@ -233,8 +233,9 @@ export type Io = {
    * (or `'yuv420p10'`, 10 bits) as the file's Y'CbCr planes (`colour` says how to read them;
    * `videoTexture` in `@shaderera/core/gpu` converts them on the GPU), the same bytes every time,
    * read in order fastest. Which frame a t shows is the film's choice (`fps` is the file's).
+   * `space`: what the file is, which the footage carries (`Footage.space`).
    */
-  video?(path: string): Promise<Footage>
+  video?(path: string, space?: FootageSpace): Promise<Footage>
   /**
    * Bytes derived from inputs, kept across renders, hosts and runs (`.shaderera/cache/`): `make`
    * runs only when nothing is kept for `key` with these project files as they are now. `key`
@@ -278,6 +279,34 @@ export type VideoColour = {
   readonly chroma: 'left' | 'center' | 'topleft'
 }
 
+/**
+ * What a footage file is, as the film declares it (#575): its transfer curve and its gamut. Files
+ * often do not tag a log curve, so the film says. The engine converts nothing: `color-spaces`
+ * reads it.
+ */
+export type FootageSpace = {
+  readonly transfer?:
+    | 'bt709'
+    | 'srgb'
+    | 'pq'
+    | 'hlg'
+    | 'slog3'
+    | 'logc3'
+    | 'logc4'
+    | 'vlog'
+    | 'clog3'
+  readonly gamut?:
+    | 'rec709'
+    | 'rec2020'
+    | 'p3d65'
+    | 'sgamut3'
+    | 'sgamut3cine'
+    | 'awg3'
+    | 'awg4'
+    | 'vgamut'
+    | 'cinemagamut'
+}
+
 /** A video file opened for its frames. */
 export type Footage = {
   readonly width: number
@@ -289,6 +318,8 @@ export type Footage = {
   readonly bits: 8 | 10 | 12 | 16
   /** How its `yuv420p` and `yuv420p10` planes are read. */
   readonly colour: VideoColour
+  /** The space the film declared in `io.video`; none when it declared none. */
+  readonly space?: FootageSpace
   /**
    * Frame `index` (0-based): straight RGBA bytes, `width × height × 4` (the default), or `yuv420p`:
    * I420, the Y plane then Cb then Cr, rows from the top with no padding, Y `width × height` and

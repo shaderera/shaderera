@@ -8,6 +8,7 @@ import {
   cacheLimit,
   clipDecoders,
   createServices,
+  deepFootage,
   keyGaps,
   sampleBits,
   videoReader,
@@ -339,6 +340,33 @@ test("a draft's clips come scaled as its frame is, from a decoder of their own",
   } finally {
     await full.close()
     await draft.close()
+  }
+})
+
+test('footage of more than 8 bits is noted with whether every open declared its space, and the bits its frames were read at (#575)', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = clip()
+  spawnSync('ffmpeg', [
+    ...['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '2'],
+    ...['-c:v', 'ffv1', '-pix_fmt', 'yuv420p10le', join(root, 'ten.mkv')],
+  ])
+  const s = createServices(root)
+  const noted = () => [...deepFootage].filter(([file]) => file.startsWith(root)).map(([, f]) => f)
+  try {
+    await s.handle({ op: 'video-open', path: 'v.mp4' })
+    await s.handle({ op: 'video-open', path: 'ten.mkv', declared: true })
+    assert.deepEqual(noted(), [{ bits: 10, declared: true, at8: false, at10: false }])
+    await s.handle({ op: 'video-frame', path: 'ten.mkv', index: 0, format: 'yuv420p10' })
+    assert.deepEqual(noted(), [{ bits: 10, declared: true, at8: false, at10: true }])
+    // Another host's open without a declaration, and an RGBA frame: both stay noted.
+    await s.handle({ op: 'video-open', path: 'ten.mkv' })
+    await s.handle({ op: 'video-frame', path: 'ten.mkv', index: 0 })
+    await s.handle({ op: 'video-open', path: 'ten.mkv', declared: true })
+    assert.deepEqual(noted(), [{ bits: 10, declared: false, at8: true, at10: true }])
+  } finally {
+    await s.close()
   }
 })
 

@@ -196,6 +196,15 @@ from the packets it read to seek; with several variants, each clip is noted once
 ! assets/footage/surf.mp4: keyframes up to 8.3 s apart, so every seek in it (check, still, the studio scrub, a chunk start) decodes up to 8.3 s of frames first. Trim it with a short GOP (-g <fps>, docs/guides/footage.md).
 ```
 
+A clip of more than 8 bits (`clip.bits`) gets a warning (finding `footage-space`) when the film
+opened it without saying what it is (`io.video(path, { transfer, gamut })`,
+[protocol](protocol.md#open-host-and-io)), and another (`footage-bits`) when the film read it only at 8 bits,
+so a grade bands. Neither fails the check.
+
+```
+! assets/footage/a7s.mp4: 10-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it: io.video(path, { transfer, gamut }), for example { transfer: 'slog3', gamut: 'sgamut3cine' }.
+```
+
 A shader that does not compile fails `check`, `still`, `render` and every other command that
 renders, with the compiler's own message, line and column, and the project file and line it found
 the code in:
@@ -1157,10 +1166,11 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
 }
 ```
 
-- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`, `shader`,
-  `build`, `type`, `gpu`, `usage`, `environment`, `doctor:<item>`, `error`), `severity` (`error`
-  fails; `warning` and `info` never do), `message`, and when known `t`, `file` and `line` (a
-  shader, a build error, a type error, a throw in the film's code), `bbox` (frame
+- `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`,
+  `footage-space`, `footage-bits`, `shader`, `build`, `type`, `gpu`, `usage`, `environment`,
+  `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and `info` never do),
+  `message`, and when known `t`, `file` and `line` (a shader, a build error, a type error, a
+  throw in the film's code), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.
 - `result`: the command's own JSON (`inspect`, `check`, `still`, `render`, `review`, `save`,
   `job`, `diff`, `undo`, `restore`, `versions`, `doctor`, `search`, `info`, `share`, `fork`); `log`:

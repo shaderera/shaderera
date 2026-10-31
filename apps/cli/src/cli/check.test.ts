@@ -7,7 +7,7 @@ import type { Manifest } from '@shaderera/core'
 import { cli } from '../fixtures/cli.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import { boxFrame, memoryChild } from '../node/fixtures/memory-child.ts'
-import { CAUSES, checkChild, diffP010, keyframeNotes } from './check.ts'
+import { CAUSES, checkChild, diffP010, footageNotes, keyframeNotes } from './check.ts'
 
 const manifest = { fps: 10, duration: 1, width: 64, height: 36 } as Manifest
 const size = { width: 64, height: 36 }
@@ -163,5 +163,28 @@ test("check notes the project's own clips whose keyframes are more than 2 s apar
   assert.deepEqual(keyframeNotes(root, gaps), [
     note('assets/footage/long.mp4', '8.3'),
     note('..clip.mp4', '3.0'),
+  ])
+})
+
+test("check warns of the project's own footage of more than 8 bits with no space declared or read only at 8 bits (#575)", () => {
+  const root = join('/films', 'a')
+  const f = { bits: 10, declared: true, at8: false, at10: true } as const
+  const deep = new Map([
+    [join(root, 'ok.mov'), f],
+    [join(root, 'log.mov'), { ...f, declared: false }],
+    [join(root, 'flat.mov'), { ...f, bits: 12, at8: true, at10: false } as const],
+    [join(root, 'node_modules', 'pkg', 'clip.mov'), { ...f, declared: false }],
+  ])
+  assert.deepEqual(footageNotes(root, deep), [
+    {
+      code: 'footage-space',
+      message:
+        "log.mov: 10-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it: io.video(path, { transfer, gamut }), for example { transfer: 'slog3', gamut: 'sgamut3cine' }.",
+    },
+    {
+      code: 'footage-bits',
+      message:
+        "flat.mov: 12-bit footage read only at 8 bits, so a grade that lifts or stretches it bands. Ask for its 10-bit planes: videoTexture(host.gpu, clip, { bits: 10 }) or clip.frame(i, { format: 'yuv420p10' }).",
+    },
   ])
 })

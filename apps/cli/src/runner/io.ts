@@ -14,7 +14,11 @@ export type Ask = {
   image(path: string, maxSize?: number): Promise<DecodedImage | null>
   cacheGet(hash: string): Promise<Uint8Array | null>
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
-  videoOpen(path: string): Promise<{
+  /** `declared`: the film said what the file is (`check` notes footage it did not, #575). */
+  videoOpen(
+    path: string,
+    declared?: boolean,
+  ): Promise<{
     width: number
     height: number
     fps: number
@@ -79,8 +83,9 @@ export const extraIo = (
       }
       return image
     },
-    video: async (path): Promise<Footage> => {
-      const info = await ask.videoOpen(path)
+    video: async (path, space): Promise<Footage> => {
+      const declared = space?.transfer !== undefined || space?.gamut !== undefined
+      const info = await ask.videoOpen(path, declared)
       const frame = async (index: number, options?: { format?: string }) => {
         const format = options?.format ?? 'rgba'
         if (format !== 'rgba' && format !== 'yuv420p' && format !== 'yuv420p10')
@@ -94,7 +99,12 @@ export const extraIo = (
         const own = bytes.byteOffset % 2 ? bytes.slice() : bytes
         return new Uint16Array(own.buffer, own.byteOffset, own.byteLength / 2)
       }
-      return { ...info, frame: frame as Footage['frame'], close: () => ask.videoClose(path) }
+      return {
+        ...info,
+        ...(declared ? { space } : {}),
+        frame: frame as Footage['frame'],
+        close: () => ask.videoClose(path),
+      }
     },
     cache: async (key, inputs, make) => {
       // The key, then each input's path and content hash: a changed file is another entry.

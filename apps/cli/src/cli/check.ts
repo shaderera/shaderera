@@ -8,7 +8,7 @@ import { mostLight } from '../deliver/chunks.ts'
 import type { Child, ClockReads } from '../node/child.ts'
 import { outside } from '../node/inside.ts'
 import { findProject } from '../node/project.ts'
-import { keyGaps } from '../node/services.ts'
+import { deepFootage, keyGaps } from '../node/services.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { EXIT, type Finding } from './findings.ts'
@@ -140,6 +140,28 @@ export const keyframeNotes = (root: string, gaps: ReadonlyMap<string, number> = 
   })
 
 /**
+ * A warning for each of the project's clips of more than 8 bits (#575) whose space a film did not
+ * declare, and for each it read only at 8 bits. `deep` is what the hosts opened and read.
+ */
+export const footageNotes = (root: string, deep: typeof deepFootage = deepFootage) =>
+  [...deep].flatMap(([file, f]) => {
+    if (!ours(root, file)) return []
+    const path = relative(root, file).split(sep).join('/')
+    const notes: { code: string; message: string }[] = []
+    if (!f.declared)
+      notes.push({
+        code: 'footage-space',
+        message: `${path}: ${f.bits}-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it: io.video(path, { transfer, gamut }), for example { transfer: 'slog3', gamut: 'sgamut3cine' }.`,
+      })
+    if (f.at8 && !f.at10)
+      notes.push({
+        code: 'footage-bits',
+        message: `${path}: ${f.bits}-bit footage read only at 8 bits, so a grade that lifts or stretches it bands. Ask for its 10-bit planes: videoTexture(host.gpu, clip, { bits: 10 }) or clip.frame(i, { format: 'yuv420p10' }).`,
+      })
+    return notes
+  })
+
+/**
  * The project's type errors: its own `typescript` on its own tsconfig.json, with no emit, each a
  * `type` finding with its file and line. Undefined when the project has no `typescript` it can
  * import or no tsconfig.json: nothing was checked.
@@ -222,11 +244,16 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       }
     }
   }
-  for (const file of keyGaps.keys()) if (ours(root, file)) keyGaps.delete(file)
+  for (const notes of [keyGaps, deepFootage])
+    for (const file of notes.keys()) if (ours(root, file)) notes.delete(file)
   const exit = Math.max(typed, await eachVariant(values, checkOne, { json: values.json === true }))
   for (const note of keyframeNotes(root)) {
     if (!values.json) direct.log(`! ${note}`)
     direct.found({ code: 'keyframes', severity: 'info', message: note })
+  }
+  for (const { code, message } of footageNotes(root)) {
+    if (!values.json) direct.log(`! ${message}`)
+    direct.found({ code, severity: 'warning', message })
   }
   return exit
 }
