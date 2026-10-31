@@ -2,7 +2,7 @@
   "name": "color-spaces",
   "type": "component",
   "title": "Color Spaces",
-  "description": "A log working space and wide gamuts: ACEScct and ACEScc both ways, BT.1886, and 3×3 matrices between Rec.709, Rec.2020, P3-D65, ACES AP0 and AP1 with Bradford when the whites differ; WGSL and CPU with the same values",
+  "description": "A log working space and wide gamuts: ACEScct and ACEScc both ways, BT.1886, the camera logs (S-Log3, LogC3, LogC4, V-Log, Canon Log 3), and 3×3 matrices between Rec.709, Rec.2020, P3-D65, ACES AP0 and AP1 and the camera gamuts, with Bradford when the whites differ; WGSL and CPU with the same values",
   "category": "Color",
   "tags": [
     "aces",
@@ -16,6 +16,11 @@
     "p3",
     "display p3",
     "bt.1886",
+    "s-log3",
+    "logc",
+    "v-log",
+    "canon log",
+    "camera log",
     "gamut",
     "log",
     "working space",
@@ -25,7 +30,7 @@
     "shader",
     "wgsl"
   ],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "licence": "MIT",
   "requires": { "items": { "color-primary": "^0.1.1" } },
   "files": ["src/color/spaces.ts", "src/color/spaces.wgsl.ts"]

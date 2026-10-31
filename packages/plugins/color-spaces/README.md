@@ -1,4 +1,4 @@
-A log working space and wide gamuts: the ACEScct and ACEScc curves both ways and BT.1886, as WGSL functions for your own shader and a CPU version that gives the same values, and the 3×3 matrices between Rec.709, Rec.2020, P3-D65, ACES AP0 and AP1.
+A log working space and wide gamuts: the ACEScct and ACEScc curves both ways, BT.1886 and the camera log curves (S-Log3, LogC3, LogC4, V-Log, Canon Log 3), as WGSL functions for your own shader and a CPU version that gives the same values, and the 3×3 matrices between Rec.709, Rec.2020, P3-D65, ACES AP0 and AP1 and the cameras' gamuts.
 
 ```ts
 import { toMat3x3f } from './color/primary.ts'
@@ -29,21 +29,45 @@ const code = /* wgsl */ `${PRIMARY_WGSL}${SPACES_WGSL}
   eased below 2^-15, and 0 and below give its floor, -0.3584. Mid grey is 0.4135884 too.
 - `bt1886ToLinear(v)` and `linearToBt1886(v)`: ITU-R BT.1886 with white 1 and black 0, gamma 2.4;
   below 0 is 0. For sRGB's curve, use `render-srgb`.
+- The camera log curves, code value to linear light and back, named by the transfer
+  `io.video(path, { transfer })` declares: `slog3ToLinear` and `linearToSlog3` (Sony S-Log3),
+  `logc3ToLinear` and `linearToLogc3` (ARRI LogC3), `logc4ToLinear` and `linearToLogc4` (ARRI
+  LogC4), `vlogToLinear` and `linearToVlog` (Panasonic V-Log), `clog3ToLinear` and
+  `linearToClog3` (Canon Log 3, Canon's linear times 0.9, as the ACES IDTs scale it, so 18% grey
+  is code 351). In WGSL the decoder is `${clip.space.transfer}ToLinear`; on the CPU,
+  `TO_LINEAR[transfer]`.
+- `logc3` is LogC3 at EI 800 only: other EIs have other curves.
 - `rgbToXyz(gamut)` and `xyzToRgb(gamut)` (CPU): a gamut's linear RGB to CIE XYZ and back, its
   white at Y = 1. `GAMUTS` has their primaries and whites: `rec709` (BT.709, sRGB's too),
   `rec2020` (BT.2020), `p3d65` (P3 with D65, Display P3's), `ap0` (ACES2065-1) and `ap1`
-  (ACEScg, ACEScct and ACEScc), from S-2014-004. A gamut of your own is
-  `{ red, green, blue, white }` in xy.
+  (ACEScg, ACEScct and ACEScc), from S-2014-004, and the cameras' with D65: `sgamut3` and
+  `sgamut3cine` (Sony), `awg3` and `awg4` (ARRI Wide Gamut 3 and 4), `vgamut` (Panasonic) and
+  `cinemagamut` (Canon). A gamut of your own is `{ red, green, blue, white }` in xy.
 - `gamutMatrix(from, to)` (CPU): one gamut's linear RGB to another's, through XYZ, with a Bradford
   adaptation when the whites differ: the ACES white (0.32168, 0.33767) is not D65, and Bradford
   is the CAT the ACES configs use. `toMat3x3f` (from `color-primary`) lays it out for a uniform;
-  `applyMatrix` applies it on the CPU.
+  `applyMatrix` applies it on the CPU. The Sony, ARRI and Canon IDTs adapt to the ACES white
+  with CAT02 instead, so their matrices to AP0 differ from this one's by up to 0.005; between D65
+  gamuts (a camera's to Rec.709 or Rec.2020) nothing is adapted and they agree.
+
+Code values. The camera curves take a 10-bit code / 1023, the stored sample, which is how the
+vendors give them (S-Log3's 18% grey is code 420). `videoTexture(device, clip, { bits: 10 })`
+gives R'G'B' 0–1 for the nominal range (64–940 in a limited-range file), so for a limited-range
+file (`clip.colour.range` is `limited`, most camera files) the code value is
+`(876 * v + 64) / 1023`, within half a code; for a full-range file it is `v` itself. Decode first, then the matrix:
+
+```wgsl
+let v = textureLoad(footage, xy, 0).rgb;               // limited range, from videoTexture
+let light = toRec709 * slog3ToLinear((876.0 * v + 64.0) / 1023.0);  // gamutMatrix('sgamut3', 'rec709')
+```
 
 In WGSL the curves take and give `vec3f`; on the CPU, one channel. The WGSL and the CPU agree
 within one 8-bit step, and the test checks it on the GPU. The test also checks: ACEScct and
 ACEScc against the specs' values, their breakpoints and round trips; AP0 and AP1 against
 S-2014-004; Rec.709 to AP0 against the matrix OpenColorIO publishes; Rec.709 to Rec.2020 against
-BT.2087, and back against BT.2407.
+BT.2087, and back against BT.2407; each camera curve against its vendor's code values (S-Log3:
+95, 420 and 598 for 0, 18% and 90%), against OpenColorIO 2.6's built-ins and round trips; and
+each camera gamut against the primaries OpenColorIO's camera matrices imply.
 
 Where it goes. Matrices work on linear light only, never on log or display values. A grade in a
 log working space: linear Rec.709 into AP1, `linearToAcescct`, the CDL from `color-primary`
@@ -55,8 +79,6 @@ those shadows even with an identity grade.
 
 This does one job. It never guesses a file's space: the film says what its footage is, in
 `io.video(path, { transfer, gamut })`, and reads it back as `clip.space` (absent when nothing was
-declared) to pick the curve and the matrix. Camera log curves and gamuts (S-Log3, LogC3 and
-LogC4, V-Log, Canon Log 3 and their gamuts) are not here yet: `clip.space` can name them, and
-they come next. PQ is not here either. A declared `bt709` is the camera's curve (the BT.709
-OETF), not this plugin's `bt1886` display curve; `logc3` is ARRI LogC3 at EI 800. There is no generic `convert`: a curve, then a matrix, each one
-line.
+declared) to pick the curve and the matrix. PQ and HLG are not here: no film decodes them in a
+shader yet. A declared `bt709` is the BT.709 OETF (the camera's curve), not `bt1886`, this
+plugin's display curve. There is no generic `convert`: a curve, then a matrix, each one line.
