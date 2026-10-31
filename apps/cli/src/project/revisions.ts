@@ -23,6 +23,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
+import { alive } from '../deliver/claim.ts'
 
 /**
  * Saved revisions of a project's source: content-addressed copies of its files under
@@ -320,7 +321,7 @@ const append = (root: string, entry: Omit<LogEntry, 'at'>) => {
 }
 
 /** Writes a file through a temporary name, so a reader never sees half of it. */
-const writeAtomic = (file: string, data: Uint8Array | string) => {
+export const writeAtomic = (file: string, data: Uint8Array | string) => {
   mkdirSync(dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.tmp`
   writeFileSync(tmp, data)
@@ -642,14 +643,6 @@ const complete = (root: string, revision: Revision, dir: string) =>
 const uses = new Map<string, { root: string; id: string; n: number }>()
 const copiesDir = (root: string) => join(root, '.shaderera', 'revisions')
 const usingDir = (root: string, id: string) => join(copiesDir(root), `${id}.using`)
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
 const touch = (dir: string) => {
   try {
     const now = new Date()

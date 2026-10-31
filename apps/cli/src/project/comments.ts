@@ -42,7 +42,7 @@ export type CommentState = 'open' | 'fixed' | 'resolved' | 'deleted'
  * The frame that shows at t: floor(t·fps), with 1e-6 for t that fall just short of a frame in
  * floating point. The product's one rule, the studio page's readout's: 2.4608 s at 60 fps is 147.
  */
-export const frameAt = (t: number, fps: number) => Math.floor(t * fps + 1e-6)
+export const frameShownAt = (t: number, fps: number) => Math.floor(t * fps + 1e-6)
 
 /** A time for a person to read: to the millisecond (the JSON keeps t whole). */
 export const seconds = (t: number) => `${Number(t.toFixed(3))} s`
@@ -391,8 +391,8 @@ export const addComment = async (root: string, c: NewComment, by: By): Promise<T
     revision,
     ...(c.variant !== undefined ? { variant: c.variant } : {}),
     t: c.t,
-    frame: frameAt(c.t, fps),
-    ...(c.to !== undefined ? { to: c.to, toFrame: frameAt(c.to, fps) } : {}),
+    frame: frameShownAt(c.t, fps),
+    ...(c.to !== undefined ? { to: c.to, toFrame: frameShownAt(c.to, fps) } : {}),
     ...(point ? { point } : {}),
     ...(box ? { box } : {}),
     ...(point || box ? { size: [manifest.width, manifest.height] as [number, number] } : {}),

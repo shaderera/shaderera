@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
+import { alive } from '../deliver/claim.ts'
 import { tempDir } from '../fixtures/temp.ts'
 import {
   cacheLimit,
@@ -50,14 +51,6 @@ test('an HLS playlist naming a file outside the project is refused, naming the c
   )
   assert.throws(() => probeVideo(playlist), /clip\.m3u8 is a playlist \(hls\)/)
 })
-
-const alive = (pid: number) => {
-  try {
-    return process.kill(pid, 0)
-  } catch {
-    return false
-  }
-}
 
 test('two video frames asked at once both arrive, each the right one', {
   skip: !ffmpeg && 'no ffmpeg',

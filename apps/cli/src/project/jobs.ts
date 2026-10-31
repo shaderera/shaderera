@@ -5,7 +5,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -29,6 +28,7 @@ import {
   releaseFrozen,
   revisionOf,
   save,
+  writeAtomic,
 } from './revisions.ts'
 
 /**
@@ -419,8 +419,7 @@ export const createJob = async (
   }
   mkdirSync(jobsDir(root), { recursive: true })
   const file = join(jobsDir(root), `${job.name}.json`)
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(job, null, 1)}\n`)
+  const text = `${JSON.stringify(job, null, 1)}\n`
   if (o.replace) {
     let was: unknown
     try {
@@ -428,11 +427,13 @@ export const createJob = async (
     } catch {
       was = undefined
     }
-    renameSync(tmp, file)
+    writeAtomic(file, text)
     // Another job under the name: its first render pins its own host.
     if (was !== job.id) rmSync(pinFile(root, job.name), { force: true })
     return job
   }
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  writeFileSync(tmp, text)
   try {
     // A hard link fails when the name is taken, so two writers never both claim it.
     linkSync(tmp, file)

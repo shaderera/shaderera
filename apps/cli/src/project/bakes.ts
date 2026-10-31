@@ -4,20 +4,12 @@
 // inputs or frames no longer match its stamp. Never a silent fallback (decision 0008).
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { isAbsolute, join, posix, resolve } from 'node:path'
 import type { Bake, Manifest } from '@shaderera/core'
 import { outside } from '../node/inside.ts'
 import type { BakeFrames } from '../node/services.ts'
-import { scan } from './revisions.ts'
+import { scan, writeAtomic } from './revisions.ts'
 
 /** What `shaderera bake` made: the stamp a render checks the bake against. */
 export type BakeStamp = {
@@ -179,9 +171,7 @@ export const makeBake = (root: string, manifest: Manifest, name: string): BakeSt
     made: new Date().toISOString(),
   }
   const out = stampFile(root, name)
-  mkdirSync(join(out, '..'), { recursive: true })
-  writeFileSync(`${out}.${process.pid}.tmp`, `${JSON.stringify(stamp, null, 1)}\n`)
-  renameSync(`${out}.${process.pid}.tmp`, out)
+  writeAtomic(out, `${JSON.stringify(stamp, null, 1)}\n`)
   return stamp
 }
 

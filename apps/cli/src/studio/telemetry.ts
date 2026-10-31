@@ -1,8 +1,9 @@
 // The studio's telemetry switch (docs/studio.md). The CLI sends nothing itself: it tells the page
 // whether it may (`telemetry` in cli-hello and /info), and the page sends counts only.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
+import { writeAtomic } from '../project/revisions.ts'
 
 /** The user's Shaderera config: `~/.shaderera/config.json`, beside tokens.json. */
 export const configFile = (): string => join(homedir(), '.shaderera', 'config.json')
@@ -27,10 +28,7 @@ const writeConfig = (change: Config): string => {
   const file = configFile()
   const config = readConfig()
   if (!config) throw new Error(`${file} cannot be read: fix it or delete it.`)
-  mkdirSync(dirname(file), { recursive: true })
-  const tmp = `${file}.${process.pid}.tmp`
-  writeFileSync(tmp, `${JSON.stringify({ ...config, ...change }, null, 2)}\n`)
-  renameSync(tmp, file)
+  writeAtomic(file, `${JSON.stringify({ ...config, ...change }, null, 2)}\n`)
   return file
 }
 

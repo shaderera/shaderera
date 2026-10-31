@@ -16,7 +16,7 @@ import {
   addComment,
   commentsFile,
   fold,
-  frameAt,
+  frameShownAt,
   listening,
   listing,
   MAX_TEXT,
@@ -158,10 +158,10 @@ test('ids: 6 characters of the studio alphabet, never one already taken', () => 
 })
 
 test("frame = floor(t·fps + 1e-6), the readout's rule: 2.4608 s at 60 fps is frame 147", async () => {
-  assert.equal(frameAt(2.4608, 60), 147)
-  assert.equal(frameAt(2.4607999999970236, 60), 147)
-  assert.equal(frameAt(0.1 * 3, 10), 3) // 2.9999999999999996 in floating point
-  assert.equal(frameAt(1.99, 30), 59) // floor, not round
+  assert.equal(frameShownAt(2.4608, 60), 147)
+  assert.equal(frameShownAt(2.4607999999970236, 60), 147)
+  assert.equal(frameShownAt(0.1 * 3, 10), 3) // 2.9999999999999996 in floating point
+  assert.equal(frameShownAt(1.99, 30), 59) // floor, not round
   const root = project()
   const manifest = JSON.parse(readFileSync(join(root, 'shaderera.json'), 'utf8'))
   writeFileSync(join(root, 'shaderera.json'), JSON.stringify({ ...manifest, fps: 60 }))

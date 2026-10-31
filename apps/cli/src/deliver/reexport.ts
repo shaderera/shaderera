@@ -4,7 +4,7 @@
 import { spawnSync } from 'node:child_process'
 import { isDeepStrictEqual } from 'node:util'
 import { frameTimes } from '@shaderera/core'
-import type { Codec, Probe } from '../cli/ffmpeg.ts'
+import { type Codec, type Probe, s } from '../cli/ffmpeg.ts'
 import type { EncodeAudio } from '../cli/mix.ts'
 import type { Child } from '../node/child.ts'
 import { type Job, readJob } from '../project/jobs.ts'
@@ -82,8 +82,6 @@ export const sameFrames = async (was: Child, now: Child, job: Job): Promise<numb
   }
   return differ
 }
-
-const s = (n: number) => String(Number(n.toFixed(6)))
 
 /**
  * ffmpeg's arguments for a file with `video`'s video packets as they are (`-c:v copy`) and a new
