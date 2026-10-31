@@ -445,6 +445,29 @@ test('an item name never starts with a dot, so it stays inside items/', () => {
     )
 })
 
+test('a file entry that is the plugin folder itself is refused at publish and at add', () => {
+  const registry = temp('reg')
+  publish(piece('looks-whole', ['src/a.ts']), registry)
+  const file = join(registry, 'index.json')
+  const index = readFileSync(file, 'utf8')
+  for (const f of ['.', '', 'a/..']) {
+    const dir = write(temp('whole'), {
+      'shaderera.item.json': {
+        name: 'looks-whole',
+        type: 'component',
+        category: 'Looks',
+        version: '0.2.0',
+        licence: 'MIT',
+        files: [f],
+      },
+    })
+    assert.throws(() => publish(dir, registry), /outside the plugin/)
+    // An index from anywhere: add checks the label again.
+    writeFileSync(file, index.replace('"src/a.ts"', JSON.stringify(f)))
+    assert.throws(() => add(project(), registry, 'looks-whole'), /outside the plugin/)
+  }
+})
+
 test('the index is replaced whole, never rewritten in place', () => {
   const registry = temp('reg')
   const file = join(registry, 'index.json')
