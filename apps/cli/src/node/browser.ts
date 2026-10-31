@@ -7,7 +7,15 @@
  */
 import { type ChildProcess, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -224,8 +232,27 @@ const takeLock = (lock: string, retry = true): boolean => {
   }
   // An empty lock is one being written.
   if (!(pid > 0) || alive(pid)) return false
-  rmSync(lock, { force: true })
-  return retry && takeLock(lock, false)
+  return retry && takeOver(lock, pid)
+}
+
+/**
+ * Takes over `lock`, which `stale` (a process that has exited) left: renamed away first, so of two
+ * processes taking it over at once only one moves it. A lock moved that is no longer the stale one
+ * was taken over before: it goes back to its holder.
+ */
+export const takeOver = (lock: string, stale: number): boolean => {
+  const moved = `${lock}.${process.pid}`
+  try {
+    renameSync(lock, moved)
+  } catch {
+    return false
+  }
+  if (readFileSync(moved, 'utf8') !== String(stale)) {
+    renameSync(moved, lock)
+    return false
+  }
+  rmSync(moved, { force: true })
+  return takeLock(lock, false)
 }
 
 /**

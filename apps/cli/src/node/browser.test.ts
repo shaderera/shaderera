@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { browserAdapter, claimProfile } from './browser.ts'
+import { browserAdapter, claimProfile, takeOver } from './browser.ts'
 
 test('one host holds the project profile; a stale lock is taken over; release frees only its own', () => {
   const root = tempDir('profile')
@@ -43,4 +43,14 @@ test('a Chrome that cannot start is an error that says so, not a crash', async (
   const started = Date.now()
   await assert.rejects(browserAdapter(missing), /it could not start \(spawn .*ENOENT\)/)
   assert.ok(Date.now() - started < 5000, 'without waiting for a DevTools port')
+})
+
+test('two take-overs of one stale lock: one wins, and the winner keeps it', () => {
+  const lock = join(tempDir('lock'), 'chrome.lock')
+  writeFileSync(lock, '999999999')
+  // Both read the dead pid before either acted; the second acts after the first holds the lock.
+  assert.equal(takeOver(lock, 999999999), true)
+  assert.equal(takeOver(lock, 999999999), false)
+  assert.equal(readFileSync(lock, 'utf8'), String(process.pid))
+  assert.deepEqual(readdirSync(dirname(lock)), ['chrome.lock'])
 })
