@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { cpSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { cpSync, existsSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from '../fixtures/temp.ts'
@@ -156,5 +156,25 @@ test('a call outlasts timeoutMs while the source keeps asking this process for t
     assert.ok(performance.now() - start > 2000)
   } finally {
     await child.close()
+  }
+})
+
+test("a closed host's build goes at the next build in this process, an open host's stays", async () => {
+  const root = tempDir('builds')
+  cpSync(tiny, root, { recursive: true, filter: (p) => !p.includes('.shaderera') })
+  const project = await findProject(root)
+  const closed = await buildForNode(project)
+  const open = await buildForNode(project)
+  const a = await openChild(project, { entryFile: closed })
+  const b = await openChild(project, { entryFile: open })
+  try {
+    await a.close()
+    const next = await buildForNode(project)
+    assert.equal(existsSync(dirname(closed)), false)
+    assert.equal(existsSync(dirname(open)), true)
+    // Built and not opened yet: a host is about to open it.
+    assert.equal(existsSync(dirname(next)), true)
+  } finally {
+    await b.close()
   }
 })
