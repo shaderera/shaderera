@@ -153,9 +153,11 @@ const bytes = (n: number) => new Uint8Array(Buffer.allocUnsafeSlow(n).buffer as 
  * not at frame 0 (#434): the file's packets (`frameIndex`) say which pts frame i has, and each frame
  * that comes out is given as frame i only once its pts (showinfo, with `-copyts`) is the one frame
  * i has. A file the packets cannot index, or a frame that comes out with another pts or not at all,
- * goes back to decoding from frame 0 and counting, as before; that file is not seeked again. A
- * seeked decoder runs on 4 threads, which cuts the decode up to the frame (the same bytes as one
- * thread: ffmpeg's frame threads are exact).
+ * goes back to decoding from frame 0 and counting, as before; that file is not seeked again.
+ *
+ * ffmpeg decodes on `threads` frame threads (4; ADR 0030, step 1), from frame 0 as after a seek,
+ * so it keeps ahead of several hosts. The bytes are the same as on one thread: ffmpeg's frame
+ * threads are exact.
  */
 export const videoDecoder = (
   file: string,
@@ -171,6 +173,8 @@ export const videoDecoder = (
   turn?: SpawnTurn,
   /** For tests: the frame index in place of the one read from the file. */
   known?: FrameIndex | null,
+  /** For tests: ffmpeg's decoding threads (1 is how it decoded from frame 0 before ADR 0030). */
+  threads = 4,
 ) => {
   const size = frameBytes(info.format ?? 'rgba', info.width, info.height)
   let proc: ReturnType<typeof spawn> | undefined
@@ -236,7 +240,7 @@ export const videoDecoder = (
       '-loglevel',
       seek ? 'info' : 'error',
       '-threads',
-      seek ? '4' : '1',
+      String(threads),
       ...(seek ? ['-nostats', '-ss', seek.ss, '-noaccurate_seek', '-copyts'] : []),
       '-i',
       file,

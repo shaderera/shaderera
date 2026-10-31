@@ -155,8 +155,11 @@ export const scaledVideo = (info: VideoInfo, scale: number): VideoInfo => ({
   height: Math.max(1, Math.round(info.height * scale)),
 })
 
-/** How many bytes of frames a clip's decoder runs ahead at most: 64 MiB (one frame if larger). */
-export const AHEAD_BYTES = 64 * 1024 * 1024
+/**
+ * How many bytes of frames a clip's decoder runs ahead at most: 128 MiB (one frame if larger),
+ * doubled with the window (ADR 0030, step 1).
+ */
+export const AHEAD_BYTES = 128 * 1024 * 1024
 
 /**
  * One file's frames as `io.video` gives them, decoded in a thread of its own (video-worker.ts,
@@ -251,8 +254,8 @@ export const videoReader = (
  * The clips open in this process, each with the hosts using it. Several hosts of one render ask
  * frames in turn, so one decoder serves them all, keeping two frames a host and one: a frame is
  * decoded once, not once a host, and one asked a little late (another host's, or the frame a
- * re-check inspects after the next was asked for) is still there. It decodes a frame a host and one
- * ahead of the latest asked, so a host's next frame is usually there when it asks.
+ * re-check inspects after the next was asked for) is still there. It decodes two frames a host and
+ * one ahead of the latest asked (ADR 0030), so a host's next frame is usually there when it asks.
  */
 const shared = new Map<string, { reader: ReturnType<typeof videoReader>; users: Set<object> }>()
 /** The process ids of this process's clip decoders that run now. */
@@ -461,13 +464,13 @@ export const createServices = (
     }
     if (!v) {
       const users = new Set<object>()
-      // Two kept a host and one; decoded ahead, one a host and one (at most AHEAD_BYTES).
+      // Two kept a host and one; decoded ahead, as many again (at most AHEAD_BYTES; ADR 0030).
       v = {
         users,
         reader: videoReader(
           file,
           () => 2 * users.size + 1,
-          () => users.size + 1,
+          () => 2 * users.size + 1,
           undefined,
           scale,
           format,
