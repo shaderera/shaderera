@@ -404,6 +404,8 @@ test('add resolves everything first, copies only what a piece lacks, and stops a
   assert.throws(() => add(root, registry, 'broken'), /gone is not a plugin in/)
   assert.ok(!existsSync(join(root, 'src', 'broken.ts')))
   assert.doesNotThrow(() => add(root, registry, 'p'))
+  for (const name of ['toString', 'constructor', '__proto__'])
+    assert.throws(() => add(root, registry, name), new RegExp(`^Error: ${name} is not a plugin in`))
 })
 
 test('a release ranks above its own pre-releases', () => {
@@ -509,6 +511,8 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
     add(root, dir, 'looks-grain')
     assert.ok(existsSync(join(root, 'src', 'grain.ts')))
     assert.ok(existsSync(join(root, 'src', 'base noise.ts')))
+    // A built-in object name is no plugin here either (#618).
+    assert.equal(await mirror(url, 'info', ['constructor']), dir)
 
     const index = JSON.parse(readFileSync(join(folder, 'index.json'), 'utf8'))
     index.items['looks-grain'].versions['0.1.0'].files.push('../../escape.txt')
