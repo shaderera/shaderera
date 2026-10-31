@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { tempDir } from '../fixtures/temp.ts'
-import { claimProfile } from './browser.ts'
+import { browserAdapter, claimProfile } from './browser.ts'
 
 test('one host holds the project profile; a stale lock is taken over; release frees only its own', () => {
   const root = tempDir('profile')
@@ -36,4 +36,11 @@ test('one host holds the project profile; a stale lock is taken over; release fr
   const third = claimProfile(root)
   assert.equal(third.profile, own)
   third.release()
+})
+
+test('a Chrome that cannot start is an error that says so, not a crash', async () => {
+  const missing = join(tempDir('chrome'), 'chrome.exe')
+  const started = Date.now()
+  await assert.rejects(browserAdapter(missing), /it could not start \(spawn .*ENOENT\)/)
+  assert.ok(Date.now() - started < 5000, 'without waiting for a DevTools port')
 })
