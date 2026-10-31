@@ -521,6 +521,39 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
   }
 })
 
+test('a site that answers its index with HTML is named, and the mirrored index is kept', async () => {
+  const folder = temp('served')
+  publish(piece('looks-base', ['src/base.ts']), folder)
+  let html = false
+  const server = createServer((req, res) => {
+    if (html) return void res.end('<!doctype html><title>Not here</title>')
+    res.end(readFileSync(join(folder, decodeURIComponent(req.url ?? '/'))))
+  })
+  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok))
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  process.env.SHADERERA_CACHE = temp('cache')
+  const said: string[] = []
+  const error = console.error
+  console.error = (s: string) => said.push(s)
+  try {
+    html = true
+    await assert.rejects(mirror(url, 'search', []), {
+      message: `${url}/index.json is not a plugin index`,
+    })
+    html = false
+    const dir = await mirror(url, 'search', [])
+    const before = readFileSync(join(dir, 'index.json'), 'utf8')
+    html = true
+    assert.equal(await mirror(url, 'search', []), dir)
+    assert.match(said.join('\n'), new RegExp(`${url}/index.json is not a plugin index`))
+    assert.equal(readFileSync(join(dir, 'index.json'), 'utf8'), before)
+  } finally {
+    console.error = error
+    server.close()
+    delete process.env.SHADERERA_CACHE
+  }
+})
+
 test("--site names where plugins come from: a site's /r, a URL's own path, or a folder", () => {
   assert.equal(registryDir('https://you.example'), 'https://you.example/r')
   assert.equal(registryDir('https://you.example/'), 'https://you.example/r')
