@@ -197,12 +197,12 @@ from the packets it read to seek; with several variants, each clip is noted once
 ```
 
 A clip of more than 8 bits (`clip.bits`) gets a warning (finding `footage-space`) when the film
-opened it without saying what it is (`io.video(path, { transfer, gamut })`,
-[protocol](protocol.md#open-host-and-io)), and another (`footage-bits`) when the film read it only at 8 bits,
-so a grade bands. Neither fails the check.
+opened it without saying its curve (`io.video(path, { transfer, gamut })` with a `transfer`,
+[protocol](protocol.md#open-host-and-io)), and another (`footage-bits`) when the film read it
+only at 8 bits, so a grade bands. Neither fails the check.
 
 ```
-! assets/footage/a7s.mp4: 10-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it: io.video(path, { transfer, gamut }), for example { transfer: 'slog3', gamut: 'sgamut3cine' }.
+! assets/footage/a7s.mp4: 10-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it, from the camera's settings or the file's tags: io.video(path, { transfer, gamut }).
 ```
 
 A shader that does not compile fails `check`, `still`, `render` and every other command that

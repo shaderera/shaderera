@@ -151,12 +151,12 @@ export const footageNotes = (root: string, deep: typeof deepFootage = deepFootag
     if (!f.declared)
       notes.push({
         code: 'footage-space',
-        message: `${path}: ${f.bits}-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it: io.video(path, { transfer, gamut }), for example { transfer: 'slog3', gamut: 'sgamut3cine' }.`,
+        message: `${path}: ${f.bits}-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it, from the camera's settings or the file's tags: io.video(path, { transfer, gamut }).`,
       })
     if (f.at8 && !f.at10)
       notes.push({
         code: 'footage-bits',
-        message: `${path}: ${f.bits}-bit footage read only at 8 bits, so a grade that lifts or stretches it bands. Ask for its 10-bit planes: videoTexture(host.gpu, clip, { bits: 10 }) or clip.frame(i, { format: 'yuv420p10' }).`,
+        message: `${path}: ${f.bits}-bit footage read only at 8 bits, so a grade that lifts or stretches it bands. Ask for its 10-bit planes: videoTexture(device, clip, { bits: 10 }) or clip.frame(i, { format: 'yuv420p10' }).`,
       })
     return notes
   })

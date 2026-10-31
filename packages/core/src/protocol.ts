@@ -282,7 +282,7 @@ export type VideoColour = {
 /**
  * What a footage file is, as the film declares it (#575): its transfer curve and its gamut. Files
  * often do not tag a log curve, so the film says. The engine converts nothing: `color-spaces`
- * reads it.
+ * reads it. `bt709` is the camera's curve (the BT.709 OETF), `logc3` LogC3 at EI 800.
  */
 export type FootageSpace = {
   readonly transfer?:

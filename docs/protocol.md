@@ -201,11 +201,13 @@ it, before any frame.
 - `io.video(path, { transfer, gamut })` declares what the file is, since camera files
   often do not tag a log curve: `transfer` one of `bt709`, `srgb`, `pq`, `hlg`, `slog3`,
   `logc3`, `logc4`, `vlog`, `clog3`, and `gamut` one of `rec709`, `rec2020`, `p3d65`, `sgamut3`,
-  `sgamut3cine`, `awg3`, `awg4`, `vgamut`, `cinemagamut`, each optional. The footage carries it
+  `sgamut3cine`, `awg3`, `awg4`, `vgamut`, `cinemagamut`, each optional; another name throws,
+  naming these. `bt709` is the camera's curve (the BT.709 OETF), not the BT.1886 display curve;
+  `logc3` is ARRI LogC3 at EI 800 (its curve changes with the EI). The footage carries it
   as `space`, beside `colour`; it is absent when the film declared nothing. The host converts
   nothing by it: the frames are the same bytes, and a grade (`color-spaces`) reads `space` to
-  turn the codes into light. `check` warns of a file of more than 8 bits whose space is not
-  declared, and of one read only at 8 bits.
+  turn the codes into light. `check` warns of a file of more than 8 bits whose `transfer` is not
+  declared (a gamut alone picks no curve), and of one read only at 8 bits.
 - `io.cache(key, inputs, make)` keeps derived bytes in `.shaderera/cache/` across renders, hosts and
   runs: `make` runs only when nothing is kept for the key with the input files as they are now (a
   changed input is another entry). Put a version in the key when the making changes. The cache

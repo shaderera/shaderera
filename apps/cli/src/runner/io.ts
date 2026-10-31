@@ -1,6 +1,6 @@
 // `io.image`, `io.video`, `io.cache` and `io.bake`, the same in both hosts: the Node host passes its IPC
 // to the CLI process as `ask`, the runner worker its requests to the runner server.
-import type { Baked, DecodedImage, Footage, Io, VideoColour } from '@shaderera/core'
+import type { Baked, DecodedImage, Footage, FootageSpace, Io, VideoColour } from '@shaderera/core'
 import { sha256 } from '@shaderera/core'
 import { decodeImage } from './image.ts'
 import { timeVideo } from './render-time.ts'
@@ -46,6 +46,30 @@ export type StillSize = { width: number; height: number; bits: 8 | 16; key: stri
 
 const text = new TextEncoder()
 
+/** The names `io.video` knows (`FootageSpace`), so a film's typo throws rather than passes. */
+const TRANSFERS: { [k in NonNullable<FootageSpace['transfer']>]: true } = {
+  bt709: true,
+  srgb: true,
+  pq: true,
+  hlg: true,
+  slog3: true,
+  logc3: true,
+  logc4: true,
+  vlog: true,
+  clog3: true,
+}
+const GAMUTS: { [k in NonNullable<FootageSpace['gamut']>]: true } = {
+  rec709: true,
+  rec2020: true,
+  p3d65: true,
+  sgamut3: true,
+  sgamut3cine: true,
+  awg3: true,
+  awg4: true,
+  vgamut: true,
+  cinemagamut: true,
+}
+
 /**
  * A still as the CLI's process hands it over: its size (services.ts, `image-open`), then its
  * bytes. A view into a larger message (a small still over IPC) is copied, so `data.buffer` is the
@@ -84,7 +108,20 @@ export const extraIo = (
       return image
     },
     video: async (path, space): Promise<Footage> => {
-      const declared = space?.transfer !== undefined || space?.gamut !== undefined
+      for (const [key, known] of [
+        ['transfer', TRANSFERS],
+        ['gamut', GAMUTS],
+      ] as const) {
+        const value = space?.[key]
+        if (value !== undefined && !Object.hasOwn(known, value))
+          throw new Error(
+            `io.video(${path}): ${key} is one of ${Object.keys(known)
+              .map((k) => `'${k}'`)
+              .join(', ')}, not '${value}'.`,
+          )
+      }
+      // A gamut alone picks no curve: only a transfer says what the codes are (check, #575).
+      const declared = space?.transfer !== undefined
       const info = await ask.videoOpen(path, declared)
       const frame = async (index: number, options?: { format?: string }) => {
         const format = options?.format ?? 'rgba'
@@ -101,7 +138,7 @@ export const extraIo = (
       }
       return {
         ...info,
-        ...(declared ? { space } : {}),
+        ...((space?.transfer ?? space?.gamut) ? { space } : {}),
         frame: frame as Footage['frame'],
         close: () => ask.videoClose(path),
       }

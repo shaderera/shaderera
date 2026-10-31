@@ -57,5 +57,6 @@ This does one job. It never guesses a file's space: the film says what its foota
 `io.video(path, { transfer, gamut })`, and reads it back as `clip.space` (absent when nothing was
 declared) to pick the curve and the matrix. Camera log curves and gamuts (S-Log3, LogC3 and
 LogC4, V-Log, Canon Log 3 and their gamuts) are not here yet: `clip.space` can name them, and
-they come next. PQ is not here either. There is no generic `convert`: a curve, then a matrix, each one
+they come next. PQ is not here either. A declared `bt709` is the camera's curve (the BT.709
+OETF), not this plugin's `bt1886` display curve; `logc3` is ARRI LogC3 at EI 800. There is no generic `convert`: a curve, then a matrix, each one
 line.
