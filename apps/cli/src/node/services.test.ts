@@ -273,6 +273,22 @@ test('past its limit the cache drops the least recently used entries, a get coun
   assert.equal(kept.length, 3)
 })
 
+test('a put removes a half-written file a killed host left over an hour ago, never a fresh one', async () => {
+  const root = tempDir('cache')
+  const s = createServices(root)
+  const dir = join(root, '.shaderera', 'cache')
+  await s.handle({ op: 'cache-put', hash: key('a'), bytes: bytes(1000, 1) })
+  const old = join(dir, `${key('b')}.11111`)
+  const fresh = join(dir, `${key('c')}.22222`)
+  writeFileSync(old, bytes(5000, 2))
+  writeFileSync(fresh, bytes(5000, 2))
+  const at = new Date(Date.now() - 61 * 60_000)
+  utimesSync(old, at, at)
+  await s.handle({ op: 'cache-put', hash: key('d'), bytes: bytes(1000, 1) })
+  assert.equal(existsSync(old), false)
+  assert.equal(existsSync(fresh), true)
+})
+
 test('an entry larger than the limit is kept alone, and the limit comes from the environment', async () => {
   const root = tempDir('cache')
   const s = createServices(root, {}, { cacheLimit: 1500 })
