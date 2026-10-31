@@ -560,6 +560,9 @@ const handle = async (m: Request, timer: FrameTimer = timeFrame()): Promise<unkn
   }
 }
 
+// The parent is gone (killed by PID, which leaves its children on Linux and macOS): nothing will
+// ask again, and Dawn's GPU object would keep this process and its device.
+process.on('disconnect', () => process.exit(1))
 process.on('message', async ({ id, request }: { id: number; request: Request }) => {
   // A reply to this host's own request (askParent) is not a request.
   if (request === undefined) return
