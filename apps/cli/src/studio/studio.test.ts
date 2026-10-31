@@ -25,7 +25,7 @@ import {
 import { fileURLToPath } from 'node:url'
 import { saveToken } from '../cli/site.ts'
 import { tempDir } from '../fixtures/temp.ts'
-import { scan, treeId } from '../project/revisions.ts'
+import { save, scan, treeId, unusedFrozen } from '../project/revisions.ts'
 import { type Bridge, type StudioEvent, startBridge } from './bridge.ts'
 import { call, events, nonce, page } from './fixtures/page.ts'
 import { MAX_MESSAGE, startRelay } from './fixtures/relay.ts'
@@ -685,6 +685,42 @@ test('/render/<job>/file of a file deleted since is a 404 naming it', async () =
   const r = await call(bridge.port, { path: `/render/${job}/file`, headers: asPage(bridge) })
   assert.equal(r.status, 404)
   assert.match(jsonOf(r).error, new RegExp(name))
+})
+
+test('a render of a revision releases its frozen copy, done or failed', async () => {
+  const film = fixture()
+  const good = save(film, { by: 'person' }).id
+  writeFileSync(join(film, 'src', 'composition.ts'), 'export default (')
+  const broken = save(film, { by: 'person' }).id
+  const b = await startBridge({ root: film, api: SITE, site: SITE, origins: [SITE], settleMs: 50 })
+  try {
+    const sse = events(b)
+    await sse.opened
+    for (const [revision, state] of [
+      [good, 'done'],
+      [broken, 'failed'],
+    ] as const) {
+      const r = await call(b.port, {
+        method: 'POST',
+        path: '/render',
+        headers: asPage(b),
+        body: { format: 'png', revision },
+      })
+      const { job } = jsonOf(r)
+      const end = await sse.next(
+        (e) => e.type === 'job' && e.id === job && (e.state === 'done' || e.state === 'failed'),
+      )
+      assert.equal(end.type === 'job' && end.state, state, JSON.stringify(end))
+      // In use by no one: the next trim or prune may take it.
+      assert.deepEqual(
+        unusedFrozen(film).map((c) => c.id),
+        [revision],
+      )
+    }
+    sse.close()
+  } finally {
+    await b.close()
+  }
 })
 
 test('/render/<job>/file names a file of a Thai project and a 16:9 variant, and the bridge lives on', async () => {
