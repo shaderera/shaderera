@@ -235,9 +235,10 @@ export default open
 
 `shaderera.json` holds the size, frame rate, duration, params and variants (cutdowns, other
 formats). A host runs the source: the Node host by default, or Chrome for a DOM or WebGPU page.
-The film's code runs in its own process, which may not write files or start programs unless you
-pass `--trusted`. A frame is layers (pixels, GPU textures, depth); the host composites them and
-hands ffmpeg the result.
+The film's code runs in its own process, kept away from the tools' own powers (no file writes, no
+programs, unless you pass `--trusted`). That is an execution boundary, not a sandbox: it does not
+make hostile code safe, so run only projects you would run with `npm run build`. A frame is layers
+(pixels, GPU textures, depth); the host composites them and hands ffmpeg the result.
 
 ## Commands
 

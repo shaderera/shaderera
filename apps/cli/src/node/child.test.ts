@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { sha256 } from '@shaderera/core'
+import { tempDir } from '../fixtures/temp.ts'
 import { buildForNode } from './build.ts'
 import { openChild, permissionArgs } from './child.ts'
 import { findProject } from './project.ts'
@@ -78,6 +79,37 @@ test('the child renders deterministically and cannot write or spawn', async () =
     assert.match(r.stderr, /ERR_ACCESS_DENIED/)
   }
   assert.ok(!existsSync(join(tiny, 'x.txt')))
+})
+
+test('the child refuses a native addon outside node_modules, such as one io.cache wrote', async () => {
+  const root = tempDir('dlopen')
+  mkdirSync(join(root, 'src'))
+  mkdirSync(join(root, '.shaderera', 'cache'), { recursive: true })
+  writeFileSync(join(root, '.shaderera', 'cache', 'evil.node'), 'not an addon')
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({ entry: './src/c.ts', fps: 10, duration: 1, width: 8, height: 8 }),
+  )
+  writeFileSync(
+    join(root, 'src', 'c.ts'),
+    `export default ({ io }) => {
+      let error = ''
+      try {
+        process.dlopen({ exports: {} }, ${JSON.stringify(join(root, '.shaderera', 'cache', 'evil.node'))})
+      } catch (e) {
+        error = e.message
+      }
+      const canvas = io.canvas(8, 8)
+      return { render: async () => ({ color: canvas }), inspect: async () => ({ error }) }
+    }`,
+  )
+  const project = await findProject(root)
+  const child = await openChild(project, { entryFile: await buildForNode(project), params: {} })
+  try {
+    assert.match(JSON.stringify(await child.inspect(0)), /outside node_modules is refused/)
+  } finally {
+    await child.close()
+  }
 })
 
 test('the child opens an hdr10 range only for a film with hdr10, and never on Skia', async () => {

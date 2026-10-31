@@ -182,6 +182,9 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     console.log(
       `forked "${film.title}" (${film.id}) version ${version.id.slice(0, 12)} into ${dir}: ${entries.length} files, ${bytesText(size)}, licence ${version.licence}`,
     )
+    console.log(
+      'its code runs with your rights: Shaderera has an execution boundary, not a sandbox. Run it only if you would run its npm run build.',
+    )
     console.log('next:')
     console.log(`  cd ${dir}`)
     console.log('  npm install')

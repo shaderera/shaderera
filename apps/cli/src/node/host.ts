@@ -184,14 +184,17 @@ export type HostProfile = { time: RenderTime }
 /**
  * One Dawn per process: a second native Dawn (a library that installs its own `webgpu`, such as a
  * pinned older version) crashes the process later, at random. Refused here, as it loads, by name.
+ * An addon outside `node_modules` is refused too: the project could have written it (`io.cache`).
  */
 const dawns = new Set<string>()
 {
   const dlopen = process.dlopen
   process.dlopen = ((module: unknown, filename: string, ...rest: unknown[]) => {
+    // Windows hands dlopen a namespaced path (\\?\C:\...), which realpath does not take.
+    const real = realpathSync(filename.replace(/^\\\\\?\\/, ''))
+    if (!/[\\/]node_modules[\\/]/.test(real))
+      throw new Error(`A native addon outside node_modules is refused: ${real}`)
     if (/dawn\.node$/i.test(filename)) {
-      // Windows hands dlopen a namespaced path (\\?\C:\...), which realpath does not take.
-      const real = realpathSync(filename.replace(/^\\\\\?\\/, ''))
       const first = [...dawns][0]
       if (first !== undefined && first !== real)
         throw new Error(

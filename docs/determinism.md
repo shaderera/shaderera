@@ -266,7 +266,8 @@ opens it in a child process started with Node's permission model:
 
 - read access to the project and the `node_modules` folders that hold the packages the host loads
   (npm installs a native addon's platform package beside it, so the whole folder is needed);
-- `--allow-addons`, because Dawn and `@napi-rs/canvas` are native addons;
+- `--allow-addons`, because Dawn and `@napi-rs/canvas` are native addons; an addon whose real path
+  is outside a `node_modules` folder is refused, so the project cannot load one it wrote (`io.cache`);
 - no file writes, no child processes, no stdin; its stdout and stderr go to the parent's stderr,
   so project output never mixes with a command's result or MCP's stream.
 
