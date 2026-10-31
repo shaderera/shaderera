@@ -410,6 +410,25 @@ test('add resolves everything first, copies only what a piece lacks, and stops a
     assert.throws(() => add(root, registry, name), new RegExp(`^Error: ${name} is not a plugin in`))
 })
 
+test('add warns when a plugin needs a shaderera this CLI is not', () => {
+  const registry = temp('reg')
+  publish(piece('looks-new', ['src/new.ts'], { requires: { shaderera: '>=0.3.0' } }), registry)
+  publish(
+    piece('looks-top', ['src/top.ts'], { requires: { items: { 'looks-new': '*' } } }),
+    registry,
+  )
+  const old = add(project(), registry, 'looks-top', { version: '0.2.2' })
+  assert.ok(
+    old.includes(
+      '! looks-new@0.1.0 requires shaderera >=0.3.0, not 0.2.2: update shaderera or add an older version',
+    ),
+    old.join('\n'),
+  )
+  assert.ok(
+    !add(project(), registry, 'looks-top', { version: '0.3.1' }).some((d) => d.startsWith('!')),
+  )
+})
+
 test('a release ranks above its own pre-releases', () => {
   assert.equal(newest(['0.4.0', '0.4.0-dev.1'], '*'), '0.4.0')
   assert.equal(newest(['0.4.0-dev.10', '0.4.0-dev.9'], '^0.4.0'), '0.4.0-dev.10')

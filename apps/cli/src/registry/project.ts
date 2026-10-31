@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
+import { shadereraVersion } from '../deliver/environment.ts'
 import { noProject } from '../node/project.ts'
 import type { Item } from './item.ts'
 import { npm } from './npm.ts'
@@ -79,13 +80,14 @@ export const recordAsset = (root: string, item: Item): void => {
  * comes too, each item once, and all of it resolves before anything is copied: one that does not
  * resolve stops them all. A piece one is built on that the project already has is the project's
  * own: only its missing files are copied. A version that is not in a range another one requires
- * (a range named on the command line, say) is refused. Returns what was done.
+ * (a range named on the command line, say) is refused. Returns what was done, with a warning for
+ * each one whose `requires.shaderera` this CLI (`version`) is not in: it is still added.
  */
 export const add = (
   root: string,
   registry: string,
   specs: string | readonly string[],
-  o: { force?: boolean; install?: Installer } = {},
+  o: { force?: boolean; install?: Installer; version?: string } = {},
 ): string[] => {
   const install = o.install ?? npmInstall
   const wanted = typeof specs === 'string' ? [specs] : specs
@@ -136,7 +138,14 @@ export const add = (
     throw new Error(
       `the project already has ${clash.join(', ')}; use --force to replace ${clash.length === 1 ? 'it' : 'them'}`,
     )
-  const done: string[] = []
+  const version = o.version ?? shadereraVersion()
+  const done: string[] = tree.flatMap(({ item }) =>
+    item.requires.shaderera && !satisfiesRange(version, item.requires.shaderera)
+      ? [
+          `! ${item.name}@${item.version} requires shaderera ${item.requires.shaderera}, not ${version}: update shaderera or add an older version`,
+        ]
+      : [],
+  )
   for (const { item, dir } of tree) {
     if (item.type === 'extension') {
       // npm records the path it installed from: a copy in the project, so a clone or a cleared

@@ -72,7 +72,7 @@ the folder is an error; anything merely unusual is a warning.
 | `tags` | no | free words for search: use, style, technique (`"beat sync"`, `"glitch"`) |
 | `version` | yes | `x.y.z`, see [Versions](#versions) |
 | `licence` | yes | an SPDX id: `MIT`, `OFL-1.1` |
-| `requires.shaderera` | no | a range of the `shaderera` package: `">=0.1.0"` |
+| `requires.shaderera` | no | a range of the `shaderera` package: `">=0.1.0"`; `add` warns outside it |
 | `requires.items` | no | components, presets or media copied in with it, by name and range: `{ "text-scramble": "^0.3.0" }` |
 | `requires.packages` | no | npm packages the copied code imports, installed unless the project has them: `{ "three": "0.186.1" }` |
 | `requires.extensions` | no | package plugins it needs, installed and recorded in the project's label |
