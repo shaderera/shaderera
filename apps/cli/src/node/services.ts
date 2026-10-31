@@ -307,24 +307,25 @@ export const stillsDecoded = { count: 0 }
 
 /** A cache entry's name: its key. Anything else there (a host's file being written) is not one. */
 const ENTRY = /^[0-9a-f]{64}$/
+/** How old a file that is not an entry must be to be one a killed host left half-written. */
+const PART_MS = 60 * 60_000
 
 /**
  * Removes the least recently used entries of a cache folder until it holds at most `limit` bytes,
  * never `keep` (the entry just put). An entry's modification time is its last use: a put writes
- * it and a get touches it. A file another host is writing (`<key>.<uuid>`) is not an entry, and one
- * that cannot be removed now is left.
+ * it and a get touches it. A file another host is writing (`<key>.<uuid>`) is not an entry; one
+ * untouched for `PART_MS` was left by a host killed mid-put, and goes. One that cannot be removed
+ * now is left.
  */
 const evict = (dir: string, limit: number, keep: string) => {
-  const entries = readdirSync(dir)
-    .filter((n) => ENTRY.test(n))
-    .flatMap((name) => {
-      try {
-        const s = statSync(join(dir, name))
-        return [{ name, size: s.size, used: s.mtimeMs }]
-      } catch {
-        return []
-      }
-    })
+  const entries = readdirSync(dir).flatMap((name) => {
+    try {
+      const s = statSync(join(dir, name))
+      if (ENTRY.test(name)) return [{ name, size: s.size, used: s.mtimeMs }]
+      if (Date.now() - s.mtimeMs > PART_MS) rmSync(join(dir, name), { force: true })
+    } catch {}
+    return []
+  })
   let total = entries.reduce((sum, e) => sum + e.size, 0)
   for (const e of entries.sort((a, b) => a.used - b.used)) {
     if (total <= limit) break
@@ -383,8 +384,8 @@ export const createServices = (
     // so each put has a name of its own; one that loses the move to another put of the same entry
     // (same hash, same bytes; Windows refuses a move over a file being read) leaves that one.
     const part = `${file}.${randomUUID()}`
-    await writeFile(part, bytes)
     try {
+      await writeFile(part, bytes)
       await rename(part, file)
     } catch (e) {
       await rm(part, { force: true })
