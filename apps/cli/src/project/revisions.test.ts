@@ -81,6 +81,26 @@ test('undo returns to the previous revision and keeps unsaved edits as a revisio
   assert.equal(existsSync(join(root, 'src', 'c.ts')), true)
 })
 
+test('a log cut off mid-line still saves, and the next entry is on its own line', () => {
+  const root = project()
+  const one = save(root, { by: 'person' })
+  writeFileSync(
+    join(root, 'versions', 'log.jsonl'),
+    `${read(root, 'versions/log.jsonl')}{"at":"2026`,
+  )
+  writeFileSync(join(root, 'src', 'a.ts'), 'export const headline = "Two"\n')
+  const two = save(root, { by: 'person' })
+  assert.equal(head(root), two.id)
+  assert.equal(undo(root).id, one.id)
+  // The cut line stays alone on its line; every entry after it is whole.
+  const lines = read(root, 'versions/log.jsonl').split('\n')
+  assert.equal(lines[1], '{"at":"2026')
+  assert.deepEqual(
+    lines.slice(2, -1).map((l) => JSON.parse(l).action),
+    ['save', 'undo'],
+  )
+})
+
 test('undo with nothing before it is refused', () => {
   const root = project()
   save(root, { by: 'person' })
