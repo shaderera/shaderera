@@ -468,6 +468,30 @@ test('an item name never starts with a dot, so it stays inside items/', () => {
     )
 })
 
+test('an item name never has "__", the folder @scope/name is kept in', () => {
+  for (const name of ['team__titles', '@team/a__b'])
+    assert.throws(
+      () =>
+        checkItem(
+          { name, type: 'preset', category: 'Looks', version: '1.0.0', licence: 'MIT' },
+          'x',
+        ),
+      /"__"/,
+    )
+  assert.doesNotThrow(() =>
+    checkItem(
+      {
+        name: '@team/titles_v2',
+        type: 'preset',
+        category: 'Looks',
+        version: '1.0.0',
+        licence: 'MIT',
+      },
+      'x',
+    ),
+  )
+})
+
 test('a file entry that is the plugin folder itself is refused at publish and at add', () => {
   const registry = temp('reg')
   publish(piece('looks-whole', ['src/a.ts']), registry)

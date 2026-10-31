@@ -118,6 +118,9 @@ export const checkItem = (raw: unknown, where: string): { item: Item; warnings: 
   }
   const name = str('name', true)
   if (name && !NAME.test(name)) errors.push(`name "${name}" is not a package-style name`)
+  // Or `scope__name` would share the folder `@scope/name` is kept in (folderName).
+  else if (name.includes('__'))
+    errors.push(`name "${name}" has "__": the registry keeps @scope/name in a folder scope__name`)
   const type = str('type', true) as ItemType
   if (type && !TYPES.includes(type)) errors.push(`type must be one of ${TYPES.join(', ')}`)
   const title = str('title', false) || name
