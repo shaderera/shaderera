@@ -70,6 +70,12 @@ What is on the shelf:
   - `render-three-textures`: images from `io.image` as three.js textures and atlases;
   - `image-to-png`: WebP, AVIF, GIF and video frames converted to PNG once (ffmpeg);
   - `render-canvas-texture`: a Canvas2D canvas or RGBA bytes as a GPU texture for a WGSL pass;
+  - `color-cdl-files`: ASC CDL files (.cc, .ccc, .cdl) read into the numbers `color-primary` takes, and written back;
+  - `color-curves`: RGB curves and hue vs saturation and hue vs hue from points, a monotone cubic, WGSL and CPU;
+  - `color-lut`: a person's own .cube LUT read, applied (WGSL and CPU) and written back;
+  - `color-primary`: the ASC CDL, exposure, contrast and white balance (Bradford, from Kelvin), WGSL and CPU;
+  - `color-qualifier`: a hue, saturation and luma key to a soft matte, so a grade touches one colour only, WGSL and CPU;
+  - `analysis-scopes`: a frame as scope numbers (levels, waveform, parade, balance, vectorscope) to grade from;
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;

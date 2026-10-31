@@ -9,6 +9,23 @@ test('stillTimes takes the given times and adds one every `every` seconds', () =
   assert.deepEqual(stillTimes([9], 5, 10), [9, 0, 5])
 })
 
+test('stillTimes adds count times evenly from --from up to before --to', () => {
+  assert.deepEqual(
+    stillTimes([], undefined, 10, { count: 12, from: 2, to: 8 }),
+    [2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5],
+  )
+  assert.deepEqual(stillTimes([], undefined, 10, { count: 4 }), [0, 2.5, 5, 7.5])
+  assert.throws(() => stillTimes([], undefined, 10, { count: 0 }), /--count is a whole number/)
+  assert.throws(
+    () => stillTimes([], undefined, 10, { count: 2, from: 5, to: 3 }),
+    /^Error: --to must be after --from \(5–3 s\)\.$/,
+  )
+  assert.throws(
+    () => stillTimes([], undefined, 10, { count: 2, from: 11, to: 12 }),
+    /Outside the film/,
+  )
+})
+
 test('stillTimes refuses no time, a non-number and a time outside the film', () => {
   assert.throws(() => stillTimes([], undefined, 10), /Usage: shaderera still/)
   assert.throws(() => timesOf(['soon']), /Not a time in seconds: soon/)

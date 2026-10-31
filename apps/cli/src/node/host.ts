@@ -89,7 +89,7 @@ const ask: Ask = {
   },
   cacheGet: (hash) => askParent({ op: 'cache-get', hash }),
   cachePut: (hash, bytes) => askParent({ op: 'cache-put', hash, bytes }),
-  videoOpen: (path) => askParent({ op: 'video-open', path }),
+  videoOpen: (path, declared) => askParent({ op: 'video-open', path, declared }),
   videoFrame: (path, index, format) => askParent({ op: 'video-frame', path, index, format }),
   videoClose: (path) => askParent({ op: 'video-close', path }),
   bakeOpen: (name) => askParent({ op: 'bake-open', name }),
@@ -440,7 +440,7 @@ const handle = async (m: Request, timer: FrameTimer = timeFrame()): Promise<unkn
       },
     }
     const module = await import(pathToFileURL(m.entryFile).href)
-    const open = () => openSource(module, host)
+    const open = () => openSource(module, host, m.manifest.entry.replace(/^\.\//, ''))
     source = m.manifest.sequential
       ? await seekable(open, m.manifest, {
           checkpointMs: m.checkpointMs,

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Json } from '@shaderera/core'
 import { openRevision } from '../project/jobs.ts'
-import { readRevision } from '../project/revisions.ts'
+import { readRevision, revisionOf } from '../project/revisions.ts'
 
 type Opened = Awaited<ReturnType<typeof openRevision>>
 
@@ -35,11 +35,12 @@ export const revisionHosts = (o: {
   }
   const get = async (
     root: string,
-    revision: string,
+    given: string,
     variant: string | undefined,
     params: { readonly [key: string]: Json } | undefined,
   ): Promise<Opened> => {
     clearTimeout(idle)
+    const revision = revisionOf(root, given)
     const key = JSON.stringify([root, revision, variant ?? null, params ?? null])
     // Pruned (or removed) since it opened: the open copy is not that revision any more.
     if (kept?.key === key && !existsSync(join(root, 'versions', 'revisions', `${revision}.json`))) {

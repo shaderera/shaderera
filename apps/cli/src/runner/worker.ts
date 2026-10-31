@@ -169,7 +169,10 @@ const ask: Ask = {
     return r ? new Uint8Array(await r.arrayBuffer()) : null
   },
   cachePut: async (hash, bytes) => void (await service('cache-put', { hash }, bytes)),
-  videoOpen: async (path) => (await (await service('video-open', { path }))?.json()) as never,
+  videoOpen: async (path, declared) =>
+    (await (
+      await service('video-open', { path, ...(declared ? { declared: '1' } : {}) })
+    )?.json()) as never,
   videoFrame: async (path, index, format) =>
     new Uint8Array(
       await (
@@ -512,7 +515,7 @@ const api = {
             ...(o.revision ? { module: url(manifest.dom) } : {}),
           },
         })
-      const open = () => openSource(module, host)
+      const open = () => openSource(module, host, manifest.entry.replace(/^\.\//, ''))
       // A sequential source steps skipped frames itself; each gets the DOM drawn at its own t.
       const prepare = async (at: number) => ({ dom: await domAt(at) })
       source = manifest.sequential ? await seekable(open, manifest, { prepare }) : await open()

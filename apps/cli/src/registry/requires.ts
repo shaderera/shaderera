@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { readJson } from '../node/json.ts'
 import { ITEM_FILE } from './item.ts'
 import { satisfies, validRange } from './semver.ts'
 
@@ -32,18 +33,18 @@ const MANIFEST = 'shaderera.json'
  */
 export const readRequires = (root: string): Requires | undefined => {
   const old = join(root, ITEM_FILE)
-  if (existsSync(old) && JSON.parse(readFileSync(old, 'utf8')).requires !== undefined)
+  if (existsSync(old) && readJson<{ requires?: unknown }>(old).requires !== undefined)
     throw new Error(
       `${ITEM_FILE}: a project's requires moved into ${MANIFEST} in 0.1.5. Move "requires" there and delete ${ITEM_FILE}.`,
     )
-  return JSON.parse(readFileSync(join(root, MANIFEST), 'utf8')).requires
+  return readJson<{ requires?: Requires }>(join(root, MANIFEST)).requires
 }
 
 /** Sets (a range) or removes (null) one extension the project requires, in its shaderera.json. */
 export const setRequirement = (root: string, name: string, range: string | null): void => {
   const { extensions = {}, ...rest } = readRequires(root) ?? {}
   const file = join(root, MANIFEST)
-  const manifest = JSON.parse(readFileSync(file, 'utf8'))
+  const manifest = readJson<{ requires?: Requires }>(file)
   const next = { ...extensions }
   if (range === null) delete next[name]
   else next[name] = range

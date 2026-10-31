@@ -8,4 +8,4 @@ An engineering fixture for the CLI's tests. 1920×1080, 30 fps, 6 s. It uses thr
 - `pick(t, x, y)` raycasts through the camera in effect (the override, when one is set) and returns `{ id, point }`.
 - `camera.get(t)` returns the authored camera's matrices in WebGPU clip space, even while an override is set. `camera.override(m | null)` applies the given matrices exactly.
 
-**Run:** `shaderera check --times 10`, `shaderera inspect --time 2`, `shaderera render`. `apps/cli/src/camera/fixtures.it.ts` covers the round trip (max 0 at three t) and a pick at a part's projected centre.
+**Run:** `shaderera check --samples 10`, `shaderera inspect --time 2`, `shaderera render`. `apps/cli/src/camera/fixtures.it.ts` covers the round trip (max 0 at three t) and a pick at a part's projected centre.

@@ -16,11 +16,20 @@ import { shadereraVersion } from '../deliver/environment.ts'
 import { buildNode } from '../node/build.ts'
 import type { Child } from '../node/child.ts'
 import { type HostName, hostOf } from '../node/host-of.ts'
+import { jsonOf } from '../node/json.ts'
 import { hostOpener, openHosts } from '../node/open-host.ts'
 import type { Project } from '../node/project.ts'
 import { checkJobBakes, type JobBakes, pinBakes } from './bakes.ts'
 import { installedPackages, type Packages, packageChanges } from './dependencies.ts'
-import { type By, fileAt, materialize, readRevision, releaseFrozen, save } from './revisions.ts'
+import {
+  type By,
+  fileAt,
+  materialize,
+  readRevision,
+  releaseFrozen,
+  revisionOf,
+  save,
+} from './revisions.ts'
 
 /**
  * A render job: everything an export needs, frozen. It names a saved revision of the source
@@ -216,27 +225,57 @@ export const jobId = (job: Omit<Job, 'id' | 'name' | 'label' | 'created' | 'by'>
 export const manifestAt = (root: string, revision: string): Manifest => {
   const text = fileAt(root, revision, 'shaderera.json')
   if (!text) throw new Error(`Revision ${revision} has no shaderera.json.`)
-  return checkManifest(JSON.parse(text.toString('utf8')))
+  return checkManifest(jsonOf(text.toString('utf8')))
 }
+
+/** A JSON value's type as a JSON Schema `type` names it (`integer` is also a `number`). */
+const jsonTypes = (v: Json): string[] =>
+  v === null
+    ? ['null']
+    : Array.isArray(v)
+      ? ['array']
+      : typeof v === 'number'
+        ? Number.isInteger(v)
+          ? ['integer', 'number']
+          : ['number']
+        : [typeof v]
 
 /**
  * The params a job renders with: the manifest's defaults, then the variant's, then the ones given.
- * A name the schema does not declare is refused, so a typo never renders silently.
+ * A name the schema does not declare is refused, so a typo never renders silently; so are a name
+ * it lists in `required` that has no value, and a value whose JSON type is not its property's
+ * `type` (only these two keywords: no full JSON Schema validator).
  */
 export const effectiveParams = (
   manifest: Manifest,
   variantParams: { readonly [key: string]: Json },
   given: { readonly [key: string]: Json } = {},
 ): { [key: string]: Json } => {
-  const declared = Object.keys(
-    ((manifest.params as { properties?: object } | undefined)?.properties ?? {}) as object,
-  )
+  const schema = (manifest.params ?? {}) as {
+    properties?: { [key: string]: { type?: string | string[] } }
+    required?: string[]
+  }
+  const declared = Object.keys(schema.properties ?? {})
   const unknown = Object.keys(given).filter((k) => !declared.includes(k))
   if (unknown.length > 0)
     throw new Error(
       `Unknown params: ${unknown.join(', ')}. ${declared.length > 0 ? `shaderera.json declares ${declared.join(', ')}` : 'shaderera.json declares no params'}.`,
     )
-  return { ...paramDefaults(manifest), ...variantParams, ...given }
+  const params = { ...paramDefaults(manifest), ...variantParams, ...given }
+  const missing = (schema.required ?? []).filter((k) => params[k] === undefined)
+  if (missing.length > 0)
+    throw new Error(
+      `Missing params: ${missing.join(', ')}. shaderera.json requires them and gives no default: --param ${missing[0]}=<value>.`,
+    )
+  for (const [k, v] of Object.entries(params)) {
+    const type = schema.properties?.[k]?.type
+    const types = type === undefined ? undefined : [type].flat()
+    if (types && !jsonTypes(v).some((t) => types.includes(t)))
+      throw new Error(
+        `Param ${k} is ${types.map((t) => (t === 'null' ? t : /^[aeiou]/.test(t) ? `an ${t}` : `a ${t}`)).join(' or ')}, not ${JSON.stringify(v)}.`,
+      )
+  }
+  return params
 }
 
 /**
@@ -282,7 +321,8 @@ export const windowOf = (
       )
   const from = (given as number | undefined) ?? 0
   const to = (until as number | undefined) ?? manifest.duration
-  if (!(from >= 0 && to > from && to <= manifest.duration + 1e-9))
+  if (to <= from) throw new Error(`--to must be after --from (${from}–${to} s).`)
+  if (!(from >= 0 && to <= manifest.duration + 1e-9))
     throw new Error(`The window ${from}–${to} s is outside 0–${manifest.duration} s.`)
   if (frameTimes(manifest.fps, from, to).length === 0)
     throw new Error(`The window ${from}–${to} s holds no frame at ${manifest.fps} fps.`)
@@ -318,7 +358,10 @@ export const createJob = async (
     throw new Error(`A job name is letters, digits, . _ -: ${o.name}`)
   // `<name>.host.json` is a job's host pin.
   if (o.name?.endsWith('.host')) throw new Error(`A job name does not end in .host: ${o.name}`)
-  const revision = o.revision ?? save(root, { by: o.by, label: o.label }).id
+  const revision =
+    o.revision === undefined
+      ? save(root, { by: o.by, label: o.label }).id
+      : revisionOf(root, o.revision)
   const declared = manifestAt(root, revision)
   const { manifest, params: variantParams } = withVariant(declared, o.variant)
   const params = effectiveParams(manifest, variantParams, o.params)
@@ -561,7 +604,8 @@ export const videoOptionsOf = (d: Partial<Delivery>) => ({
  * Opens a saved revision (not a job) in its own host, from its frozen copy, as `openJob` does: the
  * revision's own manifest, `variant` and `params` over its defaults, and the bakes its stamps pin
  * for it. `close` ends the host and releases the copy, which stays in the pool of frozen copies
- * (revisions.ts). An unknown revision says "No revision", a pruned one "was pruned".
+ * (revisions.ts). An unknown revision says "No revision", a pruned one "was pruned". `size` opens
+ * it at another frame size (a draft's, args.ts draftSize), its clips scaled by as much.
  */
 export const openRevision = async (
   root: string,
@@ -572,6 +616,7 @@ export const openRevision = async (
     host?: unknown
     trusted?: boolean
     timeoutMs?: number
+    size?: { width: number; height: number }
   } = {},
 ): Promise<{ project: Project; child: Child; close: () => Promise<void> }> => {
   const built = await frozenBuild(root, revision, o.variant)
@@ -592,6 +637,10 @@ export const openRevision = async (
         revision,
         ...(o.variant ? { variant: o.variant } : {}),
         params,
+        ...(o.size ? { size: o.size } : {}),
+        ...(o.size && o.size.height !== manifest.height
+          ? { videoScale: o.size.height / manifest.height }
+          : {}),
         bakes,
         trusted: o.trusted,
         timeoutMs: o.timeoutMs,
@@ -600,7 +649,9 @@ export const openRevision = async (
     )
     const child = await more()
     return {
-      project: built.project,
+      project: o.size
+        ? { ...built.project, manifest: { ...built.project.manifest, ...o.size } }
+        : built.project,
       child,
       close: async () => {
         try {

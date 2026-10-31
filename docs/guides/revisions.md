@@ -27,3 +27,25 @@ Compare frames before and after the change (`render_frame` returns each frame's 
 `npx shaderera still --every 0.5` before and after). Your summary should match: "the headline
 beat (2.0–3.0 s) changed; everything else is identical". If your change touched more than
 intended, fix it before finishing.
+
+## Takes
+For a request like "3 takes of 0:45–0:50": a few versions of one moment, one of which the person
+picks. In the studio it is a comment on a range that asks for takes; in chat, file it first with
+`comment_add {t, to, text}`, so the takes have a comment to belong to.
+
+1. **Start from the tree they saw.** Save it (MCP `save`); its id is the parent. N is what they
+   asked for (3 when they didn't say), at most 10.
+2. **Make each take**, n = 1 to N:
+   - Change one choice, and name it: when the title lands, how the camera moves, which colour.
+     Takes that differ only in a random seed are not takes.
+   - Change only inside the range. Check that the frames 1 s outside it are untouched:
+     `render_frame` at `from - 1` and `to + 1` before and after give the same `sha256`.
+   - `check`, then `save {label: "take <n> <comment id>: <the choice, in a few words>"}`. The
+     studio finds a comment's takes by this label and plays them side by side.
+   - `restore` the parent before the next take.
+3. **Reply once**, without `fixed`: "3 takes: 1 lands early, 2 lands on the beat, 3 slides in
+   from the left". Leave the tree on the parent.
+4. **The person picks.** Their reply names a take ("take 2"). `restore` that take's revision,
+   then reply `fixed: true` saying which take it is and what it changed.
+
+A take never touches what `requirements.json` locks, as any other change doesn't.

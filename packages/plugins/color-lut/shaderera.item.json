@@ -1,0 +1,24 @@
+{
+  "name": "color-lut",
+  "type": "component",
+  "title": "Color LUT",
+  "description": "A .cube LUT read, applied and written: 1D and 3D, tetrahedral in WGSL from a 3D texture and on the CPU with the same values; no spaces converted, no LUT shipped",
+  "category": "Color",
+  "tags": [
+    "lut",
+    "cube",
+    ".cube",
+    "3d lut",
+    "1d lut",
+    "tetrahedral",
+    "grade",
+    "colour grading",
+    "resolve",
+    "colour",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/color/lut.ts", "src/color/lut.wgsl.ts"]
+}

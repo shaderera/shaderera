@@ -1,15 +1,17 @@
 import { existsSync } from 'node:fs'
 import { recordable, recordCommand } from '../project/activity.ts'
 import { COMMANDS as PLUGIN, usage as pluginUsage } from '../registry/cli.ts'
+import { closest } from './closest.ts'
 import { EXIT, errorFinding, findings, found } from './findings.ts'
 
 const usage = `Usage: shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--trusted] [--timeout <s>] [options]
 
 Commands:
   inspect <t> [--path a.b] [--json]          print the source's state at t
-  check [--times 50] [--seed 1] [--hdr10]    render each t twice in two orders and compare
-  still <t>... [--every s] [--sheet] [--diff] [--compare variant] [--out dir] [--json]   stills of any moment, and a contact sheet
-  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--crf 18] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--software-gpu] [--hdr10] [--draft [height]] [--retries n]   export an mp4 or a ProRes mov (--draft: 360 px high by default, full fps, out/<name>-draft.mp4) (a png job: frames + audio.wav + delivery.json)
+  inspect --track a.b [--from s] [--to s] [--json]   a value at every frame, and its speed
+  check [--samples 50] [--seed 1] [--hdr10] [--no-types]   typecheck, then render each t twice in two orders and compare
+  still <t>... [--every s] [--count n [--from s] [--to s]] [--sheet [--columns n]] [--file video] [--diff] [--compare variant] [--region x,y,w,h | --object id] [--scale n] [--out dir] [--json]   stills of any moment, and a contact sheet
+  render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--master] [--crf 18] [--encoder name] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--workers n] [--software-gpu] [--hdr10] [--draft [height]] [--retries n] [--chunk i [--plan dir]] [--reuse plan --changed a-b [--fix]] [--force] [--stop]   export an mp4 or a ProRes mov (--draft: 360 px high by default, full fps, out/<name>-draft.mp4) (a png job: frames + audio.wav + delivery.json)
   deliver [--variants main,a,b] [--locales en,th] [--format f] [--png] [--master] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--bits 16] [--no-audio] [--loudness=LUFS] [--hdr10 [--sdr]] [--name batch] [--job j]... [--replace] [--software-gpu]   campaign batch into out/deliveries/<batch>/
   plan --job j [--chunks 4] [--out dir]        split a job into chunks any machine renders (render --job j --chunk i)
   plan --status --plan dir [--verify]        which chunks of a plan are done, missing, stale, partial or claimed
@@ -29,7 +31,7 @@ Versions and jobs:
   undo                                       back to the previous revision
   restore <revision>                         make the project that revision
   diff <a> [<b>] [--stat]                    what changed between revisions (or now)
-  comments [list|show|add|reply|resolve|reopen] [--state s] [--wait] [--json]   the comments on the film: read, add, reply (--fixed saves the fix), resolve; --wait for the next one
+  comments [list|show|add|reply|reopen] [--state s] [--at t] [--point x,y | --box x,y,w,h] [--fixed] [--wait] [--json]   the comments on the film: read, add, reply (--fixed saves the fix), reopen; resolve is the person's, in the studio; --wait for the next one
   prune [--dry-run] [--keep 10]              remove the revisions nobody names, and the objects only they held
   job [--variant v] [--params json] [--revision id] [--name n] [--format f] [--png] [--master] [--bits 16] [--stems] [--hdr10]   freeze a render job
 
@@ -51,6 +53,16 @@ check, inspect, still, render and review take --param k=v (repeatable): a param 
 check, still and review take several variants (--variant a,b or --variants all): one host each, at once.
 
 Stills: still (out/stills/). A review with technical checks: review (out/review/).`
+
+/** What `shaderera` alone prints: the commands a person starts with, and where the rest are. */
+const FIRST = `Usage: shaderera <command> [options], in a project's folder
+
+  check        check that every frame is a function of t
+  still <t>    a still of any moment, in out/stills/
+  render       export the film, to out/
+  studio       open the film in the studio on shaderera.com
+
+shaderera help lists every command and flag; shaderera <command> --help, one command's.`
 
 const commands = [
   'inspect',
@@ -88,9 +100,16 @@ const commands = [
 /** Commands whose own `--json` prints their result as JSON: the envelope carries it as `result`. */
 const OWN_JSON = new Set([
   'inspect',
+  'check',
   'plan',
   'still',
+  'render',
   'review',
+  'save',
+  'job',
+  'diff',
+  'undo',
+  'restore',
   'versions',
   'comments',
   'doctor',
@@ -132,34 +151,9 @@ export const usageOf = (command?: string): string => {
   return lines.length > 0 ? lines.join('\n') : usage
 }
 
-/** The edits (insert, delete, replace) that turn a into b. */
-const distance = (a: string, b: string): number => {
-  let row = Array.from({ length: b.length + 1 }, (_, j) => j)
-  for (let i = 1; i <= a.length; i++) {
-    const next = [i]
-    for (let j = 1; j <= b.length; j++)
-      next[j] = Math.min(
-        (row[j] as number) + 1,
-        (next[j - 1] as number) + 1,
-        (row[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1),
-      )
-    row = next
-  }
-  return row[b.length] as number
-}
-
-/** The command a mistyped name most likely meant: the nearest within two edits. */
-export const closest = (name: string): string | undefined => {
-  const [best] = commands
-    .map((c) => ({ c, d: distance(name, c) }))
-    .filter((x) => x.d <= 2)
-    .sort((x, y) => x.d - y.d)
-  return best?.c
-}
-
 /** A name that is no command: says so on stderr, with the nearest one. */
 const unknown = (name: string): number => {
-  const near = closest(name)
+  const near = closest(name, commands)
   console.error(
     `shaderera: Unknown command: ${name}.${near ? ` Did you mean ${near}?` : ''} \`shaderera help\` lists the commands.`,
   )
@@ -167,29 +161,72 @@ const unknown = (name: string): number => {
   return EXIT.error
 }
 
+type Command = { run(argv: readonly string[]): Promise<number>; usage?: string }
+
+/** A command's module, or undefined when it has none yet. */
+const load = async (command: string): Promise<Command | undefined> => {
+  const url = new URL(`./${command}${import.meta.url.slice(-3)}`, import.meta.url)
+  return existsSync(url) ? import(url.href) : undefined
+}
+
+/** What `<command> --help` prints: the module's own usage when it has one, else its usage lines. */
+export const helpOf = async (command: string): Promise<string> =>
+  (await load(command))?.usage ?? usageOf(command)
+
+/** The flags any command takes: in the usage's lines that are no command's. */
+export const COMMON = usage
+  .split('\n')
+  .filter((l) => !l.startsWith('  '))
+  .join('\n')
+
+/**
+ * A flag the command does not take (parseArgs' ERR_PARSE_ARGS_UNKNOWN_OPTION), said in the CLI's
+ * words: the nearest flag its help names, and where the rest are. A negative number is a time
+ * before the film. Any other error stays as it is (undefined).
+ */
+const unknownFlag = (command: string, help: string, e: unknown): Error | undefined => {
+  const code = (e as { code?: unknown })?.code
+  if (code !== 'ERR_PARSE_ARGS_UNKNOWN_OPTION') return undefined
+  const flag = /'([^']+)'/.exec((e as Error).message)?.[1] ?? ''
+  const more = `(shaderera ${command} --help)`
+  const flags = [...new Set([...`${help}\n${COMMON}`.matchAll(/--[a-z][a-z0-9-]*/g)].map(String))]
+  const near = closest(flag, flags)
+  const message = /^-\d/.test(flag)
+    ? `Times start at 0: ${flag} is before the film. ${more}`
+    : `Unknown flag ${flag} for ${command}.${near ? ` Did you mean ${near}?` : ''} ${more}`
+  return Object.assign(new Error(message), { code })
+}
+
 const main = async (argv: readonly string[]): Promise<number> => {
   const [command, ...rest] = argv
-  // `help [command]`, `<command> --help`: that command's lines of the usage; no command: all.
-  if (!command || command === 'help' || command === '--help' || command === '-h') {
+  if (!command) {
+    console.log(FIRST)
+    return EXIT.ok
+  }
+  // `help [command]`, `<command> --help`: that command's help; no command: all of the usage.
+  if (command === 'help' || command === '--help' || command === '-h') {
     const about = rest.find((a) => !a.startsWith('-'))
     if (about && !commands.includes(about)) return unknown(about)
-    console.log(usageOf(about))
+    console.log(about ? await helpOf(about) : usage)
     return EXIT.ok
   }
   if (!commands.includes(command)) return unknown(command)
   if (rest.includes('--help') || rest.includes('-h')) {
-    console.log(usageOf(command))
+    console.log(await helpOf(command))
     return EXIT.ok
   }
   const gone = goneFlag(command, rest)
   if (gone) throw new Error(gone)
-  const url = new URL(`./${command}${import.meta.url.slice(-3)}`, import.meta.url)
-  if (!existsSync(url)) {
+  const module = await load(command)
+  if (!module) {
     console.error(`shaderera ${command} is not available yet`)
     return EXIT.error
   }
-  const module: { run(argv: readonly string[]): Promise<number> } = await import(url.href)
-  return module.run(rest)
+  try {
+    return await module.run(rest)
+  } catch (e) {
+    throw unknownFlag(command, module.usage ?? usageOf(command), e) ?? e
+  }
 }
 
 /**

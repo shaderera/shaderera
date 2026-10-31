@@ -1,0 +1,27 @@
+{
+  "name": "analysis-scopes",
+  "type": "component",
+  "title": "Scopes",
+  "description": "A frame measured the way a colourist reads scopes, as numbers: levels and black and white points, histogram, waveform, RGB parade, balance in shadows, midtones and highlights, and a vectorscope summary with skin tones against the skin-tone line; BT.709 or BT.2020 luma",
+  "category": "Analysis & Tracking",
+  "tags": [
+    "scopes",
+    "waveform",
+    "parade",
+    "vectorscope",
+    "histogram",
+    "levels",
+    "black point",
+    "white point",
+    "clipping",
+    "crushed blacks",
+    "skin tone",
+    "colour balance",
+    "grade",
+    "colour grading",
+    "analysis"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/color/scopes.ts"]
+}

@@ -1,6 +1,6 @@
 // `io.image`, `io.video`, `io.cache` and `io.bake`, the same in both hosts: the Node host passes its IPC
 // to the CLI process as `ask`, the runner worker its requests to the runner server.
-import type { Baked, DecodedImage, Footage, Io, VideoColour } from '@shaderera/core'
+import type { Baked, DecodedImage, Footage, FootageSpace, Io, VideoColour } from '@shaderera/core'
 import { sha256 } from '@shaderera/core'
 import { decodeImage } from './image.ts'
 import { timeVideo } from './render-time.ts'
@@ -14,14 +14,24 @@ export type Ask = {
   image(path: string, maxSize?: number): Promise<DecodedImage | null>
   cacheGet(hash: string): Promise<Uint8Array | null>
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
-  videoOpen(path: string): Promise<{
+  /** `declared`: the film said what the file is (`check` notes footage it did not, #575). */
+  videoOpen(
+    path: string,
+    declared?: boolean,
+  ): Promise<{
     width: number
     height: number
     fps: number
     frames: number
+    bits: 8 | 10 | 12 | 16
     colour: VideoColour
   }>
-  videoFrame(path: string, index: number, format: 'rgba' | 'yuv420p'): Promise<Uint8Array>
+  /** The frame's bytes; `yuv420p10`'s 16-bit samples little-endian, as bytes. */
+  videoFrame(
+    path: string,
+    index: number,
+    format: 'rgba' | 'yuv420p' | 'yuv420p10',
+  ): Promise<Uint8Array>
   videoClose(path: string): Promise<void>
   bakeOpen(name: string): Promise<{ frames: number }>
   bakeFrame(name: string, index: number): Promise<Uint8Array>
@@ -35,6 +45,30 @@ export type Ask = {
 export type StillSize = { width: number; height: number; bits: 8 | 16; key: string; local?: true }
 
 const text = new TextEncoder()
+
+/** The names `io.video` knows (`FootageSpace`), so a film's typo throws rather than passes. */
+const TRANSFERS: { [k in NonNullable<FootageSpace['transfer']>]: true } = {
+  bt709: true,
+  srgb: true,
+  pq: true,
+  hlg: true,
+  slog3: true,
+  logc3: true,
+  logc4: true,
+  vlog: true,
+  clog3: true,
+}
+const GAMUTS: { [k in NonNullable<FootageSpace['gamut']>]: true } = {
+  rec709: true,
+  rec2020: true,
+  p3d65: true,
+  sgamut3: true,
+  sgamut3cine: true,
+  awg3: true,
+  awg4: true,
+  vgamut: true,
+  cinemagamut: true,
+}
 
 /**
  * A still as the CLI's process hands it over: its size (services.ts, `image-open`), then its
@@ -73,18 +107,39 @@ export const extraIo = (
       }
       return image
     },
-    video: async (path): Promise<Footage> => {
-      const info = await ask.videoOpen(path)
+    video: async (path, space): Promise<Footage> => {
+      for (const [key, known] of [
+        ['transfer', TRANSFERS],
+        ['gamut', GAMUTS],
+      ] as const) {
+        const value = space?.[key]
+        if (value !== undefined && !Object.hasOwn(known, value))
+          throw new Error(
+            `io.video(${path}): ${key} is one of ${Object.keys(known)
+              .map((k) => `'${k}'`)
+              .join(', ')}, not '${value}'.`,
+          )
+      }
+      // A gamut alone picks no curve: only a transfer says what the codes are (check, #575).
+      const declared = space?.transfer !== undefined
+      const info = await ask.videoOpen(path, declared)
+      const frame = async (index: number, options?: { format?: string }) => {
+        const format = options?.format ?? 'rgba'
+        if (format !== 'rgba' && format !== 'yuv420p' && format !== 'yuv420p10')
+          throw new Error(
+            `io.video(${path}): frame format is 'rgba', 'yuv420p' or 'yuv420p10', not ${format}.`,
+          )
+        const bytes = await timeVideo(() => ask.videoFrame(path, index, format))
+        if (format !== 'yuv420p10') return bytes
+        // 16-bit samples (ADR 0031, 1): a view needs an even offset, so bytes at an odd one (in
+        // a larger message) are copied.
+        const own = bytes.byteOffset % 2 ? bytes.slice() : bytes
+        return new Uint16Array(own.buffer, own.byteOffset, own.byteLength / 2)
+      }
       return {
         ...info,
-        frame: (index, options) => {
-          const format = options?.format ?? 'rgba'
-          if (format !== 'rgba' && format !== 'yuv420p')
-            throw new Error(
-              `io.video(${path}): frame format is 'rgba' or 'yuv420p', not ${format}.`,
-            )
-          return timeVideo(() => ask.videoFrame(path, index, format))
-        },
+        ...((space?.transfer ?? space?.gamut) ? { space } : {}),
+        frame: frame as Footage['frame'],
         close: () => ask.videoClose(path),
       }
     },

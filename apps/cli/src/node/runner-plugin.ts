@@ -147,13 +147,16 @@ export const runnerPlugin = (
                     : op === 'image-data'
                       ? { op, key: q('key') }
                       : op === 'video-open'
-                        ? { op, path: q('path') }
+                        ? { op, path: q('path'), declared: q('declared') === '1' }
                         : op === 'video-frame'
                           ? {
                               op,
                               path: q('path'),
                               index: Number(q('index')),
-                              format: q('format') === 'yuv420p' ? 'yuv420p' : 'rgba',
+                              format:
+                                q('format') === 'yuv420p' || q('format') === 'yuv420p10'
+                                  ? q('format')
+                                  : 'rgba',
                             }
                           : op === 'video-close'
                             ? { op, path: q('path') }

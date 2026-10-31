@@ -121,7 +121,7 @@ test('a scripted agent following the skill hears a comment, fixes it, replies fi
       file,
       readFileSync(file, 'utf8').replace('const grey = Number(params.grey)', 'const grey = 255'),
     )
-    assert.deepEqual((await mcp('check', { times: 3 })).failures, [])
+    assert.deepEqual((await mcp('check', { samples: 3 })).failures, [])
     const after = JSON.parse(
       (
         (await client.callTool({

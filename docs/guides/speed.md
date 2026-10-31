@@ -36,7 +36,7 @@ command that prints nothing looks frozen.
   readback take most of each frame, return fewer layers, return GPU textures rather than canvases
   (a canvas is uploaded every frame), and use more hosts (`--workers`, below).
 - **Check with fewer frames.** `check` renders every timestamp twice; at 5 s a frame, the default
-  50 take over eight minutes. `npx shaderera check --times 4` still compares two orders.
+  50 take over eight minutes. `npx shaderera check --samples 4` still compares two orders.
 - **Render in the background with progress:** `guides/review.md`.
 - **More hosts on a big machine.** `render` opens at most 4 hosts; when to give more
   (`--workers`) is in `docs/cli.md`, `render`.
@@ -83,7 +83,16 @@ for the clip's Y'CbCr planes (1.5 bytes a pixel, not RGBA's 4: footage-heavy fil
 and converts them on the GPU, the same bytes in every host. Its `frame(i)` gives an `rgba8unorm`
 texture to sample in place of `footage.write`; it is valid until the next `frame()`, so a
 dissolve between two frames uses two helpers. Its pixels are close to `clip.frame(i)`'s RGBA,
-not equal: switching a film changes its pixels once.
+not equal: switching a film changes its pixels once. Footage of more than 8 bits (`clip.bits`:
+phone HEVC, camera log) bands when a grade lifts or stretches it at 8: `videoTexture(host.gpu,
+clip, { bits: 10 })` asks for its 10-bit planes (`yuv420p10`, 3 bytes a pixel) and gives an
+`rgba16float` texture of R'G'B' code values, superwhites kept past 1 and no transfer curve, for
+the grade to read. Say what the file is where the film opens it, as camera files often do not
+tag a log curve: `io.video('assets/a7s.mp4', { transfer: 'slog3', gamut: 'sgamut3cine' })`.
+The clip carries it as `clip.space` for the grade (`color-spaces`); the engine converts nothing.
+Take it from the camera's settings or the file's tags (phone HDR is usually `hlg` or `pq` with
+`rec2020`). `check` warns of a file of more than 8 bits with no `transfer` declared, or read
+only at 8 bits.
 
 `docs/participants/webgpu.md`, "Footage and stills", has the whole film: the WGSL pass, `picture`
 (a texture with mip levels), `fit` (cover and contain as a uv rectangle) and `pass`. Never blur by

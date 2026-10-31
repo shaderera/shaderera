@@ -76,8 +76,8 @@ check, 2 the command could not run) and `findings` with `t`, `file:line` and a b
 
 While you iterate, look (step 3) instead of rendering. Rendering only the shot that changed, the
 time left, drafts and why a render is slow: `guides/review.md`. A whole-film or draft render: the
-CLI in the background, not MCP `render`, which blocks, sends no progress and takes no variant,
-params or draft. `--workers`: `node_modules/shaderera/docs/cli.md`, `render`.
+CLI in the background, not MCP `render`, which
+blocks. `--workers`: `node_modules/shaderera/docs/cli.md`, `render`.
 
 To patch a window of a film already rendered, never splice files with ffmpeg by hand. A plain
 `render` keeps no chunks to reuse: render the film again. A film rendered as a job's plan (`job`,
@@ -97,6 +97,12 @@ Every flag is in `node_modules/shaderera/docs/cli.md`, and delivery, placements 
 in `node_modules/shaderera/docs/delivery.md`. Reach for these when the case comes up:
 
 - **HDR10:** delivery.md, "HDR10".
+- **Looking at the rendered file:** `npx shaderera still --file out/<name>.mp4 --count 12 --sheet`
+  (`--from`, `--to`, `--columns`; MCP `still {file}`) gives its frames as encoded, and
+  `render` prints its loudness (`audio:` integrated LUFS and true peak). No ffmpeg command needed.
+- **Stopping a render:** `npx shaderera render --stop` in the project stops the render running
+  there cleanly. Never kill processes by name or pattern: other sessions' renders and tests run
+  on the same machine.
 - **A software GPU:** `render` and `deliver` refuse a host whose WebGPU is SwiftShader, llvmpipe,
   lavapipe or WARP (10–100× slower). Tell the person, and pass `--software-gpu` only when they
   accept the wait (MCP `render`: `softwareGpu: true`).
