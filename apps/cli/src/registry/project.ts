@@ -1,4 +1,4 @@
-import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { noProject } from '../node/project.ts'
 import type { Item } from './item.ts'
@@ -139,7 +139,12 @@ export const add = (
   const done: string[] = []
   for (const { item, dir } of tree) {
     if (item.type === 'extension') {
-      install(root, join(dir, 'package.tgz'))
+      // npm records the path it installed from: a copy in the project, so a clone or a cleared
+      // cache still installs. Named as npm pack names it.
+      const tgz = `vendor/${item.name.replace(/^@/, '').replace('/', '-')}-${item.version}.tgz`
+      mkdirSync(join(root, 'vendor'), { recursive: true })
+      cpSync(join(dir, 'package.tgz'), join(root, tgz))
+      install(root, `./${tgz}`)
       setRequirement(root, item.name, `^${item.version}`)
       done.push(`installed ${item.name}@${item.version} (${item.licence})`)
       continue

@@ -157,7 +157,9 @@ test('add copies a component, installs and requires what it needs; a missing one
     },
   })
   assert.ok(existsSync(join(root, 'src', 'code-wall.ts')))
-  assert.equal(installed.length, 1)
+  // npm records the path it installed from: the project's own copy, never the user's cache.
+  assert.deepEqual(installed, ['./vendor/shaderera-kinetic-type-0.1.2.tgz'])
+  assert.ok(existsSync(join(root, 'vendor', 'shaderera-kinetic-type-0.1.2.tgz')))
   assert.ok(done.some((d) => /installed @shaderera\/kinetic-type@0\.1\.2/.test(d)))
   assert.equal(manifest(root).requires.extensions['@shaderera/kinetic-type'], '^0.1.2')
   assert.equal(manifest(root).entry, 'src/composition.ts')
