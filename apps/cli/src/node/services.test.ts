@@ -10,6 +10,7 @@ import {
   createServices,
   deepFootage,
   keyGaps,
+  probeVideo,
   sampleBits,
   videoReader,
 } from './services.ts'
@@ -36,6 +37,20 @@ const clip = () => {
   spawnSync('ffmpeg', [...args, '-pix_fmt', 'yuv420p', join(root, 'v.mp4')])
   return root
 }
+test('an HLS playlist naming a file outside the project is refused, naming the clip', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, () => {
+  const away = join(tempDir('away'), 'v.ts')
+  const args = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=10', '-frames:v', '8']
+  spawnSync('ffmpeg', [...args, '-pix_fmt', 'yuv420p', away])
+  const playlist = join(tempDir('video'), 'clip.m3u8')
+  writeFileSync(
+    playlist,
+    `#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:0.8,\n${away}\n#EXT-X-ENDLIST\n`,
+  )
+  assert.throws(() => probeVideo(playlist), /clip\.m3u8 is a playlist \(hls\)/)
+})
+
 const alive = (pid: number) => {
   try {
     return process.kill(pid, 0)

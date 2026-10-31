@@ -94,7 +94,7 @@ export const videoColour = (s: {
 
 /**
  * A video's first stream as `io.video` gives it: width, height, fps, the frames counted from its
- * packets, and its planes' colour (ffprobe).
+ * packets, and its planes' colour (ffprobe). An HLS or DASH playlist is refused.
  */
 export const probeVideo = (file: string): VideoInfo => {
   const r = spawnSync(
@@ -106,7 +106,7 @@ export const probeVideo = (file: string): VideoInfo => {
       'v:0',
       '-count_packets',
       '-show_entries',
-      'stream=width,height,r_frame_rate,nb_read_packets,codec_name,pix_fmt,color_space,color_range,chroma_location',
+      'stream=width,height,r_frame_rate,nb_read_packets,codec_name,pix_fmt,color_space,color_range,chroma_location:format=format_name',
       '-of',
       'json',
       file,
@@ -115,7 +115,17 @@ export const probeVideo = (file: string): VideoInfo => {
   )
   if (r.error) throw new Error(`ffprobe is needed to read ${file}: ${r.error.message}`)
   if (r.status !== 0) throw new Error(`ffprobe cannot read ${file}: ${r.stderr.trim()}`)
-  const s = (JSON.parse(r.stdout) as { streams: { [k: string]: string | number }[] }).streams[0]
+  const probed = JSON.parse(r.stdout) as {
+    streams: { [k: string]: string | number }[]
+    format?: { format_name?: string }
+  }
+  // A playlist names other files and URLs, which ffmpeg would open wherever they are.
+  const playlist = probed.format?.format_name?.split(',').find((f) => f === 'hls' || f === 'dash')
+  if (playlist)
+    throw new Error(
+      `${file} is a playlist (${playlist}): io.video reads a video file, not the files it names.`,
+    )
+  const s = probed.streams[0]
   if (!s) throw new Error(`${file} has no video stream.`)
   const [n, d] = String(s.r_frame_rate).split('/').map(Number)
   return {
