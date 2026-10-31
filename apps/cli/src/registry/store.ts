@@ -177,7 +177,9 @@ export const parseSpec = (spec: string): { name: string; range: string } => {
  */
 export const resolve = (registry: string, spec: string): Version & { dir: string } => {
   const { name, range } = parseSpec(spec)
-  const entry = readIndex(registry).items[name]
+  const { items } = readIndex(registry)
+  // Own keys only: `toString` is no plugin.
+  const entry = Object.hasOwn(items, name) ? items[name] : undefined
   if (!entry) throw new Error(`${name} is not a plugin in ${registry}`)
   const version = newest(Object.keys(entry.versions), range)
   if (!version)

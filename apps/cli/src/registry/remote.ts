@@ -38,7 +38,7 @@ const closure = (index: Index, specs: readonly string[]): [string, string][] => 
   const seen = new Set<string>()
   const take = (want: string) => {
     const { name, range } = parseSpec(want)
-    const entry = index.items[name]
+    const entry = Object.hasOwn(index.items, name) ? index.items[name] : undefined
     if (seen.has(name) || !entry) return null
     seen.add(name)
     const version = newest(Object.keys(entry.versions), range)
