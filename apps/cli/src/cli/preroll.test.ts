@@ -29,6 +29,9 @@ test('a preroll is whole frames before the programme; the file timecode counts b
   assert.equal(fileTimecode(film({}), 0, 250), '23:59:50:00')
   const ntsc = film({ fps: 30000 / 1001, timecode: '01:00:00;00' })
   assert.equal(fileTimecode(ntsc, 0, 300), '00:59:50;00')
+  // A window starts at the film's timecode plus its offset, as an NLE does.
+  assert.equal(fileTimecode(film({ fps: 30, timecode: '10:00:00:00' }), 5, 0), '10:00:05:00')
+  assert.equal(fileTimecode(film({ fps: 30, timecode: '10:00:00:00' }), 5, 30), '10:00:04:00')
 })
 
 test('black is opaque in every input format, and the source fills a preroll at negative t', async () => {

@@ -39,14 +39,14 @@ export const blackFrame = (input: FrameInput, width: number, height: number): Ui
 }
 
 /**
- * The timecode of the file's first frame: the programme's (`manifest.timecode`, or the export's
- * start counted from 00:00:00:00) less the preroll, wrapped at 24 hours as a timecode is.
+ * The timecode of the file's first frame: the export's start counted from the programme's
+ * (`manifest.timecode`, or 00:00:00:00) as an NLE counts it, less the preroll, wrapped at 24 hours
+ * as a timecode is.
  */
 export const fileTimecode = (manifest: Manifest, from: number, prerollFrames: number): string => {
   const fps = manifest.fps
-  const programme = manifest.timecode
-    ? framesOfTimecode(manifest.timecode, fps)
-    : Math.round(from * fps)
+  const programme =
+    (manifest.timecode ? framesOfTimecode(manifest.timecode, fps) : 0) + Math.round(from * fps)
   const day = framesOfTimecode(`24:00:00${manifest.timecode?.includes(';') ? ';' : ':'}00`, fps)
   return timecodeOf((((programme - prerollFrames) % day) + day) % day, fps)
 }

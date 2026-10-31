@@ -350,7 +350,8 @@ it (Clearcast Library Technical Specification v1.6, 2024).
   is: its sound and captions move with the picture. Measured on 2026-10-12: 1 s of preroll at 30
   fps gave 90 frames, frame 29 black and frame 30 the film, and a beep at 0.5 s decoded at 1.5 s.
 - `timecode`: where the programme starts. The file's own timecode (mp4 and mov) is that, less the
-  preroll: `10:00:00:00` with 1 s of preroll at 30 fps is `09:59:59:00` at the first frame. Without
+  preroll, plus the export's start: `10:00:00:00` with 1 s of preroll at 30 fps is `09:59:59:00` at
+  the first frame, and `render --from 5` without one is `10:00:05:00`, as an NLE counts. Without
   it the programme starts at `00:00:00:00`, and a preroll counts back past midnight
   (`23:59:50:00`). Drop-frame (`;`) at 29.97 and 59.94.
 - `textless`: a version without text, for localising over. No `copy` is asked of it, and review's
