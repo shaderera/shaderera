@@ -189,7 +189,8 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
             matrix:
               space.matrix === 'bt709'
                 ? 'bt709'
-                : space.matrix === 'bt2020-ncl'
+                : // WebCodecs names it; TypeScript's DOM types do not yet.
+                  (space.matrix as string | null | undefined) === 'bt2020-ncl'
                   ? 'bt2020nc'
                   : 'bt601',
             range: space.fullRange ? 'full' : 'limited',
