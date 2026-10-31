@@ -127,7 +127,8 @@ what it is. The prefixes: `analysis`, `asset`, `audio`, `camera`, `color`, `font
 - Leave out the word "plugin": every one is.
 - Do not start a name with "shaderera".
 - Names are lowercase letters, digits, `.`, `_` and `-`, with an optional npm scope
-  (`@team/text-stamp`).
+  (`@team/text-stamp`). Never two `_` in a row: the registry keeps `@team/text-stamp` in a folder
+  `team__text-stamp`.
 
 ## Rules the code follows
 
