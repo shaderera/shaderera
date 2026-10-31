@@ -72,6 +72,7 @@ The site's commands for steps 2, 3, 4 and 6 are in the shaderera.com repository'
    ```bash
    npx create-shaderera@<version> film
    cd film
+   npm install
    npx shaderera check
    npx shaderera render --host node
    npx shaderera render --host browser
@@ -79,7 +80,9 @@ The site's commands for steps 2, 3, 4 and 6 are in the shaderera.com repository'
    npx shaderera share
    ```
    Open the film at the address `share` prints, and check that it plays on shaderera.com. Fork it
-   with `npx shaderera fork <film id>`, and run `npx shaderera check` in the fork. Then run
+   with `npx shaderera fork <film id>`, and run `npm install` and `npx shaderera check` in the
+   fork. Then hide the test film, so it does not stay on the front page: `POST
+   /api/v1/films/<id>/hide` with the token `login` keeps. Then run
    `npx shaderera studio` in the project and pair with the page twice: over loopback (Chrome, with
    local network access allowed), and over the relay (a browser that blocks local access, or
    Chrome with the prompt declined). Over the relay, export a file over 32 MiB from the page. Also
