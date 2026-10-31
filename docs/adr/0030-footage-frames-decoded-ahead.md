@@ -1,6 +1,6 @@
 # 0030: Footage frames reach the host faster, in two steps: decoding ahead now, shared memory only if needed
 
-2026-10-28. Proposed (#498). The CTO decided on PR #511 that the decision is staged: step 1 now,
+2026-10-31. Accepted (#498, proposed 2026-10-28). The CTO decided on PR #511 that the decision is staged: step 1 now,
 which #499 implements, and step 2 deferred. Amends 0007 (parallel export). The owner decided
 (2026-10-27) that Shaderera always takes the fastest way the machine can render, and allowed
 hardware decode everywhere.
