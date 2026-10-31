@@ -208,17 +208,21 @@ export const videoDecoder = (
   }
   // Decoded far enough past the latest asked: ffmpeg waits until a host catches up.
   const full = () => next - 1 - asked >= Math.max(1, ahead())
-  // A draft's clip comes at its own size, scaled in the same swscale pass as the conversion.
-  const resize = info.scaled ? `w=${info.width}:h=${info.height}:flags=area:` : ''
+  // A draft's clip comes at its own size, scaled in the same swscale pass as the conversion. RGBA
+  // rounds accurately and converts chroma at full size, or a limited-range file loses levels.
+  const rgba = info.format !== 'yuv420p' && info.format !== 'yuv420p10'
+  const flags = [info.scaled && 'area', rgba && 'accurate_rnd+full_chroma_int'].filter(Boolean)
+  const resize =
+    (info.scaled ? `w=${info.width}:h=${info.height}:` : '') +
+    (flags.length ? `flags=${flags.join('+')}:` : '')
   // RGBA: converted by the file's own colour tags. yuv420p (ADR 0027, 1): the file's matrix, range
   // and siting, named so swscale keeps them; an 8-bit 4:2:0 file passes through unconverted.
   // yuv420p10 (ADR 0031, 1): the same at 10 bits, so a 10-bit 4:2:0 file passes through, an 8-bit
   // limited one is shifted up two bits and a 12-bit one reduced (dithered) by swscale.
   const { matrix, range, chroma } = info.colour
-  const convert =
-    info.format === 'yuv420p' || info.format === 'yuv420p10'
-      ? `out_color_matrix=${matrix === 'bt2020nc' ? 'bt2020' : matrix}:out_range=${range === 'full' ? 'pc' : 'tv'}:out_chroma_loc=${chroma},format=${info.format === 'yuv420p10' ? 'yuv420p10le' : 'yuv420p'}`
-      : 'in_color_matrix=auto:in_range=auto:out_range=full,format=rgba'
+  const convert = !rgba
+    ? `out_color_matrix=${matrix === 'bt2020nc' ? 'bt2020' : matrix}:out_range=${range === 'full' ? 'pc' : 'tv'}:out_chroma_loc=${chroma},format=${info.format === 'yuv420p10' ? 'yuv420p10le' : 'yuv420p'}`
+    : 'in_color_matrix=auto:in_range=auto:out_range=full,format=rgba'
   const start = (from: number) => {
     proc?.kill()
     const seek = packets ? seekFor(packets, from) : undefined
