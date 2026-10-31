@@ -562,16 +562,13 @@ export const restore = (root: string, given: string, by: By = 'person'): Revisio
 
 /**
  * Returns to the previous complete revision (the working tree is saved first, so unsaved edits are
- * kept as a revision): after a restore or an undo, the revision that was the head before it;
- * otherwise the parent of the working tree's revision. Throws when there is nothing to undo.
+ * kept as a revision): the revision that was the head before the working tree's, whether a save,
+ * a restore or an undo made it the head; otherwise its parent. Throws when there is nothing to undo.
  */
 export const undo = (root: string, by: By = 'person'): Revision => {
   const current = save(root, { by })
   const [before, last] = log(root).slice(-2)
-  const back =
-    last && last.action !== 'save' && before && before.id !== current.id
-      ? before.id
-      : current.parent
+  const back = last && before && before.id !== current.id ? before.id : current.parent
   if (!back) throw new Error('Nothing to undo: this is the first saved revision.')
   const target = readRevision(root, back)
   checkout(root, target)

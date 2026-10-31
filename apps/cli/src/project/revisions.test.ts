@@ -107,6 +107,21 @@ test('undo with nothing before it is refused', () => {
   assert.throws(() => undo(root), /Nothing to undo/)
 })
 
+test('undo after the tree returns to an earlier revision goes back to the revision before', () => {
+  const root = project()
+  save(root, { by: 'person' })
+  const edit = (color: string) =>
+    writeFileSync(join(root, 'src', 'b.ts'), `export const color = "${color}"\n`)
+  edit('#000')
+  const x = save(root, { by: 'person' })
+  edit('#111')
+  const y = save(root, { by: 'person' })
+  edit('#000')
+  assert.equal(save(root, { by: 'person' }).id, x.id)
+  assert.equal(undo(root).id, y.id)
+  assert.match(read(root, 'src/b.ts'), /#111/)
+})
+
 test('restore brings back a revision exactly and can itself be undone', () => {
   const root = project()
   const one = save(root, { by: 'person' })
