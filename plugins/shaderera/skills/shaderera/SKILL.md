@@ -243,6 +243,10 @@ every change. Once the studio is open (section 5), work in rounds:
    the studio. Their reply to a fixed comment opens it again, and step 1 wakes for it.
 8. **Feedback in chat** about a moment: file it with `comment_add {t, text}` (with `box` or
    `point` when they name a place), so it is on their timeline, then work it like the others.
+9. **Takes.** A comment that asks for takes of a range ("3 takes of 0:45–0:50") gets N saved
+   revisions labelled `take <n> <comment id>: <choice>`, each from the tree it was made on, and
+   one reply listing them; the studio plays them side by side. The steps are in
+   `guides/revisions.md` (Takes).
 
 A round is done when `comments` lists no open comment: say in the chat what you fixed, and go
 back to step 1. To end the session, `npx shaderera studio --stop`.

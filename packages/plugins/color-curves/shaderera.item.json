@@ -1,0 +1,26 @@
+{
+  "name": "color-curves",
+  "type": "component",
+  "title": "Color Curves",
+  "description": "Grading curves from control points: a master and R, G, B curves baked into a color-lut 1D LUT, and hue vs saturation and hue vs hue around 360°; a monotone cubic that never overshoots, WGSL and CPU with the same values",
+  "category": "Color",
+  "tags": [
+    "curves",
+    "rgb curves",
+    "hue vs hue",
+    "hue vs saturation",
+    "hue curves",
+    "spline",
+    "monotone cubic",
+    "fritsch-carlson",
+    "grade",
+    "colour grading",
+    "colour",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "color-lut": "^0.1.0" } },
+  "files": ["src/color/curves.ts", "src/color/curves.wgsl.ts"]
+}

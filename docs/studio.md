@@ -247,7 +247,7 @@ the bridge closes that connection after it.
 ```json
 {
   "version": "…",
-  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
+  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "safeAreas": { … }, "schema": { … } },
   "telemetry": true,
   "revision": "…",
   "head": "…",
@@ -264,6 +264,9 @@ the bridge closes that connection after it.
 - `sizes` is each variant's output as a host opens it, the film's own values filled in: name →
   `{ width, height, duration, fps }` (`{}` when there are none), for a page that lays out one
   frame a variant.
+- `safeAreas` is each output's safe area from requirements.json, the one `still --sheet` draws:
+  `main` (the film itself) or a variant's name → `{ top, right, bottom, left }` as fractions. An
+  output with none is left out, so it is `{}` when requirements.json sets none or can't be read.
 - `schema` is shaderera.json's `params` schema, or `null`.
 - `revision` is the working tree's id now: the 16-hex id `shaderera save` would give it.
 - `head` is the revision last saved or restored, or `null`.
