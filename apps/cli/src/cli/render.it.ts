@@ -256,6 +256,28 @@ test('the output holds the previous film until the new one is complete; a failed
   assert.equal(probe(out).video?.frames, 10)
 })
 
+test("a film rendered without captions or stems leaves none of the previous film's beside it", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const project = memoryProject()
+  const size = { width: 64, height: 36 }
+  const out = join(tempDir('sidecars'), 'film.mp4')
+  const captioned = memoryChild({
+    size,
+    frame: boxFrame(64, 36),
+    captions: [{ start: 0.2, end: 0.6, text: 'Hello' }],
+  })
+  await exportVideo(project, captioned, { out, revision: 'test' })
+  assert.match(readFileSync(join(dirname(out), 'film.srt'), 'utf8'), /Hello/)
+  mkdirSync(join(dirname(out), 'film.stems'))
+  writeFileSync(join(dirname(out), 'film.stems', 'music.wav'), 'the previous film')
+  await exportVideo(project, memoryChild({ size, frame: boxFrame(64, 36) }), {
+    out,
+    revision: 'test',
+  })
+  assert.deepEqual(readdirSync(dirname(out)), ['film.mp4'])
+})
+
 test('render saves the revision it renders and tags the file; render --job saves nothing', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
