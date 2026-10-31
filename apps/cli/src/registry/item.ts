@@ -180,7 +180,8 @@ export const checkItem = (raw: unknown, where: string): { item: Item; warnings: 
     else
       for (const f of raw.files as string[]) {
         const n = normalize(f)
-        if (isAbsolute(f) || n.split(sep).includes('..'))
+        // '.' (and '', 'a/..') is the plugin folder itself: added, it would copy over the project.
+        if (isAbsolute(f) || n === '.' || n.split(sep).includes('..'))
           errors.push(`file "${f}" is outside the plugin`)
         else files.push(f)
       }
