@@ -2,6 +2,12 @@
 
 A film is `render(t)` in a project; the terms are defined in [GLOSSARY.md](../GLOSSARY.md).
 
+## For people
+
+- [start.md](start.md): your first 10 minutes: install, ask for a film, the studio, share.
+- [using-the-studio.md](using-the-studio.md): playing and the keys, comments, Compare, variants,
+  params, Export, Share, and "Through shaderera.com".
+
 ## Reference
 
 These ship in the `shaderera` package, so an installed project reads them in
