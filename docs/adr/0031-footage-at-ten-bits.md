@@ -150,7 +150,7 @@ S-Log3 shown at normal contrast has every other code missing before any grade. T
 
 **Verify before implementation.**
 - That swscale's `yuv420p10le` output of a 10-bit 4:2:0 file is the decoder's own samples (md5
-  the owner chooses that proxy.
+  against `-f rawvideo` with no filter), and its 12→10 and 8→10 rules.
 - `videoMs` of #434's *fetch* film in `yuv420p10` at 1080p and 2160p, one and four hosts, beside
   0030's numbers, to replace the extrapolation above.
 
