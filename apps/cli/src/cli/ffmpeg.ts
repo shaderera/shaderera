@@ -878,20 +878,33 @@ export const ffmpegSink = (
         tell({ type: 'frame', bytes }, [bytes.buffer as ArrayBuffer])
       }),
     // ffmpeg flushes and exits once its input ends; one that never does (its input's end lost)
-    // fails after the watchdog's seconds, never waits for ever.
+    // fails after the watchdog's seconds, never waits for ever. Its output (the last argument)
+    // written within them counts as finishing: +faststart rewrites the whole file in place then,
+    // which takes minutes for a large master on a hard disk. Its mtime moves; its size does not.
     end: () =>
       new Promise<void>((done, fail) => {
         ending = true
-        const timer = setTimeout(() => {
-          failed ??= new FfmpegError(
-            `ffmpeg did not finish within ${stall} s of its last frame: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
-            'stall',
-            null,
-            lastLines(said),
-          )
-          fail(failed)
-          tell({ type: 'kill' })
-        }, stall * 1000)
+        const written = () => statSync(args.at(-1) ?? '', { throwIfNoEntry: false })?.mtimeMs
+        let last = written()
+        let timer: NodeJS.Timeout
+        const watch = () => {
+          timer = setTimeout(() => {
+            const now = written()
+            if (now !== last) {
+              last = now
+              return watch()
+            }
+            failed ??= new FfmpegError(
+              `ffmpeg did not finish within ${stall} s of its last frame: it stalled (SHADERERA_FFMPEG_STALL sets the seconds).`,
+              'stall',
+              null,
+              lastLines(said),
+            )
+            fail(failed)
+            tell({ type: 'kill' })
+          }, stall * 1000)
+        }
+        watch()
         exited.then(done, fail).finally(() => clearTimeout(timer))
         tell({ type: 'end' })
       }),

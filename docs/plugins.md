@@ -26,7 +26,9 @@ is built on, once. A later `add` never replaces a file the project already has; 
 only the plugin named. Once copied, the files are the project's own code: to stop using one,
 delete its files. A media plugin also gets a record in the project's `ASSETS.md` (made when
 missing): its version, licence, source and files, between `<!-- plugin <name> -->` markers that a
-later `add` of it replaces. Delete the record with the files.
+later `add` of it replaces. Delete the record with the files. A package plugin's tarball is copied
+into the project's `vendor/` (`vendor/shaderera-music-0.1.0.tgz`) and installed from there, so
+`package.json` names the project's own copy and a clone installs without the plugin cache.
 
 `add` and `remove` take several names. `add` resolves every one, and what each is built on,
 before it copies anything: if one is missing, nothing is copied. A range named on the command

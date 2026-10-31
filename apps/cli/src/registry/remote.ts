@@ -29,6 +29,17 @@ const get = async (url: string): Promise<Buffer> => {
   return Buffer.from(await r.arrayBuffer())
 }
 
+/** `text` read as a plugin index, or an error naming the `url` it came from. */
+const parseIndex = (text: Buffer, url: string): Index => {
+  let index: Partial<Index> | undefined
+  try {
+    index = JSON.parse(text.toString('utf8'))
+  } catch {}
+  if (typeof index?.items !== 'object' || index.items === null)
+    throw new Error(`${url} is not a plugin index`)
+  return index as Index
+}
+
 /**
  * The versions `specs` resolve to and every item and extension they require, each once, chosen
  * as `add` chooses them: the named ones first, so a range given on the command line wins.
@@ -38,7 +49,7 @@ const closure = (index: Index, specs: readonly string[]): [string, string][] => 
   const seen = new Set<string>()
   const take = (want: string) => {
     const { name, range } = parseSpec(want)
-    const entry = index.items[name]
+    const entry = Object.hasOwn(index.items, name) ? index.items[name] : undefined
     if (seen.has(name) || !entry) return null
     seen.add(name)
     const version = newest(Object.keys(entry.versions), range)
@@ -79,9 +90,11 @@ export const mirror = async (
   const base = url.replace(/\/+$/, '')
   const dir = cacheDir(base)
   mkdirSync(dir, { recursive: true })
-  let indexText: Buffer
+  let index: Index
   try {
-    indexText = await get(`${base}/index.json`)
+    const indexText = await get(`${base}/index.json`)
+    // Read before it is kept: a wrong --site answering HTML must not become the offline copy.
+    index = parseIndex(indexText, `${base}/index.json`)
     writeWhole(join(dir, 'search.json'), await get(`${base}/search.json`))
     writeWhole(join(dir, 'index.json'), indexText)
   } catch (e) {
@@ -89,7 +102,6 @@ export const mirror = async (
     console.error(`shaderera: ${(e as Error).message}; using the copy from last time`)
     return dir
   }
-  const index: Index = JSON.parse(indexText.toString('utf8'))
   for (const [name, version] of wanted(index, command, args)) {
     const v = index.items[name]?.versions[version]
     if (!v || !NAME.test(name) || !parseVersion(version)) continue

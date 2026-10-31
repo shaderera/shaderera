@@ -157,7 +157,9 @@ test('add copies a component, installs and requires what it needs; a missing one
     },
   })
   assert.ok(existsSync(join(root, 'src', 'code-wall.ts')))
-  assert.equal(installed.length, 1)
+  // npm records the path it installed from: the project's own copy, never the user's cache.
+  assert.deepEqual(installed, ['./vendor/shaderera-kinetic-type-0.1.2.tgz'])
+  assert.ok(existsSync(join(root, 'vendor', 'shaderera-kinetic-type-0.1.2.tgz')))
   assert.ok(done.some((d) => /installed @shaderera\/kinetic-type@0\.1\.2/.test(d)))
   assert.equal(manifest(root).requires.extensions['@shaderera/kinetic-type'], '^0.1.2')
   assert.equal(manifest(root).entry, 'src/composition.ts')
@@ -404,6 +406,27 @@ test('add resolves everything first, copies only what a piece lacks, and stops a
   assert.throws(() => add(root, registry, 'broken'), /gone is not a plugin in/)
   assert.ok(!existsSync(join(root, 'src', 'broken.ts')))
   assert.doesNotThrow(() => add(root, registry, 'p'))
+  for (const name of ['toString', 'constructor', '__proto__'])
+    assert.throws(() => add(root, registry, name), new RegExp(`^Error: ${name} is not a plugin in`))
+})
+
+test('add warns when a plugin needs a shaderera this CLI is not', () => {
+  const registry = temp('reg')
+  publish(piece('looks-new', ['src/new.ts'], { requires: { shaderera: '>=0.3.0' } }), registry)
+  publish(
+    piece('looks-top', ['src/top.ts'], { requires: { items: { 'looks-new': '*' } } }),
+    registry,
+  )
+  const old = add(project(), registry, 'looks-top', { version: '0.2.2' })
+  assert.ok(
+    old.includes(
+      '! looks-new@0.1.0 requires shaderera >=0.3.0, not 0.2.2: update shaderera or add an older version',
+    ),
+    old.join('\n'),
+  )
+  assert.ok(
+    !add(project(), registry, 'looks-top', { version: '0.3.1' }).some((d) => d.startsWith('!')),
+  )
 })
 
 test('a release ranks above its own pre-releases', () => {
@@ -469,6 +492,29 @@ test('an item name never has "__", the folder @scope/name is kept in', () => {
   )
 })
 
+test('a file entry that is the plugin folder itself is refused at publish and at add', () => {
+  const registry = temp('reg')
+  publish(piece('looks-whole', ['src/a.ts']), registry)
+  const file = join(registry, 'index.json')
+  const index = readFileSync(file, 'utf8')
+  for (const f of ['.', '', 'a/..']) {
+    const dir = write(temp('whole'), {
+      'shaderera.item.json': {
+        name: 'looks-whole',
+        type: 'component',
+        category: 'Looks',
+        version: '0.2.0',
+        licence: 'MIT',
+        files: [f],
+      },
+    })
+    assert.throws(() => publish(dir, registry), /outside the plugin/)
+    // An index from anywhere: add checks the label again.
+    writeFileSync(file, index.replace('"src/a.ts"', JSON.stringify(f)))
+    assert.throws(() => add(project(), registry, 'looks-whole'), /outside the plugin/)
+  }
+})
+
 test('the index is replaced whole, never rewritten in place', () => {
   const registry = temp('reg')
   const file = join(registry, 'index.json')
@@ -510,6 +556,8 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
     add(root, dir, 'looks-grain')
     assert.ok(existsSync(join(root, 'src', 'grain.ts')))
     assert.ok(existsSync(join(root, 'src', 'base noise.ts')))
+    // A built-in object name is no plugin here either (#618).
+    assert.equal(await mirror(url, 'info', ['constructor']), dir)
 
     const index = JSON.parse(readFileSync(join(folder, 'index.json'), 'utf8'))
     index.items['looks-grain'].versions['0.1.0'].files.push('../../escape.txt')
@@ -517,6 +565,39 @@ test('a registry served over HTTP is mirrored and added from like a folder; a pa
     writeFileSync(join(folder, 'index.json'), JSON.stringify(index))
     await assert.rejects(mirror(url, 'add', ['looks-grain']), /outside its folder/)
   } finally {
+    server.close()
+    delete process.env.SHADERERA_CACHE
+  }
+})
+
+test('a site that answers its index with HTML is named, and the mirrored index is kept', async () => {
+  const folder = temp('served')
+  publish(piece('looks-base', ['src/base.ts']), folder)
+  let html = false
+  const server = createServer((req, res) => {
+    if (html) return void res.end('<!doctype html><title>Not here</title>')
+    res.end(readFileSync(join(folder, decodeURIComponent(req.url ?? '/'))))
+  })
+  await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok))
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  process.env.SHADERERA_CACHE = temp('cache')
+  const said: string[] = []
+  const error = console.error
+  console.error = (s: string) => said.push(s)
+  try {
+    html = true
+    await assert.rejects(mirror(url, 'search', []), {
+      message: `${url}/index.json is not a plugin index`,
+    })
+    html = false
+    const dir = await mirror(url, 'search', [])
+    const before = readFileSync(join(dir, 'index.json'), 'utf8')
+    html = true
+    assert.equal(await mirror(url, 'search', []), dir)
+    assert.match(said.join('\n'), new RegExp(`${url}/index.json is not a plugin index`))
+    assert.equal(readFileSync(join(dir, 'index.json'), 'utf8'), before)
+  } finally {
+    console.error = error
     server.close()
     delete process.env.SHADERERA_CACHE
   }
