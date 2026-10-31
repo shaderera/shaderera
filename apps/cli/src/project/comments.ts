@@ -1,14 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import {
   appendFileSync,
-  closeSync,
   existsSync,
-  fstatSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
-  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -22,7 +18,7 @@ import { type Json, type Manifest, parseFps } from '@shaderera/core'
 import { checkManifest, withVariant } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
 import { ID_ALPHABET } from '../studio/pairing.ts'
-import { type By, fileAt, head, save, scanProject, treeId } from './revisions.ts'
+import { type By, endsWithNewline, fileAt, head, save, scanProject, treeId } from './revisions.ts'
 
 /**
  * Comments on the film (decision 0025): what the person leaves at a moment of it, and the replies.
@@ -249,20 +245,6 @@ export const withCommentsLock = async <T>(
     return await run()
   } finally {
     if (ownerOf(lock) === token) rmSync(lock, { recursive: true, force: true })
-  }
-}
-
-/** Whether the file ends in a newline (or is empty): a torn last line must not swallow the next. */
-const endsWithNewline = (file: string) => {
-  const fd = openSync(file, 'r')
-  try {
-    const { size } = fstatSync(fd)
-    if (size === 0) return true
-    const last = Buffer.alloc(1)
-    readSync(fd, last, 0, 1, size - 1)
-    return last[0] === 0x0a
-  } finally {
-    closeSync(fd)
   }
 }
 

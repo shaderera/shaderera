@@ -6,6 +6,7 @@ import {
   constants,
   copyFileSync,
   existsSync,
+  fstatSync,
   linkSync,
   lstatSync,
   mkdirSync,
@@ -279,24 +280,43 @@ export const readRevision = (root: string, id: string): Revision => {
   return revision
 }
 
+/** `versions/log.jsonl` (a torn line, cut off by a crash or a full disk mid-append, is skipped). */
 export const log = (root: string): LogEntry[] => {
   const file = join(versionsOf(root), 'log.jsonl')
   if (!existsSync(file)) return []
   return readFileSync(file, 'utf8')
     .split('\n')
-    .filter(Boolean)
-    .map((l) => JSON.parse(l) as LogEntry)
+    .flatMap((l) => {
+      try {
+        return [JSON.parse(l) as LogEntry]
+      } catch {
+        return []
+      }
+    })
 }
 
 /** The revision the working tree was last saved as or restored to, if any. */
 export const head = (root: string): string | null => log(root).at(-1)?.id ?? null
 
+/** Whether the file ends in a newline (or is empty): a torn last line must not swallow the next. */
+export const endsWithNewline = (file: string) => {
+  const fd = openSync(file, 'r')
+  try {
+    const { size } = fstatSync(fd)
+    if (size === 0) return true
+    const last = Buffer.alloc(1)
+    readSync(fd, last, 0, 1, size - 1)
+    return last[0] === 0x0a
+  } finally {
+    closeSync(fd)
+  }
+}
+
 const append = (root: string, entry: Omit<LogEntry, 'at'>) => {
   mkdirSync(versionsOf(root), { recursive: true })
-  appendFileSync(
-    join(versionsOf(root), 'log.jsonl'),
-    `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
-  )
+  const file = join(versionsOf(root), 'log.jsonl')
+  const lead = existsSync(file) && !endsWithNewline(file) ? '\n' : ''
+  appendFileSync(file, `${lead}${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`)
 }
 
 /** Writes a file through a temporary name, so a reader never sees half of it. */
