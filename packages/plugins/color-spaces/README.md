@@ -34,8 +34,9 @@ const code = /* wgsl */ `${PRIMARY_WGSL}${SPACES_WGSL}
   `logc3ToLinear` and `linearToLogc3` (ARRI LogC3), `logc4ToLinear` and `linearToLogc4` (ARRI
   LogC4), `vlogToLinear` and `linearToVlog` (Panasonic V-Log), `clog3ToLinear` and
   `linearToClog3` (Canon Log 3, Canon's linear times 0.9, as the ACES IDTs scale it, so 18% grey
-  is code 351). In WGSL the decoder is `${clip.space.transfer}ToLinear`; on the CPU,
-  `TO_LINEAR[transfer]`.
+  is code 351). For these five transfers the decoder in WGSL is
+  `${clip.space.transfer}ToLinear`, and on the CPU `TO_LINEAR[transfer]`; `bt709`, `srgb`, `pq`
+  and `hlg` have none here, so check `transfer in TO_LINEAR` first.
 - `logc3` is LogC3 at EI 800 only: other EIs have other curves.
 - `rgbToXyz(gamut)` and `xyzToRgb(gamut)` (CPU): a gamut's linear RGB to CIE XYZ and back, its
   white at Y = 1. `GAMUTS` has their primaries and whites: `rec709` (BT.709, sRGB's too),
@@ -47,7 +48,8 @@ const code = /* wgsl */ `${PRIMARY_WGSL}${SPACES_WGSL}
   adaptation when the whites differ: the ACES white (0.32168, 0.33767) is not D65, and Bradford
   is the CAT the ACES configs use. `toMat3x3f` (from `color-primary`) lays it out for a uniform;
   `applyMatrix` applies it on the CPU. The Sony, ARRI and Canon IDTs adapt to the ACES white
-  with CAT02 instead, so their matrices to AP0 differ from this one's by up to 0.005; between D65
+  with CAT02 instead, so their matrices to AP0 differ from this one's by up to 0.005 (neutrals are identical, saturated colours move by
+  0.003 at most); between D65
   gamuts (a camera's to Rec.709 or Rec.2020) nothing is adapted and they agree.
 
 Code values. The camera curves take a 10-bit code / 1023, the stored sample, which is how the
