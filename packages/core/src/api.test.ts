@@ -127,6 +127,7 @@ test("docs/api.md's declarations are the exported types, as written", () => {
     'DecodedImage',
     'Footage',
     'VideoColour',
+    'FootageSpace',
     'videoTexture',
     'AudioClip',
     'Pcm',

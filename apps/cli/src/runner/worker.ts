@@ -169,7 +169,10 @@ const ask: Ask = {
     return r ? new Uint8Array(await r.arrayBuffer()) : null
   },
   cachePut: async (hash, bytes) => void (await service('cache-put', { hash }, bytes)),
-  videoOpen: async (path) => (await (await service('video-open', { path }))?.json()) as never,
+  videoOpen: async (path, declared) =>
+    (await (
+      await service('video-open', { path, ...(declared ? { declared: '1' } : {}) })
+    )?.json()) as never,
   videoFrame: async (path, index, format) =>
     new Uint8Array(
       await (

@@ -27,7 +27,7 @@ export type ServiceRequest =
   | { op: 'cache-put'; hash: string; bytes: Uint8Array }
   | { op: 'image-open'; path: string; maxSize?: number }
   | { op: 'image-data'; key: string }
-  | { op: 'video-open'; path: string }
+  | { op: 'video-open'; path: string; declared?: boolean }
   | { op: 'video-frame'; path: string; index: number; format?: VideoFormat }
   | { op: 'video-close'; path: string }
   | { op: 'bake-open'; name: string }
@@ -134,6 +134,16 @@ export const probeVideo = (file: string): VideoInfo => {
  * packets of to seek (decoder.ts, keyGap): `check` notes the long ones.
  */
 export const keyGaps = new Map<string, number>()
+
+/**
+ * Each clip file of more than 8 bits a host of this process opened (#575): whether every open
+ * declared its space, and whether its frames were read at 8 bits (`rgba`, `yuv420p`) or at 10.
+ * `check` warns of the undeclared ones and of those read only at 8.
+ */
+export const deepFootage = new Map<
+  string,
+  { bits: VideoInfo['bits']; declared: boolean; at8: boolean; at10: boolean }
+>()
 
 /**
  * A clip as a draft render's io.video gives it (render --draft): scaled each side as the frame is,
@@ -501,10 +511,20 @@ export const createServices = (
       }
       case 'video-open': {
         const { alpha: _, ...info } = video(r.path).info
+        const file = checked.get(r.path) as string
+        if (info.bits > 8) {
+          const d = deepFootage.get(file)
+          const declared = (d?.declared ?? true) && r.declared === true
+          deepFootage.set(file, { at8: false, at10: false, ...d, bits: info.bits, declared })
+        }
         return info
       }
-      case 'video-frame':
-        return video(r.path, r.format).frame(r.index)
+      case 'video-frame': {
+        const reader = video(r.path, r.format)
+        const d = deepFootage.get(checked.get(r.path) as string)
+        if (d) d[r.format === 'yuv420p10' ? 'at10' : 'at8'] = true
+        return reader.frame(r.index)
+      }
       case 'video-close':
         await release(insideForRead(root, r.path))
         return null

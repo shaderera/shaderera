@@ -53,8 +53,10 @@ gamut on the way back is negative in a channel: the output transform clips it. G
 on ACEScct, not ACEScc: ACEScc goes below 0 under linear 0.0012, and the CDL's clamp at 0 lifts
 those shadows even with an identity grade.
 
-This does one job. It never guesses a file's space: the film says what its footage is. Footage
-reaches a film as 8-bit sRGB today, so camera log curves and gamuts (S-Log3, LogC3 and LogC4,
-V-Log, Canon Log 3 and their gamuts) are not here yet; they follow footage that declares its
-space. PQ is not here either. There is no generic `convert`: a curve, then a matrix, each one
+This does one job. It never guesses a file's space: the film says what its footage is, in
+`io.video(path, { transfer, gamut })`, and reads it back as `clip.space` (absent when nothing was
+declared) to pick the curve and the matrix. Camera log curves and gamuts (S-Log3, LogC3 and
+LogC4, V-Log, Canon Log 3 and their gamuts) are not here yet: `clip.space` can name them, and
+they come next. PQ is not here either. A declared `bt709` is the camera's curve (the BT.709
+OETF), not this plugin's `bt1886` display curve; `logc3` is ARRI LogC3 at EI 800. There is no generic `convert`: a curve, then a matrix, each one
 line.
