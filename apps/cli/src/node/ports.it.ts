@@ -201,7 +201,7 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
           '-i',
           join(root, 'assets', 'clip.mp4'),
           '-vf',
-          `select=eq(n\\,${n}),scale=in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
+          `select=eq(n\\,${n}),scale=flags=accurate_rnd+full_chroma_int:in_color_matrix=auto:in_range=auto:out_range=full,format=rgba`,
           '-fps_mode',
           'passthrough',
           '-f',

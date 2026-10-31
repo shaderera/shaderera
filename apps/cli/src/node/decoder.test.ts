@@ -397,3 +397,35 @@ test("yuv420p10 is a 10-bit file's own samples, 8 bits shifted up, 12 reduced, 4
     ),
   )
 })
+
+test('RGBA decodes a 10-bit limited-range ramp to every 8-bit level', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 60_000,
+}, async () => {
+  // Y 64 to 940 across 1920 pixels, grey chroma, kept lossless in FFV1.
+  const w = 1920
+  const h = 2
+  const planes = new Uint16Array(w * h + 2 * (w / 2) * (h / 2)).fill(512)
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) planes[y * w + x] = 64 + Math.round((876 * x) / (w - 1))
+  const file = join(tempDir('ramp'), 'ramp.mkv')
+  const r = spawnSync(
+    'ffmpeg',
+    [
+      ...['-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'yuv420p10le', '-s', `${w}x${h}`, '-i', '-'],
+      ...['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709'],
+      ...['-color_range', 'tv', '-c:v', 'ffv1', file],
+    ],
+    { input: Buffer.from(planes.buffer) },
+  )
+  assert.equal(r.status, 0, String(r.stderr))
+  const d = videoDecoder(file, { ...probeVideo(file), format: 'rgba' })
+  try {
+    const rgba = await d.frame(0)
+    const levels = new Set<number>()
+    for (let x = 0; x < w; x++) levels.add(rgba[x * 4] as number)
+    assert.equal(levels.size, 256)
+  } finally {
+    await d.close()
+  }
+})
