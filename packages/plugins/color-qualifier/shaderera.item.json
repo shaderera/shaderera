@@ -1,0 +1,28 @@
+{
+  "name": "color-qualifier",
+  "type": "component",
+  "title": "Color Qualifier",
+  "description": "A hue, saturation and luma key to a soft 0–1 matte, so a grade touches one colour only (sky, skin, a product): ranges with their own softness, hue wrapping at 360° and read as color-curves reads it; WGSL and CPU with the same values",
+  "category": "Color",
+  "tags": [
+    "qualifier",
+    "hsl key",
+    "key",
+    "keyer",
+    "matte",
+    "secondary",
+    "secondary grade",
+    "colour key",
+    "hue",
+    "saturation",
+    "luma",
+    "grade",
+    "colour grading",
+    "colour",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/color/qualifier.ts", "src/color/qualifier.wgsl.ts"]
+}

@@ -15,11 +15,12 @@ its options as parameters, defaults that render well. Once added, a plugin is th
 code, to change freely.
 
 Plugins are named `<category>-<thing>`, so related ones sort together and the name says what it
-is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`,
+is: `analysis`, `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`, `look`, `motion`, `render`, `review`,
 `text`.
 
 | Plugin | Type | What it does | From |
 |---|---|---|---|
+| `analysis-scopes` | component | a frame as scope numbers: levels, black and white points, % clipped and crushed per channel, histogram, waveform and RGB parade by column band, balance in shadows, midtones and highlights, a vectorscope summary with skin tones against the skin-tone line; no scope images | #568: films came out dark, and an agent cannot grade what it cannot measure |
 | `asset-provenance` | component | where each outside file came from: a record per file (source, licence, author, segment, sha256), the ASSETS.md table and the description's credits | an in-house explainer film, 2026-10-16 |
 | `audio-beat-clock` | component | measure a song (tempo fitted to its onsets, bars, onsets, bands); a clock, band levels and hits at render time | opening film; tempo fit from later in-house films |
 | `audio-hall-ending` | component | an ending that rings out in a hall and dies to silence (ffmpeg) | opening film |
@@ -28,6 +29,12 @@ is: `asset`, `audio`, `camera`, `font`, `format`, `image`, `look`, `motion`, `re
 | `camera-ken-burns` | component | the crop of a still a frame shows: framed on a box with headroom, moved between two framings at an even speed (scale in log space), kept inside the picture | an explainer film on cats in art (POC), 2026-10-15 |
 | `camera-keyframes` | component | a 3D camera as shots: orbit, dolly, crane, cut, exact framing, lenses in mm, shift, focus; WebGPU or three.js; core's camera contract; the lens rule for tall frames | opening film, ideas from camera-controls and Cinemachine |
 | `camera-shake` | component | breathe, handheld, impact: seeded noise as a formula of t, scaled by an envelope | ideas from drei CameraShake |
+| `color-cdl-files` | component | ASC CDL files (.cc, .ccc, .cdl) read into slope, offset, power and saturation per correction, as color-primary's cdl takes them, and written back; a small scanner, no XML dependency | #568: a grade from Resolve or on set in, and out to a colourist |
+| `color-curves` | component | grading curves from control points: a master and R, G, B curves baked into a color-lut 1D LUT, hue vs saturation and hue vs hue around 360°; a monotone cubic (PCHIP-style) that never overshoots; WGSL and CPU with the same values, every default identity | #568: curves from points the person or the agent gives |
+| `color-lut` | component | a .cube LUT (1D or 3D) read, applied and written: tetrahedral in WGSL from a 3D texture and on the CPU with the same values; the LUT's spaces are its author's, none ship | #568: a person's own grade in and out of Shaderera |
+| `color-qualifier` | component | a hue, saturation and luma key to a soft 0–1 matte: ranges with their own smoothstep softness, hue wrapping at 360° and read as color-curves reads it, each range left out passing everything; WGSL and CPU with the same values; no shrink/grow | #568: a grade on one colour only (sky, skin, a product) |
+| `color-primary` | component | primary grading as numbers: the ASC CDL v1.2 (slope, offset, power, saturation, clamped as the spec does), exposure in stops, contrast around a pivot, white balance by Bradford from a Kelvin or xy white; WGSL and CPU with the same values, every default identity on 0–1 | #568: the balance pass every grade starts with |
+| `color-spaces` | component | a log working space and wide gamuts: ACEScct and ACEScc both ways, BT.1886, and 3×3 matrices between Rec.709, Rec.2020, P3-D65, ACES AP0 and AP1 through XYZ, with Bradford when the whites differ; WGSL and CPU with the same values; no camera log yet | #568: a CDL graded on log values, and wide gamuts |
 | `font-ibm-plex-mono` | media | IBM Plex Mono, OFL | opening film |
 | `font-ibm-plex-sans` | media | IBM Plex Sans, OFL | an in-house film |
 | `font-instrument-serif` | media | Instrument Serif, OFL | an in-house film |
