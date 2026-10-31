@@ -194,6 +194,40 @@ test('an ffmpeg that never finishes after its input ended fails end after the wa
   assert.ok(performance.now() - start < 2000)
 })
 
+test('an ffmpeg still writing its output after the last frame is waited for; an idle one is not (#613)', async () => {
+  // +faststart rewrites the whole file in place after the last frame, without growing it: a 10 GB
+  // mov took 339 s on a hard disk here, its size still and its mtime moving.
+  const dir = mkdtempSync(join(tmpdir(), 'shaderera-end-'))
+  const encoder = (rewrites: number) =>
+    ffmpegSink([join(dir, 'out.mp4')], 'rgba', false, {
+      command: [
+        process.execPath,
+        '-e',
+        `const fs = require('node:fs'); const out = process.argv[1]; fs.writeFileSync(out, 'x'.repeat(64))
+        process.stdin.resume(); process.stdin.on('end', () => {
+          if (${rewrites} === 0) return setInterval(() => {}, 1000)
+          const fd = fs.openSync(out, 'r+'); let n = 0
+          const t = setInterval(() => { fs.writeSync(fd, 'y', n % 64); if (++n === ${rewrites}) { clearInterval(t); fs.closeSync(fd); process.exit(0) } }, 100)
+        })`,
+      ],
+      stall: 0.5,
+    })
+  try {
+    // 1.5 s of rewriting, three times the watchdog.
+    await encoder(15).end()
+    // Writing nothing and never exiting: still killed.
+    await assert.rejects(
+      encoder(0).end(),
+      (e: unknown) =>
+        e instanceof FfmpegError &&
+        e.reason === 'stall' &&
+        /did not finish within 0.5 s of its last frame/.test(e.message),
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('an ffmpeg whose stderr another process holds after it exits ends all the same (#439)', async () => {
   const held = fileURLToPath(new URL('../fixtures/held-pipe.ts', import.meta.url))
   const sink = ffmpegSink([], 'rgba', false, { command: [process.execPath, held, 'in', '8000'] })
