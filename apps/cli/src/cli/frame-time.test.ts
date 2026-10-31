@@ -29,7 +29,7 @@ test('a render whose own drawing takes each frame while the encoder waits gets t
   )
   assert.match(
     frameTimeHint(t) ?? '',
-    /own drawing.*AUTHORING\.md, "Footage and stills on the GPU"/,
+    /own drawing.*guides\/speed\.md, "Footage and stills on the GPU"/,
   )
 })
 

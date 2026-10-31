@@ -53,6 +53,10 @@ One file per decision, in the order they were made.
 - [0029](0029-large-files-stored-once.md): a stored file placed once, by clone, then read-only
   link, then copy, for frozen copies (never a link into the working tree); footage still stored
   whole in the project, with no shared store and no external references (amends 0003).
+- [0030](0030-footage-frames-decoded-ahead.md): footage frames, in steps: the CLI's one decoder
+  decodes on several threads and further ahead, over the same pipe (step 1); a ring in shared
+  memory only if the pipe hop is still over a third of the wait (step 2, deferred, needs a native
+  module); the same bytes; hardware decode allowed but not the default yet (amends 0007).
 - [0031](0031-footage-at-ten-bits.md): footage at 10 bits, as `yuv420p10` Y'CbCr planes a film
   asks for per call, converted by core's `videoTexture` to exact half float; RGBA and 8-bit
   planes unchanged (amends 0027).

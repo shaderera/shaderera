@@ -22,6 +22,13 @@ test('every shaderera command and flag the authoring guide, the guides and the s
       'shaderera',
       'SKILL.md',
     ),
+    'plugins/shaderera/skills/shaderera/studio.md': read(
+      'plugins',
+      'shaderera',
+      'skills',
+      'shaderera',
+      'studio.md',
+    ),
     'plugins/shaderera/skills/shaderera-plugins/SKILL.md': read(
       'plugins',
       'shaderera',

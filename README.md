@@ -49,6 +49,9 @@ them a pure function of `t`: scrub back and the same frame comes back.
 
 ## Quick start
 
+New to Shaderera? Start with [your first 10 minutes](docs/start.md) and
+[using the studio](docs/using-the-studio.md), written for people, not agents.
+
 You need Node.js 24 or newer and [ffmpeg](https://ffmpeg.org/download.html) on the PATH.
 Chrome is needed only for the browser host (DOM and WebGPU in a page). `npx shaderera doctor`
 says what your machine has and lacks.
@@ -124,7 +127,7 @@ starting project is 1920×1080 at 60 fps, 10 s long, seed 1 (`shaderera.json`), 
 [How it works](#how-it-works) is Canvas2D.
 Every new project is also set up for an agent: `AGENTS.md` (and `CLAUDE.md`, which points to
 it) says how to work there, `AUTHORING.md` is the workflow, `guides/` holds short guides (sound,
-typography, formats, 3D products, photos, logos, review, revisions, fast-compiling shaders), and
+typography, formats, 3D products, photos, logos, review, revisions, speed, fast-compiling shaders), and
 `.mcp.json` names the MCP server. The skills are not copied in: install them once, with the Claude Code plugin or
 `npx skills add` ([above](#with-an-ai-coding-agent)).
 

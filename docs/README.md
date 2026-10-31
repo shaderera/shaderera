@@ -2,6 +2,12 @@
 
 A film is `render(t)` in a project; the terms are defined in [GLOSSARY.md](../GLOSSARY.md).
 
+## For people
+
+- [start.md](start.md): your first 10 minutes: install, ask for a film, the studio, share.
+- [using-the-studio.md](using-the-studio.md): playing and the keys, comments, Compare, variants,
+  params, Export, Share, and "Through shaderera.com".
+
 ## Reference
 
 These ship in the `shaderera` package, so an installed project reads them in
@@ -32,8 +38,8 @@ These ship in the `shaderera` package, so an installed project reads them in
   [three.js](participants/three.md) · [Glyph](participants/glyph.md) ·
   [WebGPU](participants/webgpu.md) · [DOM](participants/dom.md)
 - [guides/](guides/): task checklists every project gets (typography, formats and delivery,
-  revisions, review, sound, identity, photo, 3D product, footage from outside, fast-compiling
-  shaders).
+  revisions, review, sound, identity, photo, 3D product, footage from outside, speed,
+  fast-compiling shaders).
 
 ## This repository
 
