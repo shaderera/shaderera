@@ -36,8 +36,7 @@ Say how long a full render will take. Run it in the background with `--progress`
 progress lines (`frame 120/600  23.4 fps  0:20 left`) and tell the person the time left. Don't
 wait in silence. When a render is slow, say why and what helps, in this order:
 
-- A software GPU. `render` refuses it unless `--software-gpu`; `npx shaderera doctor` says what
-  to check.
+- A software GPU (the `shaderera` skill, "A software GPU").
 - Footage or stills drawn through Canvas2D, which costs CPU work on every frame.
 - Long-GOP footage (few keyframes): reaching a frame decodes every frame since the last keyframe.
   Encode it again with more keyframes.

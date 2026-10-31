@@ -49,7 +49,7 @@ between. Skia's own `'high'` smoothing was measured the same way in
 pyramid is for a still drawn far smaller than it is, which bilinear alone would alias.
 
 On a film with `host.gpu`, footage and large stills are faster as textures sampled in a WGSL pass:
-`toCanvas` puts every footage frame through `putImageData` before it is drawn. `AUTHORING.md`,
+`toCanvas` puts every footage frame through `putImageData` before it is drawn. `guides/speed.md`,
 "Footage and stills on the GPU", has that path, with cover, contain and a blur. `cover`,
 `contain` and `crop` still give the rectangle: divide it by the picture's size for the pass's uv.
 
