@@ -186,7 +186,12 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
           bits: await depthOf(sink, first),
           // As the file tags it, BT.601 limited untagged (node/services.ts videoColour).
           colour: {
-            matrix: space.matrix === 'bt709' ? 'bt709' : 'bt601',
+            matrix:
+              space.matrix === 'bt709'
+                ? 'bt709'
+                : space.matrix === 'bt2020-ncl'
+                  ? 'bt2020nc'
+                  : 'bt601',
             range: space.fullRange ? 'full' : 'limited',
             chroma: 'left',
           },
