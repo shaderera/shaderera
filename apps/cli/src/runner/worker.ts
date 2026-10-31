@@ -43,7 +43,9 @@ import * as Comlink from 'comlink'
 import { type PcmForm, packClips, toPage } from './audio.ts'
 import { type Ask, extraIo, type StillSize, stillOf } from './io.ts'
 import {
+  type FootageAsk,
   type FrameTimer,
+  footageAsked,
   type RenderTime,
   renderTime,
   resetRenderTime,
@@ -622,10 +624,10 @@ const api = {
   /** How often render read the wall clock since the worker started (counted, never blocked). */
   clock: async () => ({ date: clock.date, performance: clock.performance }),
   /** Where render's time went (render-time.ts), `reset` starting it again; no Canvas2D check here. */
-  profile: async (reset = false): Promise<{ time: RenderTime }> => {
+  profile: async (reset = false): Promise<{ time: RenderTime; footage: FootageAsk[] }> => {
     const time = renderTime()
     if (reset) resetRenderTime()
-    return { time }
+    return { time, footage: footageAsked() }
   },
   /** The source's captions, as it returns them; null without captions(). */
   captions: () =>

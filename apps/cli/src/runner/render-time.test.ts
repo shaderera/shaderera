@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { renderTime, resetRenderTime, timeFrame, timeRender, timeVideo } from './render-time.ts'
+import {
+  footageAsked,
+  renderTime,
+  resetRenderTime,
+  timeFrame,
+  timeRender,
+  timeVideo,
+} from './render-time.ts'
 
 // Relations, not wall-clock windows: the machine may be loaded (#482).
 const timed = async (run: () => Promise<unknown>) => {
@@ -80,4 +87,18 @@ test('a frame counts its compositor, readback and hand-off apart from its render
   // Done twice counts once.
   frame.done()
   assert.equal(renderTime().composeMs, t.composeMs)
+})
+
+test('footageAsked is the frames the latest render call asked for, not those asked outside one', async () => {
+  await timeRender(async () => {
+    await timeVideo(async () => {}, { path: 'a.mp4', index: 3 })
+    await timeVideo(async () => {}, { path: 'b.mp4', index: 7 })
+  })
+  await timeVideo(async () => {}, { path: 'a.mp4', index: 4 })
+  assert.deepEqual(footageAsked(), [
+    { path: 'a.mp4', index: 3 },
+    { path: 'b.mp4', index: 7 },
+  ])
+  await timeRender(async () => {})
+  assert.deepEqual(footageAsked(), [])
 })

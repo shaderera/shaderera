@@ -44,6 +44,12 @@ export type Requirements = {
   /** No flat frame outside the first and last 0.3 s: review's `blank-frames` check fails on one. */
   noBlankFrames?: true
   /**
+   * The footage holds the film means (an intended freeze): each marks the hold of one frame on
+   * screen at `at` seconds, of the clip at `clip` (any clip when absent). Declared, even as `[]`,
+   * review's `footage-hold` check fails every other hold longer than 0.3 s; unset, holds are info.
+   */
+  footageHolds?: { at: number; clip?: string; note?: string }[]
+  /**
    * Limits on the subtitle sidecar (`captions()`): characters per second, characters in a line
    * and lines (grapheme clusters), and the shortest duration and gap in seconds. Review's
    * `captions` check fails a caption over a declared one; unset, they are measured as info.
@@ -171,7 +177,7 @@ type GateCheck = {
  * The checks a project's requirements need to pass. Every project: it builds and opens, its
  * requirements read, it renders the same twice, its assets load. Then what it asks for: a format,
  * exact copy (with its glyphs, inside the frame or the safe area), a safe area, an end hold, a
- * reading time, a text overlap limit, no blank frames, caption limits. Nothing else is judged (decision 0011).
+ * reading time, a text overlap limit, no blank frames, the footage holds meant, caption limits. Nothing else is judged (decision 0011).
  */
 export const requiredChecks = (r: Requirements): Set<string> =>
   new Set([
@@ -186,6 +192,7 @@ export const requiredChecks = (r: Requirements): Set<string> =>
     ...(r.readingTime ? ['reading'] : []),
     ...(r.textOverlap !== undefined ? ['text-overlap'] : []),
     ...(r.noBlankFrames ? ['blank-frames'] : []),
+    ...(r.footageHolds ? ['footage-hold'] : []),
     ...(r.captions ? ['captions'] : []),
     ...(r.timing?.length ? ['timing'] : []),
     ...(r.placement ? ['placement'] : []),

@@ -12,6 +12,7 @@ import { mixWav } from '../cli/mix.ts'
 import type { Child } from '../node/child.ts'
 import type { Project } from '../node/project.ts'
 import type { Requirements } from '../project/requirements.ts'
+import type { FootageAsk } from '../runner/render-time.ts'
 import { cmapCodePoints, missingGlyphs } from './cmap.ts'
 import {
   blankTimes,
@@ -21,13 +22,16 @@ import {
   captionsOver,
   endHold,
   excerpt,
+  type FootageHold,
   fontFamilies,
+  footageHolds,
   frameStats,
   layoutSignature,
   lumaGrid,
   meanAbsDiff,
   missingCopy,
   type Shot,
+  shotAt,
   shotsOf,
   type TextRun,
   textFit,
@@ -471,10 +475,13 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     duration,
   )
   const samples: { t: number; std: number; diff: number | null }[] = []
+  // The io.video frames each render asked for (the host's profile), for footage-hold.
+  const asked: { t: number; footage: FootageAsk[] }[] = []
   let prev: Uint8Array | null = null
   for (const t of renderT) {
     const { pixels } = await child.render(t, 'preview')
     samples.push({ t, std: frameStats(pixels).std, diff: prev ? meanAbsDiff(prev, pixels) : null })
+    asked.push({ t, footage: (await child.profile()).footage ?? [] })
     prev = pixels
   }
   const every =
@@ -489,6 +496,36 @@ export const review = async (o: ReviewOptions): Promise<ReviewReport> => {
     measured: `${blank.length} of ${samples.length} samples (${every}) flat (luma std-dev < 1) outside the first and last 0.3 s`,
     at: blank.length ? blank : undefined,
   })
+
+  // footage-hold: a clip asked for the same frame over consecutive samples (#521). Only where a
+  // film asks io.video for frames, or declares the holds it means.
+  const marks = req.footageHolds
+  if (marks || asked.some((a) => a.footage.length)) {
+    const holds = footageHolds(asked)
+    const meant = (h: FootageHold) =>
+      marks?.some(
+        (m) =>
+          (m.clip === undefined || m.clip === h.path) &&
+          m.at >= h.from - SAMPLE &&
+          m.at <= h.to + SAMPLE,
+      ) === true
+    const unmeant = holds.filter((h) => !meant(h))
+    const say = (h: FootageHold) => {
+      const shot = shotAt(shots, h.from)
+      const name = shot ? (shot.label ?? shot.id) : undefined
+      return `footage holds one frame for ${round(h.to - h.from, 2)} s at t=${round(h.from, 2)} (${h.path}${name ? `, ${name}` : ''})`
+    }
+    checks.push({
+      id: 'footage-hold',
+      title: 'footage hold',
+      status: judged(marks !== undefined, unmeant.length > 0),
+      measured: `${unmeant.length} holds of one io.video frame longer than 0.3 s in ${asked.length} samples (${every})${holds.length > unmeant.length ? `, ${holds.length - unmeant.length} marked in footageHolds` : ''}`,
+      detail: unmeant.length
+        ? `${unmeant.slice(0, 8).map(say).join('; ')}${marks ? '' : `; an intended hold is marked in requirements.json: "footageHolds": [{ "at": ${round((unmeant[0] as FootageHold).from, 2)} }]`}`
+        : undefined,
+      at: unmeant.length ? unmeant.map((h) => h.from) : undefined,
+    })
+  }
 
   // end-hold: 10 fps over the last 3 s.
   const holdT: number[] = []

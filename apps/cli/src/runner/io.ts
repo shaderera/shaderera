@@ -129,7 +129,7 @@ export const extraIo = (
           throw new Error(
             `io.video(${path}): frame format is 'rgba', 'yuv420p' or 'yuv420p10', not ${format}.`,
           )
-        const bytes = await timeVideo(() => ask.videoFrame(path, index, format))
+        const bytes = await timeVideo(() => ask.videoFrame(path, index, format), { path, index })
         if (format !== 'yuv420p10') return bytes
         // 16-bit samples (ADR 0031, 1): a view needs an even offset, so bytes at an odd one (in
         // a larger message) are copied.

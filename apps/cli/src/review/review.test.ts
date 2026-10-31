@@ -126,6 +126,61 @@ test('review (quick) on a film without shots or text: measured or unknown, never
   }
 })
 
+test('footage-hold: a film that asks one footage frame for 1 s gets the finding, one that plays through does not', async () => {
+  // A 3 s film at 10 fps playing a clip frame by frame; `held` asks frame 10 from 1 s to 2 s.
+  const reviewed = async (held: boolean, requirements?: Requirements) => {
+    const project = memoryProject({ duration: 3 })
+    const child = memoryChild({
+      size: { width: 64, height: 36 },
+      frame: boxFrame(64, 36),
+      inspect: () => ({ shots: [{ id: 'interview', at: 0 }] }),
+      footage: (t) => {
+        const i = Math.round(t * 10)
+        return [{ path: 'assets/talk.mp4', index: held && i >= 10 && i <= 20 ? 10 : i }]
+      },
+    })
+    try {
+      const r = await review({
+        project,
+        child,
+        outDir: tempDir('review'),
+        quick: true,
+        requirements,
+      })
+      return r.checks.find((c) => c.id === 'footage-hold')
+    } finally {
+      await child.close()
+    }
+  }
+  const plays = await reviewed(false)
+  assert.equal(plays?.status, 'info')
+  assert.match(plays?.measured ?? '', /^0 holds/)
+  assert.equal(plays?.detail, undefined)
+
+  // Unmarked and undeclared: measured as info (decision 0011), naming how to mark it.
+  const held = await reviewed(true)
+  assert.equal(held?.status, 'info')
+  assert.deepEqual(held?.at, [1])
+  assert.match(
+    held?.detail ?? '',
+    /^footage holds one frame for 1 s at t=1 \(assets\/talk\.mp4, interview\); .*"footageHolds": \[\{ "at": 1 \}\]/,
+  )
+  // Declared: an unmarked hold fails; a marked one is meant.
+  assert.equal((await reviewed(true, { version: 1, footageHolds: [] }))?.status, 'fail')
+  const meant = await reviewed(true, { version: 1, footageHolds: [{ at: 1.5 }] })
+  assert.equal(meant?.status, 'pass')
+  assert.match(meant?.measured ?? '', /1 marked in footageHolds/)
+  // A film that asks no footage has no such check.
+  const project = memoryProject()
+  const child = memoryChild({ size: { width: 64, height: 36 } })
+  const r = await review({ project, child, outDir: tempDir('review'), quick: true })
+  await child.close()
+  assert.equal(
+    r.checks.some((c) => c.id === 'footage-hold'),
+    false,
+  )
+})
+
 test('review removes frames from an earlier run in its out dir, and nothing else', async () => {
   const { project, child } = film()
   const outDir = tempDir('review')

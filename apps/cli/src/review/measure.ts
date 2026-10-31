@@ -115,6 +115,45 @@ export const endHold = (times: readonly number[], diffs: readonly number[], stil
   return (times[times.length - 1] as number) - (times[i] as number)
 }
 
+/** A stretch in which a clip's plate shows one frame: from the first to the last sample asking it. */
+export type FootageHold = { path: string; index: number; from: number; to: number }
+
+/**
+ * Where footage holds a frame (#521): per clip, consecutive samples (ascending t) whose render
+ * asked it for the same frames, spanning more than `limit` seconds. A sample that asks a clip for
+ * nothing ends its run (the plate is off screen). The frames asked for are enough: no pixels.
+ */
+export const footageHolds = (
+  samples: readonly { t: number; footage: readonly { path: string; index: number }[] }[],
+  limit = 0.3,
+): FootageHold[] => {
+  const holds: FootageHold[] = []
+  const paths = [...new Set(samples.flatMap((s) => s.footage.map((f) => f.path)))]
+  const end = (path: string, run: { index: number; from: number; to: number } | null) => {
+    if (run && run.to - run.from > limit + 1e-9)
+      holds.push({ path, index: run.index, from: run.from, to: run.to })
+  }
+  for (const path of paths) {
+    let run: { key: string; index: number; from: number; to: number } | null = null
+    for (const s of samples) {
+      const asked = [...new Set(s.footage.filter((f) => f.path === path).map((f) => f.index))]
+      const key = asked.sort((a, b) => a - b).join(',')
+      if (run && run.key === key) run.to = s.t
+      else {
+        end(path, run)
+        run = asked.length ? { key, index: asked[0] as number, from: s.t, to: s.t } : null
+      }
+    }
+    end(path, run)
+  }
+  return holds.sort((a, b) => a.from - b.from)
+}
+
+/** The shot on screen at t: the span holding it, else the last moment at or before it. */
+export const shotAt = (shots: readonly Shot[], t: number): Shot | undefined =>
+  shots.find((s) => s.start !== undefined && s.end !== undefined && s.start <= t && t < s.end) ??
+  shots.filter((s) => s.at <= t + 1e-9).at(-1)
+
 const isRun = (v: { [k: string]: Json }): boolean =>
   typeof v.text === 'string' &&
   v.visible !== false &&
