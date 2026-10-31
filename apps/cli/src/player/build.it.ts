@@ -148,7 +148,7 @@ test('footage gets a proxy with the original frames: H.264, yuv420p, no B-frames
     'media/assets/clip.mp4.json',
   ])
     assert.ok(player.files.includes(f), `${f} missing`)
-  const info = { width: 320, height: 180, fps: 30, frames: 30 }
+  const info = { width: 320, height: 180, fps: 30, frames: 30, bits: 8 }
   // The original's colour (untagged) and alpha; the proxy is BT.709.
   assert.deepEqual(JSON.parse(readFileSync(join(outDir, 'media/assets/clip.mp4.json'), 'utf8')), {
     ...info,

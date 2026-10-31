@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { yuv420pToRgba } from '@shaderera/core/gpu'
+import { yuv420p10ToRgba, yuv420pToRgba } from '@shaderera/core/gpu'
 import { tempDir } from '../fixtures/temp.ts'
 import { frameIndex, keyGap, probeIndex, seekFor, videoDecoder } from './decoder.ts'
 import { probeVideo } from './services.ts'
@@ -302,4 +302,98 @@ test("yuv420p is the file's planes in the colour probeVideo reports, close to th
       await Promise.all([yuv.close(), rgba.close()])
     }
   }
+})
+
+test("yuv420p10 is a 10-bit file's own samples, 8 bits shifted up, 12 reduced, 4:2:2 subsampled", {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 60_000,
+}, async () => {
+  const dir = tempDir('yuv10')
+  const make = (name: string, args: string[]) => {
+    const file = join(dir, name)
+    const r = spawnSync('ffmpeg', [
+      ...['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=80x46:rate=10,scale=320:184'],
+      ...['-frames:v', '2', '-colorspace', 'bt709', '-color_range', 'tv'],
+      ...args,
+      file,
+    ])
+    assert.equal(r.status, 0, String(r.stderr))
+    return file
+  }
+  const own = (file: string) =>
+    spawnSync('ffmpeg', ['-v', 'error', '-i', file, '-frames:v', '1', '-f', 'rawvideo', '-'], {
+      maxBuffer: 1 << 24,
+    }).stdout as Buffer
+  const samples = (b: Uint8Array) => new Uint16Array(b.buffer, b.byteOffset, b.length / 2)
+  const w = 320
+  const h = 184
+  const n = w * h + 2 * (w / 2) * (h / 2)
+  const ten = async (file: string) => {
+    const info = probeVideo(file)
+    const d = videoDecoder(file, { ...info, format: 'yuv420p10' })
+    try {
+      const b = await d.frame(0)
+      assert.equal(b.length, 2 * n, file)
+      return { info, planes: samples(b) }
+    } finally {
+      await d.close()
+    }
+  }
+  // A 10-bit 4:2:0 file: its own samples, which ffmpeg passes through.
+  const hevc = make('ten.mp4', [
+    '-c:v',
+    'libx265',
+    '-x265-params',
+    'log-level=error',
+    '-pix_fmt',
+    'yuv420p10le',
+  ])
+  const a = await ten(hevc)
+  assert.equal(a.info.bits, 10)
+  assert.ok(
+    Buffer.from(a.planes.buffer, a.planes.byteOffset, 2 * n).equals(own(hevc)),
+    'its own samples',
+  )
+  // The matrix and range probeVideo reports are the ones the RGBA path converts by.
+  const rgba = videoDecoder(hevc, a.info)
+  try {
+    const halfs = yuv420p10ToRgba(a.planes, w, h, a.info.colour)
+    const eight = new Uint8Array(halfs.length)
+    const f = new Float32Array(1)
+    const u = new Uint32Array(f.buffer)
+    halfs.forEach((x, i) => {
+      // A half float's value, as an 8-bit code.
+      const e = (x >> 10) & 31
+      u[0] = ((x & 0x8000) << 16) | (e ? ((e + 112) << 23) | ((x & 1023) << 13) : 0)
+      eight[i] = Math.round(Math.min(1, Math.max(0, f[0] as number)) * 255)
+    })
+    const db = psnr(eight, await rgba.frame(0))
+    assert.ok(db > 32, `${db.toFixed(1)} dB from the RGBA path`)
+  } finally {
+    await rgba.close()
+  }
+  // An 8-bit file: its own planes shifted up two bits, exactly.
+  const avc = make('eight.mp4', ['-c:v', 'libx264', '-pix_fmt', 'yuv420p'])
+  const b = await ten(avc)
+  assert.equal(b.info.bits, 8)
+  const bytes = own(avc)
+  assert.ok(
+    b.planes.every((v, i) => v === (bytes[i] as number) << 2),
+    '8 bits shifted up',
+  )
+  // A 12-bit file, reduced to 10 bits by swscale.
+  const twelve = make('twelve.mkv', ['-c:v', 'ffv1', '-pix_fmt', 'yuv420p12le'])
+  const c = await ten(twelve)
+  assert.equal(c.info.bits, 12)
+  const deep = samples(own(twelve))
+  assert.ok(c.planes.every((v, i) => v <= 1023 && Math.abs(v - ((deep[i] as number) >> 2)) <= 1))
+  // 4:2:2 10-bit: its luma as it is, its chroma subsampled.
+  const pro = make('pro.mov', ['-c:v', 'prores_ks', '-pix_fmt', 'yuv422p10le'])
+  const d = await ten(pro)
+  assert.equal(d.info.bits, 10)
+  assert.ok(
+    Buffer.from(d.planes.buffer, d.planes.byteOffset, 2 * w * h).equals(
+      own(pro).subarray(0, 2 * w * h),
+    ),
+  )
 })

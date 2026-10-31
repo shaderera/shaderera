@@ -67,4 +67,4 @@ export const readBuffer = async (
   }
 }
 
-export { videoTexture, yuv420pToRgba } from './video.ts'
+export { videoTexture, yuv420p10ToRgba, yuv420pToRgba } from './video.ts'

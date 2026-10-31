@@ -635,6 +635,11 @@ test('/render refuses a bad request up front, naming the field', async () => {
     [{ format: 'png', t: -1 }, /^t .*outside the film/],
     [{ format: 'png', t: 1e9 }, /^t .*outside the film/],
     [{ format: 'png', variant: 'nowhere' }, /variant "nowhere"/],
+    [{ format: 'png', draft: true }, /for a video/],
+    [{ format: 'mp4', draft: 1 }, /draft is true or a height/],
+    [{ format: 'mp4', from: 'a' }, /Not a time in seconds: from/],
+    [{ format: 'mp4', from: 0.8, to: 0.2 }, /must be after/],
+    [{ format: 'mp4', to: 1e9 }, /outside/],
   ] as const) {
     const r = await call(bridge.port, {
       method: 'POST',
@@ -770,6 +775,13 @@ test('a film in two ratios: /info gives their sizes, /runner frames each, /rende
     })
     // The variants stay in shaderera.json's own shape.
     assert.deepEqual(info.film.variants, manifest.variants)
+    // No requirements.json: no safe area; one for the film: every output's, as a sheet draws it.
+    assert.deepEqual(info.film.safeAreas, {})
+    const margins = { top: 0.1, right: 0.05, bottom: 0.1, left: 0.05 }
+    writeFileSync(join(two, 'requirements.json'), JSON.stringify({ version: 1, safeArea: margins }))
+    const safe = jsonOf(await call(b.port, { path: '/info', headers: asPage(b) }))
+    assert.deepEqual(safe.film.safeAreas, { main: margins, '16:9': margins, '9:16': margins })
+    rmSync(join(two, 'requirements.json'))
 
     // One frame a variant: the runner page gets the name, and the bridge knows every one.
     const runner = (variant: string) =>

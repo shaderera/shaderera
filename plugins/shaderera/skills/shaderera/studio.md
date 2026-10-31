@@ -41,7 +41,10 @@ right, so ask before sharing or reusing any of it.
 
 The studio is a page on shaderera.com that previews, renders and shares the project on this
 machine. Open it after the first draft passes `check`, and whenever the person wants
-to review the film with you, or watch, render or share it from a page:
+to review the film with you, or watch, render or share it from a page. Call MCP `studio`: it
+starts the studio (or returns the one it started) and gives its `url` event, which you give the
+person, and it runs as long as the MCP server; `studio {stop: true}` stops it. Without MCP, or to
+read its events:
 
 1. Run `npx shaderera studio --json` in the background (`--connect <id>` when the page gave the
    person a command with an id).
@@ -107,6 +110,10 @@ every change. Once the studio is open (above), work in rounds:
 8. **Feedback in chat** about a moment: file it with `comment_add {t, text}` (with `box` or
    `point` when they name a place), so it is on their timeline, then work it like the others.
 
+9. **Takes.** A comment that asks for takes of a range ("3 takes of 0:45–0:50") gets N saved
+   revisions labelled `take <n> <comment id>: <choice>`, each from the tree it was made on, and
+   one reply listing them; the studio plays them side by side. The steps are in
+   `guides/revisions.md` (Takes).
 A round is done when `comments` lists no open comment: say in the chat what you fixed, and go
 back to step 1. To end the session, `npx shaderera studio --stop`.
 

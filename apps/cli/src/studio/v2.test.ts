@@ -1,16 +1,18 @@
 // Protocol v2 of the bridge (decision 0025, docs/studio.md): what /info, /events and the new
 // routes give the page, on a project of the test's own.
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { after, before, test as nodeTest, type TestFn } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { decode } from 'fast-png'
@@ -232,6 +234,43 @@ test('/render {revision} renders that revision, not the tree', async () => {
   // The first pixel's red: the old grey, 40.
   assert.equal(png.data[0], 40)
   sse.close()
+})
+
+const ffprobe = spawnSync('ffprobe', ['-version']).status === 0
+
+test('/render {revision, from, to, draft}: those seconds of that revision, at the draft size', async (t) => {
+  if (!ffprobe) return t.skip('no ffprobe')
+  // A draft opens the source smaller: this one draws at the host's size, not 16×16 of its own.
+  const file = join(root, 'src', 'composition.ts')
+  const own = readFileSync(file, 'utf8')
+  writeFileSync(
+    file,
+    own
+      .replace('({ io, params })', '({ io, manifest, params })')
+      .replace('io.canvas(16, 16)', 'io.canvas(manifest.width, manifest.height)')
+      .replace('ctx.fillRect(0, 0, 16, 16)', 'ctx.fillRect(0, 0, canvas.width, canvas.height)'),
+  )
+  const old = save(root, { by: 'person' }).id
+  writeFileSync(file, own)
+  const sse = events(bridge)
+  await sse.opened
+  const { job } = jsonOf(
+    await post('/render', { format: 'mp4', revision: old, from: 0.5, to: 1, draft: 8 }),
+  )
+  const end = await sse.next(
+    (e) => e.type === 'job' && e.id === job && (e.state === 'done' || e.state === 'failed'),
+  )
+  sse.close()
+  assert.equal(end.state, 'done', JSON.stringify(end))
+  const name = readdirSync(join(root, 'out', 'studio')).find((n) => n.endsWith(`-${job}.mp4`))
+  assert.equal(name, `${basename(root)}-${old}-0.5-1.0-draft-${job}.mp4`)
+  const probe = spawnSync('ffprobe', [
+    ...['-v', 'error', '-count_frames', '-select_streams', 'v:0'],
+    ...['-show_entries', 'stream=width,height,nb_read_frames', '-of', 'csv=p=0'],
+    join(root, 'out', 'studio', name as string),
+  ])
+  // 16×16 at 10 fps: 8×8, the five frames from 0.5 s up to 1 s
+  assert.equal(probe.stdout.toString().trim(), '8,8,5')
 })
 
 test('/runner?revision= frames a runner on that revision, the tree changed since', async () => {

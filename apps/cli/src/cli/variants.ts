@@ -1,6 +1,7 @@
 import { type Manifest, parseFps } from '@shaderera/core'
 import { paramDefaults } from '@shaderera/core/host'
 import { findProject } from '../node/project.ts'
+import { closest } from './closest.ts'
 import { EXIT, errorFinding, type Finding, found } from './findings.ts'
 
 /**
@@ -92,10 +93,17 @@ export const variantList = (
       `variants is "all" or a list of variant names (main: the manifest's own output).`,
     )
   const unknown = given.filter((n) => n !== 'main' && !declared.includes(n))
-  if (unknown.length > 0)
+  if (unknown.length > 0) {
+    // The declared name it most likely meant: the same numbers (16:9, cover-16x9), else a typo.
+    const numbers = (s: string) => (s.match(/\d+/g) ?? []).join(',')
+    const first = unknown[0] as string
+    const near =
+      declared.find((d) => numbers(first) !== '' && numbers(d) === numbers(first)) ??
+      closest(first, declared)
     throw new Error(
-      `shaderera.json has no variant ${unknown.map((n) => `"${n}"`).join(', ')}${declared.length ? ` (it declares ${declared.join(', ')}, and main)` : ''}.`,
+      `shaderera.json has no variant ${unknown.map((n) => `"${n}"`).join(', ')}${declared.length ? ` (it declares ${declared.join(', ')}, and main)` : ''}.${near ? ` Did you mean ${near}?` : ''}`,
     )
+  }
   return [...new Set(given)].map((n) => (n === 'main' ? undefined : n))
 }
 

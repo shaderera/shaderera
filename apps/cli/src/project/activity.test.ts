@@ -216,10 +216,6 @@ test('read-only commands get no entry; what changes, checks or renders does', ()
     ['help'],
     ['activity'],
     ['activity', 'add', 'trying'],
-    ['comments'],
-    ['comments', 'list', '--state', 'all'],
-    ['comments', 'show', 'k3x9q2'],
-    ['comments', '--wait'],
     // A comment written is its own record.
     ['comments', 'reply', 'k3x9q2', 'done', '--fixed'],
     ['comments', 'add', '--at', '1', 'darker'],
@@ -228,7 +224,16 @@ test('read-only commands get no entry; what changes, checks or renders does', ()
     assert.equal(recordable(argv), false, argv.join(' '))
   // One that failed wrote none: its entry says so.
   assert.equal(recordable(['comments', 'reply', 'k3x9q2', 'done', '--fixed'], 2), true)
-  assert.equal(recordable(['comments', 'show', 'k3x9q2'], 2), false)
+  // The comments read, as MCP's comments tool is: the studio shows that the agent read them.
+  for (const argv of [
+    ['comments'],
+    ['comments', 'list', '--state', 'all'],
+    ['comments', 'show', 'k3x9q2'],
+    ['comments', '--wait'],
+  ]) {
+    assert.equal(recordable(argv), true, argv.join(' '))
+    assert.equal(recordable(argv, 2), false, argv.join(' '))
+  }
   for (const argv of [['check'], ['still', '1'], ['render'], ['save']])
     assert.equal(recordable(argv), true, argv.join(' '))
 })

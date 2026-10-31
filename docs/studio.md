@@ -68,7 +68,7 @@ The first page back wins: a page that pairs on the new address ends the old sess
 page back closes the standby. There is one standby at a time; one whose id expires is replaced by
 a new one.
 
-**For agents: `--json`.** Run `shaderera studio --json` in the background, give the person the
+**For agents.** With MCP, the `studio` tool starts it and returns the `url` event below, and `studio {stop: true}` stops it ([mcp.md](mcp.md#tools)). Without MCP, or to read its events, run `shaderera studio --json` in the background, give the person the
 `url` event's address (or let the command open it), and read the events. stdout is one JSON object
 a line, `{event, ...}`:
 
@@ -247,7 +247,7 @@ the bridge closes that connection after it.
 ```json
 {
   "version": "…",
-  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "schema": { … } },
+  "film": { "title": "…", "manifest": { … }, "variants": { … }, "sizes": { … }, "safeAreas": { … }, "schema": { … } },
   "telemetry": true,
   "revision": "…",
   "head": "…",
@@ -264,6 +264,9 @@ the bridge closes that connection after it.
 - `sizes` is each variant's output as a host opens it, the film's own values filled in: name →
   `{ width, height, duration, fps }` (`{}` when there are none), for a page that lays out one
   frame a variant.
+- `safeAreas` is each output's safe area from requirements.json, the one `still --sheet` draws:
+  `main` (the film itself) or a variant's name → `{ top, right, bottom, left }` as fractions. An
+  output with none is left out, so it is `{}` when requirements.json sets none or can't be read.
 - `schema` is shaderera.json's `params` schema, or `null`.
 - `revision` is the working tree's id now: the 16-hex id `shaderera save` would give it.
 - `head` is the revision last saved or restored, or `null`.
@@ -348,7 +351,7 @@ Server-Sent Events, each a JSON `data:` line, with a comment every 15 s to keep 
   `progress` runs from 0 to 1. A frame that never settles (no sign of work for a minute) fails its job
   (`--timeout`, [cli.md](cli.md#common-flags)), its error naming t, and the next job runs.
 
-### `POST /render {variant? | variants?, params?, format, t?, revision?}` → `{job}` or `{jobs}`
+### `POST /render {variant? | variants?, params?, format, t?, revision?, from?, to?, draft?}` → `{job}` or `{jobs}`
 
 Renders on your machine, with the CLI's own hosts and ffmpeg, one job at a time in the order
 asked. Every field is checked first: a bad one is `400`, and nothing is queued or saved.
@@ -369,11 +372,19 @@ asked. Every field is checked first: a bad one is `400`, and nothing is queued o
 - **`revision`** renders a saved revision instead of the tree, from its frozen copy, on one host.
   Its own variants, params and length apply. An id that is not 16 hex digits is `400`; one the
   project does not keep is `404`.
+- **`from`** and **`to`** (seconds) render a window of a video, as `render --from --to` does; a
+  window outside the film (each variant asked), `to` not after `from`, or one that holds no frame is
+  `400`.
+- **`draft`** is `true` (360 px high) or a height in pixels, as `render --draft` takes it: the
+  film at that height and full fps, never above its own size; a source that draws at a size of its
+  own fails the job, as the draft says. With `revision` too, so the page can loop a draft of a take.
+- `from`, `to` and `draft` are for `mp4` and `mov`: with `png` they are `400`.
 - **The project is saved as a revision first** (without `revision`), and a video is tagged with
   its revision, as `render` does.
 - **Its end is an activity entry** (`render`), done or failed.
 - **The file stays in the project**, as
-  `out/studio/<project>[-<variant>][-<revision>]-<job>.<mp4|mov|png>`.
+  `out/studio/<project>[-<variant>][-<revision>][-<from>-<to>][-draft]-<job>.<mp4|mov|png>`
+  (`-0.5-1.0` with one decimal, `end` for a window to the end).
   In the variant's name, anything but letters and digits (in any script), `_`, `.` and `-`
   becomes `_` (`16:9` is `16_9`, `tête` stays `tête`).
 - **Only the newest export is kept** for each variant and format: when a job is done, the older

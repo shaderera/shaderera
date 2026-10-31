@@ -22,7 +22,7 @@ test('--param and positional times read alike on every command that renders', as
   const png = decode(readFileSync(join(out, 'main-0.500.png')))
   assert.deepEqual([...png.data.subarray(0, 4)], [200, 200, 200, 255])
 
-  const check = await cli('check', '--times', '2', '--param', 'grey=200')
+  const check = await cli('check', '--samples', '2', '--param', 'grey=200')
   assert.equal(check.status, 0, check.stderr)
   assert.match(check.stdout, /✓ deterministic: 2 timestamps/)
 })

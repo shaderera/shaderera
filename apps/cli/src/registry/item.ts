@@ -22,6 +22,7 @@ const WORK = [
   'Analysis & Tracking',
   'Typography',
   'Looks',
+  'Color',
   'Procedural & Particles',
   'Transitions',
   'Animation & Camera',

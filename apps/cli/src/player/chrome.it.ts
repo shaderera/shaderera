@@ -250,10 +250,11 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
     }
     type At = { inspect: Inspect; layers: string[]; pixels: string; drawn: string }
     type Inspect = {
-      clip: { width: number; height: number; fps: number; frames: number }
+      clip: { width: number; height: number; fps: number; frames: number; bits: number }
       frame: number
       colour: { matrix: string; range: string; chroma: string }
       planes: string
+      planes10: string
       level: { frames: number; first: number; last: number }
       cache: { bytes: number[]; made: number }
     }
@@ -284,9 +285,9 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
     assert.equal(r.capabilities.deep, true, 'WebGPU in the player worker')
     assert.deepEqual([r.manifest.width, r.manifest.height], [320, 180])
     // The host hook: io.video, io.bake and io.cache answered in the player's worker.
-    const { planes: _, ...half } = r.half.inspect
+    const { planes: _, planes10: __, ...half } = r.half.inspect
     assert.deepEqual(half, {
-      clip: { width: 320, height: 180, fps: 30, frames: 30 },
+      clip: { width: 320, height: 180, fps: 30, frames: 30, bits: 8 },
       frame: 15,
       // The proxy's planes (media.ts).
       colour: { matrix: 'bt709', range: 'limited', chroma: 'left' },
@@ -341,6 +342,13 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
       )
       console.log(`yuv420p frame ${frame}: ${db.toFixed(1)} dB`)
       assert.ok(db > 32, `yuv420p frame ${frame} at ${db} dB`)
+      // yuv420p10 (ADR 0031, 4): the same planes shifted up two bits.
+      const ten = Buffer.from(at.inspect.planes10, 'base64')
+      assert.equal(ten.length, 2 * planes.length)
+      assert.ok(
+        planes.every((v, i) => ten.readUInt16LE(2 * i) === v << 2),
+        'the proxy shifted up',
+      )
     }
     cdp.close()
   } finally {

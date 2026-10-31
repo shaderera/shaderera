@@ -1,0 +1,25 @@
+{
+  "name": "color-cdl-files",
+  "type": "component",
+  "title": "Color CDL files",
+  "description": "ASC CDL files read and written: .cc, .ccc and .cdl XML to slope, offset, power and saturation per correction, as color-primary's cdl takes them, and back; a small scanner, no XML dependency",
+  "category": "Color",
+  "tags": [
+    "asc cdl",
+    "cdl",
+    ".cdl",
+    ".cc",
+    ".ccc",
+    "color decision list",
+    "slope offset power",
+    "saturation",
+    "grade",
+    "colour grading",
+    "resolve",
+    "on set",
+    "colour"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/color/cdl-files.ts"]
+}

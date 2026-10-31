@@ -16,6 +16,7 @@ import {
   limitsLine,
   shareItem,
   signInItem,
+  studioItem,
 } from './doctor.ts'
 import { saveToken } from './site.ts'
 
@@ -135,6 +136,20 @@ test('doctor says whether ffmpeg can make HDR10: 9.0 or later, SDR on older', ()
   const ok = hdr10Item(undefined, true)
   assert.equal(ok.status, 'ok')
   assert.match(ok.detail, /ffmpeg 9\.0 or later.*NVIDIA HEVC/)
+})
+
+test('doctor says whether the default browser shows the studio, and names Chrome as the fix', () => {
+  for (const id of ['ChromeHTML', 'com.google.chrome', 'MSEdgeHTM', 'microsoft-edge.desktop'])
+    assert.equal(studioItem(id).status, 'ok', id)
+  for (const id of ['com.apple.safari', 'BraveHTML', 'com.brave.browser']) {
+    const item = studioItem(id)
+    assert.equal(item.status, 'warn', id)
+    assert.match(item.detail, /has no preview/)
+    assert.match(item.fix ?? '', /Chrome/)
+  }
+  assert.match(studioItem('firefox.desktop').detail, /Firefox .*untested/)
+  assert.equal(studioItem(undefined).status, 'warn')
+  assert.equal(studioItem('ChromeHTML').needed, false)
 })
 
 test('binary prints bytes in binary units', () => {

@@ -376,7 +376,7 @@ test('an hdr10 job renders in chunks, each with its light, and assemble writes t
   assert.match(a.stdout, /10 frames from 2 chunks/)
   assertHdr10(join(root, 'out', 'h.mp4'), most)
   // check --hdr10 hashes the P010 and reports the light; the job's chunks are lossless P010.
-  const check = cli(root, 'check', '--hdr10', '--times', '3')
+  const check = cli(root, 'check', '--hdr10', '--samples', '3')
   assert.equal(check.status, 0, check.stderr)
   assert.match(check.stdout, /HDR10: P010 hashed; at most 10000 cd\/m² \(MaxCLL\)/)
   // Another delivery of the job from the same chunks (assemble --job) declares their light too,
@@ -404,7 +404,7 @@ test('check --hdr10 on the Node host compares a small film’s P010, which IPC h
     json,
     JSON.stringify({ ...JSON.parse(readFileSync(json, 'utf8')), width: 64, height: 36 }),
   )
-  const check = cli(root, 'check', '--hdr10', '--times', '3')
+  const check = cli(root, 'check', '--hdr10', '--samples', '3')
   assert.equal(check.status, 0, check.stderr)
   assert.match(check.stdout, /preview vs final: mean 0\.000, max 0 10-bit codes/)
 })

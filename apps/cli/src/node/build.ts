@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { build } from 'vite'
 import { packageOf } from '../project/dependencies.ts'
@@ -20,16 +20,27 @@ export const alive = (pid: number) => {
 }
 
 /**
- * Rethrows a Vite build error as plain text, without its colour codes: it leaves the CLI for the
- * studio page, `--json` and MCP, which cannot show them. Every build of a film throws through it.
+ * Rethrows a Vite build error of the project at `root` as plain text, without its colour codes: it
+ * leaves the CLI for the studio page, `--json` and MCP, which cannot show them. Where Vite points
+ * (`─[ file:line:col ]`, from the working directory) becomes the project's own path, and the error
+ * carries it as `at` for its `build` finding (errorFinding). Every build of a film throws through it.
  */
-export const plainError = (e: unknown): never => {
-  if (e instanceof Error) {
+export const plainError =
+  (root: string) =>
+  (e: unknown): never => {
+    if (!(e instanceof Error)) throw e
     e.message = stripVTControlCharacters(e.message)
     if (e.stack) e.stack = stripVTControlCharacters(e.stack)
+    const m = /─\[ (.+?):(\d+):(\d+) \]/.exec(e.message)
+    if (m) {
+      const file = relative(root, resolve(m[1] as string))
+        .split(sep)
+        .join('/')
+      e.message = e.message.replace(m[1] as string, file)
+      Object.assign(e, { at: { code: 'build', file, line: Number(m[2]), column: Number(m[3]) } })
+    }
+    throw e
   }
-  throw e
-}
 
 /**
  * Removes the builds of processes that have exited, and the single shared build of versions
@@ -69,12 +80,13 @@ export const buildNode = async (
   const outDir = join(dir, `${process.pid}-${builds++}`)
   const result = await build({
     root: project.root,
-    logLevel: 'warn',
+    logLevel: 'silent',
     plugins: project.manifest.stamp ? [stamp({ root: project.root })] : [],
     build: {
       ssr: true,
       outDir,
       emptyOutDir: true,
+      sourcemap: true,
       rollupOptions: {
         // manifest.dom too: the packages it imports are part of what a job freezes.
         input: {
@@ -84,7 +96,7 @@ export const buildNode = async (
         output: { format: 'es', entryFileNames: '[name].js' },
       },
     },
-  }).catch(plainError)
+  }).catch(plainError(project.root))
   const packages = new Set<string>()
   for (const output of Array.isArray(result) ? result : [result])
     for (const chunk of 'output' in output ? output.output : [])

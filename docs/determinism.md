@@ -27,7 +27,7 @@ hosts and GPUs only within a tolerance ([below](#across-hosts-and-gpus)).
 
 `shaderera check` (and MCP's `check`, and `checkDeterminism` from `@shaderera/core`):
 
-1. **Picks times.** `--times` frame-aligned timestamps (default 50; 20 over MCP): frame 0, the
+1. **Picks times.** `--samples` frame-aligned timestamps (default 50; 20 over MCP): frame 0, the
    last frame, and seeded picks between.
 2. **First pass, ascending.** For each `t`: `render(t, final)`, composited, and the SHA-256 of
    the RGBA bytes; then `inspect(t)` (if the source has it).
@@ -38,12 +38,15 @@ hosts and GPUs only within a tolerance ([below](#across-hosts-and-gpus)).
 5. **Preview vs final** at three of the times: mean and max channel difference. Reported, not
    failed.
 
-A failure names the time, what came before it and what changed, and exits 1:
+The check stops at the first time that differs. The failure names that time (to the millisecond)
+and its frame, what was rendered before it (`rendered first` when nothing was), what changed and
+the usual causes, and exits 1:
 
 ```
-✗ not deterministic: 1 of 5 timestamps differ
-  ✗ t=2 after t=3.9 inspect: title.opacity
-  ✗ t=2 after t=3.9 pixels: <first 12 hex> != <first 12 hex>
+✗ not deterministic: differs at t=2 (frame 60), the first difference found; check stops there
+  ✗ t=2 after t=3.9, inspect: title.opacity
+  ✗ t=2 after t=3.9, pixels: <first 12 hex> != <first 12 hex>
+  Usually Math.random, Date.now or state carried between frames: use host.seed and derive everything from t. See docs/determinism.md.
 ```
 
 ## Export refuses a source that fails

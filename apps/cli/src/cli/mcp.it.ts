@@ -94,7 +94,7 @@ test('the MCP tools render, inspect, compare, pick and read the camera of a fixt
     assert.equal(source.path, 'box')
     assert.match(source.around, /id: 'box'/)
 
-    const check = await call('check', { times: 4 })
+    const check = await call('check', { samples: 4 })
     assert.equal(check.failures.length, 0)
     await assert.rejects(call('get_source', { id: 'nope' }), /No object with id nope/)
     await assert.rejects(call('render', { out: '../escaped.mp4' }), /outside the project/)
@@ -119,7 +119,10 @@ test('every time a tool takes is checked first, naming the input', async () => {
     await assert.rejects(call('still', { times: ['a'] }), /Not a time in seconds: "a"/)
     await assert.rejects(call('still', { times: [0, 2] }), /Outside the film \(0 to 1 s\): 2\./)
     await assert.rejects(call('render', { from: 'a' }), /Not a time in seconds: from "a"/)
-    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /The window 0\.8–0\.2 s/)
+    await assert.rejects(
+      call('render', { from: 0.8, to: 0.2 }),
+      /--to must be after --from \(0\.8–0\.2 s\)/,
+    )
   } finally {
     await close()
   }
@@ -132,7 +135,7 @@ test('a bad render range leaves the encoder of the next render as it was', {
   const { call, close } = await connect(root)
   try {
     const before = await call('render', { out: 'out/before.mp4' })
-    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /The window/)
+    await assert.rejects(call('render', { from: 0.8, to: 0.2 }), /--to must be after --from/)
     const after = await call('render', { out: 'out/after.mp4' })
     assert.equal(after.encoder, before.encoder)
   } finally {
@@ -360,7 +363,7 @@ test('variant and params reach render_frame, inspect, compare and still; --varia
   }
 })
 
-test('render_frame downscales a big frame to 1024 px on its long side unless full', async () => {
+test('render_frame downscales a big frame to 1024 px on its long side unless full, and never returns one over 2048', async () => {
   const root = tempDir('mcp-big')
   mkdirSync(join(root, 'src'))
   writeFileSync(
@@ -395,6 +398,119 @@ test('render_frame downscales a big frame to 1024 px on its long side unless ful
     const full = await call('render_frame', { t: 0, image: true, full: true })
     assert.deepEqual(JSON.parse(full.content[1].text), { width: 2000, height: 1000 })
     assert.ok(small.content[2].data.length < full.content[2].data.length)
+
+    // No image over 2048 px: the scale is clamped and the size block says so.
+    const close16 = await call('render_frame', {
+      t: 0,
+      image: true,
+      region: [0, 0, 600, 300],
+      scale: 16,
+    })
+    assert.deepEqual(JSON.parse(close16.content[1].text), {
+      width: 1800,
+      height: 900,
+      region: { x: 0, y: 0, width: 600, height: 300 },
+      scale: 3,
+      note: 'scale 16 → 3 (long side ≤ 2048)',
+    })
+    const png16 = decode(Buffer.from(close16.content[2].data, 'base64'))
+    assert.deepEqual([png16.width, png16.height], [1800, 900])
+    const whole = await call('render_frame', {
+      t: 0,
+      image: true,
+      region: [0, 0, 2000, 1000],
+      scale: 3,
+    })
+    const size = JSON.parse(whole.content[1].text)
+    assert.deepEqual([size.width, size.height, size.scale], [2000, 1000, 1])
+    assert.equal(size.note, 'scale 3 → 1 (long side ≤ 2048)')
+  } finally {
+    await close()
+  }
+})
+
+test('render takes draft, variant and params, and reports its frames as progress', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('mcp-draft')
+  mkdirSync(join(root, 'src'))
+  writeFileSync(
+    join(root, 'shaderera.json'),
+    JSON.stringify({
+      entry: './src/composition.ts',
+      fps: 10,
+      duration: 1,
+      width: 1280,
+      height: 720,
+      params: { type: 'object', properties: { grey: { type: 'number', default: 0 } } },
+      variants: { short: { label: 'half', duration: 0.5 } },
+    }),
+  )
+  writeFileSync(
+    join(root, 'src', 'composition.ts'),
+    `export default ({ io, manifest, params }) => {
+  const { width, height } = manifest
+  const canvas = io.canvas(width, height)
+  return {
+    render: async () => {
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = \`rgb(\${params.grey}, 0, 0)\`
+      ctx.fillRect(0, 0, width, height)
+      return { color: canvas }
+    },
+  }
+}
+`,
+  )
+  const server = createServer(root)
+  const [a, b] = InMemoryTransport.createLinkedPair()
+  const client = new Client({ name: 'test', version: '0' })
+  await Promise.all([server.connect(a), client.connect(b)])
+  try {
+    const steps: { progress: number; total?: number }[] = []
+    const r = (await client.callTool(
+      { name: 'render', arguments: { draft: 360, variant: 'short', params: { grey: 200 } } },
+      undefined,
+      { onprogress: (p) => steps.push(p) },
+    )) as { content: { text: string }[]; isError?: boolean }
+    assert.equal(r.isError, undefined, r.content[0]?.text)
+    const done = JSON.parse(r.content[0]?.text as string)
+    // Beside the main film, never over it, at 640×360: the variant's 0.5 s at 10 fps.
+    assert.match(done.out, /-short-draft\.mp4$/)
+    assert.deepEqual([done.probe.video.width, done.probe.video.height], [640, 360])
+    assert.equal(done.frames, 5)
+    assert.deepEqual(steps.at(-1), { progress: 5, total: 5 })
+    const job = (await client.callTool({
+      name: 'render',
+      arguments: { job: 'nope', draft: true },
+    })) as { content: { text: string }[]; isError?: boolean }
+    assert.equal(job.isError, true)
+  } finally {
+    await client.close()
+  }
+})
+
+test("still with file looks at a rendered file's frames, not the source's (#537)", {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = copy('./fixtures/mcp/')
+  const { call, close } = await connect(root)
+  try {
+    await call('render', { out: 'out/film.mp4' })
+    const sheet = await call('still', { file: 'out/film.mp4', times: [0, 0.5] })
+    assert.deepEqual(JSON.parse(sheet.content[0].text), {
+      times: [0, 0.5],
+      file: 'out/film.mp4',
+      width: 64,
+      height: 36,
+    })
+    assert.equal(sheet.content[1].mimeType, 'image/png')
+    await assert.rejects(call('still', { file: 'out/film.mp4', times: [2] }), /Outside the film/)
+    await assert.rejects(
+      call('still', { file: 'out/film.mp4', times: [0], variant: 'short' }),
+      /no variant/,
+    )
+    await assert.rejects(call('still', { file: '../x.mp4', times: [0] }), /outside the project/)
   } finally {
     await close()
   }
@@ -429,9 +545,13 @@ test('MCP still, check and review take variants: one host each, one sheet side b
     })
     const sheet = decode(Buffer.from(still.content[1].data, 'base64'))
     assert.deepEqual([sheet.width, sheet.height], [8 + 1280 + 8 + 405 + 8, 8 + 2 * (720 + 44 + 8)])
+    // 16 portrait frames make a sheet ~2900 px tall: it comes scaled to 2048.
+    const tall = await call('still', { every: 0.125, variant: '9:16' })
+    const tallSheet = decode(Buffer.from(tall.content[1].data, 'base64'))
+    assert.equal(Math.max(tallSheet.width, tallSheet.height), 2048)
 
     // 16:9 is main's size, fps, duration and params: all runs it once, and says so.
-    const check = await call('check', { times: 2, variants: 'all' })
+    const check = await call('check', { samples: 2, variants: 'all' })
     assert.equal(check.main, '16:9')
     assert.deepEqual(
       check.variants.map((v: { variant: string; failures: unknown[] }) => [
@@ -631,7 +751,7 @@ test('inspect with track returns the curve inspect --track gives', async () => {
     assert.ok(whole.length > curve.length)
     await assert.rejects(
       call('inspect', { track: 'box.x', from: 0.5, to: 0.2 }),
-      /The window 0.5–0.2 s/,
+      /--to must be after --from \(0\.5–0\.2 s\)/,
     )
     await assert.rejects(call('inspect', { track: 'box.x', to: 'x' }), /Not a time in seconds: to/)
     await assert.rejects(call('inspect', { track: 'nope' }), /Nothing at nope/)
