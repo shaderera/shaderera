@@ -55,6 +55,6 @@ One file per decision, in the order they were made.
   whole in the project, with no shared store and no external references (amends 0003).
 - [0031](0031-footage-at-ten-bits.md): footage at 10 bits, as `yuv420p10` Y'CbCr planes a film
   asks for per call, converted by core's `videoTexture` to exact half float; RGBA and 8-bit
-  planes unchanged (proposed; amends 0027).
+  planes unchanged (amends 0027).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.

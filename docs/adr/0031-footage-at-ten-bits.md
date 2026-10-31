@@ -1,7 +1,7 @@
 # 0031: Footage at 10 bits, as Y'CbCr planes a film asks for, converted by core to half float
 
-2026-10-31. Proposed (#574, part of #568). A draft for the owner to decide; nothing is
-implemented. Amends [0027](0027-video-frames-as-ycbcr.md) (its deferred `yuv420p10`) and the
+2026-10-31. Accepted (#574, part of #568). The owner decided its open questions as proposed
+(owner: "agree all"); nothing is implemented yet. Amends [0027](0027-video-frames-as-ycbcr.md) (its deferred `yuv420p10`) and the
 `Io` contract (`Footage`). #575 (footage declares its colour space) builds on it.
 
 **Context.** Footage reaches a film at 8 bits whatever the file holds:
@@ -83,7 +83,7 @@ S-Log3 shown at normal contrast has every other code missing before any grade. T
   - What it gives: bands turned to grain. It cannot give back what the 8-bit decode dropped: log
     footage keeps its 20 codes a stop. A grain is a look, which 0011 leaves to the author.
 
-**Decision (proposed).** Option (b), asked for by the film per call, as 0027's formats are.
+**Decision.** Option (b), asked for by the film per call, as 0027's formats are.
 
 1. **`frame(i, { format: 'yuv420p10' })`.**
    - **The layout.** 0027's I420 with 16-bit little-endian samples holding 10-bit values in
@@ -119,13 +119,13 @@ S-Log3 shown at normal contrast has every other code missing before any grade. T
 4. **The web player** answers `yuv420p10` from its 8-bit proxy, shifted up two bits, so a shared
    film runs and gives the same shapes. It bands where the original would not, and docs/player.md
    says so. A 10-bit proxy (AV1 10-bit, which Chrome decodes in software on every system, and
-   which decodes exactly by the standard) is the owner's choice below.
+   which decodes exactly by the standard) is not built now.
 
-**For the owner to decide.**
+**Decided by the owner.**
 - (b) over (a): (a) is simpler for CPU code, (b) is 2.7× smaller and is what #575 needs.
-- Per call, or always for >8-bit sources.
-- The web player: 8-bit proxy shifted (proposed), or a 10-bit AV1 proxy for >8-bit originals
-  now. That proxy costs a slower encode on share and a second proxy codec.
+- Per call, not always for >8-bit sources.
+- The web player shifts its 8-bit proxy. A 10-bit AV1 proxy (a slower encode on share and a
+  second proxy codec) is not built now.
 
 **Consequences.**
 - **#575 builds on it.** A film declares a file's space where it opens it
@@ -150,8 +150,6 @@ S-Log3 shown at normal contrast has every other code missing before any grade. T
 
 **Verify before implementation.**
 - That swscale's `yuv420p10le` output of a 10-bit 4:2:0 file is the decoder's own samples (md5
-  against `-f rawvideo` with no filter), and its 12→10 and 8→10 rules.
-- That WebCodecs gives `I420P10` (or a 10-bit format to split) for a 10-bit proxy in Chrome, if
   the owner chooses that proxy.
 - `videoMs` of #434's *fetch* film in `yuv420p10` at 1080p and 2160p, one and four hosts, beside
   0030's numbers, to replace the extrapolation above.
