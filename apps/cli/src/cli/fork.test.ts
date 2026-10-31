@@ -93,6 +93,8 @@ test('fork downloads a few files at a time, and every one arrives whole', async 
   const dir = join(tempDir('fork'), 'out')
   const r = await fork(api, dir)
   assert.equal(r.status, 0, r.stderr)
+  // Said before npm install: the film's code runs with your rights.
+  assert.match(r.stdout, /not a sandbox.*npm run build\.\nnext:\n.*\n {2}npm install/)
   assert.equal(flight.gets, 26)
   assert.ok(flight.most > 1 && flight.most <= 8, `${flight.most} at once`)
   for (let i = 0; i < 24; i++)
