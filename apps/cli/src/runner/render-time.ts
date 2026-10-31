@@ -24,7 +24,18 @@ const state = {
   since: null as number | null,
   /** The next render call is not counted: the first after a reset compiles its shaders. */
   skip: false,
+  /** The io.video frames the latest render call asked for, in order (footageAsked). */
+  asked: [] as FootageAsk[],
 }
+
+/** One io.video frame a render call asked for: the clip's path and the frame's index. */
+export type FootageAsk = { path: string; index: number }
+
+/**
+ * The io.video frames the latest render call asked for, in order: what review's `footage-hold`
+ * check compares from one sample to the next (#521).
+ */
+export const footageAsked = (): FootageAsk[] => [...state.asked]
 
 /** Adds the waiting since `since` (a wait inside render that is still running) and stops it. */
 const settle = () => {
@@ -56,6 +67,7 @@ export const resetRenderTime = () => {
 export const timeRender = async <T>(run: () => Promise<T>): Promise<T> => {
   const start = now()
   state.rendering = true
+  state.asked = []
   if (state.outstanding > 0) state.since = start
   try {
     return await run()
@@ -73,8 +85,10 @@ export const timeRender = async <T>(run: () => Promise<T>): Promise<T> => {
 /**
  * Waits on an io.video frame. The time counted is the union of the waits inside render: two
  * frames awaited at once count once, and a frame asked ahead counts only while a render runs.
+ * `frame`, asked inside a render call, is noted for footageAsked.
  */
-export const timeVideo = async <T>(wait: () => Promise<T>): Promise<T> => {
+export const timeVideo = async <T>(wait: () => Promise<T>, frame?: FootageAsk): Promise<T> => {
+  if (frame && state.rendering) state.asked.push(frame)
   if (state.outstanding++ === 0 && state.rendering) state.since = now()
   try {
     return await wait()

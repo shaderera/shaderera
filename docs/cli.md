@@ -718,7 +718,7 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
   `--json`, a `?` check is an `info` finding, as a `·` one is: only a `✗` is not (`error`).
 - **Only what is declared is judged.** Errors fail always: determinism, readback, missing glyphs,
   failed assets. Craft rules fail only when requirements.json sets them: `endHold`,
-  `readingTime`, `textOverlap`, `noBlankFrames`, `safeArea`, `captions` (and exact `copy`, which
+  `readingTime`, `textOverlap`, `noBlankFrames`, `footageHolds`, `safeArea`, `captions` (and exact `copy`, which
   must be inside the frame). Without them those checks report what they measured as info. There are no defaults.
 
 | Check | How it measures |
@@ -726,6 +726,7 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 | `format` | manifest width, height, fps, duration against `requirements.format`; unknown without one |
 | `determinism` | `check` on 6 sampled t (two orders, inspect + pixels); `--quick` skips it |
 | `blank-frames` | a preview frame every 0.25 s; luma std-dev < 1 outside the first and last 0.3 s, listing the t; fails only with `noBlankFrames: true` |
+| `footage-hold` | for a film that asks `io.video` for frames: the frames each preview sample's render asked for (the frame indices, not pixels); one clip asked for the same frames over consecutive samples spanning more than 0.3 s is a hold, named with its clip and shot (`footage holds one frame for 1.2 s at t=98.8 (assets/talk.mp4, interview)`). Samples are 0.25 s apart, so a hold shorter than 0.5 s may pass unseen. Fails an unmarked hold only when `requirements.footageHolds` is set |
 | `end-hold` | final frames at 10 fps over the last 3 s; the trailing span where the mean abs diff per channel to the previous sample is < 0.5; fails below `requirements.endHold` s |
 | `text-fit` | every [text run](protocol.md#text-runs) (`{ text, box: [x, y, w, h] }` anywhere in inspect) at the sampled t: inside `requirements.safeArea` margins, or the frame when `requirements.copy` is set; reports the minimum margin |
 | `text-overlap` | two runs at the same t overlapping more than `requirements.textOverlap` of the smaller box; without it, how many pairs overlap and the largest overlap |
@@ -748,6 +749,7 @@ the `review` MCP tool run the same code (`src/review/review.ts`).
 | `variants` | the variants that must be delivered, each checked like the main output |
 | `safeArea` | `{ top, right, bottom, left }` margins as fractions: what `text-fit` judges |
 | `endHold`, `readingTime`, `textOverlap`, `noBlankFrames` | the craft rules above; unset, they are info |
+| `footageHolds` | `[{ at, clip?, note? }]`: the footage holds the film means (an intended freeze), each the hold on screen at `at` s of `clip` (any clip when absent). Set, even to `[]`, `footage-hold` fails every other hold; unset, holds are info |
 | `captions` | `{ maxCps?, maxLineChars?, maxLines?, minDuration?, minGap? }`: limits on the subtitle sidecar, in grapheme clusters and seconds (an overlap is a negative gap); only the keys set are judged |
 | `timing` | `[{ path, at \| from + to, equals + tolerance \| min \| max \| changes }]`: values at inspect paths, at a time or over a window (every frame). `{ "path": "objects[id=logo].x", "at": 1, "equals": 100 }` lands the logo on the downbeat; `{ …, "from": 1, "to": 3, "changes": false }` holds it |
 | `placements` | the placement each output is delivered to, by variant ([placements](delivery.md#placements)) |

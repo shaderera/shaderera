@@ -26,6 +26,7 @@ import {
 } from '@shaderera/core/host'
 import { tempDir } from '../../fixtures/temp.ts'
 import type { TextRun } from '../../review/measure.ts'
+import type { FootageAsk } from '../../runner/render-time.ts'
 import type { Child, ClockReads, HostIdentity, Rendered } from '../child.ts'
 import type { Fonts, HostProfile } from '../host.ts'
 import type { Project } from '../project.ts'
@@ -55,6 +56,11 @@ export type MemoryChildOptions = {
   /** What `profile()` gives: no renders timed by default. */
   profile?: HostProfile
   /**
+   * The io.video frames a render at t asks for: `profile()` gives the latest render's as
+   * `footage`, as the hosts do. None by default.
+   */
+  footage?: (t: number) => FootageAsk[]
+  /**
    * The host composites on the GPU (decision 0007): `has.deep`, and `has.yuv` where the frame size
    * takes yuv420p (width divisible by 8, even height). True by default; false is the Node host
    * without `webgpu`, which gives RGBA only.
@@ -76,6 +82,7 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
   const hdr = o.hdr
   let closed = false
   let override: Matrices | null = null
+  let asked: FootageAsk[] = []
   const open = () => {
     if (closed) throw new Error('The source process has exited.')
   }
@@ -97,6 +104,7 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
     },
     render: call(
       (t: number, intent: 'preview' | 'final', format: GpuOutput | HdrOutput = 'rgba') => {
+        asked = o.footage?.(t) ?? []
         const made = o.frame?.(t, intent) ?? new Uint8Array(width * height * 4)
         const { pixels, layers } =
           made instanceof Uint8Array ? { pixels: made, layers: [{ name: 'frame' }] } : made
@@ -160,7 +168,11 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
     ),
     clock: call(() => o.clock ?? { date: 0, performance: 0 }),
     profile: call(
-      () => o.profile ?? { time: { renders: 0, renderMs: 0, videoMs: 0, composeMs: 0 } },
+      () =>
+        o.profile ?? {
+          time: { renders: 0, renderMs: 0, videoMs: 0, composeMs: 0 },
+          footage: [...asked],
+        },
     ),
     seeks: call(() => null),
     text: call((t: number) => o.text?.(t) ?? []),

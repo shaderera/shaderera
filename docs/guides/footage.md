@@ -63,6 +63,30 @@ page, stop: use another source, or ask the person for the file.
 - When nothing matches the moment the brief names, keep the nearest only if it serves, and say
   what differs; or ask the person for a file.
 
+## Retiming footage
+
+A film that cuts a take into segments, opens room between them, slows it or freezes it maps film
+time to source time in its own code. Every frame of a wrong mapping still looks fine as a still,
+so a freeze or a jump shows only in playback.
+
+- Keep one function from film time to source time, and drive both the picture (the frame index
+  asked of `io.video`) and the sound (each clip's `at` and `from`) with it, so they cannot drift
+  apart.
+- Decide what the picture does wherever there is no source time, in a gap between segments or
+  past the end of the take: play on, cut away to something else, or freeze on purpose. Never let
+  the mapping fall through to the last frame it had, which holds that frame.
+- A source may already contain cuts (an edited interview, a trailer). Find them once with
+  ffmpeg's scene score and keep each segment inside one of the source's own shots, so playing on
+  never crosses into another moment:
+  `ffmpeg -i take.mp4 -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep pts_time`
+
+`shaderera review` reports each stretch over 0.3 s in which a clip is asked for the same frame
+(`footage-hold`). A freeze the film means is marked in `requirements.json`:
+`"footageHolds": [{ "at": 12.5, "clip": "assets/footage/talk.mp4" }]`. Once the key is set,
+even to `[]`, review fails every hold it does not mark. Then watch the render itself: run
+`ffmpeg -i out/film.mp4 -vf freezedetect=d=0.3 -f null -` on it, or look at every frame around
+each cut.
+
 ## Licences
 
 | Licence | On screen | In the description |

@@ -60,7 +60,9 @@ and above. When the project is somewhere else (one you just made, say), pass its
    `region` for detail); without MCP, `npx shaderera still <t>... --sheet`, a detail with
    `--region x,y,w,h --scale 8`. Read motion as a curve: `npx shaderera inspect --track <path>`.
    Compare the frames a change should affect with the ones it should not. A film in several
-   ratios: `guides/formats.md`.
+   ratios: `guides/formats.md`. Motion faults (freezes, jumps, stutter) never show in stills:
+   measure a render over time (`ffmpeg -i out/<name>.mp4 -vf freezedetect=d=0.3 -f null -`, or
+   `still --file` on every frame around each cut).
 5. Make the smallest change that does what was asked. Keep edits made by hand.
 6. Save a revision the person can return to: `npx shaderera save --label "<what changed>"`.
 
