@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
@@ -589,6 +590,15 @@ test('still with compare_file an image scores the film against it, per region wi
     await assert.rejects(
       call('still', { compare_file: 'poster.png', times: [0], regions: '../boxes.json' }),
       /outside the project/,
+    )
+    // A link in the project to a file outside it is not read either.
+    const outside = tempDir('outside')
+    writeFileSync(join(outside, 'regions.json'), '{ "not": "of this project" }')
+    mkdirSync(join(root, 'linked'))
+    symlinkSync(join(outside, 'regions.json'), join(root, 'linked', 'regions.json'))
+    await assert.rejects(
+      call('still', { compare_file: 'poster.png', times: [0], regions: 'linked' }),
+      /regions\.json is outside the project \(through a link\)/,
     )
   } finally {
     await close()

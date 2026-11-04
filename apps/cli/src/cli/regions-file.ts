@@ -1,8 +1,9 @@
 // `still --compare-file <image> --regions <file>`: the parts of a still reference scored apart.
 // The file is an `image-regions` artifact (shaderera.analysis/1, kind `regions`), or boxes with
-// names. Every region becomes a mask in the film's frame pixels.
+// names (shaderera.boxes/1). Every region becomes a mask in the film's frame pixels.
 import { readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { inside } from '../node/inside.ts'
 import { scaleFrame } from '../review/reference.ts'
 import type { Mask } from '../review/structure.ts'
 import type { Region } from './crop.ts'
@@ -29,6 +30,8 @@ export type RegionsFile = {
 }
 
 const FORMAT = 'shaderera.analysis/1'
+/** Boxes with names. A file of boxes may leave `format` out: it is this one. */
+const BOXES = 'shaderera.boxes/1'
 
 /** The reference as the regions are checked against it: its path, size and sha256. */
 type Reference = { file: string; width: number; height: number; sha256: string }
@@ -42,25 +45,38 @@ const whole = (v: unknown, least: number): v is number =>
  * Reads a regions file for a reference image and the film's frame. An artifact must be of the
  * reference's own bytes (its sha256); boxes must be in the reference's pixels or the film's. Either
  * is scaled to the film's frame with the reference's filter when it is in the reference's pixels
- * and the sizes differ. Throws, naming the file, on anything else.
+ * and the sizes differ. Throws, naming the file, on anything else. With `within` (a project's
+ * root, for MCP), every file it reads must be in it, also through a symbolic link (inside).
  */
 export const loadRegionsFile = (
   path: string,
   reference: Reference,
   film: { width: number; height: number },
+  within?: string,
 ): RegionsFile => {
   const file = statSync(path, { throwIfNoEntry: false })?.isDirectory()
     ? join(path, 'regions.json')
     : path
+  const read = (f: string) => readFileSync(within === undefined ? f : inside(within, f))
   let doc: unknown
   try {
-    doc = JSON.parse(readFileSync(file, 'utf8'))
+    doc = JSON.parse(read(file).toString('utf8'))
   } catch (e) {
     throw new Error(`--regions ${file}: ${(e as Error).message}.`)
   }
   if (!isObj(doc)) throw new Error(`--regions ${file} is not a JSON object: ${shapes}`)
+  if (
+    typeof doc.format === 'string' &&
+    doc.format.startsWith('shaderera.boxes/') &&
+    doc.format !== BOXES
+  )
+    throw new Error(
+      `--regions ${file} is ${JSON.stringify(doc.format)}: this shaderera reads ${BOXES}. Update shaderera.`,
+    )
   const placed =
-    doc.format !== undefined ? artifact(file, doc, reference) : boxes(file, doc, reference, film)
+    doc.format === undefined || doc.format === BOXES
+      ? boxes(file, doc, reference, film)
+      : artifact(file, doc, reference, read)
   const [w, h] = placed.in
   const ids = new Set<string>()
   const regions = placed.masks.map(({ id, label, coverage }) => {
@@ -87,8 +103,7 @@ export const loadRegionsFile = (
 }
 
 /** What --regions takes, for the messages. */
-const shapes =
-  'give an image-regions artifact (its folder or regions.json) or boxes: { "width": w, "height": h, "boxes": [{ "name": "title", "x": 0, "y": 0, "width": 10, "height": 10 }] }.'
+const shapes = `give an image-regions artifact (its folder or regions.json) or boxes: { "format": "${BOXES}", "width": w, "height": h, "boxes": [{ "name": "title", "x": 0, "y": 0, "width": 10, "height": 10 }] }.`
 
 type Placed = {
   kind: RegionsFile['kind']
@@ -97,10 +112,15 @@ type Placed = {
 }
 
 /** An image-regions artifact: each region's u8 mask placed in the reference's pixels. */
-const artifact = (file: string, doc: Obj, reference: Reference): Placed => {
+const artifact = (
+  file: string,
+  doc: Obj,
+  reference: Reference,
+  read: (f: string) => Buffer,
+): Placed => {
   if (doc.format !== FORMAT)
     throw new Error(
-      `--regions ${file} is ${JSON.stringify(doc.format)}: this shaderera reads ${FORMAT}. Update shaderera, or run its analyser again.`,
+      `--regions ${file} is ${JSON.stringify(doc.format)}: this shaderera reads ${FORMAT} (image-regions) and ${BOXES}. Update shaderera, or run its analyser again.`,
     )
   if (doc.kind !== 'regions')
     throw new Error(
@@ -141,7 +161,14 @@ const artifact = (file: string, doc: Obj, reference: Reference): Placed => {
     // A mask is a file beside regions.json: a name, never a path out of the folder.
     if (!/^[^/\\]+$/.test(name) || name === '.' || name === '..')
       throw new Error(`--regions ${file}: region ${id}'s mask file "${name}" is not a file name.`)
-    const bytes = readFileSync(join(dir, name))
+    let bytes: Buffer
+    try {
+      bytes = read(join(dir, name))
+    } catch (e) {
+      throw new Error(
+        `--regions ${file}: region ${id}'s mask ${name} could not be read (${(e as Error).message}): run its analyser again.`,
+      )
+    }
     const { width, height, rowStride } = m as { width: number; height: number; rowStride: number }
     if (bytes.length !== rowStride * height)
       throw new Error(

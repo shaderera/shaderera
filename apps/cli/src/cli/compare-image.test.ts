@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { encode } from 'fast-png'
@@ -216,6 +216,34 @@ test('--regions reads an image-regions artifact of the image, its u8 masks scale
     compare({ reference: file, times: [0], regions: folder }),
     /has 576 bytes, not 24 × 30/,
   )
+  write({ ...doc, regions: [{ ...doc.regions[0], mask: { ...mask, file: 'gone.u8' } }] })
+  await assert.rejects(
+    compare({ reference: file, times: [0], regions: folder }),
+    /region square-0's mask gone\.u8 could not be read \(ENOENT/,
+  )
+
+  // Within a project (MCP), a mask or regions.json linked out of it is refused, not read.
+  write(doc)
+  const outside = tempDir('compare-image-outside')
+  writeFileSync(join(outside, 'square-0.u8'), new Uint8Array(24 * 24).fill(255))
+  rmSync(join(folder, 'square-0.u8'))
+  symlinkSync(join(outside, 'square-0.u8'), join(folder, 'square-0.u8'))
+  assert.equal(
+    (await compare({ reference: file, times: [0], regions: folder })).regions?.list.length,
+    1,
+  )
+  await assert.rejects(
+    compare({ reference: file, times: [0], regions: folder, within: dir }),
+    /mask square-0\.u8 could not be read \(.*outside the project \(through a link\)/,
+  )
+  writeFileSync(join(outside, 'regions.json'), JSON.stringify(doc))
+  const linked = join(dir, 'regions', 'linked')
+  mkdirSync(linked)
+  symlinkSync(join(outside, 'regions.json'), join(linked, 'regions.json'))
+  await assert.rejects(
+    compare({ reference: file, times: [0], regions: linked, within: dir }),
+    /regions\.json is outside the project \(through a link\)/,
+  )
 })
 
 test('--compare-file <image> refuses what does not fit a still, saying what to give (#665)', async () => {
@@ -279,6 +307,23 @@ test('--compare-file <image> refuses what does not fit a still, saying what to g
   await assert.rejects(
     compare({ reference: file, times: [1], regions: boxes }),
     /"gone" covers no pixel/,
+  )
+  // Boxes may name their format: shaderera.boxes/1, which a file without one is too.
+  const one = { width: W, height: H, boxes: [{ name: 'a', x: 0, y: 0, width: 4, height: 4 }] }
+  writeFileSync(boxes, JSON.stringify({ format: 'shaderera.boxes/1', ...one }))
+  assert.equal(
+    (await compare({ reference: file, times: [1], regions: boxes })).regions?.kind,
+    'boxes',
+  )
+  writeFileSync(boxes, JSON.stringify({ format: 'shaderera.boxes/2', ...one }))
+  await assert.rejects(
+    compare({ reference: file, times: [1], regions: boxes }),
+    /is "shaderera\.boxes\/2": this shaderera reads shaderera\.boxes\/1\. Update shaderera\./,
+  )
+  writeFileSync(boxes, JSON.stringify({ format: 'something/1', ...one }))
+  await assert.rejects(
+    compare({ reference: file, times: [1], regions: boxes }),
+    /reads shaderera\.analysis\/1 \(image-regions\) and shaderera\.boxes\/1/,
   )
   writeFileSync(boxes, JSON.stringify([1, 2]))
   await assert.rejects(

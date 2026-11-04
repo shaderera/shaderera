@@ -59,6 +59,8 @@ export type CompareFileOptions = {
   floor?: number
   /** With an image: a regions file whose regions are scored apart (compare-image.ts). */
   regions?: string
+  /** A project's root that every file the regions file names must be in (MCP: inside). */
+  within?: string
   /** Each time's film, reference and difference side by side, as it is measured. */
   frame?: (f: ShownFrame) => Promise<void>
 }

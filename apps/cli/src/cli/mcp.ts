@@ -270,7 +270,7 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       ),
       regions: say(
         str,
-        "With compare_file an image: an image-regions artifact of that image (its folder or regions.json), or a JSON file of boxes { width, height, boxes: [{ name, x, y, width, height }] } in the image's or the film's pixels, inside the project. Each region is scored apart. Not with region.",
+        'With compare_file an image: an image-regions artifact of that image (its folder or regions.json), or a JSON file of boxes { format: "shaderera.boxes/1" (may be left out), width, height, boxes: [{ name, x, y, width, height }] } in the image\'s or the film\'s pixels, inside the project, as are its masks (a symbolic link out of it is refused). Each region is scored apart. Not with region.',
       ),
       offset: say(num, 'With compare_file: seconds, the clip is read at t + offset. Default 0.'),
       max_shift: say(
@@ -846,7 +846,7 @@ export const createServer = (
       limit: MEASURED,
       ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
       ...(region ? { region } : {}),
-      ...(regions ? { regions } : {}),
+      ...(regions ? { regions, within: root } : {}),
       frame: async (f) => {
         size = { width: f.width, height: f.height }
         // Every one when they fit, else SHEET spread evenly from the first to the last.

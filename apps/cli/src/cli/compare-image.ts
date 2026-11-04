@@ -141,6 +141,7 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
         o.regions,
         { file: o.reference, width: image.width, height: image.height, sha256 },
         film,
+        o.within,
       )
     : null
 

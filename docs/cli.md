@@ -356,9 +356,13 @@ input is bad (2).
     `shaderera.analysis/1` of kind `regions`): each region's u8 mask. One measured from other
     bytes (its `source.sha256`) is refused;
   - or boxes with names, in the image's pixels or the film's, which `width` and `height` say:
-    `{ "width": 1080, "height": 1350, "boxes": [{ "name": "title", "x": 80, "y": 120, "width":
-    900, "height": 200 }] }`, in whole pixels. A box partly outside the frame counts where it is
-    inside.
+    `{ "format": "shaderera.boxes/1", "width": 1080, "height": 1350, "boxes": [{ "name": "title",
+    "x": 80, "y": 120, "width": 900, "height": 200 }] }`, in whole pixels. A box partly outside
+    the frame counts where it is inside. A file without `format` is read as
+    `shaderera.boxes/1`; another version is refused, so update shaderera to read it.
+
+  Through MCP, `regions.json` and each mask must be in the project: one linked from outside it is
+  refused.
 
   A mask in the image's pixels is scaled to the film's frame with the image's filter, so a mask's
   edge can soften by a pixel. Each region's SSIM is the SSIM map's mean weighted by its coverage
