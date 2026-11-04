@@ -10,6 +10,8 @@ For requests built on a product photograph or a cutout (PNG with transparency).
   summary. Never describe it as 3D. A card that turns far enough shows it is flat.
 - Decode images with `io.image` (the `render-three-textures` plugin makes three.js textures and
   atlases from it; `image-to-png` converts other formats once), never the platform's own decoder, so the browser and Node render the same pixels.
+- To crop or push into one part of the photo (the label, the cap), `image-regions` measures its
+  box and centre in pixels, and `image-fit`'s `cover` and `crop` keep that centre in frame.
 - Record the photo in `ASSETS.md` as supplied by the person, with its sha256.
 
 Check with review, and look at the moments that show the photo at full size
