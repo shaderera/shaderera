@@ -237,7 +237,7 @@ instead: the frames as they were encoded.
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
 | `--compare-file <video>` | none. Measures the film against a reference clip, [below](#measuring-against-a-reference-clip). With one `--variant` only; not with `--file`, `--compare`, `--object`, `--diff` or `--scale` |
-| `--offset <s>` | 0. With `--compare-file`: the clip is read at t + offset |
+| `--offset <s>` | 0. With `--compare-file`: the clip is read at t + offset. A negative one is written `--offset=-0.2`, or it reads as a flag |
 | `--max-shift <n>` | one second of steps. With `--compare-file`: how many steps (the time between two times) either way the alignment searches |
 | `--floor <level>` | 0. With `--compare-file`: the change a motion window counts as still, in levels (0–255), such as a clip's codec noise |
 | `--json` | off. One object: `stills`, each with `t`, `file`, `ms` and what was asked (`part`, `differing`, `compare`: `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing` pixels), and `sheet`. Several variants: `variants`, one entry each, and the side-by-side `sheet`. With `--compare-file`, the report below |
@@ -271,12 +271,16 @@ out/stills/final-vs-animatic-4.000.png  vs animatic: PSNR 38.41 dB, mean ΔE 0.4
 When a film copies a reference one to one, `--compare-file <video>` measures how far it is. It
 renders the film's final frames and reads the clip's frames at the same times, as `--file` reads
 a file. It measures and never judges: there is no pass or fail, and it exits 0 unless an input is
-bad (2). A gate, when a film needs one, is declared in `requirements.json`.
+bad (2). It has no gate yet: one would be declared in `requirements.json` when it is built.
+It takes a clip: a reference of one frame, such as an image, is refused, since measuring against
+a still is not built yet.
 
 - **The times:** those asked for (`<t>...`, `--every`, `--count`), sorted. With none, the clip's
   frames at its own rate from `--from` (the first time the clip has, at or after 0) to before
   `--to` (the end of whichever side ends first). Every time needs a frame of the clip at
-  t + `--offset`; one without is refused.
+  t + `--offset`; one without is refused. The clip's frame at a time is the last at or before it,
+  where a time up to 10 µs before a frame's is that frame's: times are written to 6 decimals,
+  and 1/30 s written 0.033333 is frame 1.
 - **Frame sizes may differ:** each clip frame is matted over black and scaled to the film's frame
   once, with one triangle filter (bilinear, widened when shrinking), the same for every frame.
   The report says so in `scaled`, and `aspect: "stretched"` when the two frames have other
@@ -287,9 +291,9 @@ bad (2). A gate, when a film needs one, is declared in `requirements.json`.
   which shows timing apart from colour.
 - **The offset:** the shift of whole steps that best aligns the two activity curves (Pearson
   correlation, searched within `--max-shift`), beside the one applied. A positive shift means the
-  clip moves later: `--offset` plus the shift's seconds reads it aligned. The clip is also read
-  up to `--max-shift` steps beyond the first and last times, where it has frames, so each shift
-  is measured over all of them. The times must be evenly spaced for it.
+  clip moves later: `--offset` plus the shift's seconds reads it aligned, and the human output
+  prints that as `Aligned: --offset=<s>`. The clip is also read up to `--max-shift` steps beyond
+  the first and last times, where it has frames, so each shift is measured over all of them. The times must be evenly spaced for it.
 - **The motion window** of each side: the first and last time that changes more than `--floor`,
   and the peak. A rendered film is still at exactly 0; a decoded clip has codec noise, so its
   window at `--floor 0` can be wider than its motion.
@@ -303,7 +307,7 @@ between the times; null when not evenly spaced), `floor`, `offset` (`applied` se
 `steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `scores`, each shift's
 `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
 its `t` and `change`, on the film's times, or null when still), `frames` (each `t`, `at` (the
-clip's time), `ms`, `psnr`, `deltaE`, `maxDeltaE`, `differing`, `activity` with `film` and
+clip's time), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `activity` with `film` and
 `reference`, and `file`) and `sheet`.
 
 ```
@@ -315,7 +319,7 @@ out/stills/main-vs-hero-1.200.png  1 ms  PSNR 12.70 dB, mean ΔE 12.018 (max 85.
 out/stills/main-vs-hero-sheet.png
 reference: 64×36 at 10 fps, 2 s
 film moves 0.600–1.200 s, peak 0.900 s (13.19); reference moves 0.100–1.800 s, peak 1.200 s (14.84)
-offset: applied 0 s; the curves align best at +3 steps of 0.1 s (0.3 s, correlation 0.999), searched ±10. Aligned: --offset 0.3
+offset: applied 0 s; the curves align best at +3 steps of 0.1 s (0.3 s, correlation 0.999), searched ±10. Aligned: --offset=0.3
 ```
 
 The clip moves 0.3 s late here, and its window at `--floor 0` takes in its codec noise. Read

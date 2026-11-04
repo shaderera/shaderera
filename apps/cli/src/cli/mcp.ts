@@ -172,6 +172,8 @@ const fitted = async (png: Buffer): Promise<Buffer> => {
 const PROGRESS = 250
 /** The most frames one `still` sheet holds. */
 const SHEET = 64
+/** The most times one `still` with compare_file renders and measures: 10 s at 60 fps. */
+const MEASURED = 600
 /** The tools that take `variant` and `params`, and the ones that return content blocks. */
 const LOOKS = new Set(['render_frame', 'still', 'inspect', 'compare'])
 const IMAGES = new Set(['render_frame', 'still', 'review'])
@@ -263,7 +265,7 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       every: say(num, 'Also a frame every this many seconds from 0.'),
       compare_file: say(
         str,
-        "A reference clip inside the project: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t. With no times, the clip's frames at its own rate over from to to. Measures only: no pass or fail. Not with file or variants.",
+        "A reference clip inside the project: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t. With no times, the clip's frames at its own rate over from to to. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
       ),
       offset: say(num, 'With compare_file: seconds, the clip is read at t + offset. Default 0.'),
       max_shift: say(
@@ -833,6 +835,7 @@ export const createServer = (
       reference,
       film: { ...manifest, render: (t) => final(c, t) },
       times,
+      limit: MEASURED,
       ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
       ...(region ? { region } : {}),
       frame: async (f) => {

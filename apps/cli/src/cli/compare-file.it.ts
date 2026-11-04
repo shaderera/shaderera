@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, readFileSync, renameSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -69,7 +69,7 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   const text = await still('0.5', '0.6', '0.7', '0.8', '0.9', '1', '1.1', '1.2', '--max-shift', '3')
   assert.equal(text.status, 0, text.stderr)
   assert.match(text.stdout, /main-vs-late-0\.800\.png {2}\d+ ms {2}PSNR/)
-  assert.match(text.stdout, /align best at \+3 steps of 0\.1 s .*Aligned: --offset 0\.3/)
+  assert.match(text.stdout, /align best at \+3 steps of 0\.1 s .*Aligned: --offset=0\.3$/m)
 
   // A reference at another size is scaled to the film's frame, and the report says so.
   const large = await reference(root, 'large', '--variant', 'large', '--param', 'delay=0.3')
@@ -102,4 +102,73 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   const alone = await cli('still', '0', '--root', root, '--offset', '1')
   assert.equal(alone.status, 2)
   assert.match(alone.stderr, /--offset goes with --compare-file/)
+
+  // A still image is one frame: refused, not read as a clip of one time.
+  const still1 = join(root, 'frame.png')
+  assert.equal(spawnSync('ffmpeg', ['-v', 'error', '-i', late, '-frames:v', '1', still1]).status, 0)
+  const image = await cli('still', '--root', root, '--out', out, '--compare-file', still1)
+  assert.equal(image.status, 2)
+  assert.match(image.stderr, /one frame: a still reference is not built yet/)
+})
+
+test('still --compare-file finds a reference that moves earlier, and the offset it prints runs as given (#664)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('compare-file-early')
+  cpSync(fileURLToPath(new URL('./fixtures/reference/', import.meta.url)), root, {
+    recursive: true,
+  })
+  const early = await reference(root, 'early', '--param', 'delay=-0.2')
+  const still = (...args: string[]) =>
+    cli('still', '--root', root, '--out', join(root, 'stills'), '--compare-file', early, ...args)
+  const r = await still()
+  assert.equal(r.status, 0, r.stderr)
+  const hint = /Aligned: (--offset=-0\.2)$/m.exec(r.stdout)
+  assert.ok(hint, r.stdout)
+  const aligned = await still(hint[1] as string, '--json')
+  assert.equal(aligned.status, 0, aligned.stderr)
+  assert.equal(JSON.parse(aligned.stdout).result.offset.found.steps, 0)
+})
+
+test('still --compare-file at 30 fps reads every frame of the reference at its own time (#664)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  // At 30 fps, 1/30 s written to 6 decimals (0.033333) falls just before frame 1.
+  const root = tempDir('compare-file-30')
+  cpSync(fileURLToPath(new URL('./fixtures/reference/', import.meta.url)), root, {
+    recursive: true,
+  })
+  const manifest = join(root, 'shaderera.json')
+  writeFileSync(
+    manifest,
+    JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), fps: 30 }, null, 2),
+  )
+  const same = await reference(root, 'same')
+  const r = await cli(
+    'still',
+    '--root',
+    root,
+    '--out',
+    join(root, 'stills'),
+    '--compare-file',
+    same,
+    '--json',
+  )
+  assert.equal(r.status, 0, r.stderr)
+  const report = JSON.parse(r.stdout).result
+  assert.equal(report.frames.length, 60)
+  assert.equal(report.step, 0.033333)
+  assert.equal(report.offset.found.steps, 0)
+  assert.equal(report.frames[1].t, 0.033333)
+  for (const f of report.frames) {
+    // The same frame on both sides: only codec noise between them.
+    assert.ok(f.psnr === null || f.psnr > 28, `PSNR ${f.psnr} at ${f.t}`)
+    // While the film moves, so does the reference, by about as much: no frame read twice.
+    const { film, reference } = f.activity
+    if (film !== null && film > 0.3)
+      assert.ok(
+        reference > 0.3 && Math.abs(film - reference) < 2.5,
+        `activity ${film} vs ${reference} at ${f.t}`,
+      )
+  }
 })

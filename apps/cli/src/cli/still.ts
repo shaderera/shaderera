@@ -191,8 +191,11 @@ export const openFile = (file: string) => {
     width,
     height,
     fps,
+    frames,
     duration: frames / fps,
     frame: (t: number) => reader.frame(Math.min(frames - 1, Math.floor(t * fps + 1e-6))),
+    /** Frame i, 0 to frames - 1. */
+    index: (i: number) => reader.frame(i),
     close: () => reader.dispose(),
   }
 }
@@ -334,7 +337,9 @@ const stillCompareFile = async (
       ...(floor === undefined ? {} : { floor }),
       ...(v.region ? { region: parseRegion(v.region) } : {}),
       frame: async (f) => {
-        const name = join(outDir, `${pair}-${f.t.toFixed(3)}.png`)
+        // Times under 0.5 ms apart would share a name at 3 decimals: those get 6.
+        let name = join(outDir, `${pair}-${f.t.toFixed(3)}.png`)
+        if (files.includes(name)) name = join(outDir, `${pair}-${f.t.toFixed(6)}.png`)
         await pngs.write(name, toPng(f.pixels, f.width, f.height))
         files.push(name)
         size = { width: f.width, height: f.height }

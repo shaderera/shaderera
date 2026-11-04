@@ -38,6 +38,8 @@ export type CompareFileOptions = {
   offset?: number
   /** How many steps either way the alignment searches; one second's by default. */
   maxShift?: number
+  /** At most this many times are measured, or it throws before rendering any; none by default. */
+  limit?: number
   /** Frame pixels of the film: only this part is measured and shown. */
   region?: Region
   /** The change (levels) a motion window counts as still; 0 by default. */
@@ -96,6 +98,23 @@ export type CompareFileReport = {
 
 const round6 = (t: number) => Number(t.toFixed(6))
 
+/**
+ * With no times: from `from` up to before `to` at the reference's rate, from + i / fps unrounded.
+ * Only the report rounds them, to 6 decimals.
+ */
+export const rateTimes = (from: number, to: number, fps: number): number[] => {
+  const times: number[] = []
+  for (let i = 0; from + i / fps < to - 1e-9; i++) times.push(from + i / fps)
+  return times
+}
+
+/**
+ * The reference frame read at t: the last whose time is at or before t, where a time up to
+ * 10 µs before a frame's is that frame's. Times and offsets are written to 6 decimals, and 1/30 s
+ * written 0.033333 falls just before frame 1; 10 µs is far less than any clip's frame time.
+ */
+export const referenceFrame = (t: number, fps: number): number => Math.floor((t + 1e-5) * fps)
+
 /** Measures the film against a reference clip (see CompareFileOptions); throws on bad input. */
 export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFileReport> => {
   const offset = o.offset ?? 0
@@ -106,7 +125,12 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
   const ref = openFile(o.reference)
   try {
     const { film } = o
-    const ends = (t: number) => t + offset >= 0 && t + offset < ref.duration - 1e-9
+    if (ref.frames === 1)
+      throw new Error(
+        `${o.reference} is one frame: a still reference is not built yet (#665). --compare-file takes a clip.`,
+      )
+    const frameOf = (t: number) => referenceFrame(t + offset, ref.fps)
+    const ends = (t: number) => frameOf(t) >= 0 && frameOf(t) < ref.frames
     let times: number[]
     if (o.times.length === 0) {
       const from = o.from ?? Math.max(0, -offset)
@@ -115,12 +139,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
         throw new Error(
           `Nothing to compare: from ${from} s to ${to} s, with the reference ${ref.duration} s long read at t + ${offset} s.`,
         )
-      times = []
-      for (let i = 0; ; i++) {
-        const t = round6(from + i / ref.fps)
-        if (t >= to - 1e-9) break
-        times.push(t)
-      }
+      times = rateTimes(from, to, ref.fps)
     } else {
       if (o.from !== undefined || o.to !== undefined)
         throw new Error(
@@ -129,10 +148,14 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
       times = [...new Set(o.times)].sort((a, b) => a - b)
     }
     insideFilm(times, film.duration)
+    if (o.limit !== undefined && times.length > o.limit)
+      throw new Error(
+        `${times.length} times to render and measure: at most ${o.limit} at once. Give a shorter from–to, fewer times or a longer every.`,
+      )
     const missing = times.filter((t) => !ends(t))
     if (missing.length > 0)
       throw new Error(
-        `The reference (${ref.duration} s) has no frame at t + ${offset} s for: ${missing.join(', ')}.`,
+        `The reference (${ref.duration} s) has no frame at t + ${offset} s for: ${missing.map(round6).join(', ')}.`,
       )
     const step = stepOf(times)
     let maxShift = 0
@@ -152,8 +175,8 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
     const after: number[] = []
     if (step !== null)
       for (let k = 1; k <= maxShift; k++) {
-        const early = round6((times[0] as number) - k * step)
-        const late = round6((times.at(-1) as number) + k * step)
+        const early = (times[0] as number) - k * step
+        const late = (times.at(-1) as number) + k * step
         if (ends(early)) before.unshift(early)
         if (ends(late)) after.push(late)
       }
@@ -186,7 +209,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
     let filmPrev: Uint8Array | undefined
     for (let j = 0; j < readAt.length; j++) {
       const t = readAt[j] as number
-      const read = await ref.frame(t + offset)
+      const read = await ref.index(frameOf(t))
       const whole = scaleFrame(read, ref.width, ref.height, width, height)
       const theirs = part(whole)?.pixels ?? whole
       refCurve.push(refPrev ? meanChange(refPrev, theirs) : null)
@@ -200,7 +223,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
       filmCurve.push(filmPrev ? meanChange(filmPrev, ours) : null)
       filmPrev = ours
       frames.push({
-        t,
+        t: round6(t),
         at: round6(t + offset),
         ms,
         ...compareFrames(ours, theirs),
@@ -212,7 +235,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
       await o.frame?.({
         index: i,
         count: times.length,
-        t,
+        t: round6(t),
         pixels: row([ours, theirs, difference(ours, theirs)], shown.width, shown.height),
         width: shown.width * 3,
         height: shown.height,
@@ -222,9 +245,9 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
     const inRange = refCurve.slice(lead, lead + times.length).map((c, i) => (i === 0 ? null : c))
     const timed = (w: ReturnType<typeof motionWindow>): TimedWindow | null =>
       w && {
-        first: times[w.first] as number,
-        last: times[w.last] as number,
-        peak: { t: times[w.peak.index] as number, change: w.peak.change },
+        first: round6(times[w.first] as number),
+        last: round6(times[w.last] as number),
+        peak: { t: round6(times[w.peak.index] as number), change: w.peak.change },
       }
     const a = step === null ? undefined : align(filmCurve, refCurve, maxShift, lead)
     if (a && a.shift === null) why = 'a curve does not change over enough of the times to correlate'
@@ -286,10 +309,11 @@ export const summaryLines = (r: CompareFileReport): string[] => {
   const o = r.offset
   const unit = r.step === null ? '' : ` steps of ${n(r.step)} s`
   if (o.found) {
-    const total = n(o.applied + o.found.seconds)
+    // `--offset=` so that a negative one reads as a value, not as a flag.
+    const total = round6(o.applied + o.found.seconds)
     lines.push(
       `offset: applied ${n(o.applied)} s; the curves align best at ${o.found.steps > 0 ? '+' : ''}${o.found.steps}${unit} (${n(o.found.seconds)} s, correlation ${o.found.correlation.toFixed(3)}), searched ±${o.maxShift}${
-        o.found.steps === 0 ? '' : `. Aligned: --offset ${total}`
+        o.found.steps === 0 ? '' : `. Aligned: --offset=${total}`
       }`,
     )
   } else lines.push(`offset: applied ${n(o.applied)} s; no alignment: ${o.why}`)
