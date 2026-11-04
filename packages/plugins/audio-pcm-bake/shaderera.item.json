@@ -1,0 +1,22 @@
+{
+  "name": "audio-pcm-bake",
+  "type": "component",
+  "title": "PCM bake",
+  "description": "Bake sound made in code (a function that returns Pcm) to an .m4a once (ffmpeg), with a stamp that makes open refuse the file when its code, inputs, seed or duration change",
+  "category": "Audio & Music",
+  "tags": [
+    "pcm",
+    "bake",
+    "music bed",
+    "synthesis",
+    "sound made in code",
+    "m4a",
+    "aac",
+    "stale check",
+    "ffmpeg"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "shaderera": ">=0.3.0" },
+  "files": ["tools/pcm-bake.ts", "src/audio/baked.ts"]
+}
