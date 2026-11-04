@@ -1,0 +1,46 @@
+<!doctype html>
+<!--
+  Frames on clocks of their own. frame.html posts the time of each of its animation frames, and
+  the time its script ran, to this page, which moves #<name> and #<name>-born by them. "same" is of
+  this origin, "cross" is on localhost (another site, so a process of its own), "late" is on
+  localhost too, added at 500 ms, and "near" is of this origin, added at 700 ms. Each frame also
+  spins a square with CSS, for a still.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 20px; height: 20px; background: #fff }
+  #same { top: 10px } #same-born { top: 40px } #cross { top: 70px } #cross-born { top: 100px }
+  #late { top: 130px } #late-born { top: 160px } #near { top: 190px } #near-born { top: 220px }
+  iframe { position: absolute; top: 250px; width: 60px; height: 60px; border: 0 }
+</style>
+<div class="box" id="same"></div>
+<div class="box" id="same-born"></div>
+<div class="box" id="cross"></div>
+<div class="box" id="cross-born"></div>
+<div class="box" id="late"></div>
+<div class="box" id="late-born"></div>
+<div class="box" id="near"></div>
+<div class="box" id="near-born"></div>
+<iframe id="one" title="same" src="frame.html?name=same" style="left: 0"></iframe>
+<iframe id="two" title="cross" style="left: 80px"></iframe>
+<script>
+  const set = (id, x) => {
+    document.getElementById(id).style.transform = `translate(${x}px, 0px)`
+  }
+  addEventListener('message', ({ data }) => {
+    set(data.name, data.t)
+    set(`${data.name}-born`, data.born)
+  })
+  const other = `http://localhost:${location.port}${location.pathname.replace('frames.html', 'frame.html')}`
+  two.src = `${other}?name=cross`
+  const add = (src, left) => {
+    const frame = document.createElement('iframe')
+    frame.style.left = left
+    frame.title = src
+    frame.src = src
+    document.body.append(frame)
+  }
+  setTimeout(() => add(`${other}?name=late`, '160px'), 500)
+  setTimeout(() => add('frame.html?name=near', '240px'), 700)
+</script>

@@ -1,0 +1,21 @@
+<!doctype html>
+<!--
+  What the clock cannot hold: a shared worker, a BroadcastChannel, and a MessagePort sent to a
+  worker, which answers on it. Each is a limit, named by its URL or channel.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #box { position: absolute; left: 20px; top: 20px; width: 20px; height: 20px; background: #fff }
+</style>
+<div id="box"></div>
+<script>
+  new SharedWorker('shared.js')
+  new BroadcastChannel('motion')
+  const worker = new Worker('port.js')
+  const { port1, port2 } = new MessageChannel()
+  port1.onmessage = ({ data }) => {
+    box.style.transform = `translate(${data}px, 0px)`
+  }
+  worker.postMessage('port', [port2])
+</script>

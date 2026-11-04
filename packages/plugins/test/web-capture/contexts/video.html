@@ -1,0 +1,36 @@
+<!doctype html>
+<!--
+  Videos on the clock. video.webm is 2 s at 30 fps, 64x64, and frame n is one grey (luma 16 + 3n),
+  so the screenshot names the frame shown. #auto autoplays and loops; #later is played at 200 ms;
+  #never is never played; #fast autoplays and loops at playbackRate 2; #seek autoplays and loops,
+  and is seeked to 1 s at 300 ms. #loud autoplays with its sound on, which Chrome's autoplay policy
+  decides. At 450 ms #probe moves by what the page reads: x is #fast's playbackRate times 100 plus
+  the ratechange events it saw, y the videos it reads as paused.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  video { position: absolute; top: 0; width: 64px; height: 64px }
+  #probe { position: absolute; top: 80px; width: 10px; height: 10px; background: #fff }
+</style>
+<div id="probe"></div>
+<video id="auto" src="video.webm" autoplay muted loop style="left: 0"></video>
+<video id="later" src="video.webm" muted preload="auto" style="left: 80px"></video>
+<video id="never" src="video.webm" muted preload="auto" style="left: 160px"></video>
+<video id="fast" src="video.webm" autoplay muted loop style="left: 240px"></video>
+<video id="seek" src="video.webm" autoplay muted loop style="left: 320px"></video>
+<video id="loud" src="video.webm" autoplay style="left: 400px"><track kind="captions" /></video>
+<script>
+  const videos = [...document.querySelectorAll('video')]
+  let rates = 0
+  for (const v of videos) v.addEventListener('ratechange', () => rates++)
+  fast.playbackRate = 2
+  setTimeout(() => later.play(), 200)
+  setTimeout(() => {
+    seek.currentTime = 1
+  }, 300)
+  setTimeout(() => {
+    const paused = videos.filter((v) => v.paused).length
+    probe.style.transform = `translate(${fast.playbackRate * 100 + rates}px, ${paused}px)`
+  }, 450)
+</script>
