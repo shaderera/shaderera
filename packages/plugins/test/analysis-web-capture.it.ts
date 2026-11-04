@@ -513,6 +513,8 @@ test('a scroll is recorded against scrollY and captures the same at any speed', 
     scrollTo: 600,
     scrollMs: 300,
     pointer: { x: 400, y: 200 },
+    // No --target: what the wheel's point hovered is named.
+    over: 'body',
   })
   const y = samplesOf(json, 'window', 'scrollY')
   assert.ok(

@@ -166,7 +166,9 @@ fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, `locale`, the dur
 selectors, the media features, `allowLocal`, `settle` and `trigger`: its `type` and the settings
 it took (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where
 its input went, so a film can put a cursor where the page saw one. For a `leave` it is where the
-pointer was from 0 ms until `at`; then it is off the viewport. With `trigger` `load` frame 0 is the page once it has loaded.
+pointer was from 0 ms until `at`; then it is off the viewport. A scroll without `--target` also
+records `over`, the element the wheel's point was over (`div#hero`, `nothing`), so a hover state
+it shows can be read back to it. With `trigger` `load` frame 0 is the page once it has loaded.
 A capture sends one trigger; a later version that sends several would list them in a new field
 and keep `trigger` as the first.
 
@@ -192,8 +194,9 @@ A page given as a file reads files, as Chrome lets it.
 - A request the proxy refused, a response that did not load, or one whose body has no hash.
 
 **Limits not held and not detected**: a capture that meets them has nothing in `limits` for them.
-- Scroll and view timelines are not on the clock: they follow the scroll position, which only
-  input moves, and which the `window` channels record.
+- Scroll and view timelines are not on the clock: they follow the scroll position, which input or
+  the page's own script moves (both on the capture's clock), and which the `window` channels
+  record.
 - Canvas and WebGL drawing (no channel reads them), `AudioContext`, `requestVideoFrameCallback`,
   `Temporal`, `crypto.getRandomValues`, GIF and APNG frames.
 - A response that arrives while a frame's timers run can land on that frame or the next.
@@ -203,6 +206,7 @@ A page given as a file reads files, as Chrome lets it.
   drawn.
 
 Run it twice (once with `--cpu-throttle 6`) before you build on a capture: the files must differ
-only in `source.date`. Copying a site's motion is your call, as for any outside media: record the
+only in `source.date` (with `--settle loaded`, also in `source.loadedAt` and what the load did on
+real time). Copying a site's motion is your call, as for any outside media: record the
 URL with `asset-provenance`. Fonts, images and code the page loads are not copied; only their
 hashes are kept.

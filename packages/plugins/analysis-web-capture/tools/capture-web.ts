@@ -1213,6 +1213,9 @@ export const captureWeb = async (options: CaptureOptions) => {
           to: ms / 1000,
         })
       trigger.pointer = { x: p.x, y: p.y }
+      // Without a target the wheel's point hovers whatever is there: name it, so a hover state in
+      // the capture can be read back to it.
+      if (sel === null) trigger.over = p.hit
       return p
     }
     const send = async (input: Input) => {
