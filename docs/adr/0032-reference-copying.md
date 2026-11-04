@@ -57,7 +57,8 @@ Two research notes and six experiments
    that aligns them, the window where each moves, SSIM and per-region scores. It never passes or
    fails a film. A gate is declared in requirements.json, as 0011 point 6 says.
 5. **A file that is the spec is read, not re-derived.** A Lottie file's keyframes are read as
-   written (`motion-lottie-read`); a glTF clip is played as it is.
+   written (`motion-lottie-read`), and so are a glTF file's animation clips (`motion-gltf-clips`,
+   #688: `render-gltf-read` does not read animations today).
 6. **The workflow is a guide, not a skill.** `guides/reference-motion.md` holds the loop (scope,
    capture, spec, build, compare, fix one cause), the pitfalls and the rights. The `shaderera`
    skill points to it only when the person hands over a reference.
@@ -82,6 +83,10 @@ Two research notes and six experiments
   them.
 - Fetching from Pinterest or any site that refuses scripts, and copying a page's shaders, models
   or fonts by default.
+
+**How the rule is kept.** Every reference-copying plugin, doc and the skill pointer is audited
+against 0011 before it merges (#690). A parameter that changes a frame is required or measured,
+and no wording recommends a look.
 
 **Consequences.**
 - A copy is as exact as its source allows: declared timing from a page or a Lottie file, samples
