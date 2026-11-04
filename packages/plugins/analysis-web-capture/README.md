@@ -2,7 +2,7 @@ Capture a web page's motion once, as reference tracks a film reads and copies on
 
 ```sh
 node tools/capture-web.ts https://example.com/ --out references/hero \
-  --track '.hero h1' --track '.hero .card' --fps 30 --duration 3 --viewport 1280x720
+  --track '.hero h1' --track '.hero .card' --fps 30 --rafHz 60 --duration 3 --viewport 1280x720
 # writes references/hero/tracks.json
 ```
 

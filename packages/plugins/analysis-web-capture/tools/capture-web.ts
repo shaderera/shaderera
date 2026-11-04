@@ -1057,7 +1057,7 @@ if (import.meta.main) {
   try {
     if (positionals.length !== 1)
       throw new Error(
-        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --duration <s> --viewport <width>x<height>',
+        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>',
       )
     for (const name of ['fps', 'duration', 'viewport'] as const)
       if (values[name] === undefined) throw new Error(`give --${name}: it changes every sample`)
