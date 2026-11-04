@@ -1,0 +1,23 @@
+{
+  "name": "analysis-reference-tracks",
+  "type": "component",
+  "title": "Reference tracks",
+  "description": "Motion measured from a reference (a web page capture, a video tracker) as frozen analysis data: one track per element and channel, samples at source time, what the source declared kept as written. One writer for analysers and one reader for films, with hold or linear between samples",
+  "category": "Analysis & Tracking",
+  "tags": [
+    "reference",
+    "copy a reference",
+    "match a reference",
+    "motion capture",
+    "tracks",
+    "samples",
+    "keyframes",
+    "web animation",
+    "tracking",
+    "analysis"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "shaderera": ">=0.1.5" },
+  "files": ["src/reference/tracks.ts", "tools/reference-tracks.ts"]
+}

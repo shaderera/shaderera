@@ -12,6 +12,7 @@
         "title": "Plugin",
         "type": "string",
         "enum": [
+          "analysis-reference-tracks",
           "asset-provenance",
           "audio-beat-clock",
           "audio-filters",
@@ -73,6 +74,13 @@
     }
   },
   "variants": {
+    "analysis-reference-tracks": {
+      "label": "analysis-reference-tracks",
+      "params": {
+        "item": "analysis-reference-tracks",
+        "state": "default"
+      }
+    },
     "asset-provenance": {
       "label": "asset-provenance",
       "params": {

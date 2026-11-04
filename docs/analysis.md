@@ -57,11 +57,74 @@ format, and the rules that keep a reaction deterministic.
   after the camera intrinsics and the alignment to the render camera are given and tested. The first
   occlusion demonstrations use screen-space masks.
 
+### Reference tracks
+
+Motion measured from a reference (a web page, a clip), so a film can copy it one to one. Kind
+`reference-tracks`; every analyser that measures motion writes it, and a film reads it through
+one reader (the `analysis-reference-tracks` plugin, whose writer the analysers share).
+
+```json
+{
+  "format": "shaderera.analysis/1",
+  "kind": "reference-tracks",
+  "source": { "path": "references/hero.mp4", "bytes": 5120331, "sha256": "4be1…" },
+  "tool": { "script": "tools/track.ts", "version": "0.1.0" },
+  "params": { "fps": 30 },
+  "frame": { "width": 1920, "height": 1080, "pixelRatio": 1 },
+  "tracks": [
+    { "element": "title", "channel": "x", "unit": "source-px", "samples": [[0.4, 120], [0.433333, 131.5]] }
+  ],
+  "declared": [],
+  "limits": [{ "where": "title", "reason": "motion blur hides its left edge", "from": 0.4, "to": 0.6 }]
+}
+```
+
+- `source` is a file or a live page, as [below](#artifact-identity-and-provenance). `params` holds
+  every setting that changed the samples: for a page capture the fps, `rafHz`, the seed and what
+  started the motion (`trigger`).
+- `frame`: the source's `width` and `height`, in the unit of its position tracks (CSS pixels for a
+  page's viewport, pixels for a clip), and `pixelRatio`, device pixels per CSS pixel (1 for a
+  clip).
+- `tracks`: one per element and channel, each pair once.
+  - `element` names it as the analyser does: a CSS selector for a page, a tracker's label.
+  - `channel` is an open set. Common names: `x`, `y`, `width`, `height` (the box as seen, origin
+    top-left of the frame, rows downward; for a page, the bounding box after transforms),
+    `opacity`, `rotate`, `scaleX`, `scaleY`, `translateX`, `translateY`. Any other channel is named
+    for what it measures (`borderRadius`, `--progress`, `color.r`); an analyser says in its README
+    how it reads each one.
+  - `unit` is an open set too. Common names: `css-px`, `source-px`, `deg`, `ratio` (opacity,
+    scale). Values are kept in it, never converted.
+  - `samples`: `[source seconds, value]` at strictly increasing times, kept at the times they were
+    taken, never resampled. A value is a number, or `null` where the element was not there.
+- `declared`: what the source itself declared, kept as written, never re-derived from the samples:
+  for a page each animation's keyframes, timing and easing string. Each entry names its `element`
+  and its `type` (`css-transition`, `css-animation`, `web-animation`); the rest is the source's.
+- `limits`: what the analyser could not make exact, each with `where` (an element, a URL, a part
+  of the source), `reason`, and `from` and `to` in source seconds when it covers only part of the
+  time. An empty list means the analyser found nothing it missed, not that nothing was.
+- **Reading a sample** is a state, not a frame: before the first sample there is none (`null`); at
+  a sample's time it is that value; after the last, the last value holds, since the source stays
+  where its motion ended. Between samples the film chooses `hold` or `linear`; the reader has no
+  default, since the choice changes a frame.
+- **The bytes are stable.** Keys in one order, tracks sorted by element then channel, a page's
+  responses by url, times rounded to a microsecond and values to 1/10000 of their unit. Two
+  captures of the same motion differ only in `source.date` and in what the site served.
+- A reader keeps fields it does not know. A field that changes what a sample means is an
+  incompatible change: a new kind or format number.
+
+**`reference-style`** is its own kind, for still facts of a reference (boxes, computed styles,
+the fonts each run of text was drawn with). It shares `source` and `frame` with
+`reference-tracks` and is defined with its reader; a `reference-tracks` reader refuses it.
+
 ### Artifact identity and provenance
 
 - `format: "shaderera.analysis/1"` and `kind`. A new incompatible format gets a new number, and the
   loader refuses the old one with "rebuild" (no readers for old formats).
 - `source`: path, bytes, sha256. The participant checks the hash at open and refuses a mismatch.
+  A live web page cannot be hashed, so its source is what was loaded instead: `url`, `date`
+  (ISO 8601, UTC), `viewport` (`width`, `height` in CSS pixels), `devicePixelRatio` and
+  `responses`, each `{ url, status, sha256 }` of a response's body. A second capture that differs
+  is then explained.
 - `tool`: script, its tool versions (ffmpeg version string; model name, version and checkpoint
   sha256 for model-backed analysers); `params`: every setting that changes the output.
 - Artifacts are project files: saved revisions and jobs freeze them like any asset (their sha256 is

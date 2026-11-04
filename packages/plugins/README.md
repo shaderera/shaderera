@@ -20,6 +20,7 @@ is: `analysis`, `asset`, `audio`, `camera`, `color`, `font`, `format`, `image`, 
 
 | Plugin | Type | What it does | From |
 |---|---|---|---|
+| `analysis-reference-tracks` | component | motion measured from a reference as one format: a track per element and channel, samples at source time, the source's own keyframes kept as written, and what the analyser could not make exact; one writer for analysers, one reader with hold or linear between samples, a changed source file refused | ADR 0032: copying a reference one to one (#660) |
 | `analysis-scopes` | component | a frame as scope numbers: levels, black and white points, % clipped and crushed per channel, histogram, waveform and RGB parade by column band, balance in shadows, midtones and highlights, a vectorscope summary with skin tones against the skin-tone line; no scope images | #568: films came out dark, and an agent cannot grade what it cannot measure |
 | `asset-provenance` | component | where each outside file came from: a record per file (source, licence, author, segment, sha256), the ASSETS.md table and the description's credits | an in-house explainer film, 2026-10-16 |
 | `audio-beat-clock` | component | measure a song (tempo fitted to its onsets, bars, onsets, bands); a clock, band levels and hits at render time | opening film; tempo fit from later in-house films |
