@@ -18,6 +18,12 @@ const [x, y] = valueAt(p, t)                                 // t in seconds of 
 Plumbing: a Lottie file is the spec, so it is read, never re-derived or fitted. Nothing is named
 (no `expo.out`), smoothed or turned into a preset. Drawing the card is the film's.
 
+This is the reader for a file that is the spec
+([decision 0032](https://github.com/shaderera/shaderera/blob/main/docs/adr/0032-reference-copying.md),
+points 5 and 2). It does not write `shaderera.analysis/1` `reference-tracks`, so a film reads a
+Lottie file through this API, not the shared reference reader; writing its declared keys into
+`reference-tracks` is a follow-up ([#699](https://github.com/shaderera/shaderera/issues/699)).
+
 - **Time.** A key's `frame` is the file's frame, as written; `t` is `frame / fr` in seconds.
   `valueAt(property, t)` takes the same seconds: the file plays from `in` to `out`
   (`ip / fr` to `op / fr`, the out point not included). Where it starts in the film is the
@@ -52,9 +58,14 @@ Plumbing: a Lottie file is the spec, so it is read, never re-derived or fitted. 
   `text`, `precomp`, `audio`, any other layer type), `masks`, `effects`, `layer styles`,
   `time remap`, `track matte`, `auto-orient` (0 or false is off), `parenting` (each transform is the layer's own,
   not composed with its parent's), `motion blur`, `blend mode`, an animated `3D orientation`, an `expression` (its keys are
-  read, the expression is not run) and `slots`. Each with where it is in the file.
+  read, the expression is not run), `slots`, `collapse transforms` (`ct`, 0 is off), a
+  transform entry with no `k` (by its name), and any other field of the file or a layer this
+  reader does not read, by its name (`markers`, the file's named segments, among them). Fields
+  that change nothing are not listed: names (`nm`, `mn`, `cl`, `ln`), `hasMask`, `meta`, and
+  `assets`, `fonts` and `chars`, which the layers that use them list. Each with where it is in
+  the file.
 - **Refused by name:** text that is not JSON (a byte order mark before it is fine), a file with no
-  layers, `fr` not above 0, `op` not after `ip` (the file's or a layer's), keys out of time order,
+  layers, a transform entry that is not a property (`{a, k}`), `fr` not above 0, `op` not after `ip` (the file's or a layer's), keys out of time order,
   a key with no value, keys of one property with different numbers of values, a move with no
   handles that does not hold, a handle's x outside 0 to 1, a `t` that is not a number, and a
   dotLottie (`.lottie`) archive: unzip it and read its `animations/<name>.json`.

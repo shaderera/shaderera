@@ -407,6 +407,30 @@ test('motion-lottie-read: what is not read is listed, never dropped', () => {
   const or = lot2.layers[5]?.transform.or as never
   assert.throws(() => L.valueAt(or, 0.5), /layers\[5\]\.ks\.or is an animated 3D orientation/)
   assert.throws(() => L.keysOf(or), /animated 3D orientation/)
+  // Markers, collapse transforms, a transform entry with no `k` and any field not known are listed.
+  const extra = {
+    fr: 30,
+    ip: 0,
+    op: 60,
+    w: 10,
+    h: 10,
+    markers: [{ tm: 10, cm: 'intro', dr: 20 }],
+    future: 1,
+    layers: [
+      { ty: 3, ip: 0, op: 60, ct: 1, zz: true, ks: { r: { a: 0, k: 5 }, weird: { a: 0, v: 3 } } },
+      { ty: 1, ip: 0, op: 60, sc: '#000000', sw: 10, sh: 10, ct: 0, ks: {} },
+    ],
+  }
+  const lot3 = L.readLottie(extra)
+  assert.deepEqual(lot3.unsupported, [
+    { feature: 'collapse transforms', where: 'layers[0].ct' },
+    { feature: 'zz', where: 'layers[0].zz' },
+    { feature: 'weird', where: 'layers[0].ks.weird' },
+    { feature: 'solid', where: 'layers[1].sc' },
+    { feature: 'markers', where: 'markers' },
+    { feature: 'future', where: 'future' },
+  ])
+  assert.deepEqual(Object.keys(lot3.layers[0]?.transform ?? {}), ['r'])
   // A name a file writes is only a name, `__proto__` and `constructor` too.
   const odd = fixture() as Record<string, unknown> & { layers: Record<string, unknown>[] }
   odd.layers.push({ ty: 3, nm: 'Odd', ip: 0, op: 90, ks: {} })
@@ -456,6 +480,9 @@ test('motion-lottie-read: refuses what it cannot read as written, by name', asyn
     () => L.readLottie(mixed),
     /layers\[0\]\.ks\.r\.k\[1\]\.s has 2 values, not 1 as the first key has/,
   )
+  const seven = fixture()
+  ;(seven.layers[0] as unknown as { ks: Record<string, unknown> }).ks.o = 7
+  assert.throws(() => L.readLottie(seven), /layers\[0\]\.ks\.o is not a property \(\{a, k\}\)/)
   const r = L.readLottie(fixture()).layers[0]?.transform.r as never
   assert.throws(() => L.valueAt(r, Number.NaN), /valueAt: t is NaN, not a number of seconds/)
   // A byte order mark before the JSON, as some editors save it.

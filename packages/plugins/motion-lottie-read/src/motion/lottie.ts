@@ -2,8 +2,9 @@
 // layers, and every property of each layer's transform (`ks`) with its keyframes: time, value,
 // hold, and the in and out bezier handles, per dimension when the file has them so. `valueAt`
 // plays a property with the file's own curves and motion-eases' bezier solve. Nothing is fitted,
-// named or smoothed. Shapes, masks, expressions, effects and the rest are listed in `unsupported`,
-// never dropped silently. Pure functions of the file, so any t gives the same value at any time.
+// named or smoothed. Shapes, masks, expressions, effects, markers and every field it does not know
+// are listed in `unsupported`, never dropped silently. Pure functions of the file, so any t gives
+// the same value at any time.
 
 import { bezier, type Ease, hold, linear } from './eases.ts'
 
@@ -155,7 +156,19 @@ const LAYER_FIELDS: [field: string, feature: string][] = [
   ['parent', 'parenting'],
   ['mb', 'motion blur'],
   ['bm', 'blend mode'],
+  ['ct', 'collapse transforms'],
 ]
+/**
+ * Fields that are read, change nothing, or are what layers use (assets, fonts, chars: listed with
+ * the layer that uses them). Any other field is listed by its name.
+ */
+const READ_TOP = new Set('v nm fr ip op w h ddd layers slots meta assets fonts chars'.split(' '))
+const READ_LAYER = new Set([
+  ...'ty nm mn cl ln ind ip op st sr ddd hd ks hasMask'.split(' '),
+  ...LAYER_FIELDS.map(([field]) => field),
+])
+/** A layer's content fields beside the one listed: a precomp's size, a solid's. */
+const CONTENT_FIELDS: Record<number, string[]> = { 0: ['w', 'h'], 1: ['sw', 'sh'] }
 
 const own = <T>(table: Record<string | number, T>, key: string | number): T | undefined =>
   Object.hasOwn(table, key) ? table[key] : undefined
@@ -259,8 +272,9 @@ const readTransform = (
       for (const axis of ['x', 'y', 'z'])
         if (v[axis] !== undefined)
           out[`p${axis}`] = readProperty(v[axis], `p${axis}`, `${where}.p.${axis}`, fr, unsupported)
-    } else if (isObj(v) && 'k' in v)
-      out[name] = readProperty(v, name, `${where}.${name}`, fr, unsupported)
+    } else if (isObj(v) && !('k' in v))
+      unsupported.push({ feature: name, where: `${where}.${name}` })
+    else out[name] = readProperty(v, name, `${where}.${name}`, fr, unsupported)
   }
   return out
 }
@@ -305,6 +319,10 @@ export const readLottie = (json: string | object): Lottie => {
       if (v === undefined || off) continue
       unsupported.push({ feature, where: `${where}.${field}` })
     }
+    const drawn = content ? [content[1], ...(own(CONTENT_FIELDS, ty) ?? [])] : []
+    for (const field of Object.keys(raw))
+      if (!READ_LAYER.has(field) && !drawn.includes(field))
+        unsupported.push({ feature: field, where: `${where}.${field}` })
     const lip = num(raw.ip ?? ip, `${where}.ip`)
     const lop = num(raw.op ?? op, `${where}.op`)
     if (lop <= lip) fail(`${where}.op`, `is ${lop}, not after ip ${lip}`)
@@ -329,6 +347,9 @@ export const readLottie = (json: string | object): Lottie => {
   })
   if (isObj(doc.slots) || Array.isArray(doc.slots))
     unsupported.push({ feature: 'slots', where: 'slots' })
+  // `markers` (the file's named segments) and any field this reader does not know.
+  for (const field of Object.keys(doc))
+    if (!READ_TOP.has(field)) unsupported.push({ feature: field, where: field })
   const lottie: Lottie = {
     fr,
     ip,
