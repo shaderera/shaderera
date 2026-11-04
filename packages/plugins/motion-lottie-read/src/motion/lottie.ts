@@ -502,7 +502,10 @@ export const valueAt = (property: LottieProperty, t: number): number[] => {
  * key carries the ease of the move into it. Only for a film that asks for a track; `valueAt` is the
  * file as written. Refuses a move along a curved path (`to`, `ti`), which no one-axis track is.
  */
-export const keysOf = (property: LottieProperty, dimension = 0): [number, number, Ease][] => {
+export const keysOf = (property: LottieProperty, dimension: number): [number, number, Ease][] => {
+  // No default: which dimension becomes the track is the film's choice.
+  if (!Number.isInteger(dimension) || dimension < 0)
+    fail(property.path, `needs keysOf's dimension, 0 for x, 1 for y…, not ${dimension}`)
   orientation(property)
   const keys = property.keys
   const at = (v: number[] | undefined, where: string) =>
