@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  A page that moves as motion and react-spring do, with neither: springs stepped on
+  requestAnimationFrame from performance.now, each step's delta clamped (40 ms as motion's
+  frameloop does, 64 ms as react-spring's). Then what motion hands the browser: a Web Animations
+  opacity fade started by a timer at 0.3 s, and a CSS transition of `translate` and `rotate`
+  started by a timer at 0.5 s.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #a { top: 20px } #b { top: 80px } #c { top: 140px }
+  #d { top: 200px; transition: translate 0.6s cubic-bezier(0.16, 1, 0.3, 1), rotate 0.6s linear }
+</style>
+<div class="box" id="a"></div>
+<div class="box" id="b"></div>
+<div class="box" id="c"></div>
+<div class="box" id="d"></div>
+<script>
+  const spring = (el, { stiffness, damping, clamp, prop }) => {
+    let x = 0
+    let v = 0
+    let last = performance.now()
+    const step = () => {
+      const now = performance.now()
+      const dt = Math.min(clamp, Math.max(1, now - last)) / 1000
+      last = now
+      v += (stiffness * (400 - x) - damping * v) * dt
+      x += v * dt
+      el.style.transform = prop(x)
+      requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+  }
+  spring(a, { stiffness: 200, damping: 10, clamp: 40, prop: (x) => `translateX(${x}px)` })
+  spring(b, {
+    stiffness: 170,
+    damping: 12,
+    clamp: 64,
+    prop: (x) => `translateX(${x}px) rotate(${x * 0.9}deg) scale(${1 + x / 800})`,
+  })
+  setTimeout(() => c.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 1000, fill: 'both' }), 300)
+  setTimeout(() => {
+    d.style.translate = '300px 10px'
+    d.style.rotate = '270deg'
+  }, 500)
+</script>

@@ -1,0 +1,24 @@
+<!doctype html>
+<!--
+  The same linear move twice, from the load: 0 to 600 px in 2 s. #css is a CSS animation, #js a
+  ticker on requestAnimationFrame that reads Date.now, as GSAP's does.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #css { top: 20px; animation: slide 2s linear both }
+  #js { top: 80px }
+  @keyframes slide { from { transform: translateX(0px) } to { transform: translateX(600px) } }
+</style>
+<div class="box" id="css"></div>
+<div class="box" id="js"></div>
+<script>
+  const start = Date.now()
+  const tick = () => {
+    const p = Math.min(1, (Date.now() - start) / 2000)
+    js.style.transform = `translateX(${p * 600}px)`
+    requestAnimationFrame(tick)
+  }
+  tick()
+</script>
