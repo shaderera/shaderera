@@ -32,6 +32,8 @@ export type Track = {
   unit: string
   /** At strictly increasing source times. */
   samples: Sample[]
+  /** Fields a later analyser adds, kept as written. */
+  [key: string]: unknown
 }
 
 /** What the source declared about an element's motion, kept as written (keyframes, easing). */
@@ -72,6 +74,9 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const isSize = (v: unknown) => isNumber(v) && v > 0
+const isCount = (v: unknown) => Number.isInteger(v) && (v as number) >= 0
+/** ISO 8601 in UTC, as Date.prototype.toISOString writes it, seconds or finer. */
+const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/
 
 /** Whether a source names a file, which is hashed again at load. */
 export const isFileSource = (
@@ -94,24 +99,21 @@ export const tracksProblem = (doc: unknown, name: string): string | undefined =>
   const s = doc.source
   if (!isObject(s)) return `${name} has no source`
   if ('path' in s) {
-    if (
-      !isText(s.path) ||
-      !isNumber(s.bytes) ||
-      typeof s.sha256 !== 'string' ||
-      !HEX.test(s.sha256)
-    )
-      return `${name}'s source file needs a path, its bytes and a sha256 in hex`
+    if (!isText(s.path) || !isCount(s.bytes) || typeof s.sha256 !== 'string' || !HEX.test(s.sha256))
+      return `${name}'s source file needs a path, its bytes (a whole number) and a sha256 in hex`
   } else if ('url' in s) {
     const v = s.viewport
     if (!isText(s.url) || !isText(s.date) || !isObject(v) || !isSize(v.width) || !isSize(v.height))
       return `${name}'s source page needs a url, a date and a viewport { width, height }`
+    if (typeof s.date !== 'string' || !UTC.test(s.date))
+      return `${name}'s source page date is ${JSON.stringify(s.date)}, not ISO 8601 in UTC (2026-11-04T08:00:00.000Z)`
     if (!isSize(s.devicePixelRatio)) return `${name}'s source page needs a devicePixelRatio`
     if (!Array.isArray(s.responses)) return `${name}'s source page needs its responses`
     const bad = s.responses.findIndex(
       (r) =>
         !isObject(r) ||
         !isText(r.url) ||
-        !isNumber(r.status) ||
+        !Number.isInteger(r.status) ||
         typeof r.sha256 !== 'string' ||
         !HEX.test(r.sha256),
     )
@@ -144,13 +146,18 @@ export const tracksProblem = (doc: unknown, name: string): string | undefined =>
       before = sample[0]
     }
   }
-  if (!Array.isArray(doc.declared) || doc.declared.some((d) => !isObject(d) || !isText(d.element)))
-    return `${name}'s declared needs to be a list, each entry naming its element`
-  if (
-    !Array.isArray(doc.limits) ||
-    doc.limits.some((l) => !isObject(l) || !isText(l.where) || !isText(l.reason))
-  )
-    return `${name}'s limits need to be a list, each with where and reason`
+  if (!Array.isArray(doc.declared)) return `${name}'s declared needs to be a list`
+  const d = doc.declared.findIndex((e) => !isObject(e) || !isText(e.element) || !isText(e.type))
+  if (d >= 0) return `${name}'s declared ${d} needs to name its element and its type`
+  if (!Array.isArray(doc.limits)) return `${name}'s limits need to be a list`
+  for (const [i, l] of doc.limits.entries()) {
+    if (!isObject(l) || !isText(l.where) || !isText(l.reason))
+      return `${name}'s limit ${i} needs a where and a reason`
+    if (('from' in l && !isNumber(l.from)) || ('to' in l && !isNumber(l.to)))
+      return `${name}'s limit ${i} (${l.where}): from and to are source seconds`
+    if (isNumber(l.from) && isNumber(l.to) && l.from > l.to)
+      return `${name}'s limit ${i} (${l.where}): from ${l.from} s is after to ${l.to} s`
+  }
   return undefined
 }
 

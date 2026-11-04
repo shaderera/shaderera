@@ -189,6 +189,55 @@ test('analysis-reference-tracks: refuses a changed source, another format or kin
     [0.1000001, 1],
   ]
   assert.throws(() => tracksJson(close), /card x: samples 0 and 1 round to one time/)
+  const huge = await doc()
+  ;(huge.tracks[0] as { samples: [number, number][] }).samples = [[0, 1e305]]
+  assert.throws(() => tracksJson(huge), /card x: sample 0: 1e\+305 is too large to round/)
+  const refused = (change: Partial<TracksDoc>, message: RegExp) =>
+    assert.throws(() => tracksJson({ ...d, ...change } as TracksDoc), message)
+  refused(
+    { declared: [{ element: 'card' } as never] },
+    /declared 0 needs to name its element and its type/,
+  )
+  refused(
+    { limits: [{ where: 'card', reason: 'r', from: 'x' } as never] },
+    /limit 0 \(card\): from and to are source seconds/,
+  )
+  refused(
+    { limits: [{ where: 'card', reason: 'r', from: 0.6, to: 0.5 }] },
+    /limit 0 \(card\): from 0\.6 s is after to 0\.5 s/,
+  )
+  refused({ limits: [{ where: 'card' } as never] }, /limit 0 needs a where and a reason/)
+  refused(
+    { source: { ...d.source, bytes: -3.5 } as never },
+    /source file needs a path, its bytes \(a whole number\)/,
+  )
+})
+
+test('analysis-reference-tracks: a field a later analyser adds to a track is kept, after the fixed ones', async () => {
+  const d = await doc()
+  Object.assign(d.tracks[0] as object, { precision: 6, confidence: [0.9, 0.8, 0.7, 0.6] })
+  const json = tracksJson(d)
+  const x = JSON.parse(json).tracks[1]
+  assert.deepEqual(Object.keys(x), [
+    'element',
+    'channel',
+    'unit',
+    'samples',
+    'confidence',
+    'precision',
+  ])
+  assert.deepEqual(x.confidence, [0.9, 0.8, 0.7, 0.6])
+  assert.equal(x.precision, 6)
+  const r = await loadTracks(
+    hostOf(
+      new Map([
+        ['references/card.mp4', clip],
+        ['t.json', enc(json)],
+      ]),
+    ),
+    't.json',
+  )
+  assert.equal(track(r, 'card', 'x').precision, 6)
 })
 
 test('analysis-reference-tracks: a page source needs no file, and its responses are sorted', async () => {
@@ -227,6 +276,17 @@ test('analysis-reference-tracks: a page source needs no file, and its responses 
   assert.throws(
     () => tracksJson({ ...page, source: { ...page.source, responses: [{ url: 'x' }] } } as never),
     /source response 0 needs a url, a status and a sha256/,
+  )
+  const bad = (source: object, message: RegExp) =>
+    assert.throws(
+      () => tracksJson({ ...page, source: { ...page.source, ...source } } as never),
+      message,
+    )
+  bad({ date: 'yesterday' }, /source page date is "yesterday", not ISO 8601 in UTC/)
+  bad({ date: '2026-11-04T08:00:00+07:00' }, /not ISO 8601 in UTC/)
+  bad(
+    { responses: [{ url: 'x', status: 200.5, sha256: h }] },
+    /source response 0 needs a url, a status/,
   )
 })
 

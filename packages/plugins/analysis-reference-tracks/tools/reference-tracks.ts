@@ -5,13 +5,15 @@
 //   writeFileSync('references/hero.tracks.json', tracksJson({ format, kind, source, ... }))
 //
 // - Keys come in one order: the header (format, kind, source, tool, params), then frame, tracks,
-//   declared and limits. A track is element, channel, unit, samples. Inside tool, params, declared
-//   and limits, and a source's other fields, keys are sorted by code unit.
+//   declared and limits. A track is element, channel, unit, samples, then any field a later
+//   analyser adds, kept as written. Inside tool, params, declared and limits, a source's other
+//   fields and a track's added ones, keys are sorted by code unit.
 // - Tracks are sorted by element, then channel; a page's responses by url, status and sha256 (the
 //   order a page loads them in changes from run to run). Declared and limits keep their order.
 // - A sample's time is rounded to TIME_DIGITS decimals (a microsecond), its value to VALUE_DIGITS
 //   (1/10000 of its unit). Declared values are kept as written, not rounded.
-// - It refuses what loadTracks would refuse, and samples that rounding puts at one time.
+// - It refuses what loadTracks would refuse, samples that rounding puts at one time, and a value
+//   too large to round. A top-level field it does not know is refused: put it in params or tool.
 
 import { sha256 } from '@shaderera/core'
 import {
@@ -34,10 +36,14 @@ const TOP = ['format', 'kind', 'source', 'tool', 'params', 'frame', 'tracks', 'd
 const FILE = ['path', 'bytes', 'sha256']
 const PAGE = ['url', 'date', 'viewport', 'devicePixelRatio', 'responses']
 
-/** `x` rounded to `digits` decimals, half away from zero, with no -0. */
+/**
+ * `x` rounded to `digits` decimals, to the nearest, ties away from zero on the binary value, with
+ * no -0. Refuses a value too large to round (it would turn into Infinity, written as null).
+ */
 export const round = (x: number, digits: number) => {
   const k = 10 ** digits
   const r = (Math.sign(x) * Math.round(Math.abs(x) * k)) / k
+  if (!Number.isFinite(r)) throw new Error(`${x} is too large to round to ${digits} decimals`)
   return r === 0 ? 0 : r
 }
 
@@ -85,15 +91,21 @@ export const tracksJson = (doc: TracksDoc): string => {
   if (wrong) throw new Error(wrong)
   const tracks: Track[] = doc.tracks
     .map((tr) => {
-      const samples = tr.samples.map(
-        ([t, v]): Sample => [round(t, TIME_DIGITS), v === null ? null : round(v, VALUE_DIGITS)],
-      )
+      const samples = tr.samples.map(([t, v], j): Sample => {
+        try {
+          return [round(t, TIME_DIGITS), v === null ? null : round(v, VALUE_DIGITS)]
+        } catch (e) {
+          throw new Error(
+            `the reference tracks' ${tr.element} ${tr.channel}: sample ${j}: ${(e as Error).message}`,
+          )
+        }
+      })
       for (let j = 1; j < samples.length; j++)
         if ((samples[j] as Sample)[0] <= (samples[j - 1] as Sample)[0])
           throw new Error(
             `the reference tracks' ${tr.element} ${tr.channel}: samples ${j - 1} and ${j} round to one time`,
           )
-      return { element: tr.element, channel: tr.channel, unit: tr.unit, samples }
+      return ordered({ ...tr, samples }, ['element', 'channel', 'unit', 'samples']) as Track
     })
     .sort((a, b) => byCode(a.element, b.element) || byCode(a.channel, b.channel))
   const source = isFileSource(doc.source)

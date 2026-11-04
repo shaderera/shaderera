@@ -42,5 +42,6 @@ reads every one the same way.
 **Writing**, for an analyser: `tools/reference-tracks.ts` has `tracksJson(doc)`, the bytes to
 write, and `fileSource(path, bytes)`. It refuses what `loadTracks` would refuse, orders every key
 and track the same way, and rounds a sample's time to a microsecond and its value to 1/10000 of
-its unit, so two captures of the same motion are byte-identical. Any tool that writes the same
-JSON is an analyser too.
+its unit. The writer adds no differences of its own: whether two captures match is up to the
+capture. A field it does not know on a track is kept, after the fixed ones; one at the top is
+refused. Any tool that writes the same JSON is an analyser too.
