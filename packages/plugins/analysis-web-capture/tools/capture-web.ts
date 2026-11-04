@@ -32,7 +32,7 @@ import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.3.0'
+export const VERSION = '0.4.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -813,6 +813,7 @@ export const CHROME_FLAGS = [
   '--disable-smooth-scrolling',
   '--hide-scrollbars',
   '--mute-audio',
+  '--autoplay-policy=no-user-gesture-required',
   '--disable-background-networking',
   '--disable-component-update',
   '--disable-default-apps',
@@ -949,13 +950,33 @@ export const captureWeb = async (options: CaptureOptions) => {
       flatten: true,
     })
 
+    const evaluate = async <T>(expression: string): Promise<T> => {
+      const r = await c.send<{
+        result: { value?: T }
+        exceptionDetails?: { text: string; exception?: { description?: string } }
+      }>('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, page)
+      if (r.exceptionDetails)
+        throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text)
+      return r.result.value as T
+    }
+    // What every clock is given: the top's frees itself until the load event with --settle loaded.
+    const clockConfig = {
+      seed: o.seed,
+      rafHz: o.rafHz,
+      timeOrigin: o.timeOrigin,
+      epoch: o.epoch,
+      free: o.settle === 'loaded',
+      waitMs: SETTLE_MS,
+    }
+
     // What the page loads, from every session: open requests, and each response's sha256.
     const limits: Limit[] = []
     const open = new Map<string, { url: string; type?: string; at: number; long: boolean }>()
     const responses = new Map<string, { url: string; status: number }>()
     const hashed: Served[] = []
     const reading: Promise<void>[] = []
-    const keyOf = (session: string | undefined, id: string) => `${session ?? ''} ${id}`
+    // Requests by id alone: a worker's script is sent on the page's session and finishes on the
+    // worker's, under one id (ids are unique across Chrome's processes).
     // A response of a known length is held at its headers and its bytes read as they were served
     // (Network.getResponseBody gives a text body only as decoded text); one without a length may
     // be a stream, which holding would stop, so it is let through and read at the end.
@@ -993,18 +1014,18 @@ export const captureWeb = async (options: CaptureOptions) => {
           base64Encoded ? new Uint8Array(Buffer.from(body, 'base64')) : null,
         )
         .catch(() => null)
-      served.set(keyOf(s, p.networkId as string), body)
+      served.set(p.networkId as string, body)
       void body.finally(() => go('Fetch.continueResponse'))
     })
-    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p, s) => {
-      const key = keyOf(s, p.requestId)
+    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p) => {
+      const key = p.requestId
       received.set(key, (received.get(key) ?? 0) + p.dataLength)
     })
     c.on<{ requestId: string; request: { url: string }; type?: string }>(
       'Network.requestWillBeSent',
-      (p, s) => {
+      (p) => {
         if (p.type === 'EventSource' || /^(data|blob):/.test(p.request.url)) return
-        open.set(keyOf(s, p.requestId), {
+        open.set(p.requestId, {
           url: p.request.url,
           type: p.type,
           at: performance.now(),
@@ -1014,13 +1035,13 @@ export const captureWeb = async (options: CaptureOptions) => {
     )
     c.on<{ requestId: string; response: { url: string; status: number } }>(
       'Network.responseReceived',
-      (p, s) => {
+      (p) => {
         if (/^(data|blob):/.test(p.response.url)) return
-        responses.set(keyOf(s, p.requestId), { url: p.response.url, status: p.response.status })
+        responses.set(p.requestId, { url: p.response.url, status: p.response.status })
       },
     )
     c.on<{ requestId: string }>('Network.loadingFinished', (p, s) => {
-      const key = keyOf(s, p.requestId)
+      const key = p.requestId
       open.delete(key)
       const r = responses.get(key)
       const held = served.get(key)
@@ -1061,8 +1082,8 @@ export const captureWeb = async (options: CaptureOptions) => {
     })
     c.on<{ requestId: string; errorText: string; canceled?: boolean; blockedReason?: string }>(
       'Network.loadingFailed',
-      (p, s) => {
-        const key = keyOf(s, p.requestId)
+      (p) => {
+        const key = p.requestId
         const r = open.get(key)
         open.delete(key)
         if (!r || p.canceled || p.errorText === 'net::ERR_ABORTED') return
@@ -1072,36 +1093,97 @@ export const captureWeb = async (options: CaptureOptions) => {
       },
     )
 
-    // Frames and workers have clocks of their own, which the capture does not hold.
-    const IFRAME = 'an iframe: its own clock is not held, so it runs on real time'
+    // Every frame and dedicated worker gets a clock of its own, driven by the one that made it
+    // (tools/inpage/clock.js). A frame of the page's process gets it with the page's script; a
+    // frame in a process of its own and a worker attach here, paused before their first script,
+    // and get it then, starting at the page's time. Any other target runs on real time.
+    // Each named by its URL, with its kind in the reason.
     const realTime = new Map<string, string>()
-    c.on<{ frame: { id: string; parentId?: string; url: string } }>(
-      'Page.frameNavigated',
-      (p, s) => {
-        if (s === page && p.frame.parentId) realTime.set(`iframe ${p.frame.url}`, IFRAME)
-      },
-    )
+    const kindOf = (type: string) =>
+      type === 'iframe' ? 'an iframe' : `a ${type.replace('_', ' ')}`
+    const workerClocks = new Map<string, { breakpointId: string; source: string; name: string }>()
+    c.on('Debugger.paused', (_p, s) => {
+      if (s === undefined) return
+      const w = workerClocks.get(s)
+      workerClocks.delete(s)
+      void (async () => {
+        if (w) {
+          const r = await c
+            .send<{
+              exceptionDetails?: { text: string; exception?: { description?: string } }
+            }>('Runtime.evaluate', { expression: w.source }, s)
+            .catch((e: Error) => ({ exceptionDetails: { text: e.message, exception: undefined } }))
+          const failed = r.exceptionDetails
+          if (failed)
+            realTime.set(
+              w.name,
+              `a worker the clock could not be added to (${failed.exception?.description ?? failed.text}): it runs on real time`,
+            )
+          await c
+            .send('Debugger.removeBreakpoint', { breakpointId: w.breakpointId }, s)
+            .catch(() => {})
+        }
+        await c.send('Debugger.resume', {}, s).catch(() => {})
+        await c.send('Debugger.disable', {}, s).catch(() => {})
+      })()
+    })
+    const clockFor = (start: unknown) =>
+      `${clockSource}(${JSON.stringify({ ...clockConfig, start: start ?? undefined })})`
     c.on<{
       sessionId: string
       targetInfo: { type: string; url: string }
       waitingForDebugger: boolean
     }>('Target.attachedToTarget', (p, parent) => {
-      // Our own page attaches on the browser's session; frames and workers on the page's.
-      if (parent === undefined) return
-      const { type, url: at } = p.targetInfo
-      const kind = type.replace('_', ' ')
-      realTime.set(`${kind} ${at}`, type === 'iframe' ? IFRAME : `a ${kind}: it runs on real time`)
+      const { type } = p.targetInfo
+      // A frame can attach before it has a URL of its own.
+      const at = p.targetInfo.url || type.replace('_', ' ')
       const s = p.sessionId
+      // Our own page attaches on the browser's session, and so does a shared worker, which no
+      // page owns: it runs on real time (the page's clock names it), and its network is followed
+      // so frames do not wait for its script.
+      if (parent === undefined) {
+        if (type === 'shared_worker')
+          void c
+            .send('Network.enable', {}, s)
+            .catch(() => {})
+            .then(() => c.send('Runtime.runIfWaitingForDebugger', {}, s).catch(() => {}))
+        return
+      }
       void (async () => {
         try {
           await c.send('Network.enable', {}, s)
           await c.send('Fetch.enable', { patterns: FETCH_PATTERNS }, s).catch(() => {})
+          if (type === 'worker' || type === 'iframe') {
+            const start = await evaluate<unknown>('self.__shadereraClock?.time() ?? null').catch(
+              () => null,
+            )
+            if (type === 'worker') {
+              // Paused at its start, a worker's global has no timers yet: the clock goes in just
+              // before its first script runs.
+              await c.send('Debugger.enable', {}, s)
+              const { breakpointId } = await c.send<{ breakpointId: string }>(
+                'Debugger.setInstrumentationBreakpoint',
+                { instrumentation: 'beforeScriptExecution' },
+                s,
+              )
+              workerClocks.set(s, { breakpointId, source: clockFor(start), name: at })
+            } else {
+              await c.send('Page.enable', {}, s)
+              await c.send('Page.addScriptToEvaluateOnNewDocument', { source: clockFor(start) }, s)
+              await emulate(s)
+            }
+          } else realTime.set(at, `${kindOf(type)}: it runs on real time`)
           await c.send(
             'Target.setAutoAttach',
             { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
             s,
           )
-        } catch {}
+        } catch (e) {
+          realTime.set(
+            at,
+            `${kindOf(type)} the clock could not be added to (${(e as Error).message}): it runs on real time`,
+          )
+        }
         await c.send('Runtime.runIfWaitingForDebugger', {}, s).catch(() => {})
       })()
     })
@@ -1124,18 +1206,28 @@ export const captureWeb = async (options: CaptureOptions) => {
       },
       page,
     )
-    await c.send(
-      'Emulation.setEmulatedMedia',
-      { features: Object.entries(o.media).map(([name, value]) => ({ name, value })) },
-      page,
-    )
-    await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, page)
-    await c.send('Emulation.setLocaleOverride', { locale: o.locale }, page)
-    await c.send(
-      'Network.setUserAgentOverride',
-      { userAgent: version.userAgent, acceptLanguage: o.locale },
-      page,
-    )
+    // The media features, time zone and locale, for the page and each frame in a process of its own.
+    const emulate = async (session: string) => {
+      await c.send(
+        'Emulation.setEmulatedMedia',
+        { features: Object.entries(o.media).map(([name, value]) => ({ name, value })) },
+        session,
+      )
+      await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, session)
+      // The locale is one per renderer process: a frame in a process that already has it (this
+      // capture set it, to the same locale) is refused, and has it.
+      await c
+        .send('Emulation.setLocaleOverride', { locale: o.locale }, session)
+        .catch((e: Error) => {
+          if (!/already in effect/.test(e.message)) throw e
+        })
+      await c.send(
+        'Network.setUserAgentOverride',
+        { userAgent: version.userAgent, acceptLanguage: o.locale },
+        session,
+      )
+    }
+    await emulate(page)
     if (o.cpuThrottle > 1)
       await c.send('Emulation.setCPUThrottlingRate', { rate: o.cpuThrottle }, page)
     await c.send(
@@ -1143,6 +1235,12 @@ export const captureWeb = async (options: CaptureOptions) => {
       { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
       page,
     )
+    await c.send('Target.setAutoAttach', {
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+      filter: [{ type: 'shared_worker' }, { exclude: true }],
+    })
     // A still names the web fonts the page loads, as Chrome reports them: their files are not kept.
     const fontFaces: Record<string, unknown>[] = []
     if (o.mode === 'still') {
@@ -1152,29 +1250,8 @@ export const captureWeb = async (options: CaptureOptions) => {
       await c.send('DOM.enable', {}, page)
       await c.send('CSS.enable', {}, page)
     }
-    // The clock holds the top frame only: a frame's clock that nothing advances would stop it.
-    const config = JSON.stringify({
-      seed: o.seed,
-      rafHz: o.rafHz,
-      timeOrigin: o.timeOrigin,
-      epoch: o.epoch,
-      free: o.settle === 'loaded',
-    })
-    await c.send(
-      'Page.addScriptToEvaluateOnNewDocument',
-      { source: `if (self === self.top) {\n${clockSource}(${config})\n}` },
-      page,
-    )
-
-    const evaluate = async <T>(expression: string): Promise<T> => {
-      const r = await c.send<{
-        result: { value?: T }
-        exceptionDetails?: { text: string; exception?: { description?: string } }
-      }>('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, page)
-      if (r.exceptionDetails)
-        throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text)
-      return r.result.value as T
-    }
+    // The top frame's clock is driven by the capture; each frame's and worker's by its parent's.
+    await c.send('Page.addScriptToEvaluateOnNewDocument', { source: clockFor(null) }, page)
 
     const date = new Date().toISOString()
     let loaded = false
@@ -1242,8 +1319,9 @@ export const captureWeb = async (options: CaptureOptions) => {
         )
     }
 
-    // The network and the page's own pending work (worker replies, video seeks) settle before a
-    // frame is read. A request open for LONG_REQUEST_MS no longer holds frames.
+    // The network and the page's own pending work (frames and workers starting, video seeks and
+    // loads, in the page and each frame) settle before a frame is read. A request open for
+    // LONG_REQUEST_MS no longer holds frames.
     const settle = async (time: number) => {
       const started = performance.now()
       for (let calm = 0; calm < 2; ) {
@@ -1472,6 +1550,14 @@ export const captureWeb = async (options: CaptureOptions) => {
       n = m
     }
 
+    // What the clocks could not hold, in the page and in each frame and worker, and the frames
+    // that never had one. Asking for those brings each child's last limits up first.
+    const unclocked = await evaluate<string[]>('self.__shadereraClock.unclocked()')
+    limits.push(...(await evaluate<Limit[]>('self.__shadereraClock.limits()')))
+    // A frame the clock could not be added to is named once, by realTime.
+    for (const where of unclocked)
+      if (!realTime.has(where))
+        limits.push({ where, reason: 'an iframe the clock did not reach: it runs on real time' })
     for (const [where, reason] of realTime) limits.push({ where, reason })
     for (const s of spans.values()) limits.push(s)
     for (const r of refused) limits.push({ where: r.where, reason: r.reason })

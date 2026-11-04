@@ -1,0 +1,26 @@
+<!doctype html>
+<!--
+  The locale in a frame of another site (localhost, a process of its own): locale-frame.html posts
+  its flags, 1 when navigator.language is th-TH and 2 when Intl's default locale is, and #frame
+  moves by them. #page moves by the same flags read here.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #page { top: 20px } #frame { top: 80px }
+  iframe { position: absolute; top: 140px; width: 40px; height: 40px; border: 0 }
+</style>
+<div class="box" id="page"></div>
+<div class="box" id="frame"></div>
+<iframe id="other" title="other"></iframe>
+<script>
+  const flags =
+    (navigator.language === 'th-TH' ? 1 : 0) +
+    (new Intl.NumberFormat().resolvedOptions().locale === 'th-TH' ? 2 : 0)
+  page.style.transform = `translateX(${flags}px)`
+  addEventListener('message', ({ data }) => {
+    frame.style.transform = `translateX(${data}px)`
+  })
+  other.src = `http://localhost:${location.port}${location.pathname.replace('locale.html', 'locale-frame.html')}`
+</script>

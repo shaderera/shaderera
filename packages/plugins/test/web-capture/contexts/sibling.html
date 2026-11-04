@@ -1,0 +1,6 @@
+<!doctype html>
+<!-- A frame that, when its parent says go, messages its sibling: the page's first frame. -->
+<meta charset="utf-8" />
+<script>
+  addEventListener('message', () => parent.frames[0].postMessage('hello', '*'))
+</script>
