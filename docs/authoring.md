@@ -61,6 +61,8 @@ What is on the shelf:
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
   - `audio-filters`: a one-pole low-pass, the RBJ cookbook biquads, a MIDI note's frequency and
     a fade to zero, for sound made in code;
+  - `audio-pcm-mix`: sound made in code placed at film seconds with a gain and a constant-power pan,
+    seeded noise, a peak, NaN and DC check, and core's `Pcm` for `audio()`;
   - `motion-eases`: eases, clamp, lerp, the progress of t through a span, an envelope over hits;
   - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each

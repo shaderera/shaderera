@@ -1,0 +1,12 @@
+{
+  "name": "audio-pcm-mix",
+  "type": "component",
+  "title": "PCM mix",
+  "description": "Place sound made in code on the film's timeline: a buffer over a span of the film, sounds added at film seconds to the sample with a gain and a constant-power pan, seeded white noise, a peak, NaN and DC check, and core's Pcm for audio()",
+  "category": "Audio & Music",
+  "tags": ["sound made in code", "synth", "pcm", "mix", "pan", "constant power", "noise", "audio"],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "shaderera": ">=0.1.5", "items": { "motion-random": "^0.1.0" } },
+  "files": ["src/audio/mix.ts"]
+}
