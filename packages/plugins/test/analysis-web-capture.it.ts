@@ -98,6 +98,7 @@ const capture = async (o: Partial<Options> & Pick<Options, 'page' | 'track'>) =>
   const { json } = await captureWeb({
     out: join(outs, String(n++)),
     fps: 30,
+    rafHz: o.fps ?? 30,
     duration: 1.6,
     viewport: { width: 800, height: 400 },
     ...o,
@@ -491,6 +492,7 @@ test('a hover and a leave capture the same at any speed', { skip }, async () => 
     duration: 1.5,
   })
   const left = JSON.parse(leave) as Doc
+  assert.deepEqual((left.params.trigger as { leftTo?: unknown }).leftTo, { x: -1, y: -1 })
   // Over the card from 0 ms, off it at 800.
   assert.deepEqual(start(left, '#badge'), [0, 0.8])
   assert.deepEqual(start(left, '#note'), [0.2, 1])
@@ -602,7 +604,13 @@ test('the wheel hovers what it turns over, as a person does', { skip }, async ()
 
 test('a capture holds one document: an input that navigates is refused', { skip }, async () => {
   const page = fixture('nav.html')
-  const options = { out: join(outs, String(n++)), track: ['#box'], fps: 10, duration: 0.6 }
+  const options = {
+    out: join(outs, String(n++)),
+    track: ['#box'],
+    fps: 10,
+    rafHz: 10,
+    duration: 0.6,
+  }
   const viewport = { width: 800, height: 400 }
   await assert.rejects(
     captureWeb({ page, ...options, viewport, trigger: 'click', target: '#go', at: 200 }),
@@ -664,6 +672,7 @@ test('the capture is read by the reader of reference tracks', { skip }, async ()
     out,
     track: ['#css', '#missing'],
     fps: 10,
+    rafHz: 10,
     duration: 0.5,
     viewport: { width: 640, height: 360 },
   })
@@ -771,6 +780,7 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
         out: join(outs, 'local-page'),
         track: ['#box'],
         fps: 10,
+        rafHz: 10,
         duration: 0.3,
         viewport: { width: 800, height: 400 },
       }),
@@ -1169,7 +1179,7 @@ test('what the clock cannot hold is a limit, named in the file and on the comman
     const cli = await promisify(execFile)(process.execPath, [
       join(project, 'tools', 'capture-web.ts'),
       server.url('limits.html'),
-      ...['--out', out, '--track', '#box', '--fps', '10', '--duration', '0.3'],
+      ...['--out', out, '--track', '#box', '--fps', '10', '--rafHz', '10', '--duration', '0.3'],
       ...['--viewport', '200x100', '--allow-local'],
     ])
     const doc = JSON.parse(readFileSync(join(out, 'tracks.json'), 'utf8')) as Doc
