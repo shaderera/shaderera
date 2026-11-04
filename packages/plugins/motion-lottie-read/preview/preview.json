@@ -1,0 +1,12 @@
+{
+  "caption": "Reads a Lottie animation's keyframes exactly as the file writes them, and plays them back with the file's own curves.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.2
+}

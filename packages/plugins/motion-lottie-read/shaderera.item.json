@@ -1,0 +1,22 @@
+{
+  "name": "motion-lottie-read",
+  "type": "component",
+  "title": "Lottie reader",
+  "description": "A Lottie file's keyframes read as written: frame rate, in and out points, size, layers, and each transform property's keys with their values, holds and bezier handles; a property's value at t with the file's own curves; shapes, masks, expressions, effects, markers and any field not read listed as unsupported, never dropped",
+  "category": "Animation & Camera",
+  "tags": [
+    "lottie",
+    "bodymovin",
+    "after effects",
+    "keyframes",
+    "bezier",
+    "easing",
+    "reference",
+    "import",
+    "motion"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "motion-eases": "^0.1.1" } },
+  "files": ["src/motion/lottie.ts"]
+}
