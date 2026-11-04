@@ -89,7 +89,8 @@ write them; a file of boxes is the hand-written form.
 
 ### Live input
 
-Analysis takes files only. A live source can be recorded by the user's own tools into the
+Analysis takes files, or a live web page that an analyser captured, with what the page loaded
+recorded as its `source`. Any other live source can be recorded by the user's own tools into the
 artifact format above and rendered like footage. Live capture and inference inside `render` are
 out of scope: a non-realtime render fed by live input comes out stretched or misaligned
 (TouchDesigner users report it on Derivative's forum).
