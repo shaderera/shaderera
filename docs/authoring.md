@@ -57,7 +57,7 @@ package plugin that is not installed. The commands are in `docs/plugins.md`.
 What is on the shelf:
 
 - **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
-  plumbing again, and says so:
+  plumbing again, and says so, with the command that takes it out (`npx shaderera remove <name>`):
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
   - `audio-filters`: a one-pole low-pass, the RBJ cookbook biquads, a MIDI note's frequency and
     a fade to zero, for sound made in code;
@@ -81,6 +81,7 @@ What is on the shelf:
   - `color-lut`: a person's own .cube LUT read, applied (WGSL and CPU) and written back;
   - `color-primary`: the ASC CDL, exposure, contrast and white balance (Bradford, from Kelvin), WGSL and CPU;
   - `color-qualifier`: a hue, saturation and luma key to a soft matte, so a grade touches one colour only, WGSL and CPU;
+  - `color-spaces`: ACEScct and ACEScc, the camera log curves (S-Log3, LogC3, LogC4, V-Log, Canon Log 3) and the matrices between gamuts, WGSL and CPU;
   - `analysis-scopes`: a frame as scope numbers (levels, waveform, parade, balance, vectorscope) to grade from;
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
@@ -102,7 +103,21 @@ What is on the shelf:
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 
-An agent never searches for plugins or suggests them on its own.
+An agent never searches for plugins or suggests them on its own. The person's word wins: when they,
+or the project's CLAUDE.md or AGENTS.md, say not to use plugins (or one of them), write that code
+in the film and do not offer plugins again.
+
+Some questions are answered better by a number than by looking at a still. Where a plumbing
+plugin already measures it:
+
+- where a face, an eye or a product's label is in a picture, to crop or push in on it:
+  `image-regions` gives its box and centre in pixels, so you do not need to draw a grid over the
+  picture and guess;
+- a frame's levels, clipping, colour cast or skin hue: `analysis-scopes`, and which colour plugin
+  does each grading job is in `guides/color.md`;
+- whether a sound lands on the picture's change: `review-av-timeline`;
+- whether a line fits its width: `text-fit`;
+- the cuts, camera moves and pace of a reference video: `review-shots`.
 
 ## Make it editable
 
