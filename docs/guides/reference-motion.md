@@ -42,7 +42,7 @@ number came from.
 | A Lottie file | the spec itself: frame rate, in and out points, layers, each transform property's keys, holds and bezier handles, as written | `npx shaderera add motion-lottie-read`; `loadLottie` reads it, `valueAt(property, t)` plays a property with the file's own curves. What it does not read (shapes, masks, expressions, effects, …) is listed in `unsupported`, by where it is |
 | A glTF file with animation clips | the spec itself: its clips' keyframes | no plugin reads glTF animations yet: `render-gltf-read` reads models, not clips |
 | A web page, motion in CSS or the Web Animations API | the page's own keyframes and timing, exact at any time | `analysis-web-capture`: `declared` in `tracks.json`, each animation's `keyframes` and `timing` as Chrome returns them, never fitted |
-| A web page, any motion (JavaScript too) | each tracked element's box, transform and opacity, and the window's scroll, sampled at the capture's fps | `analysis-web-capture`: `tracks` in `tracks.json`, read through `analysis-reference-tracks` (`loadTracks`, `track`, `at`). Exact on the captured frames; between them the film chooses `hold` or `linear` |
+| A web page, any motion (JavaScript too) | each tracked element's box, transform and opacity, and the window's scroll, sampled at the capture's fps | `analysis-web-capture`: `tracks` in `tracks.json`, read through `analysis-reference-tracks` (`loadTracks`, `track`, `at`). Exact on the captured frames; between them `at()` reads `hold` or `linear`, and any other reading of the samples is the film's own code |
 | A web page at one moment | every element's box and computed styles, each text node's line boxes and the fonts Chrome drew it with, and a screenshot | `analysis-web-capture` with `--still <ms>`: `style.json` and `style.png`, read with `loadStyle`, `styleOf`, `textsOf` |
 | A clip (a video, a screen recording, a GIF) | its frames: no tool tracks its elements | `--compare-file <video>` measures timing (each side's activity, the offset that aligns them, where each moves) and the difference per frame; positions are read from its frames by eye, at its frame rate |
 | An image (a poster, a screenshot) | its pixels | `--compare-file <image>`, region by region with `--regions`. No tool reads text, layout or fonts from an image: which font it is, is the person's to say |
@@ -52,9 +52,9 @@ number came from.
 ```sh
 npx shaderera add analysis-web-capture        # analysis-reference-tracks comes with it
 node tools/capture-web.ts https://example.com/ --out references/hero \
-  --track '.hero h1' --track '.hero .card' --fps 30 --duration 3 --viewport 1280x720
+  --track '.hero h1' --track '.hero .card' --fps 30 --rafHz 60 --duration 3 --viewport 1280x720
 node tools/capture-web.ts https://example.com/ --out references/menu \
-  --track '.menu' --fps 60 --duration 2 --viewport 1280x720 \
+  --track '.menu' --fps 60 --rafHz 60 --duration 2 --viewport 1280x720 \
   --trigger click --target '.menu-button' --at 500
 node tools/capture-web.ts https://example.com/ --out references/hero-look \
   --still 1500 --rafHz 60 --viewport 1280x720 --root '.hero'
@@ -62,14 +62,24 @@ node tools/capture-web.ts https://example.com/ --out references/hero-look \
 
 The selectors, times, rates and sizes above are placeholders: give the reference's own.
 
-- `--fps`, `--duration` and `--viewport` have no defaults: each changes every sample. Neither do
-  a trigger's `--target`, `--at`, `--scroll-to` and `--scroll-ms`.
+- `--fps`, `--rafHz`, `--duration` and `--viewport` have no defaults: each changes every sample.
+  Neither do a trigger's `--target`, `--at`, `--scroll-to` and `--scroll-ms`. `--rafHz` is how
+  often the page's `requestAnimationFrame` runs, a whole multiple of the fps: a page that steps
+  its motion once per frame moves differently at each, so give the refresh rate the reference was
+  seen at.
 - The capture's other settings have defaults so that two runs on two machines repeat, never your
   OS's settings: `--seed 1`, `--dpr 1`, `--media prefers-color-scheme=light` and
   `prefers-reduced-motion=no-preference`, `--locale en-US`, `--timezone UTC`, `--time-origin 0`,
   `--clock-date 2000-01-01T00:00:00.000Z`. Each is recorded in the file (`params`,
   `frame.pixelRatio`). They also pick which variant of the page is captured (its light,
-  full-motion, 1x, English one): pass the values the reference was seen with.
+  full-motion, 1x, English one): pass the values the reference was seen with. Fixed, and recorded
+  too: a desktop page (`params.mobile`), hidden scrollbars and videos let autoplay
+  (`tool.chromeFlags`).
+- `--settle load` and `--trigger load` are defaults as well, recorded in `params`: the clock
+  freezes at the page's first script (`--settle loaded`: at its load event), and the motion starts
+  with the page (`--trigger click`, `hover`, `leave` or `scroll`: from an input at `--at`). They
+  decide which moment of the page is captured: pass the ones that match how the reference was
+  seen.
 - Run it twice, once with `--cpu-throttle 6`. The files must differ only in `source.date` (with
   `--settle loaded`, also in what the load did on real time). If the tracks change, the page reads
   a clock the capture does not hold.
@@ -185,7 +195,7 @@ Copying a reference is the person's call. These are facts from the sources, not 
 
 - **Record the reference** with `asset-provenance` as supplied by the person, with where it came
   from, when it arrives:
-  `node tools/provenance.ts record references/hero.mp4 --source "supplied by the person" --licence "the person's" --credit ""`
+  `node tools/provenance.ts record references/hero.mp4 --source "supplied by the person" --licence "the person's" --author "the person" --credit ""`
   (`--credit ""` keeps it in `ASSETS.md` and out of the video's credits). For a captured page,
   record its `tracks.json` or `style.json` with the page's URL as `--source`. `check` looks at
   the pictures, clips and sounds under `assets/`, or under the folders given with `--dir`.
