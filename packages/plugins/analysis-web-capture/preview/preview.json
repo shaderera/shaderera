@@ -1,0 +1,12 @@
+{
+  "caption": "Captures a web page's motion frame by frame on an injected clock, as tracks a film reads and copies.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.6
+}

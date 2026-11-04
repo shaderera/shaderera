@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  Motion from absolute time, not from deltas: #perf from performance.now(), #ts from the rAF
+  timestamp, #date from Date.now() after 2000-01-01, #hours from the local hour (the time zone).
+  A capture must give the same samples on every run.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #perf { top: 20px } #ts { top: 80px } #date { top: 140px } #hours { top: 200px }
+</style>
+<div class="box" id="perf"></div>
+<div class="box" id="ts"></div>
+<div class="box" id="date"></div>
+<div class="box" id="hours"></div>
+<script>
+  const y2k = Date.UTC(2000, 0, 1)
+  const frame = (ts) => {
+    perf.style.transform = `translateX(${performance.now() * 0.3}px)`
+    window.ts.style.transform = `translateX(${ts * 0.3}px)`
+    date.style.transform = `translateX(${(Date.now() - y2k) * 0.3}px)`
+    hours.style.transform = `translateX(${new Date().getHours()}px)`
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+</script>

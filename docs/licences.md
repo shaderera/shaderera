@@ -97,6 +97,11 @@ The fixtures in `apps/cli` are not published (`files` leaves out `dist/**/fixtur
 `three` 0.186.1 (MIT), `webgpu` 0.6.2 (MIT; Dawn BSD-3-Clause) and `@napi-rs/canvas` 1.0.10 (MIT),
 and carry Noto Sans and Noto Sans Thai (SIL OFL 1.1, `OFL.txt` beside the fonts).
 
+`analysis-web-capture`'s slow tests bundle real animation libraries into fixture pages, as
+devDependencies of `packages/plugins` that are neither vendored nor shipped: `gsap` 3.15.1
+(GSAP's standard "no charge" licence), `motion` 12.43.0 (MIT), `@react-spring/web` 9.7.5 (MIT),
+`react` and `react-dom` 18.3.1 (MIT), bundled by `esbuild` 0.28.1 (MIT).
+
 ## Plugins
 
 The official plugins in `packages/plugins/` are MIT code, written for Shaderera; `add` copies them
@@ -119,6 +124,7 @@ in a Shaderera package or a plugin.
 
 | Plugin | Installed by the person | Downloaded on first use |
 |---|---|---|
+| `analysis-web-capture` | Google Chrome, the person's own install | none |
 | `review-shots` | Python: PySceneDetect 0.7 (BSD-3-Clause), OpenCV (Apache-2.0), numpy (BSD-3-Clause) | TransNet V2's weights (MIT, Copyright (c) 2020 Tomáš Souček), 30 MB from `github.com/soCzech/TransNetV2` at commit `85cef72`, checked by sha256 |
 | `review-picture-reuse` | Python: OpenCV (Apache-2.0), numpy (BSD-3-Clause) | none |
 | `image-regions` (`regions-sam.py`) | Python: Meta's `sam3` (SAM License), PyTorch (BSD-3-Clause), einops (MIT), pycocotools (BSD-2-Clause), psutil (BSD-3-Clause), on Windows triton-windows (MIT) | SAM 3.1's weights (Meta's SAM License, accepted on Hugging Face), 3.3 GB |
@@ -127,7 +133,11 @@ in a Shaderera package or a plugin.
 
 `review-shots` runs TransNet V2's network in numpy from that checkpoint. It installs neither
 TensorFlow nor PyTorch. The network is ported from TransNet V2's MIT code, so
-`tools/review-shots.py` carries its copyright and permission notice. The SAM License is not an open-source licence: `image-regions` says so,
+`tools/review-shots.py` carries its copyright and permission notice.
+`analysis-web-capture`'s page clock, `tools/inpage/clock.js`, is ported from
+[reanimate](https://github.com/NiazMorshed2007/reanimate)'s `clock.js` at commit `3f7a55a` (MIT,
+Copyright (c) 2026 Niaz Morshed), with Shaderera's fixes, and carries its copyright and
+permission notice. The SAM License is not an open-source licence: `image-regions` says so,
 and the person accepts it before the weights download.
 
 The media plugins are fonts under SIL OFL 1.1, each with its OFL text beside the font files:

@@ -1,0 +1,1087 @@
+// Captures a web page's motion as reference tracks (shaderera.analysis/1, kind reference-tracks,
+// written by analysis-reference-tracks' writer), so a film can copy it one to one. It runs in the
+// person's own Chrome, in new headless with a throwaway profile, with a clock injected before any
+// page script (tools/inpage/clock.js): the page moves only when the capture advances it, so frame
+// k is the page at k / fps however slow the machine is.
+//
+//   node tools/capture-web.ts <url|file> --out <dir> --track <selector> [--track <selector>…]
+//     --fps <n> --duration <s> --viewport <width>x<height>
+//     [--rafHz <n>] [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
+//     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
+//     [--locale <BCP 47>]
+//
+// Writes <dir>/tracks.json. Each frame, in this order: animations are synced, the clock advances
+// to the frame's time, running timers and animation frames in time order, the capture waits for
+// the network and the page's pending work, then every tracked element's box, transform and
+// opacity are read. The README lists the channels and the limits.
+
+import { sha256 } from '@shaderera/core'
+import type { Limit, Sample, Track } from '../src/reference/tracks.ts'
+import { tracksJson } from './reference-tracks.ts'
+import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
+
+/** This tool's version, recorded in every capture. */
+export const VERSION = '0.1.0'
+
+/** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
+export const chromePath = async () => {
+  const { existsSync } = await import('node:fs')
+  return (
+    process.env.CHROME ??
+    [
+      'C:/Program Files/Google/Chrome/Application/chrome.exe',
+      '/usr/bin/google-chrome',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    ].find((p) => existsSync(p))
+  )
+}
+
+/** What a capture is asked for. Everything that changes the samples is here and recorded. */
+export type CaptureOptions = {
+  /** A URL (http, https, file) or a path to an HTML file. */
+  page: string
+  /** The folder tracks.json is written to. */
+  out: string
+  /** CSS selectors, one element each: the first match in document order. */
+  track: string[]
+  fps: number
+  /** Seconds captured from the load; frames at 0, 1/fps, … up to it. */
+  duration: number
+  viewport: { width: number; height: number }
+  /** Animation frames per second the page sees; a whole multiple of fps. fps when left out. */
+  rafHz?: number
+  /** Math.random's seed in the page. */
+  seed?: number
+  /** What performance.now, rAF timestamps and document.timeline read at the freeze, in ms. */
+  timeOrigin?: number
+  /** What Date reads at the freeze, as ISO 8601. */
+  clockDate?: string
+  /** The time zone the page's Date and Intl see, an IANA name. */
+  timezone?: string
+  /** The locale the page's Intl, navigator.language and Accept-Language see, a BCP 47 tag. */
+  locale?: string
+  /** Device pixels per CSS pixel. */
+  devicePixelRatio?: number
+  /** Media features the page sees, over MEDIA. */
+  media?: Record<string, string>
+  /** Let loopback, private and link-local addresses through; cloud metadata stays refused. */
+  allowLocal?: boolean
+  /** Chrome's CPU throttling rate, to check that a capture does not depend on speed. */
+  cpuThrottle?: number
+  /** Progress lines. */
+  log?: (line: string) => void
+}
+
+/** The media features a capture sets unless asked otherwise, so the OS's settings do not leak in. */
+export const MEDIA: Record<string, string> = {
+  'prefers-color-scheme': 'light',
+  'prefers-reduced-motion': 'no-preference',
+}
+
+/** What the page's clocks read at the freeze unless asked otherwise: constants, never today. */
+export const CLOCK = { timeOrigin: 0, clockDate: '2000-01-01T00:00:00.000Z', timezone: 'UTC' }
+
+/** The locale a capture sets unless asked otherwise: a constant, so the machine's does not leak in. */
+export const LOCALE = 'en-US'
+
+/** Each channel read per element, and its unit. */
+export const CHANNELS: [channel: string, unit: string][] = [
+  ['x', 'css-px'],
+  ['y', 'css-px'],
+  ['width', 'css-px'],
+  ['height', 'css-px'],
+  ['opacity', 'ratio'],
+  ['translateX', 'css-px'],
+  ['translateY', 'css-px'],
+  ['rotate', 'deg'],
+  ['skewX', 'deg'],
+  ['scaleX', 'ratio'],
+  ['scaleY', 'ratio'],
+  ['originX', 'css-px'],
+  ['originY', 'css-px'],
+]
+
+const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
+
+/** The options checked and filled, or a refusal naming what is wrong. Nothing starts before it. */
+export const checkOptions = (o: CaptureOptions) => {
+  if (!o.page) throw new Error('give the page to capture: a URL or an HTML file')
+  if (!o.out) throw new Error('give --out <dir>, the folder tracks.json is written to')
+  if (o.track.length === 0)
+    throw new Error('give at least one --track <selector>, the element whose motion to capture')
+  if (new Set(o.track).size !== o.track.length)
+    throw new Error(`--track names an element twice: ${o.track.join(', ')}`)
+  if (!positive(o.fps)) throw new Error(`--fps ${o.fps} is not a rate above 0`)
+  if (!positive(o.duration)) throw new Error(`--duration ${o.duration} is not seconds above 0`)
+  const { width, height } = o.viewport
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1)
+    throw new Error(`--viewport ${width}x${height} is not whole CSS pixels, like 1280x720`)
+  const rafHz = o.rafHz ?? o.fps
+  if (!positive(rafHz)) throw new Error(`--rafHz ${rafHz} is not a rate above 0`)
+  const ratio = rafHz / o.fps
+  if (ratio < 1 - 1e-9 || Math.abs(ratio - Math.round(ratio)) > 1e-9)
+    throw new Error(
+      `--rafHz ${rafHz} is not a whole multiple of --fps ${o.fps}: a JS animation would show a tick from before the frame while CSS shows the frame itself. Give ${[1, 2, 3].map((m) => m * o.fps).join(', ')}…`,
+    )
+  const seed = o.seed ?? 1
+  if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff)
+    throw new Error(`--seed ${seed} is not a whole number from 0 to 4294967295`)
+  const devicePixelRatio = o.devicePixelRatio ?? 1
+  if (!positive(devicePixelRatio)) throw new Error(`--dpr ${devicePixelRatio} is not above 0`)
+  const throttle = o.cpuThrottle ?? 1
+  if (!(Number.isFinite(throttle) && throttle >= 1))
+    throw new Error(`--cpu-throttle ${throttle} is not a rate of 1 or more`)
+  const timeOrigin = o.timeOrigin ?? CLOCK.timeOrigin
+  if (!Number.isInteger(timeOrigin) || timeOrigin < 0)
+    throw new Error(`--time-origin ${timeOrigin} is not whole milliseconds of 0 or more`)
+  const given = o.clockDate ?? CLOCK.clockDate
+  const epoch = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d{1,3})?)?(Z|[+-]\d\d:\d\d)$/.test(given)
+    ? Date.parse(given)
+    : Number.NaN
+  if (!Number.isFinite(epoch))
+    throw new Error(
+      `--clock-date ${given} is not an ISO 8601 date and time with its offset, like ${CLOCK.clockDate}`,
+    )
+  const timezone = o.timezone ?? CLOCK.timezone
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone })
+  } catch {
+    throw new Error(`--timezone ${timezone} is not an IANA time zone, like UTC or Asia/Bangkok`)
+  }
+  let locale: string
+  try {
+    locale = Intl.getCanonicalLocales(o.locale ?? LOCALE)[0] as string
+  } catch {
+    throw new Error(`--locale ${o.locale} is not a BCP 47 language tag, like en-US or th-TH`)
+  }
+  const frames = Math.floor(o.duration * o.fps + 1e-9) + 1
+  return {
+    ...o,
+    rafHz,
+    seed,
+    timeOrigin,
+    clockDate: new Date(epoch).toISOString(),
+    epoch,
+    timezone,
+    locale,
+    devicePixelRatio,
+    cpuThrottle: throttle,
+    media: { ...MEDIA, ...o.media },
+    allowLocal: o.allowLocal ?? false,
+    frames,
+  }
+}
+
+/** The page's URL: a URL as given, a path to a file as its file: URL. */
+export const pageUrl = async (page: string) => {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(page) && !/^[a-z]:[\\/]/i.test(page)) {
+    const url = new URL(page)
+    if (!['http:', 'https:', 'file:'].includes(url.protocol))
+      throw new Error(`${page}: capture takes an http, https or file URL, or a path to a file`)
+    return url.href
+  }
+  const { existsSync } = await import('node:fs')
+  const { resolve } = await import('node:path')
+  const { pathToFileURL } = await import('node:url')
+  if (!existsSync(page)) throw new Error(`${page} is neither a URL nor a file`)
+  return pathToFileURL(resolve(page)).href
+}
+
+/**
+ * A 2D matrix (CSS `matrix(a, b, c, d, e, f)`) as `translate(tx, ty) rotate(r) skewX(k)
+ * scale(sx, sy)`, which gives the same matrix back. Degrees for rotate and skew; scaleX is never
+ * negative, so a mirror shows as a negative scaleY and a half turn.
+ */
+export const decompose = ([a, b, c, d, e, f]: number[]) => {
+  const A = a as number
+  const B = b as number
+  const C = c as number
+  const D = d as number
+  const scaleX = Math.hypot(A, B)
+  const theta = scaleX === 0 ? 0 : Math.atan2(B, A)
+  const cos = Math.cos(theta)
+  const sin = Math.sin(theta)
+  // The second column, turned back: (tan(skew) * scaleY, scaleY).
+  const p = cos * C + sin * D
+  const scaleY = -sin * C + cos * D
+  const skew = scaleY === 0 ? 0 : Math.atan(p / scaleY)
+  const deg = 180 / Math.PI
+  return {
+    translateX: e as number,
+    translateY: f as number,
+    rotate: theta * deg,
+    skewX: skew * deg,
+    scaleX,
+    scaleY,
+  }
+}
+
+/** An angle moved by whole turns to the one nearest `before`, so a turn past 180° keeps counting. */
+export const unwrap = (angle: number, before: number | null) =>
+  before === null ? angle : angle - 360 * Math.round((angle - before) / 360)
+
+// Run in the page each frame: for each selector, null when nothing matches, else the first
+// match's box, opacity, transform (the translate, rotate and scale properties, then transform,
+// composed as CSS composes them) and transform origin. Percentages in `translate` are of the
+// border box before transforms, unrounded, for an HTML element; an SVG element's are left unread,
+// since their box depends on transform-box. Also each new animation on a tracked element, with the time the clock first saw it.
+const READ = `(sels) => {
+  const c = self.__shadereraClock
+  const seen = (self.__shadereraSeen ??= new WeakSet())
+  const px = (v, ref) => v.endsWith('%') ? (parseFloat(v) * ref) / 100 : v.endsWith('px') ? parseFloat(v) : NaN
+  const out = []
+  const animations = []
+  for (const sel of sels) {
+    const all = document.querySelectorAll(sel)
+    const el = all[0]
+    if (!el) { out.push(null); continue }
+    const r = el.getBoundingClientRect()
+    const cs = getComputedStyle(el)
+    const unread = []
+    let m = new DOMMatrix()
+    // The border box from the used width and height, which offsetWidth rounds.
+    let w = NaN
+    let h = NaN
+    if (el instanceof HTMLElement && cs.width.endsWith('px') && cs.height.endsWith('px')) {
+      const n = (v) => parseFloat(v) || 0
+      w = parseFloat(cs.width)
+      h = parseFloat(cs.height)
+      if (cs.boxSizing !== 'border-box') {
+        w += n(cs.paddingLeft) + n(cs.paddingRight) + n(cs.borderLeftWidth) + n(cs.borderRightWidth)
+        h += n(cs.paddingTop) + n(cs.paddingBottom) + n(cs.borderTopWidth) + n(cs.borderBottomWidth)
+      }
+    }
+    if (cs.translate && cs.translate !== 'none') {
+      const [x = '0px', y = '0px', z = '0px'] = cs.translate.split(' ')
+      const t = [px(x, w), px(y, h), px(z, 0)]
+      if (t.some(Number.isNaN)) unread.push('translate ' + cs.translate)
+      else m = m.translate(t[0], t[1], t[2])
+    }
+    if (cs.rotate && cs.rotate !== 'none') {
+      const p = cs.rotate.split(' ')
+      const axis = { x: '1, 0, 0', y: '0, 1, 0', z: '0, 0, 1' }
+      try {
+        const angle = p[p.length - 1]
+        const f = p.length === 1 ? 'rotate(' + angle + ')' : 'rotate3d(' + (p.length === 2 ? axis[p[0]] : p.slice(0, 3).join(', ')) + ', ' + angle + ')'
+        m = m.multiply(new DOMMatrix(f))
+      } catch { unread.push('rotate ' + cs.rotate) }
+    }
+    if (cs.scale && cs.scale !== 'none') {
+      const s = cs.scale.split(' ').map((v) => v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v))
+      if (s.some(Number.isNaN)) unread.push('scale ' + cs.scale)
+      else m = m.scale(s[0], s[1] ?? s[0], s[2] ?? 1)
+    }
+    if (cs.transform && cs.transform !== 'none') {
+      try { m = m.multiply(new DOMMatrix(cs.transform)) } catch { unread.push('transform ' + cs.transform) }
+    }
+    if (cs.offsetPath && cs.offsetPath !== 'none') unread.push('offset-path ' + cs.offsetPath)
+    const [ox = '0px', oy = '0px'] = cs.transformOrigin.split(' ')
+    out.push({
+      matches: all.length,
+      box: [r.x, r.y, r.width, r.height],
+      opacity: parseFloat(cs.opacity),
+      matrix: [m.a, m.b, m.c, m.d, m.e, m.f],
+      is3d: !m.is2D,
+      origin: [px(ox, w), px(oy, h)],
+      unread,
+    })
+    for (const a of el.getAnimations()) {
+      if (seen.has(a)) continue
+      seen.add(a)
+      const e = a.effect
+      const timing = e ? { ...e.getTiming() } : {}
+      if (timing.iterations === Infinity) timing.iterations = 'infinite'
+      const type = typeof CSSAnimation !== 'undefined' && a instanceof CSSAnimation ? 'css-animation'
+        : typeof CSSTransition !== 'undefined' && a instanceof CSSTransition ? 'css-transition' : 'web-animation'
+      const entry = { element: sel, type }
+      if (type === 'css-animation') entry.name = a.animationName
+      if (type === 'css-transition') entry.property = a.transitionProperty
+      if (a.id) entry.id = a.id
+      const start = c.startOf(a)
+      if (start !== null) entry.start = start / 1000
+      entry.playbackRate = a.playbackRate
+      entry.timing = timing
+      if (e) entry.composite = e.composite
+      entry.keyframes = e ? e.getKeyframes() : []
+      animations.push(entry)
+    }
+  }
+  return { elements: out, animations }
+}`
+
+/** A message the page or Chrome sent back that is an error. */
+type CdpError = { code: number; message: string; data?: string }
+
+/** A minimal DevTools protocol client over Node's WebSocket: flat sessions, one socket. */
+const cdp = async (url: string) => {
+  const ws = new WebSocket(url)
+  await new Promise<void>((done, fail) => {
+    ws.addEventListener('open', () => done(), { once: true })
+    ws.addEventListener('error', () => fail(new Error(`could not reach Chrome at ${url}`)), {
+      once: true,
+    })
+  })
+  let id = 0
+  const pending = new Map<
+    number,
+    { method: string; done: (v: unknown) => void; fail: (e: Error) => void }
+  >()
+  const listeners = new Map<string, ((params: never, session?: string) => void)[]>()
+  let closed: Error | undefined
+  ws.addEventListener('message', (m) => {
+    const msg = JSON.parse(String(m.data)) as {
+      id?: number
+      result?: unknown
+      error?: CdpError
+      method?: string
+      params?: unknown
+      sessionId?: string
+    }
+    if (msg.id !== undefined) {
+      const p = pending.get(msg.id)
+      if (!p) return
+      pending.delete(msg.id)
+      if (msg.error) p.fail(new Error(`${p.method}: ${msg.error.message}`))
+      else p.done(msg.result)
+    } else if (msg.method)
+      for (const fn of listeners.get(msg.method) ?? []) fn(msg.params as never, msg.sessionId)
+  })
+  ws.addEventListener('close', () => {
+    closed = new Error('Chrome closed the DevTools connection')
+    for (const p of pending.values()) p.fail(closed)
+    pending.clear()
+  })
+  return {
+    send: <T = Record<string, unknown>>(
+      method: string,
+      params: Record<string, unknown> = {},
+      sessionId?: string,
+    ) =>
+      new Promise<T>((done, fail) => {
+        if (closed) return fail(closed)
+        const n = ++id
+        pending.set(n, { method, done: done as (v: unknown) => void, fail })
+        ws.send(JSON.stringify({ id: n, method, params, ...(sessionId ? { sessionId } : {}) }))
+      }),
+    on: <P>(method: string, fn: (params: P, session?: string) => void) => {
+      listeners.set(method, [
+        ...(listeners.get(method) ?? []),
+        fn as (p: never, s?: string) => void,
+      ])
+    },
+    close: () => ws.close(),
+  }
+}
+
+/**
+ * The lock that keeps one capture at a time on this machine. It is made whole and then linked in
+ * place, which fails if one is there; a dead holder's lock is renamed away, which only one taker
+ * can do, and put back if it turns out to be a live one.
+ */
+const takeLock = async () => {
+  const { linkSync, readFileSync, renameSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const path = join(tmpdir(), 'shaderera-web-capture.lock')
+  const mine = `${path}.${process.pid}`
+  const holder = (file: string) => {
+    let text = ''
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw e
+    }
+    const pid = Number(text)
+    let alive = false
+    try {
+      alive = Number.isInteger(pid) && pid > 0 && process.kill(pid, 0)
+    } catch (k) {
+      alive = (k as NodeJS.ErrnoException).code === 'EPERM'
+    }
+    return { pid, alive }
+  }
+  const busy = (pid: number) =>
+    new Error(`another capture is running (process ${pid}, ${path}): one capture runs at a time`)
+  writeFileSync(mine, String(process.pid))
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        linkSync(mine, path)
+        return () => rmSync(path, { force: true })
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      }
+      const h = holder(path)
+      if (!h) continue
+      if (h.alive) throw busy(h.pid)
+      const stale = `${path}.stale.${process.pid}`
+      try {
+        renameSync(path, stale)
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw e
+      }
+      const moved = holder(stale)
+      if (moved?.alive) {
+        // Another taker's fresh lock: put it back.
+        try {
+          linkSync(stale, path)
+        } catch {}
+        rmSync(stale, { force: true })
+        throw busy(moved.pid)
+      }
+      rmSync(stale, { force: true })
+    }
+    throw new Error(`could not take ${path}`)
+  } finally {
+    rmSync(mine, { force: true })
+  }
+}
+
+/** The flags every capture's Chrome starts with, besides its profile and the proxy's port. */
+export const CHROME_FLAGS = [
+  '--headless=new',
+  '--remote-debugging-port=0',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-smooth-scrolling',
+  '--hide-scrollbars',
+  '--mute-audio',
+  '--disable-background-networking',
+  '--disable-component-update',
+  '--disable-default-apps',
+  '--disable-extensions',
+  '--disable-sync',
+  '--disable-quic',
+  '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+  '--proxy-bypass-list=<-loopback>',
+]
+
+/** The largest response held to read its bytes as served; a larger one is read at its end. */
+const HELD_BODY_BYTES = 16 * 1024 * 1024
+/** Every response, paused at its headers. */
+const FETCH_PATTERNS = [{ urlPattern: '*', requestStage: 'Response' }]
+
+/** A response the page loaded. `hashOf` is there only when the hash is not of the bytes served. */
+type Served = { url: string; status: number; sha256: string; hashOf?: string }
+
+/** How long a request may stay open before frames stop waiting for it, in real ms. */
+const LONG_REQUEST_MS = 5000
+/** How long a frame may wait for the page to settle, in real ms. */
+const SETTLE_MS = 15000
+
+/**
+ * Captures the page and writes `<out>/tracks.json`. Returns its path and bytes. Refuses bad
+ * options before Chrome starts, and a page whose own address is refused.
+ */
+export const captureWeb = async (options: CaptureOptions) => {
+  const o = checkOptions(options)
+  const log = o.log ?? (() => {})
+  const { spawn } = await import('node:child_process')
+  const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = await import(
+    'node:fs'
+  )
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { setTimeout: sleep } = await import('node:timers/promises')
+  const { fileURLToPath } = await import('node:url')
+
+  const url = await pageUrl(o.page)
+  const parsed = new URL(url)
+  if (parsed.protocol !== 'file:') {
+    const c = await checkHost(parsed.hostname, { allowLocal: o.allowLocal })
+    if ('refused' in c)
+      throw new Error(
+        `${url}: ${c.refused}${o.allowLocal ? '' : '; give --allow-local to capture a page on this machine or its network'}`,
+      )
+  }
+  const chrome = await chromePath()
+  if (!chrome) throw new Error('No Chrome found: install Google Chrome, or set CHROME to its path')
+  if (!existsSync(chrome)) throw new Error(`CHROME is ${chrome}, which does not exist`)
+  const clockSource = readFileSync(join(import.meta.dirname, 'inpage', 'clock.js'), 'utf8')
+  const clockSha = await sha256(new TextEncoder().encode(clockSource))
+
+  const release = await takeLock()
+  const refused: Refused[] = []
+  let proxy: Awaited<ReturnType<typeof startProxy>> | undefined
+  let profile: string
+  let browser: ReturnType<typeof spawn>
+  try {
+    proxy = await startProxy({ allowLocal: o.allowLocal, onRefused: (r) => refused.push(r) })
+    profile = mkdtempSync(join(tmpdir(), 'shaderera-web-capture-'))
+    browser = spawn(
+      chrome,
+      [
+        ...CHROME_FLAGS,
+        `--user-data-dir=${profile}`,
+        `--proxy-server=http://127.0.0.1:${proxy.port}`,
+        `--window-size=${o.viewport.width},${o.viewport.height}`,
+        `--lang=${o.locale}`,
+        '--do-not-de-elevate',
+        'about:blank',
+      ],
+      { stdio: 'ignore' },
+    )
+  } catch (e) {
+    await proxy?.close()
+    release()
+    throw e
+  }
+  const net = proxy
+  let gone: string | undefined
+  const exited = new Promise<void>((done) => {
+    browser.once('exit', (code, signal) => {
+      gone = `Chrome exited (${signal ?? code})`
+      done()
+    })
+    browser.once('error', (e) => {
+      gone = `Chrome could not start (${e.message})`
+      done()
+    })
+  })
+  let client: Awaited<ReturnType<typeof cdp>> | undefined
+  let cleaned: Promise<void> | undefined
+  const cleanup = () => {
+    cleaned ??= end()
+    return cleaned
+  }
+  const end = async () => {
+    client?.close()
+    if (!gone) browser.kill()
+    await Promise.race([exited, sleep(5000, undefined, { ref: false })])
+    if (!gone) browser.kill('SIGKILL')
+    await net.close()
+    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    release()
+  }
+  const onSignal = (signal: NodeJS.Signals) => {
+    void cleanup().finally(() => process.exit(signal === 'SIGINT' ? 130 : 143))
+  }
+  process.once('SIGINT', onSignal)
+  process.once('SIGTERM', onSignal)
+  try {
+    // Chrome writes its DevTools port and browser path to the profile once it listens.
+    let lines: string[] = []
+    for (let i = 0; i < 400 && !gone && !/^\d+$/.test(lines[0] ?? ''); i++) {
+      try {
+        lines = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split('\n')
+      } catch {}
+      if (!/^\d+$/.test(lines[0] ?? '')) await sleep(25)
+    }
+    if (!/^\d+$/.test(lines[0] ?? '') || !lines[1])
+      throw new Error(`${chrome} did not open DevTools: ${gone ?? 'no port after 10 s'}`)
+    const c = await cdp(`ws://127.0.0.1:${lines[0]}${lines[1].trim()}`)
+    client = c
+    const version = await c.send<{ product: string; userAgent: string }>('Browser.getVersion')
+    const { targetInfos } = await c.send<{ targetInfos: { targetId: string; type: string }[] }>(
+      'Target.getTargets',
+    )
+    const target = targetInfos.find((t) => t.type === 'page')
+    if (!target) throw new Error('Chrome opened no page')
+    const { sessionId: page } = await c.send<{ sessionId: string }>('Target.attachToTarget', {
+      targetId: target.targetId,
+      flatten: true,
+    })
+
+    // What the page loads, from every session: open requests, and each response's sha256.
+    const limits: Limit[] = []
+    const open = new Map<string, { url: string; type?: string; at: number; long: boolean }>()
+    const responses = new Map<string, { url: string; status: number }>()
+    const hashed: Served[] = []
+    const reading: Promise<void>[] = []
+    const keyOf = (session: string | undefined, id: string) => `${session ?? ''} ${id}`
+    // A response of a known length is held at its headers and its bytes read as they were served
+    // (Network.getResponseBody gives a text body only as decoded text); one without a length may
+    // be a stream, which holding would stop, so it is let through and read at the end.
+    const served = new Map<string, Promise<Uint8Array | null>>()
+    const received = new Map<string, number>()
+    c.on<{
+      requestId: string
+      networkId?: string
+      request: { method: string }
+      responseStatusCode?: number
+      responseErrorReason?: string
+      responseHeaders?: { name: string; value: string }[]
+    }>('Fetch.requestPaused', (p, s) => {
+      const go = (method: string) => c.send(method, { requestId: p.requestId }, s).catch(() => {})
+      const status = p.responseStatusCode
+      if (p.responseErrorReason || status === undefined) return void go('Fetch.continueRequest')
+      const length = Number(
+        p.responseHeaders?.find((h) => h.name.toLowerCase() === 'content-length')?.value ?? '',
+      )
+      const kept =
+        p.networkId !== undefined &&
+        p.request.method !== 'HEAD' &&
+        (status < 300 || status >= 400) &&
+        Number.isInteger(length) &&
+        length > 0 &&
+        length <= HELD_BODY_BYTES
+      if (!kept) return void go('Fetch.continueResponse')
+      const body = c
+        .send<{ body: string; base64Encoded: boolean }>(
+          'Fetch.getResponseBody',
+          { requestId: p.requestId },
+          s,
+        )
+        .then(({ body, base64Encoded }) =>
+          base64Encoded ? new Uint8Array(Buffer.from(body, 'base64')) : null,
+        )
+        .catch(() => null)
+      served.set(keyOf(s, p.networkId as string), body)
+      void body.finally(() => go('Fetch.continueResponse'))
+    })
+    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p, s) => {
+      const key = keyOf(s, p.requestId)
+      received.set(key, (received.get(key) ?? 0) + p.dataLength)
+    })
+    c.on<{ requestId: string; request: { url: string }; type?: string }>(
+      'Network.requestWillBeSent',
+      (p, s) => {
+        if (p.type === 'EventSource' || /^(data|blob):/.test(p.request.url)) return
+        open.set(keyOf(s, p.requestId), {
+          url: p.request.url,
+          type: p.type,
+          at: performance.now(),
+          long: false,
+        })
+      },
+    )
+    c.on<{ requestId: string; response: { url: string; status: number } }>(
+      'Network.responseReceived',
+      (p, s) => {
+        if (/^(data|blob):/.test(p.response.url)) return
+        responses.set(keyOf(s, p.requestId), { url: p.response.url, status: p.response.status })
+      },
+    )
+    c.on<{ requestId: string }>('Network.loadingFinished', (p, s) => {
+      const key = keyOf(s, p.requestId)
+      open.delete(key)
+      const r = responses.get(key)
+      const held = served.get(key)
+      served.delete(key)
+      if (!r) return
+      const read = async () => {
+        let bytes = held ? await held : null
+        let hashOf: string | undefined
+        if (!bytes && r.url.startsWith('file:')) {
+          try {
+            bytes = new Uint8Array(readFileSync(fileURLToPath(r.url)))
+          } catch {}
+        }
+        if (!bytes) {
+          const got = await c.send<{ body: string; base64Encoded: boolean }>(
+            'Network.getResponseBody',
+            { requestId: p.requestId },
+            s,
+          )
+          if (got.base64Encoded) bytes = new Uint8Array(Buffer.from(got.body, 'base64'))
+          else {
+            // Chrome decoded it with its charset; its bytes as served are gone.
+            bytes = new TextEncoder().encode(got.body)
+            hashOf = 'text-as-utf8'
+          }
+          if (bytes.length === 0 && (received.get(key) ?? 0) > 0) {
+            limits.push({ where: r.url, reason: 'its body was not kept by Chrome: it has no hash' })
+            return
+          }
+        }
+        hashed.push({ ...r, sha256: await sha256(bytes), ...(hashOf ? { hashOf } : {}) })
+      }
+      reading.push(
+        read().catch((e: Error) => {
+          limits.push({ where: r.url, reason: `its body could not be read: ${e.message}` })
+        }),
+      )
+    })
+    c.on<{ requestId: string; errorText: string; canceled?: boolean; blockedReason?: string }>(
+      'Network.loadingFailed',
+      (p, s) => {
+        const key = keyOf(s, p.requestId)
+        const r = open.get(key)
+        open.delete(key)
+        if (!r || p.canceled || p.errorText === 'net::ERR_ABORTED') return
+        // A request the proxy refused is listed once, with the proxy's reason.
+        if (p.errorText === 'net::ERR_TUNNEL_CONNECTION_FAILED') return
+        limits.push({ where: r.url, reason: `it did not load: ${p.errorText}` })
+      },
+    )
+
+    // Frames and workers have clocks of their own, which the capture does not hold.
+    const IFRAME = 'an iframe: its own clock is not held, so it runs on real time'
+    const realTime = new Map<string, string>()
+    c.on<{ frame: { id: string; parentId?: string; url: string } }>(
+      'Page.frameNavigated',
+      (p, s) => {
+        if (s === page && p.frame.parentId) realTime.set(`iframe ${p.frame.url}`, IFRAME)
+      },
+    )
+    c.on<{
+      sessionId: string
+      targetInfo: { type: string; url: string }
+      waitingForDebugger: boolean
+    }>('Target.attachedToTarget', (p, parent) => {
+      // Our own page attaches on the browser's session; frames and workers on the page's.
+      if (parent === undefined) return
+      const { type, url: at } = p.targetInfo
+      const kind = type.replace('_', ' ')
+      realTime.set(`${kind} ${at}`, type === 'iframe' ? IFRAME : `a ${kind}: it runs on real time`)
+      const s = p.sessionId
+      void (async () => {
+        try {
+          await c.send('Network.enable', {}, s)
+          await c.send('Fetch.enable', { patterns: FETCH_PATTERNS }, s).catch(() => {})
+          await c.send(
+            'Target.setAutoAttach',
+            { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
+            s,
+          )
+        } catch {}
+        await c.send('Runtime.runIfWaitingForDebugger', {}, s).catch(() => {})
+      })()
+    })
+
+    await c.send('Page.enable', {}, page)
+    await c.send(
+      'Network.enable',
+      { maxTotalBufferSize: 512 * 1024 * 1024, maxResourceBufferSize: 128 * 1024 * 1024 },
+      page,
+    )
+    await c.send('Network.setBypassServiceWorker', { bypass: true }, page)
+    await c.send('Fetch.enable', { patterns: FETCH_PATTERNS }, page)
+    await c.send(
+      'Emulation.setDeviceMetricsOverride',
+      {
+        width: o.viewport.width,
+        height: o.viewport.height,
+        deviceScaleFactor: o.devicePixelRatio,
+        mobile: false,
+      },
+      page,
+    )
+    await c.send(
+      'Emulation.setEmulatedMedia',
+      { features: Object.entries(o.media).map(([name, value]) => ({ name, value })) },
+      page,
+    )
+    await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, page)
+    await c.send('Emulation.setLocaleOverride', { locale: o.locale }, page)
+    await c.send(
+      'Network.setUserAgentOverride',
+      { userAgent: version.userAgent, acceptLanguage: o.locale },
+      page,
+    )
+    if (o.cpuThrottle > 1)
+      await c.send('Emulation.setCPUThrottlingRate', { rate: o.cpuThrottle }, page)
+    await c.send(
+      'Target.setAutoAttach',
+      { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
+      page,
+    )
+    // The clock holds the top frame only: a frame's clock that nothing advances would stop it.
+    const config = JSON.stringify({
+      seed: o.seed,
+      rafHz: o.rafHz,
+      timeOrigin: o.timeOrigin,
+      epoch: o.epoch,
+    })
+    await c.send(
+      'Page.addScriptToEvaluateOnNewDocument',
+      { source: `if (self === self.top) {\n${clockSource}(${config})\n}` },
+      page,
+    )
+
+    const evaluate = async <T>(expression: string): Promise<T> => {
+      const r = await c.send<{
+        result: { value?: T }
+        exceptionDetails?: { text: string; exception?: { description?: string } }
+      }>('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, page)
+      if (r.exceptionDetails)
+        throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text)
+      return r.result.value as T
+    }
+
+    const date = new Date().toISOString()
+    let loaded = false
+    c.on('Page.loadEventFired', (_p, s) => {
+      if (s === page) loaded = true
+    })
+    log(`loading ${url}`)
+    const nav = await c.send<{ errorText?: string }>('Page.navigate', { url }, page)
+    if (nav.errorText) {
+      const why = refused.find((r) => url.startsWith(r.where) || r.where.includes(parsed.host))
+      throw new Error(`Chrome could not load ${url}: ${why?.reason ?? nav.errorText}`)
+    }
+    for (let i = 0; !loaded; i++) {
+      if (gone) throw new Error(gone)
+      if (i * 25 > 60000) throw new Error(`${url} did not finish loading in 60 s`)
+      await sleep(25)
+    }
+    await evaluate('document.fonts.ready.then(() => true)')
+    const clock = await evaluate<string | null>('self.__shadereraClock?.version ?? null')
+    if (clock === null) throw new Error(`the clock did not load in ${url}`)
+    for (const sel of o.track) {
+      const ok = await evaluate<boolean>(
+        `(() => { try { document.querySelector(${JSON.stringify(sel)}); return true } catch { return false } })()`,
+      )
+      if (!ok) throw new Error(`--track ${JSON.stringify(sel)} is not a CSS selector`)
+    }
+
+    // The network and the page's own pending work (worker replies, video seeks) settle before a
+    // frame is read. A request open for LONG_REQUEST_MS no longer holds frames.
+    const settle = async (time: number) => {
+      const started = performance.now()
+      for (let calm = 0; calm < 2; ) {
+        if (gone) throw new Error(gone)
+        const now = performance.now()
+        let waiting = 0
+        for (const r of open.values()) {
+          if (r.long) continue
+          if (now - r.at > LONG_REQUEST_MS) {
+            r.long = true
+            limits.push({
+              where: r.url,
+              reason: `a request still open after ${LONG_REQUEST_MS / 1000} s: frames from here on do not wait for it`,
+              from: time,
+            })
+          } else waiting++
+        }
+        const busy = waiting > 0 ? 1 : await evaluate<number>('self.__shadereraClock.busy()')
+        calm = waiting === 0 && busy === 0 ? calm + 1 : 0
+        if (now - started > SETTLE_MS) {
+          limits.push({
+            where: url,
+            reason: `the page did not settle in ${SETTLE_MS / 1000} s; the frame was read as it was`,
+            from: time,
+            to: time,
+          })
+          return
+        }
+        if (calm < 2) await sleep(calm === 0 ? 5 : 2)
+      }
+    }
+
+    type Read = {
+      matches: number
+      box: number[]
+      opacity: number
+      matrix: number[]
+      is3d: boolean
+      origin: number[]
+      unread: string[]
+    } | null
+    const tracks = new Map<string, Sample[]>()
+    const sampled = (element: string, channel: string) => {
+      const key = JSON.stringify([element, channel])
+      let s = tracks.get(key)
+      if (!s) {
+        s = []
+        tracks.set(key, s)
+      }
+      return s
+    }
+    // What each element showed that the channels cannot hold exactly, with the times it showed.
+    const spans = new Map<string, { where: string; reason: string; from: number; to: number }>()
+    const note = (where: string, reason: string, time: number) => {
+      const key = JSON.stringify([where, reason])
+      const s = spans.get(key)
+      if (s) s.to = time
+      else spans.set(key, { where, reason, from: time, to: time })
+    }
+    const declared: { element: string; type: string; [key: string]: unknown }[] = []
+    const stepMs = 1000 / o.fps
+    log(`capturing ${o.frames} frames at ${o.fps} fps (rafHz ${o.rafHz})`)
+    for (let k = 0; k < o.frames; k++) {
+      const ms = k * stepMs
+      const time = ms / 1000
+      await evaluate(
+        `(() => { const c = self.__shadereraClock; c.sync(); return c.advanceTo(${JSON.stringify(ms)}) })()`,
+      )
+      await settle(time)
+      const read = await evaluate<{ elements: Read[]; animations: typeof declared }>(
+        `(${READ})(${JSON.stringify(o.track)})`,
+      )
+      declared.push(...read.animations)
+      read.elements.forEach((r, i) => {
+        const el = o.track[i] as string
+        if (r === null) {
+          for (const [channel] of CHANNELS) sampled(el, channel).push([time, null])
+          note(el, 'no element matches it', time)
+          return
+        }
+        if (r.matches > 1)
+          note(el, `${r.matches} elements match it: the first in document order is tracked`, time)
+        if (r.is3d)
+          note(
+            el,
+            'a 3D transform: rotate, skewX, scaleX and scaleY are of its 2D part only; x, y, width and height are the box as drawn',
+            time,
+          )
+        for (const u of r.unread)
+          note(el, `${u} could not be read: the transform channels leave it out`, time)
+        const t = decompose(r.matrix)
+        const rotate = sampled(el, 'rotate')
+        const before = rotate.at(-1)?.[1] ?? null
+        const values: Record<string, number> = {
+          x: r.box[0] as number,
+          y: r.box[1] as number,
+          width: r.box[2] as number,
+          height: r.box[3] as number,
+          opacity: r.opacity,
+          ...t,
+          rotate: unwrap(t.rotate, before),
+          originX: r.origin[0] as number,
+          originY: r.origin[1] as number,
+        }
+        for (const [channel] of CHANNELS) {
+          const v = values[channel] as number
+          sampled(el, channel).push([time, Number.isFinite(v) ? v : null])
+        }
+      })
+      if (k % Math.max(1, Math.round(o.fps)) === 0) log(`  ${time.toFixed(2)} s`)
+    }
+    // Bodies are read as their loads finish; reading one can come after the last frame.
+    for (let n = 0; n < reading.length; ) {
+      const m = reading.length
+      await Promise.all(reading.slice(n, m))
+      n = m
+    }
+
+    for (const [where, reason] of realTime) limits.push({ where, reason })
+    for (const s of spans.values()) limits.push(s)
+    for (const r of refused) limits.push({ where: r.where, reason: r.reason })
+    // One entry for each distinct limit, in a stable order: the page reports them as they come.
+    const byCode = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+    const distinct = [...new Map(limits.map((l) => [JSON.stringify(l), l])).values()].sort(
+      (a, b) =>
+        byCode(a.where, b.where) || byCode(a.reason, b.reason) || (a.from ?? -1) - (b.from ?? -1),
+    )
+    const uniqueResponses = [...new Map(hashed.map((r) => [JSON.stringify(r), r])).values()]
+
+    const unitOf = new Map(CHANNELS)
+    const trackList: Track[] = [...tracks].map(([key, samples]) => {
+      const [element, channel] = JSON.parse(key) as [string, string]
+      return { element, channel, unit: unitOf.get(channel) as string, samples }
+    })
+    const json = tracksJson({
+      format: 'shaderera.analysis/1',
+      kind: 'reference-tracks',
+      source: {
+        url,
+        date,
+        viewport: { width: o.viewport.width, height: o.viewport.height },
+        devicePixelRatio: o.devicePixelRatio,
+        responses: uniqueResponses,
+      },
+      tool: {
+        script: 'tools/capture-web.ts',
+        version: VERSION,
+        chrome: version.product,
+        userAgent: version.userAgent,
+        chromeFlags: CHROME_FLAGS,
+        clock: { script: 'tools/inpage/clock.js', version: clock, sha256: clockSha },
+      },
+      params: {
+        fps: o.fps,
+        rafHz: o.rafHz,
+        seed: o.seed,
+        timeOrigin: o.timeOrigin,
+        clockDate: o.clockDate,
+        timezone: o.timezone,
+        locale: o.locale,
+        duration: o.duration,
+        track: o.track,
+        trigger: 'load',
+        media: o.media,
+        allowLocal: o.allowLocal,
+      },
+      frame: {
+        width: o.viewport.width,
+        height: o.viewport.height,
+        pixelRatio: o.devicePixelRatio,
+      },
+      tracks: trackList,
+      declared,
+      limits: distinct,
+    })
+    mkdirSync(o.out, { recursive: true })
+    const path = join(o.out, 'tracks.json')
+    writeFileSync(path, json)
+    return { path, json, limits: distinct }
+  } finally {
+    process.off('SIGINT', onSignal)
+    process.off('SIGTERM', onSignal)
+    await cleanup()
+  }
+}
+
+if (import.meta.main) {
+  const { parseArgs } = await import('node:util')
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: {
+      out: { type: 'string' },
+      track: { type: 'string', multiple: true },
+      fps: { type: 'string' },
+      duration: { type: 'string' },
+      viewport: { type: 'string' },
+      rafHz: { type: 'string' },
+      seed: { type: 'string' },
+      dpr: { type: 'string' },
+      media: { type: 'string', multiple: true },
+      'allow-local': { type: 'boolean' },
+      'cpu-throttle': { type: 'string' },
+      'time-origin': { type: 'string' },
+      'clock-date': { type: 'string' },
+      timezone: { type: 'string' },
+      locale: { type: 'string' },
+    },
+  })
+  const number = (name: string, v: string | undefined) => {
+    if (v === undefined) return undefined
+    const n = Number(v)
+    if (v.trim() === '' || !Number.isFinite(n)) throw new Error(`--${name} ${v} is not a number`)
+    return n
+  }
+  try {
+    if (positionals.length !== 1)
+      throw new Error(
+        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --duration <s> --viewport <width>x<height>',
+      )
+    for (const name of ['fps', 'duration', 'viewport'] as const)
+      if (values[name] === undefined) throw new Error(`give --${name}: it changes every sample`)
+    const vp = /^(\d+)x(\d+)$/.exec(values.viewport ?? '')
+    if (!vp) throw new Error(`--viewport ${values.viewport} is not <width>x<height>, like 1280x720`)
+    const media: Record<string, string> = {}
+    for (const m of values.media ?? []) {
+      const at = m.indexOf('=')
+      if (at < 1)
+        throw new Error(`--media ${m} is not <name>=<value>, like prefers-color-scheme=dark`)
+      media[m.slice(0, at)] = m.slice(at + 1)
+    }
+    const { path, limits } = await captureWeb({
+      page: positionals[0] as string,
+      out: values.out ?? '',
+      track: values.track ?? [],
+      fps: number('fps', values.fps) as number,
+      duration: number('duration', values.duration) as number,
+      viewport: { width: Number(vp[1]), height: Number(vp[2]) },
+      rafHz: number('rafHz', values.rafHz),
+      seed: number('seed', values.seed),
+      devicePixelRatio: number('dpr', values.dpr),
+      media,
+      allowLocal: values['allow-local'] ?? false,
+      cpuThrottle: number('cpu-throttle', values['cpu-throttle']),
+      timeOrigin: number('time-origin', values['time-origin']),
+      clockDate: values['clock-date'],
+      timezone: values.timezone,
+      locale: values.locale,
+      log: (line) => console.error(line),
+    })
+    console.log(path)
+    for (const l of limits) console.error(`limit: ${l.where}: ${l.reason}`)
+  } catch (e) {
+    console.error((e as Error).message)
+    process.exitCode = 1
+  }
+}
