@@ -108,8 +108,66 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   assert.equal(spawnSync('ffmpeg', ['-v', 'error', '-i', late, '-frames:v', '1', still1]).status, 0)
   const image = await cli('still', '--root', root, '--out', out, '--compare-file', still1)
   assert.equal(image.status, 2)
-  assert.match(image.stderr, /one frame: a still reference is not built yet/)
+  assert.match(image.stderr, /one frame: measuring against a still is not built yet/)
+
+  // A clip whose frames are not at i / fps (a screen recording's held frame) is refused, named.
+  const vfr = join(root, 'vfr.mp4')
+  const made = spawnSync('ffmpeg', [
+    '-v',
+    'error',
+    '-i',
+    late,
+    '-vf',
+    "setpts='if(gte(N,5),PTS+0.3/TB,PTS)'",
+    '-fps_mode',
+    'vfr',
+    vfr,
+  ])
+  assert.equal(made.status, 0, String(made.stderr))
+  const varying = await cli('still', '--root', root, '--out', out, '--compare-file', vfr)
+  assert.equal(varying.status, 2)
+  assert.match(
+    varying.stderr,
+    /has a variable frame rate \(frame 5 at 0\.8 s, not 0\.5 s at 10 fps\)/,
+  )
 })
+
+test('still --compare-file reports each frame read, the reference as decoded, and a sheet of at most 64 (#674)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('compare-file-sheet')
+  cpSync(fileURLToPath(new URL('./fixtures/reference/', import.meta.url)), root, {
+    recursive: true,
+  })
+  const same = await reference(root, 'same')
+  const r = await cli(
+    'still',
+    '--root',
+    root,
+    '--out',
+    join(root, 'stills'),
+    '--compare-file',
+    same,
+    '--count',
+    '70',
+    '--sheet',
+    '--json',
+  )
+  assert.equal(r.status, 0, r.stderr)
+  const report = JSON.parse(r.stdout).result
+  assert.equal(report.reference.timing, 'constant')
+  assert.equal(report.reference.bits, 8)
+  assert.ok(report.reference.colour.matrix)
+  // 70 times over 2 s at 10 fps: the time asked for, and the frame read for it.
+  assert.equal(report.frames.length, 70)
+  assert.equal(report.frames[36].at, round(36 * (2 / 70)))
+  assert.equal(report.frames[36].frame, 10)
+  // Every time has its PNG; the sheet holds 64 rows of 36 px, each with its label and padding.
+  assert.equal(new Set(report.frames.map((f: { file: string }) => f.file)).size, 70)
+  assert.equal(decode(readFileSync(report.sheet)).height, 8 + 64 * (36 + 22 + 8))
+})
+
+const round = (t: number) => Number(t.toFixed(6))
 
 test('still --compare-file finds a reference that moves earlier, and the offset it prints runs as given (#664)', {
   skip: !ffmpeg && 'no ffmpeg',

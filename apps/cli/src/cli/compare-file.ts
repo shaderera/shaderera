@@ -1,5 +1,7 @@
 // `still --compare-file`: the film measured against a reference clip, frame by frame and over
 // time. It measures and never judges (decisions 0011 and 0032): there is no pass or fail.
+import type { VideoColour } from '@shaderera/core'
+import { packetTimes } from '../node/services.ts'
 import { compareFrames } from '../review/compare.ts'
 import {
   align,
@@ -14,7 +16,7 @@ import {
 } from '../review/reference.ts'
 import { insideFilm } from './args.ts'
 import { crop, type Region } from './crop.ts'
-import { openFile } from './still.ts'
+import { openFile } from './video-file.ts'
 
 /** The film's side: its frame size and length, and its final frame at t. */
 export type FilmSide = {
@@ -59,7 +61,21 @@ export type CompareFileOptions = {
 export type TimedWindow = { first: number; last: number; peak: { t: number; change: number } }
 
 export type CompareFileReport = {
-  reference: { file: string; width: number; height: number; fps: number; duration: number }
+  reference: {
+    file: string
+    width: number
+    height: number
+    fps: number
+    duration: number
+    /** Its sample depth and its planes' colour, as the decoder read them (probeVideo). */
+    bits: number
+    colour: VideoColour
+    /**
+     * How a frame's time was found: `constant`, frame i at i / fps, checked against every frame's
+     * time in the file (a clip whose frames are not is refused). Another may be added.
+     */
+    timing: 'constant'
+  }
   /** How the reference was scaled to the film's frame, or `null` when the sizes are the same. */
   scaled: {
     from: [number, number]
@@ -84,8 +100,10 @@ export type CompareFileReport = {
   window: { film: TimedWindow | null; reference: TimedWindow | null }
   frames: {
     t: number
-    /** The reference's time read for t. */
+    /** The reference's time asked for t: t + offset. */
     at: number
+    /** The reference's frame read for it: the last whose time is at or before `at`. */
+    frame: number
     ms: number
     psnr: number
     deltaE: number
@@ -115,6 +133,34 @@ export const rateTimes = (from: number, to: number, fps: number): number[] => {
  */
 export const referenceFrame = (t: number, fps: number): number => Math.floor((t + 1e-5) * fps)
 
+/**
+ * Why a clip's frames are not at i / fps, or undefined when each is within half a frame of it.
+ * `times` are its frames' times, ascending (packetTimes); `null` for a frame without one.
+ */
+export const varyingRate = (times: readonly (number | null)[], fps: number): string | undefined => {
+  const first = times[0]
+  if (first === undefined || first === null) return times.length ? 'frame 0 has no time' : undefined
+  for (let i = 1; i < times.length; i++) {
+    const t = times[i]
+    if (t === null || t === undefined) return `frame ${i} has no time`
+    const want = i / fps
+    if (Math.abs(t - first - want) > 0.5 / fps)
+      return `frame ${i} at ${round6(t - first)} s, not ${round6(want)} s at ${round6(fps)} fps`
+  }
+  return undefined
+}
+
+/** The most rows of a compare-file sheet. */
+export const SHEET_ROWS = 64
+
+/**
+ * Whether time `index` of `count` is on a sheet of at most `most` rows: every one when they fit,
+ * else `most` spread evenly from the first to the last.
+ */
+export const onSheet = (index: number, count: number, most = SHEET_ROWS): boolean =>
+  count <= most ||
+  Array.from({ length: most }, (_, k) => Math.round((k * (count - 1)) / (most - 1))).includes(index)
+
 /** Measures the film against a reference clip (see CompareFileOptions); throws on bad input. */
 export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFileReport> => {
   const offset = o.offset ?? 0
@@ -127,7 +173,14 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
     const { film } = o
     if (ref.frames === 1)
       throw new Error(
-        `${o.reference} is one frame: a still reference is not built yet (#665). --compare-file takes a clip.`,
+        // #665: measuring against a still.
+        `${o.reference} is one frame: measuring against a still is not built yet. --compare-file takes a clip.`,
+      )
+    // Frame i is read as the frame at i / fps: a clip whose frames are not is refused.
+    const varying = varyingRate(packetTimes(o.reference), ref.fps)
+    if (varying)
+      throw new Error(
+        `${o.reference} has a variable frame rate (${varying}): --compare-file reads a clip of constant rate; re-encode it with -fps_mode cfr first.`,
       )
     const frameOf = (t: number) => referenceFrame(t + offset, ref.fps)
     const ends = (t: number) => frameOf(t) >= 0 && frameOf(t) < ref.frames
@@ -225,6 +278,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
       frames.push({
         t: round6(t),
         at: round6(t + offset),
+        frame: frameOf(t),
         ms,
         ...compareFrames(ours, theirs),
         activity: {
@@ -258,6 +312,9 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
         height: ref.height,
         fps: ref.fps,
         duration: ref.duration,
+        bits: ref.bits,
+        colour: ref.colour,
+        timing: 'constant',
       },
       scaled,
       region,
