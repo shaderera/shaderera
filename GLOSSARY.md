@@ -55,6 +55,18 @@ What the agent and the CLI did in a project, in order: commands, tool calls, edi
 replies to comments and the agent's own lines. The studio shows it as a feed.
 _Avoid_: log, history, audit
 
+**Reference**:
+What a film copies one to one: a clip, a live page, a Lottie file, a poster. It is measured into
+frozen data and never reduced to a preset; comparing a film with it measures and never passes or
+fails ([0032](docs/adr/0032-reference-copying.md)).
+_Avoid_: inspiration, mood board (those are looser than a copy)
+
+**Activity curve**:
+How much a film or a reference clip changes from each sampled frame to the one before, over time:
+its timing apart from its colour. `still --compare-file` aligns two of them. Not the activity
+feed above.
+_Avoid_: motion graph, energy
+
 **render(t)**:
 The one function every film has: it takes a time in seconds and returns the frame at that time.
 The same `t` always gives the same frame.

@@ -41,14 +41,16 @@ import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { DRAFT_HEIGHT, insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
+import { compareWithFile, onSheet } from './compare-file.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { errorFinding } from './findings.ts'
 import { valueAt } from './inspect.ts'
 import { studios } from './mcp-studio.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { revisionHosts } from './revision-host.ts'
-import { openFile, stillTimes } from './still.ts'
+import { stillTimes } from './still.ts'
 import { nameOf, sameAsMain, variantList } from './variants.ts'
+import { openFile } from './video-file.ts'
 
 type Obj = { [k: string]: Json }
 type Found = { path: string; value: Obj }
@@ -171,6 +173,8 @@ const fitted = async (png: Buffer): Promise<Buffer> => {
 const PROGRESS = 250
 /** The most frames one `still` sheet holds. */
 const SHEET = 64
+/** The most times one `still` with compare_file renders and measures: 10 s at 60 fps. */
+const MEASURED = 600
 /** The tools that take `variant` and `params`, and the ones that return content blocks. */
 const LOOKS = new Set(['render_frame', 'still', 'inspect', 'compare'])
 const IMAGES = new Set(['render_frame', 'still', 'review'])
@@ -260,6 +264,27 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
         "A rendered video inside the project (out/x.mp4): the sheet is of its frames, as encoded, instead of the source's. Not with variant, variants, params or revision.",
       ),
       every: say(num, 'Also a frame every this many seconds from 0.'),
+      compare_file: say(
+        str,
+        "A reference clip inside the project: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t. With no times, the clip's frames at its own rate over from to to. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
+      ),
+      offset: say(num, 'With compare_file: seconds, the clip is read at t + offset. Default 0.'),
+      max_shift: say(
+        { type: 'integer', minimum: 0 },
+        'With compare_file: how many steps (the time between samples) either way the alignment searches. Default one second of steps.',
+      ),
+      from: at('With compare_file and no times, from (default the first time the clip has)'),
+      to: at(
+        'With compare_file and no times, before (default the end of the side that ends first)',
+      ),
+      region: say(
+        { type: 'array', items: num, minItems: 4, maxItems: 4 },
+        "With compare_file: [x, y, width, height] in the film's frame pixels; only that part is measured and shown.",
+      ),
+      floor: say(
+        num,
+        'With compare_file: the change (levels, 0–255) a motion window counts as still, such as a codec noise level. Default 0.',
+      ),
       revision,
       ...looks,
       ...several,
@@ -743,7 +768,7 @@ export const createServer = (
   // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
   const fileSheet = async (root: string, a: { [k: string]: any }) => {
     if (typeof a.file !== 'string') throw new Error('file is a video file inside the project.')
-    for (const k of ['variant', 'variants', 'params', 'revision'])
+    for (const k of ['variant', 'variants', 'params', 'revision', 'compare_file'])
       if (a[k] !== undefined) throw new Error(`file is read as it was rendered: no ${k}.`)
     const path = inside(root, a.file)
     const video = openFile(path)
@@ -771,6 +796,61 @@ export const createServer = (
     } finally {
       await video.close()
     }
+  }
+  /**
+   * still with compare_file: the film measured against a clip (compareWithFile), and one sheet of
+   * film | reference | difference, of at most SHEET times spread evenly over them.
+   */
+  const stillAgainst = async (
+    root: string,
+    // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
+    a: { [k: string]: any },
+    manifest: { width: number; height: number; duration: number },
+    c: Child,
+  ) => {
+    if (typeof a.compare_file !== 'string')
+      throw new Error('compare_file is a video file inside the project.')
+    const reference = inside(root, a.compare_file)
+    const given = timesOf(a.times)
+    const every = typeof a.every === 'number' ? a.every : undefined
+    const times =
+      given.length > 0 || every !== undefined ? stillTimes(given, every, manifest.duration) : []
+    const number = (k: string): number | undefined => {
+      if (a[k] === undefined) return undefined
+      if (typeof a[k] !== 'number' || !Number.isFinite(a[k]))
+        throw new Error(`${k} is a number, not ${shown(a[k])}.`)
+      return a[k]
+    }
+    const options = {
+      offset: number('offset'),
+      maxShift: number('max_shift'),
+      from: number('from'),
+      to: number('to'),
+      floor: number('floor'),
+    }
+    const region = Array.isArray(a.region) ? parseRegion(a.region.join(',')) : undefined
+    const sheet: { t: number; label: string; pixels: Uint8Array }[] = []
+    let size = { width: manifest.width, height: manifest.height }
+    const label = `film | ${basename(reference)} | difference`
+    const report = await compareWithFile({
+      reference,
+      film: { ...manifest, render: (t) => final(c, t) },
+      times,
+      limit: MEASURED,
+      ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
+      ...(region ? { region } : {}),
+      frame: async (f) => {
+        size = { width: f.width, height: f.height }
+        if (onSheet(f.index, f.count, SHEET)) sheet.push({ t: f.t, label, pixels: f.pixels })
+      },
+    })
+    const png = await contactSheet(sheet, size.width, size.height, 1)
+    const text = {
+      ...report,
+      reference: { ...report.reference, file: slash(relative(root, reference)) },
+      sheet: sheet.map((f) => f.t),
+    }
+    return [{ type: 'text', text: JSON.stringify(text) }, image(png.toString('base64'))]
   }
   /** The tools on versions/ alone: no child opens for them. */
   // biome-ignore lint/suspicious/noExplicitAny: unchecked arguments, read per tool
@@ -863,6 +943,13 @@ export const createServer = (
     if (Array.isArray(a.params)) throw new Error('params is an object of name → value.')
     const params = a.params && typeof a.params === 'object' ? (a.params as Obj) : undefined
     const revision = await revisionOf(root, name, a, params)
+    if (name === 'still' && a.compare_file !== undefined && a.variants !== undefined)
+      throw new Error(
+        'compare_file measures one variant against the clip: give variant, not variants.',
+      )
+    for (const k of ['offset', 'max_shift', 'from', 'to', 'region', 'floor'])
+      if (name === 'still' && a[k] !== undefined && a.compare_file === undefined)
+        throw new Error(`${k} goes with compare_file.`)
     if (a.variants !== undefined && ['still', 'check', 'review'].includes(name))
       return forVariants(root, name, a, params)
     const variant = typeof a.variant === 'string' ? a.variant : flags.variant
@@ -936,6 +1023,7 @@ export const createServer = (
           }
         }
         case 'still': {
+          if (a.compare_file !== undefined) return await stillAgainst(root, a, manifest, c)
           const given = timesOf(a.times)
           const every = typeof a.every === 'number' ? a.every : undefined
           if (given.length === 0 && every === undefined)
