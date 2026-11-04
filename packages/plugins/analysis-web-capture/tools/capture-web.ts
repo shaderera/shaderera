@@ -526,12 +526,13 @@ const READ = `(sels) => {
 }`
 
 // Run in the page before an input: the centre of the target's box (the viewport's centre with
-// no target), whether it is in the viewport, and the element the pointer is then over.
+// no target), whether it has a box and is in the viewport, and the element the pointer is then
+// over.
 const POINT = `(sel) => {
   const describe = (e) => e ? e.localName + (e.id ? '#' + e.id : '') : 'nothing'
   if (sel === null) {
     const x = innerWidth / 2, y = innerHeight / 2
-    return { x, y, inView: true, over: true, hit: describe(document.elementFromPoint(x, y)) }
+    return { x, y, boxed: true, inView: true, over: true, hit: describe(document.elementFromPoint(x, y)) }
   }
   const el = document.querySelector(sel)
   if (!el) return null
@@ -540,6 +541,7 @@ const POINT = `(sel) => {
   const hit = document.elementFromPoint(x, y)
   return {
     x, y,
+    boxed: el.getClientRects().length > 0 && (r.width > 0 || r.height > 0),
     inView: x >= 0 && y >= 0 && x < innerWidth && y < innerHeight,
     over: !!hit && (hit === el || el.contains(hit)),
     hit: describe(hit),
@@ -1050,6 +1052,30 @@ export const captureWeb = async (options: CaptureOptions) => {
     }
     const clock = await evaluate<string | null>('self.__shadereraClock?.version ?? null')
     if (clock === null) throw new Error(`the clock did not load in ${url}`)
+    // A capture holds one document. The loaded one is marked, and every read, advance and input
+    // after this checks the mark in the same call: a new document (a link clicked, the page
+    // setting location) has its own clock and none of what was declared, so it is refused.
+    await evaluate('self.__shadereraHeld = true')
+    let navigatedTo: string | undefined
+    c.on<{ frame: { parentId?: string; url: string } }>('Page.frameNavigated', (p, s) => {
+      if (s === page && !p.frame.parentId) navigatedTo = p.frame.url
+    })
+    let lastInput: { kind: string; ms: number } | undefined
+    const held = async <T>(expression: string, ms: number): Promise<T> => {
+      const r = await evaluate<T | { navigated: string }>(
+        `self.__shadereraHeld === true ? (${expression}) : { navigated: location.href }`,
+      )
+      const away =
+        navigatedTo ??
+        (r !== null && typeof r === 'object' && 'navigated' in r ? r.navigated : undefined)
+      if (away !== undefined)
+        throw new Error(
+          lastInput
+            ? `the page navigated to ${away} after the ${lastInput.kind} at ${lastInput.ms} ms: a capture holds one document`
+            : `the page navigated itself to ${away} by ${ms} ms: a capture holds one document`,
+        )
+      return r as T
+    }
     // With --settle loaded the clock ran on real time until the load event; it is frozen now.
     const loadedAt = await evaluate<number>('self.__shadereraClock.frozen()')
     await evaluate('document.fonts.ready.then(() => true)')
@@ -1127,9 +1153,11 @@ export const captureWeb = async (options: CaptureOptions) => {
     }
     const declared: { element: string; type: string; [key: string]: unknown }[] = []
     const advanceTo = (ms: number) =>
-      evaluate(
+      held(
         `(() => { const c = self.__shadereraClock; c.sync(); return c.advanceTo(${JSON.stringify(ms)}) })()`,
+        ms,
       )
+    const afterInput = (ms: number) => held('self.__shadereraClock.afterInput()', ms)
 
     // The trigger's inputs, each sent at its own time over CDP, as a person's would arrive.
     const inputs = inputsOf(o.trigger, o.rafHz)
@@ -1139,15 +1167,20 @@ export const captureWeb = async (options: CaptureOptions) => {
     let scrollFrom = 0
     const pointer = async (ms: number) => {
       const sel = o.trigger.target ?? null
-      const p = await evaluate<{
+      const p = await held<{
         x: number
         y: number
+        boxed: boolean
         inView: boolean
         over: boolean
         hit: string
-      } | null>(`(${POINT})(${JSON.stringify(sel)})`)
+      } | null>(`(${POINT})(${JSON.stringify(sel)})`, ms)
       const flag = `--target ${JSON.stringify(sel)}`
       if (!p) throw new Error(`${flag} matches nothing at ${ms} ms, when the input is sent`)
+      if (!p.boxed)
+        throw new Error(
+          `${flag} has no box at ${ms} ms (display: none?), so the pointer cannot reach it`,
+        )
       if (!p.inView)
         throw new Error(
           `${flag}: the centre of its box (${p.x}, ${p.y}) is outside the ${o.viewport.width}x${o.viewport.height} viewport at ${ms} ms, so the pointer cannot reach it`,
@@ -1163,6 +1196,10 @@ export const captureWeb = async (options: CaptureOptions) => {
       return p
     }
     const send = async (input: Input) => {
+      const pointed = input.kind === 'hover' || input.kind === 'click' || input.kind === 'leave'
+      lastInput = pointed
+        ? { kind: input.kind, ms: input.ms }
+        : { kind: 'scroll', ms: o.trigger.at as number }
       if (input.kind === 'hover' || input.kind === 'click') {
         const { x, y } = await pointer(input.ms)
         await mouse('mouseMoved', x, y)
@@ -1174,16 +1211,18 @@ export const captureWeb = async (options: CaptureOptions) => {
         // Out of the viewport, so the pointer goes over nothing else.
         await mouse('mouseMoved', -1, -1)
       } else if (input.kind === 'scroll-start') {
-        await pointer(input.ms)
-        scrollFrom = await evaluate<number>('scrollY')
+        // The pointer is over what the wheel turns over, as a person's is: it hovers it.
+        const { x, y } = await pointer(input.ms)
+        await mouse('mouseMoved', x, y)
+        scrollFrom = await held<number>('scrollY', input.ms)
       } else {
         const { x, y } = trigger.pointer as { x: number; y: number }
         const distance = (o.trigger.scrollTo as number) - scrollFrom
         const delta = wheelDelta(distance, input.step, input.of)
         if (delta !== 0) await mouse('mouseWheel', x, y, { deltaX: 0, deltaY: delta })
         if (input.step === input.of) {
-          await evaluate('self.__shadereraClock.afterInput()')
-          const reached = await evaluate<number>('scrollY')
+          await afterInput(input.ms)
+          const reached = await held<number>('scrollY', input.ms)
           if (reached !== o.trigger.scrollTo)
             limits.push({
               where: WINDOW,
@@ -1191,9 +1230,10 @@ export const captureWeb = async (options: CaptureOptions) => {
               from: (o.trigger.at as number) / 1000,
               to: input.ms / 1000,
             })
+          return
         }
       }
-      await evaluate('self.__shadereraClock.afterInput()')
+      await afterInput(input.ms)
     }
 
     log(`capturing ${o.frames} frames at ${o.fps} fps (rafHz ${o.rafHz})`)
@@ -1208,11 +1248,11 @@ export const captureWeb = async (options: CaptureOptions) => {
       }
       await advanceTo(ms)
       await settle(time)
-      const read = await evaluate<{
+      const read = await held<{
         elements: Read[]
         scroll: number[]
         animations: typeof declared
-      }>(`(${READ})(${JSON.stringify(o.track)})`)
+      }>(`(${READ})(${JSON.stringify(o.track)})`, ms)
       declared.push(...read.animations)
       WINDOW_CHANNELS.forEach(([channel], i) => {
         sampled(WINDOW, channel).push([time, read.scroll[i] as number])

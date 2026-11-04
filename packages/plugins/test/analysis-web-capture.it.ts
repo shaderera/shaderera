@@ -6,9 +6,10 @@
 // throttling gives the same bytes as one without; with rafHz equal to the fps, a JS linear move
 // on GSAP's ticker matches a CSS one within 0.5 ms. A click at 500 ms starts a CSS transition and
 // motion's animate() on the first frame after it, the transition on its cubic-bezier within
-// 0.001 px; hover, leave and scroll capture the same at any speed, scroll against scrollY; the
-// declared animations keep their keyframes and easing strings; --settle loaded runs the load on
-// real time. A page that reaches for this machine is refused without --allow-local, and the local
+// 0.001 px; hover, leave and scroll capture the same at any speed, scroll against scrollY, the
+// wheel hovering what it turns over; a click that navigates, and a target with no box, are
+// refused; the declared animations keep their keyframes and easing strings; --settle loaded runs
+// the load on real time. A page that reaches for this machine is refused without --allow-local, and the local
 // server sees nothing; with it, each response is hashed as served. Skipped, with the reason, when
 // there is no Chrome.
 
@@ -531,6 +532,36 @@ test('a scroll is recorded against scrollY and captures the same at any speed', 
     far.limits.some(
       (l) => l.where === 'window' && /scrolled to 2600, not --scroll-to 5000/.test(l.reason),
     ),
+  )
+})
+
+test('the wheel hovers what it turns over, as a person does', { skip }, async () => {
+  const json = await sameEveryTime(fixture('hover-scroll.html'), ['#r5', '#r15'], {
+    trigger: 'scroll',
+    at: 100,
+    scrollTo: 400,
+    scrollMs: 300,
+    duration: 0.6,
+  })
+  const r5 = samplesOf(json, '#r5', 'opacity')
+  const r15 = samplesOf(json, '#r15', 'opacity')
+  assert.equal(r5.find(([t]) => t === 0.1)?.[1], 1, 'over #r5 when the scroll starts')
+  assert.equal(r5.at(-1)?.[1], 0.5)
+  assert.equal(r15.at(-1)?.[1], 1, 'over #r15 where the scroll ends')
+})
+
+test('a capture holds one document: an input that navigates is refused', { skip }, async () => {
+  const page = fixture('nav.html')
+  const options = { out: join(outs, String(n++)), track: ['#box'], fps: 10, duration: 0.6 }
+  const viewport = { width: 800, height: 400 }
+  await assert.rejects(
+    captureWeb({ page, ...options, viewport, trigger: 'click', target: '#go', at: 200 }),
+    /the page navigated to file:.*nav-away\.html after the click at 200 ms: a capture holds one document/,
+  )
+  // A target with no box has no centre to send the pointer to.
+  await assert.rejects(
+    captureWeb({ page, ...options, viewport, trigger: 'click', target: '#hidden', at: 200 }),
+    /--target "#hidden" has no box at 200 ms \(display: none\?\), so the pointer cannot reach it/,
   )
 })
 
