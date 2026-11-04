@@ -14,9 +14,11 @@
         "enum": [
           "asset-provenance",
           "audio-beat-clock",
+          "audio-filters",
           "audio-hall-ending",
           "audio-listen",
           "audio-pcm-bake",
+          "audio-pcm-mix",
           "audio-voice-repace",
           "camera-ken-burns",
           "camera-keyframes",
@@ -99,6 +101,13 @@
         "state": "grid"
       }
     },
+    "audio-filters": {
+      "label": "audio-filters",
+      "params": {
+        "item": "audio-filters",
+        "state": "default"
+      }
+    },
     "audio-hall-ending": {
       "label": "audio-hall-ending",
       "params": {
@@ -117,6 +126,13 @@
       "label": "audio-pcm-bake",
       "params": {
         "item": "audio-pcm-bake",
+        "state": "default"
+      }
+    },
+    "audio-pcm-mix": {
+      "label": "audio-pcm-mix",
+      "params": {
+        "item": "audio-pcm-mix",
         "state": "default"
       }
     },
