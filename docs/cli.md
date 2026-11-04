@@ -332,7 +332,9 @@ offset: applied 0 s; the curves align best at +3 steps of 0.1 s (0.3 s, correlat
 ```
 
 The clip moves 0.3 s late here, and its window at `--floor 0` takes in its codec noise. Read
-aligned, `--offset 0.3 --floor 2`, its window is the film's: 0.600–1.200 s.
+aligned, `--offset 0.3 --floor 2`, its window is the film's: 0.600–1.200 s. The 2 is this clip's
+own measurement, the largest `activity.reference` it shows where it holds still, not a value to
+reuse: measure it on each clip.
 
 ### Measuring against a reference image
 
