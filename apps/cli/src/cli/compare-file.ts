@@ -1,18 +1,21 @@
 // `still --compare-file`: the film measured against a reference clip, frame by frame and over
-// time. It measures and never judges (decisions 0011 and 0032): there is no pass or fail.
+// time, or against a still image (compare-image.ts). It measures and never judges (decisions 0011
+// and 0032): there is no pass or fail.
 import { compareFrames } from '../review/compare.ts'
 import {
   align,
   difference,
-  FILTER,
   meanChange,
   motionWindow,
   row,
+  type Scaling,
   type Score,
   scaleFrame,
+  scaling,
   stepOf,
 } from '../review/reference.ts'
 import { insideFilm } from './args.ts'
+import { type CompareImageReport, compareWithImage, isImage } from './compare-image.ts'
 import { crop, type Region } from './crop.ts'
 import { openFile } from './still.ts'
 
@@ -24,8 +27,18 @@ export type FilmSide = {
   render: (t: number) => Promise<Uint8Array>
 }
 
+/** One time's film, reference and difference (or heat map) side by side, as it is measured. */
+export type ShownFrame = {
+  index: number
+  count: number
+  t: number
+  pixels: Uint8Array
+  width: number
+  height: number
+}
+
 export type CompareFileOptions = {
-  /** The reference clip's path. */
+  /** The reference's path: a clip, or a PNG or JPEG (compareWithImage). */
   reference: string
   film: FilmSide
   /** The times asked for, in seconds on the film; none for the reference's frames over from–to. */
@@ -44,30 +57,26 @@ export type CompareFileOptions = {
   region?: Region
   /** The change (levels) a motion window counts as still; 0 by default. */
   floor?: number
+  /** With an image: a regions file whose regions are scored apart (compare-image.ts). */
+  regions?: string
   /** Each time's film, reference and difference side by side, as it is measured. */
-  frame?: (f: {
-    index: number
-    count: number
-    t: number
-    pixels: Uint8Array
-    width: number
-    height: number
-  }) => Promise<void>
+  frame?: (f: ShownFrame) => Promise<void>
 }
 
 /** A motion window on the film's timeline, in seconds. */
 export type TimedWindow = { first: number; last: number; peak: { t: number; change: number } }
 
 export type CompareFileReport = {
-  reference: { file: string; width: number; height: number; fps: number; duration: number }
+  reference: {
+    kind: 'clip'
+    file: string
+    width: number
+    height: number
+    fps: number
+    duration: number
+  }
   /** How the reference was scaled to the film's frame, or `null` when the sizes are the same. */
-  scaled: {
-    from: [number, number]
-    to: [number, number]
-    filter: string
-    /** `stretched` when the two frames have other shapes. */
-    aspect: 'same' | 'stretched'
-  } | null
+  scaled: Scaling | null
   region: Region | null
   /** Seconds between the times, when they are evenly spaced; `null` when not. */
   step: number | null
@@ -115,8 +124,18 @@ export const rateTimes = (from: number, to: number, fps: number): number[] => {
  */
 export const referenceFrame = (t: number, fps: number): number => Math.floor((t + 1e-5) * fps)
 
-/** Measures the film against a reference clip (see CompareFileOptions); throws on bad input. */
-export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFileReport> => {
+/**
+ * Measures the film against a reference (see CompareFileOptions): a clip over time, or a PNG or
+ * JPEG still at each time asked for (compareWithImage). Throws on bad input.
+ */
+export const compareWithFile = async (
+  o: CompareFileOptions,
+): Promise<CompareFileReport | CompareImageReport> => {
+  if (isImage(o.reference)) return compareWithImage(o)
+  if (o.regions !== undefined)
+    throw new Error(
+      `--regions scores parts of a still reference, and ${o.reference} is a clip: give a PNG or JPEG with it.`,
+    )
   const offset = o.offset ?? 0
   if (!Number.isFinite(offset)) throw new Error(`--offset is seconds, not ${o.offset}.`)
   const floor = o.floor ?? 0
@@ -127,7 +146,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
     const { film } = o
     if (ref.frames === 1)
       throw new Error(
-        `${o.reference} is one frame: a still reference is not built yet (#665). --compare-file takes a clip.`,
+        `${o.reference} is a clip of one frame: to measure against it as a still, save it as a PNG once.`,
       )
     const frameOf = (t: number) => referenceFrame(t + offset, ref.fps)
     const ends = (t: number) => frameOf(t) >= 0 && frameOf(t) < ref.frames
@@ -184,18 +203,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
     const readAt = [...before, ...times, ...after]
 
     const { width, height } = film
-    const scaled =
-      ref.width === width && ref.height === height
-        ? null
-        : {
-            from: [ref.width, ref.height] as [number, number],
-            to: [width, height] as [number, number],
-            filter: FILTER,
-            aspect:
-              Math.abs(ref.width * height - ref.height * width) <= 0.005 * ref.height * width
-                ? ('same' as const)
-                : ('stretched' as const),
-          }
+    const scaled = scaling(ref, film)
     const part = (px: Uint8Array) => (o.region ? crop(px, film, o.region) : undefined)
     const region = o.region
       ? (part(new Uint8Array(width * height * 4)) as { region: Region }).region
@@ -253,6 +261,7 @@ export const compareWithFile = async (o: CompareFileOptions): Promise<CompareFil
     if (a && a.shift === null) why = 'a curve does not change over enough of the times to correlate'
     return {
       reference: {
+        kind: 'clip',
         file: o.reference,
         width: ref.width,
         height: ref.height,

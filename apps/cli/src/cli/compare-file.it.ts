@@ -103,12 +103,18 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   assert.equal(alone.status, 2)
   assert.match(alone.stderr, /--offset goes with --compare-file/)
 
-  // A still image is one frame: refused, not read as a clip of one time.
+  // A still image is not read as a clip of one time: it needs the times to compare it at (#665).
   const still1 = join(root, 'frame.png')
   assert.equal(spawnSync('ffmpeg', ['-v', 'error', '-i', late, '-frames:v', '1', still1]).status, 0)
   const image = await cli('still', '--root', root, '--out', out, '--compare-file', still1)
   assert.equal(image.status, 2)
-  assert.match(image.stderr, /one frame: a still reference is not built yet/)
+  assert.match(image.stderr, /is a still image: give the film's times/)
+  // A clip of one frame that is not a PNG or JPEG is refused as one.
+  const one = join(root, 'one.mp4')
+  assert.equal(spawnSync('ffmpeg', ['-v', 'error', '-i', late, '-frames:v', '1', one]).status, 0)
+  const single = await cli('still', '0', '--root', root, '--out', out, '--compare-file', one)
+  assert.equal(single.status, 2)
+  assert.match(single.stderr, /a clip of one frame: .* save it as a PNG once/)
 })
 
 test('still --compare-file finds a reference that moves earlier, and the offset it prints runs as given (#664)', {
@@ -171,4 +177,81 @@ test('still --compare-file at 30 fps reads every frame of the reference at its o
         `activity ${film} vs ${reference} at ${f.t}`,
       )
   }
+})
+
+test('still --compare-file <image> scores the film against a still, whole and per region (#665)', async () => {
+  const root = tempDir('compare-image')
+  cpSync(fileURLToPath(new URL('./fixtures/reference/', import.meta.url)), root, {
+    recursive: true,
+  })
+  // The film's own still at 1.2 s, the move's end, as a poster to copy.
+  const made = await cli('still', '1.2', '--root', root, '--out', join(root, 'ref'))
+  assert.equal(made.status, 0, made.stderr)
+  const poster = join(root, 'ref', 'main-1.200.png')
+  // Boxes in the poster's pixels: where the box ends (x 44.8–56.8), and a strip above the path, out of reach of its windows.
+  const boxes = join(root, 'boxes.json')
+  writeFileSync(
+    boxes,
+    JSON.stringify({
+      width: 64,
+      height: 36,
+      boxes: [
+        { name: 'box', x: 44, y: 12, width: 14, height: 12 },
+        { name: 'top', x: 26, y: 0, width: 10, height: 6 },
+      ],
+    }),
+  )
+  const out = join(root, 'stills')
+  const still = (...args: string[]) =>
+    cli('still', '--root', root, '--out', out, '--compare-file', poster, ...args)
+
+  const r = await still('0', '1.2', '--regions', boxes, '--sheet', '--json')
+  assert.equal(r.status, 0, r.stderr)
+  const report = JSON.parse(r.stdout).result
+  assert.equal(report.reference.kind, 'image')
+  assert.deepEqual([report.reference.width, report.reference.height], [64, 36])
+  assert.equal(report.method.ssim.size, 11)
+  assert.deepEqual(
+    report.regions.list.map((q: { id: string }) => q.id),
+    ['box', 'top'],
+  )
+  const [at0, at12] = report.frames
+  // At 1.2 s the film is its own still: identical (PSNR null in JSON), SSIM and edges 1.
+  assert.equal(at12.psnr, null)
+  assert.equal(at12.ssim, 1)
+  assert.equal(at12.edges.agreement, 1)
+  // At 0 the box is still at the left: its end place differs, the strip does not.
+  assert.ok(at0.ssim < 1)
+  const box = at0.regions.find((q: { id: string }) => q.id === 'box')
+  const top = at0.regions.find((q: { id: string }) => q.id === 'top')
+  assert.ok(box.ssim < 0.5, `box SSIM ${box.ssim}`)
+  assert.ok(box.deltaE > 20, `box ΔE ${box.deltaE}`)
+  assert.equal(top.ssim, 1)
+  assert.equal(top.deltaE, 0)
+  // Each time's film, poster and SSIM heat map side by side, and the sheet.
+  const png = decode(readFileSync(at0.file))
+  assert.deepEqual([png.width, png.height], [64 * 3, 36])
+  assert.ok(existsSync(report.sheet))
+
+  // The human output: the whole frame's line, then each region's.
+  const text = await still('0', '--regions', boxes)
+  assert.equal(text.status, 0, text.stderr)
+  assert.match(
+    text.stdout,
+    /main-vs-main-1\.200-0\.000\.png {2}\d+ ms {2}PSNR .*; SSIM 0\.\d{3}, edges 0\.\d{3}$/m,
+  )
+  assert.match(text.stdout, /^ {2}top: SSIM 1\.000, no edges, mean ΔE 0\.000 \(max 0\.00\)$/m)
+  assert.match(text.stdout, /^reference: 64×36 image$/m)
+  assert.match(text.stdout, /^regions: box, top \(boxes in 64×36\)$/m)
+
+  // Bad input exits 2 with what is wrong.
+  const none = await still()
+  assert.equal(none.status, 2)
+  assert.match(none.stderr, /is a still image: give the film's times/)
+  const offset = await still('0', '--offset', '0.1')
+  assert.equal(offset.status, 2)
+  assert.match(offset.stderr, /--offset reads a clip over time/)
+  const alone = await cli('still', '0', '--root', root, '--regions', boxes)
+  assert.equal(alone.status, 2)
+  assert.match(alone.stderr, /--regions goes with --compare-file <image>/)
 })

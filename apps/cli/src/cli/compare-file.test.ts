@@ -27,7 +27,7 @@ test('rateTimes: from + i / fps, unrounded, up to before to', () => {
 
 test('summaryLines writes the aligned offset as --offset=<s>, which a negative one needs', () => {
   const report = {
-    reference: { file: 'r.mp4', width: 64, height: 36, fps: 30, duration: 2 },
+    reference: { kind: 'clip', file: 'r.mp4', width: 64, height: 36, fps: 30, duration: 2 },
     scaled: null,
     region: null,
     step: round6(1 / 30),

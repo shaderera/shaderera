@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
-import { decode } from 'fast-png'
+import { decode, encode } from 'fast-png'
 import { tempDir } from '../fixtures/temp.ts'
 import { createJob } from '../project/jobs.ts'
 import { createServer } from './mcp.ts'
@@ -546,6 +546,50 @@ test('still with compare_file measures the film against a clip and finds its off
       /give variant, not variants/,
     )
     await assert.rejects(call('still', { compare_file: '../x.mp4' }), /outside the project/)
+  } finally {
+    await close()
+  }
+})
+
+test('still with compare_file an image scores the film against it, per region with regions (#665)', async () => {
+  const root = copy('./fixtures/reference/')
+  // A flat poster at the film's size: the background colour, with no box.
+  const data = new Uint8Array(64 * 36 * 4)
+  for (let i = 0; i < data.length; i += 4) data.set([20, 30, 60, 255], i)
+  writeFileSync(join(root, 'poster.png'), encode({ width: 64, height: 36, data, channels: 4 }))
+  writeFileSync(
+    join(root, 'boxes.json'),
+    JSON.stringify({
+      width: 64,
+      height: 36,
+      boxes: [{ name: 'top', x: 26, y: 0, width: 10, height: 6 }],
+    }),
+  )
+  const { call, close } = await connect(root)
+  try {
+    const r = await call('still', {
+      compare_file: 'poster.png',
+      times: [0, 1.2],
+      regions: 'boxes.json',
+    })
+    const report = JSON.parse(r.content[0].text)
+    assert.equal(report.reference.kind, 'image')
+    assert.equal(report.reference.file, 'poster.png')
+    assert.equal(report.regions.file, 'boxes.json')
+    assert.equal(report.frames.length, 2)
+    assert.ok(report.frames[0].ssim < 1)
+    assert.equal(report.frames[0].regions[0].ssim, 1)
+    assert.deepEqual(report.sheet, [0, 1.2])
+    assert.equal(r.content[1].mimeType, 'image/png')
+    await assert.rejects(call('still', { compare_file: 'poster.png' }), /give the film's times/)
+    await assert.rejects(
+      call('still', { times: [0], regions: 'boxes.json' }),
+      /regions goes with compare_file/,
+    )
+    await assert.rejects(
+      call('still', { compare_file: 'poster.png', times: [0], regions: '../boxes.json' }),
+      /outside the project/,
+    )
   } finally {
     await close()
   }
