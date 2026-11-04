@@ -53,7 +53,7 @@ smoothed, no time stretched.
 - `--settle load|loaded`: when the clock freezes. `load` (the default) freezes it at the first
   script, so the page loads with its timers held. `loaded` lets the page run on real time until
   its load event and freezes it there, for a page that waits on its own timers while it loads
-  (as Playwright's clock guide advises for such pages). Frame 0 is the freeze in both. With
+  (as Playwright's clock guide does: let the page load, then pause). Frame 0 is the freeze in both. With
   `loaded`, what ran before the freeze ran at the machine's speed, so two captures can differ: the
   clocks read the time origin and the clock date plus the time the load took, which
   `source.loadedAt` records in seconds.
@@ -62,8 +62,9 @@ smoothed, no time stretched.
   syncs once the browser has delivered it, so an animation the input starts starts at that time.
   The pointer goes to the centre of `--target`'s box (the first match), which must be in the
   viewport then; if another element covers that point, it gets the input and a limit says so.
-  `--at <ms>` is the page's time after frame 0. There are no defaults for these: each moves the
-  motion.
+  `--at <ms>` is the page's time after frame 0, up to the last frame's (an input, or a scroll's
+  end, after it would show on no frame, so it is refused). There are no defaults for these: each
+  moves the motion.
 
   | `--trigger` | Takes | Sends |
   |---|---|---|
@@ -72,7 +73,7 @@ smoothed, no time stretched.
   | `click` | `--target`, `--at` | the pointer moves onto the target, presses and releases the left button, all at `--at` |
   | `hover` | `--target`, `--at` | the pointer moves onto the target at `--at` |
   | `leave` | `--target`, `--at` (above 0) | the pointer is on the target from 0 ms, and moves out of the viewport at `--at`, so it goes over nothing else |
-  | `scroll` | `--at`, `--scroll-to <px>`, `--scroll-ms <ms>`, `--target` if the wheel should be over it (else the viewport's centre) | wheel events from `--at` for `--scroll-ms`, one each 1/rafHz second (one at `--at` for 0), in whole pixels on a straight line in time, adding up to `--scroll-to` minus the window's `scrollY` at `--at` |
+  | `scroll` | `--at`, `--scroll-to <px>`, `--scroll-ms <ms>`, `--target` if the wheel should be over it (else the viewport's centre) | wheel events from `--at` for `--scroll-ms`, evenly spaced and at most 1/rafHz second apart (one at `--at` for 0), in whole pixels on a straight line in time, adding up to `--scroll-to` minus the window's `scrollY` at `--at` |
 
   A scroll that does not end at `--scroll-to` (the page is shorter, an element under the pointer
   scrolled instead, the page took the wheel itself) is what the page did: a limit says where the
@@ -87,7 +88,7 @@ page writes is kept. Smooth scrolling is off, scrollbars are hidden, service wor
 bypassed.
 
 **The clock** (`tools/inpage/clock.js`, ported from reanimate's, MIT) is injected before any page
-script and freezes the page from the start: `Date`, `performance.now`, timers,
+script and freezes the page from its first script (with `--settle loaded`, at the load event): `Date`, `performance.now`, timers,
 `requestAnimationFrame`, `requestIdleCallback`, `Event.timeStamp`, `document.timeline`, every CSS
 and Web Animations API animation, `<video>`, and a seeded `Math.random`. An animation is caught on
 the time it started, whether a timer, an animation frame, a promise or a MessageChannel task
@@ -154,7 +155,9 @@ Chrome version and user agent, its flags, and the clock's version and sha256. **
 fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, the duration, the selectors, the
 media features, `allowLocal`, `settle` and `trigger`: its `type` and the settings it took
 (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where its
-input went, so a film can put a cursor where the page saw one.
+input went, so a film can put a cursor where the page saw one. For a `leave` it is where the
+pointer was from 0 ms until `at`; then it is off the viewport. A capture sends one trigger; a
+later version that sends several would list them in a new field and keep `trigger` as the first.
 
 **Outside requests.** Chrome's only way out is a proxy in the tool, loopback included. It resolves
 each host once, refuses it when any of its addresses is loopback, private, link-local, cloud

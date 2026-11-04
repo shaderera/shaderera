@@ -185,8 +185,8 @@ export const checkOptions = (o: CaptureOptions) => {
   const settle = o.settle ?? 'load'
   if (!SETTLES.includes(settle))
     throw new Error(`--settle ${settle} is not one of ${SETTLES.join(', ')}`)
-  const trigger = checkTrigger(o)
   const frames = Math.floor(o.duration * o.fps + 1e-9) + 1
+  const trigger = checkTrigger(o, frameMs(frames - 1, o.fps))
   return {
     ...o,
     rafHz,
@@ -215,7 +215,7 @@ export type TriggerParams = {
 }
 
 /** The trigger's settings checked: each input takes its own and refuses the others. */
-const checkTrigger = (o: CaptureOptions): TriggerParams => {
+const checkTrigger = (o: CaptureOptions, lastMs: number): TriggerParams => {
   const type = o.trigger ?? 'load'
   if (!TRIGGERS.includes(type))
     throw new Error(`--trigger ${type} is not one of ${TRIGGERS.join(', ')}`)
@@ -254,9 +254,10 @@ const checkTrigger = (o: CaptureOptions): TriggerParams => {
     throw new Error(
       `--trigger ${type} needs --at <ms>, when the input is sent: it moves the motion`,
     )
-  const end = o.duration * 1000
-  if (!(Number.isFinite(at) && at >= 0 && at <= end + 1e-9))
-    throw new Error(`--at ${at} is not ms from 0 to the duration's ${end}`)
+  // An input after the last frame would show on no frame, so it is refused, not dropped.
+  const last = `the last frame, at ${+lastMs.toFixed(3)} ms`
+  if (!(Number.isFinite(at) && at >= 0 && at <= lastMs + EPSILON_MS))
+    throw new Error(`--at ${at} is not ms from 0 to ${last}`)
   if (type === 'leave' && at === 0)
     throw new Error(
       '--at 0 with --trigger leave: the pointer is over the target from 0 ms, so it would leave as it arrives',
@@ -273,9 +274,9 @@ const checkTrigger = (o: CaptureOptions): TriggerParams => {
     throw new Error(`--scroll-to ${scrollTo} is not whole CSS pixels of 0 or more`)
   if (!(Number.isFinite(scrollMs) && scrollMs >= 0))
     throw new Error(`--scroll-ms ${scrollMs} is not ms of 0 or more`)
-  if (at + scrollMs > end + 1e-9)
+  if (at + scrollMs > lastMs + EPSILON_MS)
     throw new Error(
-      `--at ${at} and --scroll-ms ${scrollMs} end the scroll at ${at + scrollMs} ms, after the capture's ${end}`,
+      `--at ${at} and --scroll-ms ${scrollMs} end the scroll at ${at + scrollMs} ms, after ${last}`,
     )
   return { ...out, scrollTo, scrollMs }
 }
@@ -320,6 +321,31 @@ export const inputsOf = (trigger: TriggerParams, rafHz: number): Input[] => {
       return [{ ms: at, kind: 'scroll-start' }, ...wheels]
     }
   }
+}
+
+/** How far apart two times may be and still be one: float rounding, never a real gap. */
+const EPSILON_MS = 1e-6
+
+/** Frame k's time in ms after the freeze. */
+export const frameMs = (k: number, fps: number) => k * (1000 / fps)
+
+/**
+ * The inputs sent before each frame is read: each input with the first frame not before it, and
+ * the time it is sent. That is its own time, or the frame's when float rounding puts it a hair
+ * after (a wheel at 208.33333333333334 ms, a frame at 208.33333333333331), so the clock never has
+ * to go back. Every input has a frame: the options refuse one after the last.
+ */
+export const batchesOf = (inputs: Input[], frames: number, fps: number) => {
+  const batches: { input: Input; ms: number }[][] = Array.from({ length: frames }, () => [])
+  let next = 0
+  for (let k = 0; k < frames; k++) {
+    const ms = frameMs(k, fps)
+    for (let i = inputs[next]; i && i.ms <= ms + EPSILON_MS; i = inputs[++next])
+      batches[k]?.push({ input: i, ms: Math.min(i.ms, ms) })
+  }
+  if (next < inputs.length)
+    throw new Error(`an input at ${inputs[next]?.ms} ms is after the last frame`)
+  return batches
 }
 
 /**
@@ -1100,7 +1126,6 @@ export const captureWeb = async (options: CaptureOptions) => {
       else spans.set(key, { where, reason, from: time, to: time })
     }
     const declared: { element: string; type: string; [key: string]: unknown }[] = []
-    const stepMs = 1000 / o.fps
     const advanceTo = (ms: number) =>
       evaluate(
         `(() => { const c = self.__shadereraClock; c.sync(); return c.advanceTo(${JSON.stringify(ms)}) })()`,
@@ -1172,14 +1197,14 @@ export const captureWeb = async (options: CaptureOptions) => {
     }
 
     log(`capturing ${o.frames} frames at ${o.fps} fps (rafHz ${o.rafHz})`)
-    let nextInput = 0
+    const batches = batchesOf(inputs, o.frames, o.fps)
     for (let k = 0; k < o.frames; k++) {
-      const ms = k * stepMs
+      const ms = frameMs(k, o.fps)
       const time = ms / 1000
-      for (let i = inputs[nextInput]; i && i.ms <= ms + 1e-6; i = inputs[++nextInput]) {
-        await advanceTo(i.ms)
-        await settle(i.ms / 1000)
-        await send(i)
+      for (const { input, ms: at } of batches[k] ?? []) {
+        await advanceTo(at)
+        await settle(at / 1000)
+        await send({ ...input, ms: at })
       }
       await advanceTo(ms)
       await settle(time)

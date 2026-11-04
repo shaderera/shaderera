@@ -83,7 +83,9 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
   every setting that changed the samples: for a page capture the fps, `rafHz`, the seed, what the
   page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`), when it
   froze them (`settle`) and what started the motion (`trigger`: its `type`, and for an input the
-  element, the time and where the pointer went).
+  element, the time and where the pointer went; for a leave, where it was until it left). One
+  trigger today: a capture that sends several would list them in a new field, `trigger` kept as
+  the first.
 - `frame`: the source's `width` and `height`, in the unit of its position tracks (CSS pixels for a
   page's viewport, pixels for a clip), and `pixelRatio`, device pixels per CSS pixel (1 for a
   clip).

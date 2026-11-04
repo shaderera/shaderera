@@ -451,6 +451,25 @@ test('a hover and a leave capture the same at any speed', { skip }, async () => 
   assert.equal(back.at(-1)?.[1], 0.5)
 })
 
+test('a scroll at 24 fps, whose wheel times round past a frame, still captures', {
+  skip,
+}, async () => {
+  // A wheel at 208.33333333333334 ms goes with the frame at 208.33333333333331, not after it.
+  const json = await capture({
+    page: fixture('scroll.html'),
+    track: ['#js'],
+    fps: 24,
+    duration: 0.6,
+    trigger: 'scroll',
+    at: 0,
+    scrollTo: 240,
+    scrollMs: 500,
+  })
+  const y = samplesOf(json, 'window', 'scrollY')
+  assert.equal(y.at(-1)?.[1], 240)
+  assert.deepEqual((JSON.parse(json) as Doc).limits, [])
+})
+
 test('a scroll is recorded against scrollY and captures the same at any speed', {
   skip,
 }, async () => {

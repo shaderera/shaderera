@@ -30,9 +30,10 @@ const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { checkHost, localKind, refusedAddress, refusedName, startProxy } = (await from(
   'tools/web-capture-net.ts',
 )) as typeof import('../analysis-web-capture/tools/web-capture-net.ts')
-const { checkOptions, decompose, inputsOf, pageUrl, unwrap, wheelDelta } = (await from(
-  'tools/capture-web.ts',
-)) as typeof import('../analysis-web-capture/tools/capture-web.ts')
+const { batchesOf, checkOptions, decompose, frameMs, inputsOf, pageUrl, unwrap, wheelDelta } =
+  (await from(
+    'tools/capture-web.ts',
+  )) as typeof import('../analysis-web-capture/tools/capture-web.ts')
 
 test('the address check refuses every address that is not public', () => {
   const refused: [string, string][] = [
@@ -304,6 +305,15 @@ test('each trigger takes its own settings and refuses the others', () => {
   refuses({ trigger: 'hover', target: '#b' }, /--trigger hover needs --at <ms>/)
   refuses({ trigger: 'click', target: ' ', at: 0 }, /--target is empty/)
   refuses({ trigger: 'click', target: '#b', at: 2001 }, /--at 2001 is not ms from 0 to .* 2000/)
+  // 0.52 s at 30 fps: the last frame is at 500 ms, so a click at 510 would show on no frame.
+  refuses(
+    { trigger: 'click', target: '#b', at: 510, duration: 0.52 },
+    /--at 510 is not ms from 0 to the last frame, at 500 ms/,
+  )
+  refuses(
+    { trigger: 'scroll', at: 400, scrollTo: 10, scrollMs: 110, duration: 0.52 },
+    /end the scroll at 510 ms, after the last frame, at 500 ms/,
+  )
   refuses({ trigger: 'click', target: '#b', at: -1 }, /--at -1/)
   refuses({ trigger: 'leave', target: '#b', at: 0 }, /--at 0 with --trigger leave/)
   refuses(
@@ -318,7 +328,7 @@ test('each trigger takes its own settings and refuses the others', () => {
   refuses({ trigger: 'scroll', at: 0, scrollTo: 10, scrollMs: -1 }, /--scroll-ms -1/)
   refuses(
     { trigger: 'scroll', at: 1900, scrollTo: 10, scrollMs: 200 },
-    /end the scroll at 2100 ms, after the capture's 2000/,
+    /end the scroll at 2100 ms, after the last frame, at 2000 ms/,
   )
   refuses({ track: ['window'] }, /--track window: that name holds the window's own scrollX/)
 })
@@ -410,4 +420,34 @@ test('a transform matrix comes apart into channels that build it back', () => {
   assert.equal(unwrap(170, -175), -190)
   assert.equal(unwrap(10, null), 10)
   assert.equal(unwrap(-350, 0), 10)
+})
+
+test('an input is sent with the first frame not before it, and never after that frame', () => {
+  // At 24 fps a wheel's time rounds a hair past a frame's (208.33333333333334 against
+  // 208.33333333333331): it goes with that frame, sent at the frame's time, so the clock never
+  // goes back.
+  const scroll = inputsOf({ type: 'scroll', at: 0, scrollTo: 240, scrollMs: 500 }, 24)
+  const fps = 24
+  const frames = Math.floor(0.6 * fps + 1e-9) + 1
+  const batches = batchesOf(scroll, frames, fps)
+  assert.equal(batches.flat().length, scroll.length, 'every input has a frame')
+  let clock = 0
+  batches.forEach((batch, k) => {
+    for (const { input, ms } of batch) {
+      assert.ok(ms >= clock && ms <= frameMs(k, fps), `input at ${input.ms} sent by frame ${k}`)
+      assert.ok(Math.abs(ms - input.ms) < 1e-6)
+      clock = ms
+    }
+    clock = frameMs(k, fps)
+  })
+  assert.ok(scroll.some((i) => i.ms > frameMs(Math.round((i.ms * fps) / 1000), fps)))
+  // A click at a whole ms that rounds the same way at 24 fps.
+  const click = inputsOf({ type: 'click', target: '#b', at: 8125 }, 24)
+  const k = Math.round((8125 * fps) / 1000)
+  const sent = batchesOf(click, k + 1, fps)
+  assert.deepEqual(
+    sent[k]?.map((b) => b.ms),
+    [frameMs(k, fps)],
+  )
+  assert.throws(() => batchesOf(click, k, fps), /an input at 8125 ms is after the last frame/)
 })

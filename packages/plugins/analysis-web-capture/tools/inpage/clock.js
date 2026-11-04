@@ -1,6 +1,7 @@
 // A virtual clock for a page, injected before any of its scripts by tools/capture-web.ts. The page
-// is frozen from the start and moves only when the capture advances it, so frame k is the state at
-// k / fps however slow the machine is.
+// is frozen from its first script (or, with CFG.free for --settle loaded, at the load event) and
+// moves only when the capture advances it, so frame k is the state at k / fps however slow the
+// machine is.
 //
 // Ported from reanimate's skills/reanimate/scripts/inpage/clock.js at 3f7a55a
 // (https://github.com/NiazMorshed2007/reanimate), under its MIT licence:
