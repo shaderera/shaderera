@@ -16,7 +16,8 @@ const [x, y] = valueAt(p, t)                                 // t in seconds of 
 ```
 
 Plumbing: a Lottie file is the spec, so it is read, never re-derived or fitted. Nothing is named
-(no `expo.out`), smoothed or turned into a preset. Drawing the card is the film's.
+(no `expo.out`), smoothed or turned into a preset. Drawing the card is the film's. From
+`motion-eases` it uses only `bezier`, `hold` and `linear`, each with every number from the file.
 
 This is the reader for a file that is the spec
 ([decision 0032](https://github.com/shaderera/shaderera/blob/main/docs/adr/0032-reference-copying.md),
@@ -52,7 +53,7 @@ Lottie file through this API, not the shared reference reader; writing its decla
   curve, so it is listed in `unsupported` and `valueAt` and `keysOf` refuse it. Its keys are read
   as written. A static `or` is a value like any other.
 - **keysOf(property, dimension)** gives motion-keyframes keys, `[t, value, ease]`, for a film
-  that asks for a `track()`. It gives the same curve as `valueAt`, and refuses a curved path,
+  that asks for a `track()`. The dimension (0 for x, 1 for y…) is required. It gives the same curve as `valueAt`, and refuses a curved path,
   which no one-axis track is. `motion-keyframes` is not required: add it when a film wants this.
 - **Listed in `unsupported`, never dropped:** what layers draw (`shapes`, `solid`, `image`,
   `text`, `precomp`, `audio`, any other layer type), `masks`, `effects`, `layer styles`,

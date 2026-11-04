@@ -353,7 +353,8 @@ test('motion-lottie-read: keysOf makes the same curve as a motion-keyframes trac
     for (let f = 0; f <= 90; f += 0.25)
       near(tr(f / FR), L.valueAt(prop, f / FR)[d] as number, `${name}[${d}] at ${f}`)
   }
-  assert.throws(() => L.keysOf(ks.p as never), /curved path \(to, ti\): use valueAt/)
+  assert.throws(() => L.keysOf(ks.p as never, 0), /curved path \(to, ti\): use valueAt/)
+  assert.throws(() => (L.keysOf as (p: unknown) => unknown)(ks.p), /keysOf's dimension.*undefined/)
 })
 
 test('motion-lottie-read: what is not read is listed, never dropped', () => {
@@ -406,7 +407,7 @@ test('motion-lottie-read: what is not read is listed, never dropped', () => {
   ])
   const or = lot2.layers[5]?.transform.or as never
   assert.throws(() => L.valueAt(or, 0.5), /layers\[5\]\.ks\.or is an animated 3D orientation/)
-  assert.throws(() => L.keysOf(or), /animated 3D orientation/)
+  assert.throws(() => L.keysOf(or, 0), /animated 3D orientation/)
   // Markers, collapse transforms, a transform entry with no `k` and any field not known are listed.
   const extra = {
     fr: 30,
