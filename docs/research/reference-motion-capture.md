@@ -204,8 +204,10 @@ The Shaderera side already holds animations at t:
 - **Read the state, not pixels.** For each frame: `advance(1000/fps)`, wait for network quiet
   and `busy()`, then read each tracked element's rect and computed transform, opacity and colour.
   Reading forces style and layout, so no BeginFrame is needed.
-- **Flags.** Launch with `--disable-smooth-scrolling`; set `rafHz` to the capture fps or a
-  multiple of it.
+- **Flags.** Launch with `--disable-smooth-scrolling`. It exists for determinism (the
+  compositor's smooth scroll runs on the real clock): a page's smooth scroll is not captured, and
+  scrolling is scripted at virtual times instead. `rafHz` is a multiple of the capture fps that
+  the person gives: a page that steps once per frame moves differently at each rate.
 - **CDP virtual time: none.** It is out of reach in new headless. Adding it later would only
   double-drive time.
 
@@ -292,7 +294,7 @@ Recommendation:
     executable through `requires.packages`.
 - **Its output** is a `shaderera.analysis/1` artifact with per-element tracks keyed by source time.
   `source` cannot hash a live URL, so the tool must also record what was captured:
-  - the URL, the date, the viewport, the seed, `rafHz` and `fps`;
+  - every setting that can change a captured frame, as ADR 0032 point 3 lists;
   - the sha256 of every response it loaded (or the saved page);
   - its own version.
 
@@ -339,7 +341,8 @@ kept.
 
 So:
 - **Port `clock.js` with the three fixes.** Do not use CDP virtual time.
-- **Set `rafHz` to a multiple of the capture fps**, by default equal to it.
+- **Set `rafHz` to a multiple of the capture fps**, required: a page that steps once per frame
+  (a spring, a lerp, smooth scroll) moves differently at each multiple.
 - The maintainer's "not supported in new headless" is half true: the call works, and it gives no
   usable frame timing.
 
