@@ -237,8 +237,9 @@ Smallest first:
    from masks in a form analysis.md defines (its `u8` mask raster and a named list of masks or
    boxes); `image-regions` conforms to it, and core names no plugin. Pure TS beside
    `review/compare.ts`; tested against scikit-image.
-2. **Style facts in the web capture plugin**: a `DOMSnapshot.captureSnapshot` with a fixed list of
-   text and colour properties, `getPlatformFontsForNode` per text node, `fontsUpdated` font faces,
+2. **Style facts in the web capture plugin**: a `DOMSnapshot.captureSnapshot` of computed style
+   properties, every one or the person's list, recorded in params (a list fixed to text and
+   colour would drop shadows, gradients, filters, blend modes, radii and transforms unmeasured), `getPlatformFontsForNode` per text node, `fontsUpdated` font faces,
    and the screenshot, as one `shaderera.analysis/1` artifact recording Chrome's version. No font
    files copied.
 3. **An image text analyser plugin** beside `image-regions`: PaddleOCR PP-OCRv5 with the Thai
