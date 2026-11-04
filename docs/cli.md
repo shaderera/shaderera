@@ -347,11 +347,12 @@ input is bad (2).
 - **The times:** those asked for (`<t>...`, `--every`, `--count`), at least one: an image has no
   times of its own. `--offset`, `--max-shift`, `--floor` and `--from`/`--to` without `--count`
   read a clip over time and are refused.
-- **The image** is decoded as `io.image` decodes it (a JPEG's EXIF orientation is not applied;
-  a 16-bit PNG is read to 8 bits), matted over black, and scaled to the film's frame once as a
-  clip's frames are (`scaled` says so). The report keeps its `sha256`. An image of another shape
-  than the frame (more than 0.5 % apart) is refused unless `--fit` says how to fit it: `stretch`
-  scales it to the frame, its regions too, and `scaled.fit` records it.
+- **The image** is decoded as `io.image` decodes it (a JPEG's EXIF orientation is not applied,
+  and `reference.orientation` records one that is not upright; a 16-bit PNG is read to 8 bits),
+  matted over black (`reference.alpha` says whether that changed any pixel), and scaled to the
+  film's frame once as a clip's frames are (`scaled` says so). The report keeps its `sha256`. An
+  image of another shape than the frame (more than 0.5 % apart) is refused unless `--fit` says how
+  to fit it: `stretch` scales it to the frame, its regions too, and `scaled.fit` records it.
 - **Per time, for the whole frame:** PSNR and ΔE as `--compare` measures them, and:
   - **SSIM** (Wang et al. 2004) on luma (BT.709 weights on the sRGB values, 0–255): a Gaussian
     window of 11 with σ 1.5, K1 0.01, K2 0.03 and L 255, reflected at the frame's edge. The
@@ -387,8 +388,11 @@ input is bad (2).
   matplotlib's inferno ramp, a fixed scale: black where the structure is the same, pale yellow at
   SSIM 0 or below.
 
-With `--json`: `reference` (`kind: "image"`, `file`, `width`, `height`, `bits`, `sha256`), `scaled` (with `fit` when given),
-`region`, `method` (how SSIM and the edge score were measured, by name and constant), `regions`
+With `--json`: `reference` (`kind: "image"`, `file`, `width`, `height`, `bits`, `sha256`,
+`alpha` (whether any pixel is less than opaque, so the matte decided it) and `orientation` (a
+JPEG's EXIF orientation when not 1, not applied)), `scaled` (with `fit` when given), `region`,
+`method` (how SSIM and the edge score were measured, by name and constant, and `matte: "black"`,
+what a pixel less than opaque is matted over), `regions`
 (null, or `file`, `kind` (`regions` or `boxes`), `in` (the pixels the file is written in) and
 `list`, each region's `id`, `label` (an artifact's), `box` and `area` in the film's frame pixels),
 and `frames` (each `t`, `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`,

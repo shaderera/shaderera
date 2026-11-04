@@ -65,6 +65,10 @@ export type CompareImageReport = {
     /** 16 for a 16-bit PNG, read to 8 bits as the film's frames are. */
     bits: 8 | 16
     sha256: string
+    /** Whether any pixel is less than opaque: it is measured matted over black (`method.matte`). */
+    alpha: boolean
+    /** A JPEG's EXIF orientation when it is not 1 (upright): not applied, measured as stored. */
+    orientation?: number
   }
   /**
    * How the image was scaled to the film's frame, or `null` when the sizes are the same; `fit` is
@@ -73,7 +77,7 @@ export type CompareImageReport = {
   scaled: (Scaling & { fit?: Fit }) | null
   region: Region | null
   /** How SSIM and the edge score are measured, so a report says what its numbers are. */
-  method: { ssim: typeof SSIM; edges: typeof EDGES }
+  method: { ssim: typeof SSIM; edges: typeof EDGES; matte: 'black' }
   regions: {
     file: string
     kind: RegionsFile['kind']
@@ -113,6 +117,44 @@ const CLIP_ONLY = {
 const eightBits = (data: Uint8Array | Uint16Array): Uint8Array =>
   data instanceof Uint8Array ? data : Uint8Array.from(data, (v) => Math.round(v / 257))
 
+/** Whether any pixel of decoded RGBA is less than opaque. */
+const hasAlpha = (data: Uint8Array | Uint16Array) => {
+  const opaque = data instanceof Uint16Array ? 65535 : 255
+  for (let i = 3; i < data.length; i += 4) if ((data[i] as number) < opaque) return true
+  return false
+}
+
+/** A JPEG's EXIF Orientation (tag 0x0112 in IFD0), or undefined when it has none or is a PNG. */
+export const exifOrientation = (b: Uint8Array): number | undefined => {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return undefined
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength)
+  for (let at = 2; at + 4 <= b.length && b[at] === 0xff; ) {
+    const marker = b[at + 1] as number
+    if (marker === 0xda || marker === 0xd9) return undefined
+    const len = v.getUint16(at + 2)
+    const body = at + 4
+    if (
+      marker === 0xe1 &&
+      body + 14 <= b.length &&
+      new TextDecoder().decode(b.subarray(body, body + 6)) === 'Exif\0\0'
+    ) {
+      const tiff = body + 6
+      const le = b[tiff] === 0x49
+      const ifd = tiff + v.getUint32(tiff + 4, le)
+      if (ifd + 2 > b.length) return undefined
+      const count = v.getUint16(ifd, le)
+      for (let i = 0; i < count; i++) {
+        const e = ifd + 2 + i * 12
+        if (e + 12 > b.length) return undefined
+        if (v.getUint16(e, le) === 0x0112) return v.getUint16(e + 8, le)
+      }
+      return undefined
+    }
+    at = body + len - 2
+  }
+  return undefined
+}
+
 /**
  * Measures the film's final frame at each time against one image (see CompareImageReport). The
  * image is decoded once, as `io.image` decodes it (EXIF orientation not applied), matted over
@@ -142,6 +184,7 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
   const bytes = readFileSync(o.reference)
   const image = decodeImage(bytes, o.reference)
   const sha256 = createHash('sha256').update(bytes).digest('hex')
+  const orientation = exifOrientation(bytes)
   if (o.fit !== undefined && !FITS.includes(o.fit))
     throw new Error(`--fit is ${FITS.join(' or ')}, not ${JSON.stringify(o.fit)}.`)
   const scaled = scaling(image, film)
@@ -214,10 +257,12 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
       height: image.height,
       bits: image.bits,
       sha256,
+      alpha: hasAlpha(image.data),
+      ...(orientation === undefined || orientation === 1 ? {} : { orientation }),
     },
     scaled: scaled && { ...scaled, ...(o.fit === undefined ? {} : { fit: o.fit as Fit }) },
     region,
-    method: { ssim: SSIM, edges: EDGES },
+    method: { ssim: SSIM, edges: EDGES, matte: 'black' },
     regions: found && {
       file: found.file,
       kind: found.kind,

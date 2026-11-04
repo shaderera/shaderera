@@ -6,7 +6,12 @@ import { test } from 'node:test'
 import { encode } from 'fast-png'
 import { tempDir } from '../fixtures/temp.ts'
 import { compareWithFile } from './compare-file.ts'
-import { type CompareImageReport, imageFrameLines, imageSummaryLines } from './compare-image.ts'
+import {
+  type CompareImageReport,
+  exifOrientation,
+  imageFrameLines,
+  imageSummaryLines,
+} from './compare-image.ts'
 
 const W = 48
 const H = 36
@@ -51,7 +56,16 @@ test('--compare-file <image> measures the film still at each time against one im
       shown.push(f.t)
     },
   })
-  assert.deepEqual(r.reference, { kind: 'image', file, width: W, height: H, bits: 8, sha256 })
+  assert.deepEqual(r.reference, {
+    kind: 'image',
+    file,
+    width: W,
+    height: H,
+    bits: 8,
+    sha256,
+    alpha: false,
+  })
+  assert.equal(r.method.matte, 'black')
   assert.equal(r.scaled, null)
   assert.equal(r.regions, null)
   assert.equal(r.method.ssim.sigma, 1.5)
@@ -388,4 +402,52 @@ test('an image of another shape than the frame is refused unless --fit says how;
     compareWithFile({ film, times: [0], reference: join(dir, 'clip.mp4'), fit: 'stretch' }),
     /--fit fits a still reference of another shape, and .*clip\.mp4 is a clip/,
   )
+})
+
+test('an image with alpha and a JPEG orientation say so in the report, applied as before (#690)', async () => {
+  const dir = tempDir('compare-image-alpha')
+  const px = frame(1)
+  px[3] = 128
+  const file = join(dir, 'half.png')
+  writeFileSync(file, encode({ width: W, height: H, data: px, channels: 4, depth: 8 }))
+  const r = await compare({ reference: file, times: [1] })
+  assert.equal(r.reference.alpha, true)
+  assert.equal(r.reference.orientation, undefined, 'a PNG has none')
+  assert.equal(r.method.matte, 'black')
+
+  // A JPEG's APP1 Exif IFD0 with Orientation (0x0112), in either byte order.
+  const jpeg = (le: boolean, orientation: number) => {
+    const tiff = new DataView(new ArrayBuffer(26))
+    tiff.setUint16(0, le ? 0x4949 : 0x4d4d)
+    tiff.setUint16(2, 42, le)
+    tiff.setUint32(4, 8, le)
+    tiff.setUint16(8, 1, le)
+    tiff.setUint16(10, 0x0112, le)
+    tiff.setUint16(12, 3, le)
+    tiff.setUint32(14, 1, le)
+    tiff.setUint16(18, orientation, le)
+    const exif = [...new TextEncoder().encode('Exif\0\0'), ...new Uint8Array(tiff.buffer)]
+    const len = exif.length + 2
+    return Uint8Array.from([
+      0xff,
+      0xd8,
+      0xff,
+      0xe0,
+      0,
+      4,
+      0,
+      0,
+      0xff,
+      0xe1,
+      len >> 8,
+      len & 255,
+      ...exif,
+      0xff,
+      0xda,
+    ])
+  }
+  assert.equal(exifOrientation(jpeg(true, 6)), 6)
+  assert.equal(exifOrientation(jpeg(false, 8)), 8)
+  assert.equal(exifOrientation(Uint8Array.from([0xff, 0xd8, 0xff, 0xda])), undefined)
+  assert.equal(exifOrientation(new Uint8Array([0x89, 0x50])), undefined)
 })
