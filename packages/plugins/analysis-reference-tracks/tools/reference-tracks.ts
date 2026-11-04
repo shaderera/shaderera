@@ -56,14 +56,13 @@ export const fileSource = async (path: string, bytes: Uint8Array) => ({
 })
 
 /**
- * Every object's keys sorted, recursively; arrays keep their order. Refuses, naming its path, a
- * value JSON would change without a word: a NaN or infinite number (written as null) and
- * undefined (dropped).
+ * Every object's keys sorted, recursively; arrays keep their order. Refuses, naming `path` (what
+ * the value is, like "the reference tracks' params"), a value JSON would change without a word: a
+ * NaN or infinite number (written as null) and undefined (dropped).
  */
-const sorted = (v: unknown, path: string): unknown => {
-  if (v === undefined) throw new Error(`the reference tracks' ${path} is undefined`)
-  if (typeof v === 'number' && !Number.isFinite(v))
-    throw new Error(`the reference tracks' ${path} is ${v}`)
+export const sorted = (v: unknown, path: string): unknown => {
+  if (v === undefined) throw new Error(`${path} is undefined`)
+  if (typeof v === 'number' && !Number.isFinite(v)) throw new Error(`${path} is ${v}`)
   if (Array.isArray(v)) return v.map((e, i) => sorted(e, `${path}[${i}]`))
   if (typeof v !== 'object' || v === null) return v
   const o = v as Record<string, unknown>
@@ -75,7 +74,7 @@ const sorted = (v: unknown, path: string): unknown => {
 }
 const byCode = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 /** `first` in that order with their values as they are, then the rest sorted, recursively. */
-const ordered = (o: Record<string, unknown>, first: string[], path: string) => {
+export const ordered = (o: Record<string, unknown>, first: string[], path: string) => {
   const rest = Object.keys(o)
     .filter((k) => !first.includes(k))
     .sort(byCode)
@@ -84,6 +83,26 @@ const ordered = (o: Record<string, unknown>, first: string[], path: string) => {
     ...rest.map((k) => [k, sorted(o[k], `${path}.${k}`)]),
   ])
 }
+/**
+ * A source in its stable order: a file's path, bytes and sha256; a page's url, date, viewport,
+ * pixel ratio and responses, sorted by url, status and sha256. Every reference kind writes it so.
+ */
+export const sourceJson = (source: TracksDoc['source'], path: string) =>
+  isFileSource(source)
+    ? ordered(source, FILE, path)
+    : ordered(
+        {
+          ...source,
+          viewport: ordered(source.viewport, ['width', 'height'], `${path}.viewport`),
+          responses: [...source.responses]
+            .sort(
+              (a, b) => byCode(a.url, b.url) || a.status - b.status || byCode(a.sha256, b.sha256),
+            )
+            .map((r, i) => ordered(r, ['url', 'status', 'sha256'], `${path}.responses[${i}]`)),
+        },
+        PAGE,
+        path,
+      )
 const json = (v: unknown, indent: string) =>
   JSON.stringify(v, null, 2).replaceAll('\n', `\n${indent}`)
 
@@ -92,6 +111,7 @@ const json = (v: unknown, indent: string) =>
  * final newline. Refuses a document loadTracks would refuse, naming what is wrong.
  */
 export const tracksJson = (doc: TracksDoc): string => {
+  const T = "the reference tracks' "
   const extra = Object.keys(doc).filter((k) => !TOP.includes(k))
   if (extra.length > 0)
     throw new Error(`reference-tracks has no field ${extra.join(', ')}: put it in params or tool`)
@@ -116,42 +136,27 @@ export const tracksJson = (doc: TracksDoc): string => {
       return ordered(
         { ...tr, samples },
         ['element', 'channel', 'unit', 'samples'],
-        `${tr.element} ${tr.channel}`,
+        `${T}${tr.element} ${tr.channel}`,
       ) as Track
     })
     .sort((a, b) => byCode(a.element, b.element) || byCode(a.channel, b.channel))
-  const source = isFileSource(doc.source)
-    ? ordered(doc.source, FILE, 'source')
-    : ordered(
-        {
-          ...doc.source,
-          viewport: ordered(doc.source.viewport, ['width', 'height'], 'source.viewport'),
-          responses: [...doc.source.responses]
-            .sort(
-              (a, b) => byCode(a.url, b.url) || a.status - b.status || byCode(a.sha256, b.sha256),
-            )
-            .map((r, i) => ordered(r, ['url', 'status', 'sha256'], `source.responses[${i}]`)),
-        },
-        PAGE,
-        'source',
-      )
   const head = [
     `"format": ${JSON.stringify(doc.format)}`,
     `"kind": ${JSON.stringify(doc.kind)}`,
-    `"source": ${json(source, '  ')}`,
-    `"tool": ${json(sorted(doc.tool, 'tool'), '  ')}`,
-    `"params": ${json(sorted(doc.params, 'params'), '  ')}`,
-    `"frame": ${JSON.stringify(ordered(doc.frame, ['width', 'height', 'pixelRatio'], 'frame'))}`,
+    `"source": ${json(sourceJson(doc.source, `${T}source`), '  ')}`,
+    `"tool": ${json(sorted(doc.tool, `${T}tool`), '  ')}`,
+    `"params": ${json(sorted(doc.params, `${T}params`), '  ')}`,
+    `"frame": ${JSON.stringify(ordered(doc.frame, ['width', 'height', 'pixelRatio'], `${T}frame`))}`,
   ]
   const lines = tracks.map((tr) => `    ${JSON.stringify(tr)}`)
   const body = [
     `"tracks": [${lines.length > 0 ? `\n${lines.join(',\n')}\n  ` : ''}]`,
     `"declared": ${json(
-      doc.declared.map((e, i) => sorted(e, `declared[${i}]`)),
+      doc.declared.map((e, i) => sorted(e, `${T}declared[${i}]`)),
       '  ',
     )}`,
     `"limits": ${json(
-      doc.limits.map((l, i) => ordered(l, ['where', 'reason', 'from', 'to'], `limits[${i}]`)),
+      doc.limits.map((l, i) => ordered(l, ['where', 'reason', 'from', 'to'], `${T}limits[${i}]`)),
       '  ',
     )}`,
   ]
