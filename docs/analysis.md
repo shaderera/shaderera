@@ -124,17 +124,17 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
 ### Reference style
 
 The still facts of a reference at one moment, so a film can copy a page's look one to one: each
-element's box and the computed styles that decide how it looks, each text node's line boxes and
-the fonts it was drawn with, and a screenshot. Kind `reference-style`; the `analysis-web-capture`
-plugin writes it (`--still`) and reads it (`loadStyle`). A `reference-tracks` reader refuses it,
-and its reader refuses a `reference-tracks` artifact.
+element's box and the computed styles that change how it is drawn, each text node's line boxes
+and the fonts it was drawn with, and a screenshot. Kind `reference-style`; the
+`analysis-web-capture` plugin writes it (`--still`) and reads it (`loadStyle`). A
+`reference-tracks` reader refuses it, and its reader refuses a `reference-tracks` artifact.
 
 ```json
 {
   "format": "shaderera.analysis/1",
   "kind": "reference-style",
   "source": { "url": "https://example.com/", "date": "2026-11-04T09:00:00.000Z", "viewport": { "width": 1280, "height": 720 }, "devicePixelRatio": 1, "responses": [] },
-  "tool": { "script": "tools/capture-web.ts", "version": "0.3.0", "chrome": "HeadlessChrome/156.0.0.0" },
+  "tool": { "script": "tools/capture-web.ts", "version": "0.3.0", "chrome": "Chrome/156.0.8078.80" },
   "params": { "still": 500, "root": ":root", "styles": ["font-family", "color"], "rafHz": 60 },
   "frame": { "width": 1280, "height": 720, "pixelRatio": 1 },
   "scroll": { "x": 0, "y": 0 },
@@ -167,16 +167,17 @@ and its reader refuses a `reference-tracks` artifact.
   - `paintOrder`: the browser's; a higher one is drawn later, over a lower one.
   - `styles`: each name in `params.styles`, as the browser computed it, a string as CSS writes it
     (`"rgba(0, 0, 0, 0.25) 0px 12px 32px 0px"`). The list is open: a capture can read more.
-- `texts`: each text node under the root, in document order: the `element` that holds it (named
-  as in `elements`), its `child` index there, its `text` as laid out (white space collapsed, case
-  transformed), `boxes`, one per line fragment with the UTF-16 range of `text` it holds, and
-  `fonts`, every font its glyphs were drawn with: `familyName`, `postScriptName`, `isCustomFont`
-  (a web font, not a system font) and `glyphCount`. A fallback is a font of its own here, so a
-  line the page's font has no glyphs for shows which font drew it.
-- `fontFaces`: each web font the page loaded, as the browser reports it. Fonts are named, never
-  copied: a `data:` source is kept as its media type only.
+- `texts`: each text node under the root that has a line box, in document order: the `element`
+  that holds it (named as in `elements`), its `child` index there, its `text` as laid out (white
+  space collapsed, case transformed), `boxes`, one per line fragment with the UTF-16 range of
+  `text` it holds, and `fonts`, every font its glyphs were drawn with: `familyName`,
+  `postScriptName`, `isCustomFont` (a web font, not a system font) and `glyphCount`. A fallback is
+  a font of its own here, so a line the page's font has no glyphs for shows which font drew it.
+- `fontFaces`: each web font the page loaded, as the browser reports it, sorted. Fonts are named,
+  never copied: a `data:` source is kept as its media type only, a `blob:` one as its origin.
 - `limits`: as for `reference-tracks`, without times. Pixels the facts cannot say (a canvas, a
-  video, an iframe's document) are a limit; they are in the screenshot only.
+  video, an iframe's document, the text of a form control the browser draws) are a limit; they
+  are in the screenshot only.
 - **The bytes are stable.** Keys in one order, elements and texts in document order, one per
   line, a text's fonts sorted by family, boxes rounded to a millionth of a pixel. Two captures of
   the same page differ only in `source.date` and in what the site served.

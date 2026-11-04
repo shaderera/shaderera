@@ -276,12 +276,14 @@ const stillOf = (o: CaptureOptions) => {
       "--still needs --rafHz <n>, how often the page's requestAnimationFrame runs: it changes where a JS animation is at the still",
     )
   if (!positive(rafHz)) throw new Error(`--rafHz ${rafHz} is not a rate above 0`)
-  // On an animation frame, a JS animation shows the still itself, as CSS does.
+  // On an animation frame, a JS animation shows the still itself, as CSS does. The clock runs a
+  // tick due within EPSILON_MS of its target, so that is how near a frame the still must be.
   const ticks = (still * rafHz) / 1000
-  if (Math.abs(ticks - Math.round(ticks)) > 1e-6) {
-    const ms = (k: number) => +((k * 1000) / rafHz).toFixed(3)
+  const frameAt = (k: number) => (k * 1000) / rafHz
+  if (Math.abs(still - frameAt(Math.round(ticks))) > EPSILON_MS) {
+    const before = Math.floor(ticks)
     throw new Error(
-      `--still ${still} is not on an animation frame at --rafHz ${rafHz} (one each ${ms(1)} ms): a JS animation would show a tick from before it while CSS shows the moment itself. Give ${ms(Math.floor(ticks))} or ${ms(Math.ceil(ticks))}, or a --rafHz that makes ${still} ms a whole number of frames`,
+      `--still ${still} is not on an animation frame at --rafHz ${rafHz} (one each ${+frameAt(1).toFixed(3)} ms): a JS animation would show a tick from before it while CSS shows the moment itself. Give ${frameAt(before)} or ${frameAt(before + 1)}, or a --rafHz that makes ${still} ms a whole number of frames`,
     )
   }
   const root = o.root ?? ':root'
@@ -293,7 +295,7 @@ const stillOf = (o: CaptureOptions) => {
         `--style ${s} is a custom property, which DOMSnapshot does not read: the standard properties it feeds are read with their computed values`,
       )
     if (!/^-?[a-z][a-z0-9-]*$/.test(s))
-      throw new Error(`--style ${JSON.stringify(s)} is not a CSS property name, like text-align`)
+      throw new Error(`--style ${JSON.stringify(s)} is not a CSS property name, like white-space`)
     if (STYLES.includes(s))
       throw new Error(`--style ${s} is read already: it is in the default list`)
     if (added.indexOf(s) !== i) throw new Error(`--style ${s} is given twice`)
@@ -1427,7 +1429,7 @@ export const captureWeb = async (options: CaptureOptions) => {
     // A still: the style facts at its moment, once fonts that started loading have loaded.
     let style: Awaited<ReturnType<typeof readStyle>> | undefined
     if (o.mode === 'still') {
-      await evaluate('document.fonts.ready.then(() => true)')
+      await held('document.fonts.ready.then(() => true)', o.still as number)
       style = await readStyle((method, params) => c.send(method, params, page), {
         root: o.root,
         styles: o.styles,

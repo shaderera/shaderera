@@ -480,10 +480,15 @@ test('a still takes its own settings, on an animation frame, and refuses motion 
   assert.deepEqual(o.times, [500])
   assert.equal(o.root, ':root', 'the whole page when no root is given')
   assert.deepEqual(o.styles, STYLES)
-  assert.deepEqual(checkOptions({ ...base, styles: ['text-align'] }).styles, [
+  assert.deepEqual(checkOptions({ ...base, styles: ['white-space'] }).styles, [
     ...STYLES,
-    'text-align',
+    'white-space',
   ])
+  // The default list holds what draws a box's edges, text's decoration, a clip and an SVG shape.
+  for (const s of ['border-top-width', 'border-left-color', 'outline-style'])
+    assert.ok(STYLES.includes(s), s)
+  for (const s of ['text-decoration-line', 'clip-path', 'mask-image', 'backdrop-filter', 'fill'])
+    assert.ok(STYLES.includes(s), s)
   assert.equal(checkOptions({ ...base, still: 0, rafHz: 24 }).still, 0)
   assert.equal(checkOptions({ ...base, still: 125, rafHz: 24 }).still, 125)
   const refuses = (more: Record<string, unknown>, message: RegExp) =>
@@ -491,15 +496,22 @@ test('a still takes its own settings, on an animation frame, and refuses motion 
   refuses({ rafHz: undefined }, /--still needs --rafHz/)
   refuses(
     { still: 510 },
-    /--still 510 is not on an animation frame at --rafHz 60 \(one each 16\.667 ms\).*Give 500 or 516\.667/,
+    /--still 510 is not on an animation frame at --rafHz 60 \(one each 16\.667 ms\).*Give 500 or 516\.6666666666666,/,
   )
+  // On a frame is as near as the clock runs a tick: a millionth of a ms, not of a tick. The times
+  // the refusal gives are taken.
+  assert.equal(checkOptions({ ...base, still: 1000 / 30, rafHz: 30 }).still, 1000 / 30)
+  refuses({ still: 66.66666, rafHz: 30 }, /Give 33\.333333333333336 or 66\.66666666666667,/)
+  refuses({ still: 33.333, rafHz: 30 }, /Give 0 or 33\.333333333333336,/)
+  for (const still of [33.333333333333336, 66.66666666666667])
+    assert.equal(checkOptions({ ...base, still, rafHz: 30 }).still, still)
   refuses({ still: -1 }, /--still -1 is not ms of 0 or more/)
   refuses({ track: ['#a'] }, /--track is for motion/)
   refuses({ fps: 30 }, /--fps is for motion/)
   refuses({ duration: 1 }, /--duration is for motion/)
   refuses({ root: ' ' }, /--root is empty/)
   refuses({ styles: ['color'] }, /--style color is read already/)
-  refuses({ styles: ['text-align', 'text-align'] }, /--style text-align is given twice/)
+  refuses({ styles: ['white-space', 'white-space'] }, /--style white-space is given twice/)
   refuses({ styles: ['--accent'] }, /--style --accent is a custom property/)
   refuses({ styles: ['Text Align'] }, /is not a CSS property name/)
   // An input is sent up to the still, and not after it.

@@ -9,26 +9,46 @@ import type { Box, DrawnFont, StyledElement, TextRun } from '../src/reference/st
 import type { Limit } from '../src/reference/tracks.ts'
 
 /**
- * The computed styles read for every element by default, as CSS names them: the ones that decide
- * how text and boxes look. `--style` adds to them; none is left out.
+ * The computed styles read for every element by default, as CSS names them: the ones that change
+ * how text, a box and its edges, its background, an image or an SVG shape are drawn. `--style`
+ * adds to them; none is left out. Where an element is and how big it is are its box.
  */
 export const STYLES = [
   'font-family',
   'font-weight',
   'font-style',
+  'font-stretch',
   'font-size',
   'line-height',
   'letter-spacing',
+  'word-spacing',
   'font-feature-settings',
   'font-variation-settings',
   'text-transform',
+  'text-align',
+  'text-decoration-line',
+  'text-decoration-style',
+  'text-decoration-color',
+  'text-decoration-thickness',
+  'text-underline-offset',
   'color',
   'background-color',
   'background-image',
+  'background-position',
+  'background-size',
+  'background-repeat',
+  'background-clip',
+  ...['top', 'right', 'bottom', 'left'].flatMap((side) =>
+    ['width', 'style', 'color'].map((what) => `border-${side}-${what}`),
+  ),
   'border-top-left-radius',
   'border-top-right-radius',
   'border-bottom-right-radius',
   'border-bottom-left-radius',
+  'outline-width',
+  'outline-style',
+  'outline-color',
+  'outline-offset',
   'box-shadow',
   'text-shadow',
   'transform',
@@ -37,8 +57,17 @@ export const STYLES = [
   'scale',
   'transform-origin',
   'opacity',
+  'visibility',
   'filter',
+  'backdrop-filter',
   'mix-blend-mode',
+  'clip-path',
+  'mask-image',
+  'object-fit',
+  'object-position',
+  'fill',
+  'stroke',
+  'stroke-width',
 ]
 
 /** Elements whose drawing is pixels only: no box or style inside them says what they show. */
@@ -48,6 +77,9 @@ const PIXELS: Record<string, string> = {
   iframe: 'an iframe: its document is not read, only drawn in the screenshot',
   embed: 'an embed: what it shows is only in the screenshot',
   object: 'an object: what it shows is only in the screenshot',
+  input: "an input: its text is drawn by the browser's own control, only in the screenshot",
+  textarea: "a textarea: its text is drawn by the browser's own control, only in the screenshot",
+  select: "a select: its text is drawn by the browser's own control, only in the screenshot",
 }
 
 /** A command on the page's session. */
@@ -313,6 +345,8 @@ export const readStyle = async (
   )
   const texts: TextRun[] = []
   for (const [k, [n, li]] of textNodes.entries()) {
+    // White space between elements is laid out with no line box: nothing of it is drawn.
+    if (!boxesOf.has(li)) continue
     const { element, pseudoElement } = owner(n)
     // A pseudo-element's generated text is no DOM node: its runs are counted in their order.
     const here = named.get(n)
@@ -346,12 +380,23 @@ export const readStyle = async (
     texts.push(run)
   }
 
-  const faces = [...new Map(fontFaces.map((f) => [JSON.stringify(f), f])).values()].map((f) => {
-    const src = typeof f.src === 'string' ? f.src : undefined
-    // A font inline in the page is its media type only: its bytes are the font file.
-    if (src?.startsWith('data:')) return { ...f, src: `${src.slice(0, src.search(/[,;]|$/))}` }
-    return f
-  })
+  // A font inline in the page is its media type only: its bytes are the font file. A blob: URL
+  // is its origin only: the rest is new on each load. Faces are sorted, as they load in any order.
+  const faces = [
+    ...new Map(
+      fontFaces.map((f) => {
+        const src = typeof f.src === 'string' ? f.src : undefined
+        const face = src?.startsWith('data:')
+          ? { ...f, src: src.slice(0, src.search(/[,;]|$/)) }
+          : src?.startsWith('blob:')
+            ? { ...f, src: src.slice(0, Math.max(5, src.lastIndexOf('/'))) }
+            : f
+        return [JSON.stringify(face), face] as const
+      }),
+    ),
+  ]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([, face]) => face)
 
   const { data } = await send<{ data: string }>('Page.captureScreenshot', {
     format: 'png',

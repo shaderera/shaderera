@@ -1,6 +1,8 @@
-Capture a web page's motion once, as reference tracks a film reads and copies one to one: each tracked element's box, transform and opacity at every frame, measured in your own Chrome on a clock the capture holds, from the load or from a click, hover, leave or scroll sent at a time you give. Or capture its
-look at one moment, as the style facts Chrome drew it with: every element's box and computed
-styles, every text node's line boxes and fonts, and a screenshot.
+Capture a web page's motion once, as reference tracks a film reads and copies one to one: each
+tracked element's box, transform and opacity at every frame, measured in your own Chrome on a
+clock the capture holds, from the load or from a click, hover, leave or scroll sent at a time you
+give. Or capture its look at one moment, as the style facts Chrome drew it with: every element's
+box and computed styles, every text node's line boxes and fonts, and a screenshot.
 
 ```sh
 node tools/capture-web.ts https://example.com/ --out references/hero \
@@ -109,12 +111,21 @@ once the fonts it started loading have loaded, everything is read at once.
   as for motion; `--track`, `--fps` and `--duration` are refused.
 - `--root <selector>` (`:root`): the element whose subtree is read, the first match.
 - `--style <property>`: a computed style read beside the default list, repeated for more. The
-  default list is the styles that decide a look: `font-family`, `font-weight`, `font-style`,
-  `font-size`, `line-height`, `letter-spacing`, `font-feature-settings`,
-  `font-variation-settings`, `text-transform`, `color`, `background-color`, `background-image`,
-  the four corner radii, `box-shadow`, `text-shadow`, `transform`, `translate`, `rotate`,
-  `scale`, `transform-origin`, `opacity`, `filter` and `mix-blend-mode`. A custom property
-  (`--accent`) cannot be read: the standard properties it feeds are.
+  default list is what changes how text, a box and its edges, its background, an image or an SVG
+  shape are drawn (where it is and how big are its box):
+  - text: `font-family`, `font-weight`, `font-style`, `font-stretch`, `font-size`,
+    `line-height`, `letter-spacing`, `word-spacing`, `font-feature-settings`,
+    `font-variation-settings`, `text-transform`, `text-align`, `text-decoration-line`, `-style`,
+    `-color` and `-thickness`, `text-underline-offset`, `color`, `text-shadow`;
+  - the box: `background-color`, `-image`, `-position`, `-size`, `-repeat` and `-clip`, each
+    side's `border-*-width`, `-style` and `-color`, the four corner radii, `outline-width`,
+    `-style`, `-color` and `-offset`, `box-shadow`;
+  - drawing: `transform`, `translate`, `rotate`, `scale`, `transform-origin`, `opacity`,
+    `visibility`, `filter`, `backdrop-filter`, `mix-blend-mode`, `clip-path`, `mask-image`,
+    `object-fit`, `object-position`, and SVG's `fill`, `stroke` and `stroke-width`.
+
+  Anything else (`white-space`, `cursor`, a grid's tracks) is one `--style` away. A custom
+  property (`--accent`) cannot be read: the standard properties it feeds are.
 
 What it reads, all from Chrome over the DevTools protocol, never from the pixels:
 - each element and pseudo-element under the root, from `DOMSnapshot.captureSnapshot`: its box as
@@ -123,21 +134,28 @@ What it reads, all from Chrome over the DevTools protocol, never from the pixels
   root (`html > body:nth-child(2) > canvas:nth-child(3)`); an element in a shadow tree after its
   host and ` >>> `.
 - each text node's line boxes, from the same snapshot, with the range of its text each holds.
+  White space laid out between elements has no line box and no entry: nothing of it is drawn.
 - the fonts each text node was drawn with, from `CSS.getPlatformFontsForNode`: family, PostScript
   name, whether it is a web font, and how many glyphs it drew. A fallback shows as a font of its
   own: a Thai line in a Latin web font lists the web font for its spaces and Latin letters, and
   the system font that drew the Thai.
 - each web font the page loaded, as `CSS.fontsUpdated` reports it: family, `src`, weight, style,
-  range, and the `platformFontFamily` it turned out to be. The font files are never copied; a font
-  inline in the page as a `data:` URL is kept as its media type only. Each one's sha256 is in
-  `source.responses`, like every response.
+  range, and the `platformFontFamily` it turned out to be, sorted, since they load in any order.
+  The font files are never copied; a font inline in the page as a `data:` URL is kept as its media
+  type only, and one from a `blob:` URL as its origin only (the rest is new on each load). Each
+  file's sha256 is in `source.responses`, like every response.
 - the screenshot, from `Page.captureScreenshot`, at the viewport in device pixels, with its
   sha256. `loadStyle` refuses a PNG that is not that one.
 
 `DOMSnapshot` and `CSS` are experimental protocol domains, so `tool` records the Chrome version
 and user agent, and a field Chrome no longer sends stops the capture with its name. A canvas,
-video, iframe, embed or object is a limit: what it shows is in the screenshot only. Two stills
-give the same bytes, JSON and PNG, but for `source.date`.
+video, iframe, embed or object is a limit: what it shows is in the screenshot only. So is an
+input, textarea or select: the browser's own control draws its text, which the snapshot does not
+hold. Two stills give the same bytes, JSON and PNG, but for `source.date`.
+
+`loadStyle` and the kind's writer live in this plugin for now, as it is the one source of still
+facts. When a second one comes (an image read by OCR, say), they move to a shared component, as
+the tracks' reader did, and the kind stays as it is.
 
 One capture runs at a time on a machine (a lock in the OS temp folder).
 

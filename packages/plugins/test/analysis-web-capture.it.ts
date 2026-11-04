@@ -838,8 +838,36 @@ test('a still reads the web font, the Thai fallback, the shadowed card, the same
     assert.equal(badge.styles.opacity, '0.8')
     // The bar a CSS animation widens 200 px in 1 s is half way at 500 ms.
     near(styleOf(style, '#bar').box, [420, 220, 100, 10], 'the bar')
-    // A canvas is pixels only, said so.
+    // A canvas is pixels only, said so, and an input's text is the browser's own control's.
     assert.ok(style.limits.some((l) => l.where.endsWith('canvas:nth-child(3)')))
+    assert.ok(style.limits.some((l) => l.where.endsWith('input:nth-child(7)')))
+    // The edges, the underline and the clip are read.
+    const framed = styleOf(style, '#framed')
+    assert.deepEqual(
+      [
+        framed.styles['border-top-width'],
+        framed.styles['border-left-style'],
+        framed.styles['border-bottom-color'],
+        framed.styles['outline-style'],
+        framed.styles['outline-color'],
+        framed.styles['outline-offset'],
+        framed.styles['text-decoration-line'],
+        framed.styles['clip-path'],
+      ],
+      [
+        '3px',
+        'dashed',
+        'rgb(200, 0, 0)',
+        'solid',
+        'rgb(0, 0, 255)',
+        '1px',
+        'underline',
+        'inset(2px)',
+      ],
+    )
+    // White space between elements is not drawn: no run for it, and no limit.
+    assert.ok(style.texts.every((t) => t.boxes.length > 0 && t.text.trim() !== ''))
+    assert.ok(!style.limits.some((l) => l.reason.includes('no node to ask for fonts')))
 
     // The fonts each text node was drawn with: the web font, and a system font for the Thai.
     const [hello] = textsOf(style, '[data-id="card"] > h1:nth-child(1)')
@@ -873,11 +901,23 @@ test('a still reads the web font, the Thai fallback, the shadowed card, the same
     assert.ok((fallback[0]?.glyphCount ?? 0) > 0)
     // macOS draws Thai in Thonburi, which shapes the six code points as four glyphs.
     if (fallback[0]?.familyName === 'Thonburi') assert.equal(fallback[0].glyphCount, 4)
-    // The web font is named, its file is not copied.
+    // The web fonts are named, their files not copied; one from a blob: URL is its origin only,
+    // since the rest is new on each load.
     assert.deepEqual(
       style.fontFaces.map((f) => [f.fontFamily, f.platformFontFamily, f.src]),
-      [['Plex Test', 'IBM Plex Sans', `http://127.0.0.1:${port}/IBMPlexSans-Regular.ttf`]],
+      [
+        ['Blob Plex', 'IBM Plex Sans', `blob:http://127.0.0.1:${port}`],
+        ['Plex Test', 'IBM Plex Sans', `http://127.0.0.1:${port}/IBMPlexSans-Regular.ttf`],
+      ],
     )
+    assert.deepEqual(textsOf(style, '#blobbed')[0]?.fonts, [
+      {
+        familyName: 'IBM Plex Sans',
+        postScriptName: 'IBMPlexSans',
+        isCustomFont: true,
+        glyphCount: 4,
+      },
+    ])
     assert.deepEqual(readdirSync(dirname(first.path)).sort(), ['style.json', 'style.png'])
     const ttf = await sha256(
       new Uint8Array(readFileSync(files['/IBMPlexSans-Regular.ttf']?.[0] as string)),
