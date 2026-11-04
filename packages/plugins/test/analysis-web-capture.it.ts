@@ -168,6 +168,31 @@ test('a page that reads absolute time gets the same values on every run', { skip
   assert.equal(atMoved('#hours'), 19)
 })
 
+test('the locale and the seed are held and recorded, and seed 0 is a seed of its own', {
+  skip,
+}, async () => {
+  const run = async (o: Partial<Options>) =>
+    JSON.parse(
+      await capture({
+        page: fixture('locale.html'),
+        track: ['#lang', '#random'],
+        duration: 0.1,
+        ...o,
+      }),
+    ) as Doc
+  const first = (doc: Doc, el: string) =>
+    doc.tracks.find((t) => t.element === el && t.channel === 'translateX')?.samples[0]?.[1]
+  const plain = await run({})
+  assert.equal(plain.params.locale, 'en-US')
+  assert.equal(first(plain, '#lang'), 0)
+  const thai = await run({ locale: 'th-TH' })
+  assert.equal(thai.params.locale, 'th-TH')
+  assert.equal(first(thai, '#lang'), 3, 'navigator.language and Intl both see the locale')
+  const zero = await run({ seed: 0 })
+  assert.equal(zero.params.seed, 0)
+  assert.notEqual(first(zero, '#random'), first(plain, '#random'), 'seed 0 is not seed 1')
+})
+
 test('an animation started in a frame or a promise starts at its own time', {
   skip,
 }, async () => {

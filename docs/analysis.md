@@ -81,8 +81,10 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
 
 - `source` is a file or a live page, as [below](#artifact-identity-and-provenance). `params` holds
   every setting that changed the samples: for a page capture the fps, `rafHz`, the seed, what the
-  page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`) and what
-  started the motion (`trigger`).
+  page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`), the
+  `locale` its `Intl`, language and `Accept-Language` saw, the `media` features it was shown with
+  and what started the motion (`trigger`); its pixel ratio is `frame.pixelRatio`. A setting the
+  analyser gives a default is a constant, recorded like any other, never the machine's.
 - `frame`: the source's `width` and `height`, in the unit of its position tracks (CSS pixels for a
   page's viewport, pixels for a clip), and `pixelRatio`, device pixels per CSS pixel (1 for a
   clip).
