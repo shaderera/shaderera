@@ -1179,7 +1179,7 @@ test('what the clock cannot hold is a limit, named in the file and on the comman
     const cli = await promisify(execFile)(process.execPath, [
       join(project, 'tools', 'capture-web.ts'),
       server.url('limits.html'),
-      ...['--out', out, '--track', '#box', '--fps', '10', '--duration', '0.3'],
+      ...['--out', out, '--track', '#box', '--fps', '10', '--rafHz', '10', '--duration', '0.3'],
       ...['--viewport', '200x100', '--allow-local'],
     ])
     const doc = JSON.parse(readFileSync(join(out, 'tracks.json'), 'utf8')) as Doc
