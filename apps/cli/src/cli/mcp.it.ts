@@ -516,6 +516,41 @@ test("still with file looks at a rendered file's frames, not the source's (#537)
   }
 })
 
+test('still with compare_file measures the film against a clip and finds its offset (#664)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = copy('./fixtures/reference/')
+  const { call, close } = await connect(root)
+  try {
+    await call('render', { out: 'out/late.mp4', params: { delay: 0.3 } })
+    const r = await call('still', { compare_file: 'out/late.mp4', max_shift: 5 })
+    const report = JSON.parse(r.content[0].text)
+    assert.equal(report.reference.file, 'out/late.mp4')
+    assert.equal(report.frames.length, 20)
+    assert.equal(report.offset.found.steps, 3)
+    assert.equal(report.sheet.length, 20)
+    assert.equal(r.content[1].mimeType, 'image/png')
+    const aligned = JSON.parse(
+      (await call('still', { compare_file: 'out/late.mp4', offset: 0.3, times: [0.6, 0.9, 1.3] }))
+        .content[0].text,
+    )
+    assert.deepEqual(
+      aligned.frames.map((f: { at: number }) => f.at),
+      [0.9, 1.2, 1.6],
+    )
+    assert.equal(aligned.offset.found, null)
+    assert.equal(aligned.offset.why, 'the times are not evenly spaced')
+    await assert.rejects(call('still', { times: [0], offset: 1 }), /offset goes with compare_file/)
+    await assert.rejects(
+      call('still', { compare_file: 'out/late.mp4', variants: ['main', 'large'] }),
+      /give variant, not variants/,
+    )
+    await assert.rejects(call('still', { compare_file: '../x.mp4' }), /outside the project/)
+  } finally {
+    await close()
+  }
+})
+
 test("render of a job renders the job's frozen delivery, not a default mp4", {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {

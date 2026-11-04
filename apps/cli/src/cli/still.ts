@@ -11,6 +11,7 @@ import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parseRendering, timesOf } from './args.ts'
 import { clockWarning } from './clock.ts'
+import { compareWithFile, frameLine, summaryLines } from './compare-file.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { EXIT } from './findings.ts'
 import { direct, eachVariant, nameOf, type Output } from './variants.ts'
@@ -106,11 +107,31 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       object: { type: 'string' },
       scale: { type: 'string' },
       compare: { type: 'string' },
+      'compare-file': { type: 'string' },
+      offset: { type: 'string' },
+      'max-shift': { type: 'string' },
+      floor: { type: 'string' },
       json: { type: 'boolean' },
       variants: { type: 'string' },
     },
     { command: 'still', times: true },
   )
+  const against = values['compare-file']
+  if (against === undefined)
+    for (const flag of ['offset', 'max-shift', 'floor'] as const)
+      if (values[flag] !== undefined)
+        throw new Error(`--${flag} goes with --compare-file <video>: give it too.`)
+  if (against !== undefined) {
+    for (const flag of ['file', 'compare', 'object', 'diff', 'scale'] as const)
+      if (values[flag] !== undefined)
+        throw new Error(
+          `--${flag} is not for --compare-file, which measures the film against a clip.`,
+        )
+    return eachVariant(values, (v, out) => stillCompareFile(against, v, times, out), {
+      json: values.json === true,
+      one: '--compare-file measures one variant against the clip: give one --variant with it.',
+    })
+  }
   if (values.file !== undefined) return stillFile(values.file, values, times)
   // Several variants with --sheet: each one's frames, for one sheet of them side by side.
   const kept: (VariantFrames & { outDir: string })[] = []
@@ -169,6 +190,7 @@ export const openFile = (file: string) => {
   return {
     width,
     height,
+    fps,
     duration: frames / fps,
     frame: (t: number) => reader.frame(Math.min(frames - 1, Math.floor(t * fps + 1e-6))),
     close: () => reader.dispose(),
@@ -236,6 +258,111 @@ const stillFile = async (
     return EXIT.ok
   } finally {
     await video.close()
+  }
+}
+
+/** A number flag, or undefined when not given; throws naming the flag when it is not a number. */
+const numberOf = (flag: string, value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined
+  const n = Number(value)
+  if (value.trim() === '' || !Number.isFinite(n))
+    throw new Error(`--${flag} is a number, not ${value}.`)
+  return n
+}
+
+/**
+ * `still --compare-file <video>`: the film's final frames measured against a reference clip's at
+ * the same times (compareWithFile), each time's film, reference and difference side by side in
+ * `<variant>-vs-<clip>-<t>.png`, and with --sheet a sheet of them. Exit 0 unless an input is bad.
+ */
+const stillCompareFile = async (
+  file: string,
+  v: Parameters<typeof open>[0] & {
+    every?: string
+    count?: string
+    from?: string
+    to?: string
+    sheet?: boolean
+    columns?: string
+    out?: string
+    region?: string
+    offset?: string
+    'max-shift'?: string
+    floor?: string
+    json?: boolean
+  },
+  given: readonly number[],
+  out: Output,
+): Promise<number> => {
+  const columns = v.columns === undefined ? 1 : columnsOf(v)
+  const reference = resolve(file)
+  const { project, child } = await open(v)
+  try {
+    const { width, height, duration } = project.manifest
+    // Times asked for as still takes them; none for the clip's frames over --from–--to.
+    const asked = given.length > 0 || v.every !== undefined || v.count !== undefined
+    const times = asked
+      ? stillTimes(given, v.every === undefined ? undefined : Number(v.every), duration, spanOf(v))
+      : []
+    const variant = typeof v.variant === 'string' ? v.variant : 'main'
+    const outDir = v.out ? resolve(v.out) : join(project.root, 'out', 'stills')
+    mkdirSync(outDir, { recursive: true })
+    const pair = `${safeName(variant)}-vs-${safeName(basename(reference, extname(reference)))}`
+    const pngs = pngWriter()
+    const files: string[] = []
+    const shown: { t: number; label: string; pixels: Uint8Array }[] = []
+    let size = { width, height }
+    const label = `${variant} | ${basename(reference)} | difference`
+    const maxShift = numberOf('max-shift', v['max-shift'])
+    const from = asked ? undefined : numberOf('from', v.from)
+    const to = asked ? undefined : numberOf('to', v.to)
+    const offset = numberOf('offset', v.offset)
+    const floor = numberOf('floor', v.floor)
+    const report = await compareWithFile({
+      reference,
+      film: {
+        width,
+        height,
+        duration,
+        render: async (t) => (await child.render(t, 'final')).pixels,
+      },
+      times,
+      ...(from === undefined ? {} : { from }),
+      ...(to === undefined ? {} : { to }),
+      ...(offset === undefined ? {} : { offset }),
+      ...(maxShift === undefined ? {} : { maxShift }),
+      ...(floor === undefined ? {} : { floor }),
+      ...(v.region ? { region: parseRegion(v.region) } : {}),
+      frame: async (f) => {
+        const name = join(outDir, `${pair}-${f.t.toFixed(3)}.png`)
+        await pngs.write(name, toPng(f.pixels, f.width, f.height))
+        files.push(name)
+        size = { width: f.width, height: f.height }
+        if (v.sheet) shown.push({ t: f.t, label, pixels: f.pixels })
+      },
+    })
+    const sheet = v.sheet ? join(outDir, `${pair}-sheet.png`) : undefined
+    if (sheet) {
+      await pngs.write(sheet, contactSheet(shown, size.width, size.height, columns))
+      activityImage(sheet)
+    }
+    await pngs.done()
+    const frames = report.frames.map((f, i) => ({ ...f, file: files[i] as string }))
+    const warning = clockWarning(await child.clock())
+    if (warning) out.found({ code: 'clock', severity: 'warning', message: warning })
+    if (v.json) {
+      // PSNR of identical frames is Infinity, which JSON writes as null.
+      out.result({ ...report, frames, ...(sheet ? { sheet } : {}) })
+      return EXIT.ok
+    }
+    const at = (f: string) => relative(process.cwd(), f)
+    for (const f of frames) out.log(`${at(f.file)}  ${frameLine(f)}`)
+    if (sheet) out.log(at(sheet))
+    for (const line of summaryLines(report)) out.log(line)
+    if (warning) out.log(`! ${warning}`)
+    return EXIT.ok
+  } finally {
+    await child.close()
   }
 }
 
