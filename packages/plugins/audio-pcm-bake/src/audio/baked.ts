@@ -1,6 +1,7 @@
 // A bed baked by tools/pcm-bake.ts, checked against what made it before the film plays it: the
-// stamp beside the file (shaderera.analysis/1, kind "pcm-bake") records the module's and every
-// listed input's sha256, the seed, the duration and the file's own sha256. Read in `open`.
+// stamp beside the file (shaderera.analysis/1, kind "pcm-bake") records the sha256 of the module,
+// of every project file it imported and of every listed input, the seed, the duration and the
+// file's own sha256. Read in `open`.
 
 import { type Host, sha256 } from '@shaderera/core'
 
@@ -17,7 +18,9 @@ export type Baked = {
   params: { export: string; seed: number; duration: number; bitrate: string | null }
   /** The command that made it, to run again. */
   command: string
-  /** The other files listed with --inputs. */
+  /** Every project file the module imported, at any depth, outside node_modules. */
+  imports: File[]
+  /** The files listed with --inputs: what the module reads itself. */
   inputs: File[]
   output: File & { seconds: number; sampleRate: number; channels: number; peak: number }
 }
@@ -40,7 +43,7 @@ export const loadBaked = async (host: Host, path: string): Promise<string> => {
   if (doc.format !== 'shaderera.analysis/1' || doc.kind !== 'pcm-bake')
     throw new Error(`${stamp} is not a shaderera.analysis/1 pcm-bake stamp; bake ${path} again`)
   const again = `; run ${doc.command} again`
-  for (const f of [doc.source, ...doc.inputs])
+  for (const f of [doc.source, ...doc.imports, ...doc.inputs])
     if ((await sha256(await host.io.read(f.path))) !== f.sha256)
       throw new Error(`${path} was baked from other bytes than ${f.path}${again}`)
   if (doc.params.seed !== host.seed)

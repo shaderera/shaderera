@@ -29,15 +29,18 @@ the stamp keeps that file honest: a film never plays music its code no longer ma
   channels or unequal lengths, and then writes nothing. It prints the peak, and says so over 1.
 - `--bitrate` is ffmpeg's `-b:a` (`160k`, `192k`); ffmpeg's own default when left out.
 - **The stamp**, `<name>.stamp.json` beside the file, is a `shaderera.analysis/1` artifact of kind
-  `pcm-bake` (see `docs/analysis.md`): the module as its `source`, every `--inputs` file, the
-  seed, the duration, the output's path, bytes, sha256 and peak, and the command that made it.
-- **`loadBaked`** reads the stamp through `host.io.read` and refuses a file whose module or listed
-  input has other bytes, whose seed is not `host.seed`, whose duration is not the film's, or whose
-  own bytes changed, naming the command to run again. It returns the `src` for a clip.
+  `pcm-bake` (see `docs/analysis.md`): the module as its `source`; as `imports`, every project
+  file the module imported at any depth (a shared synth, `audio-pcm-mix`, `audio-filters`),
+  outside `node_modules`, as the tool loaded it; every `--inputs` file; the seed, the duration, the
+  output's path, bytes, sha256 and peak, and the command that made it.
+- **`loadBaked`** reads the stamp through `host.io.read` and refuses a file whose module, imported
+  file or listed input has other bytes, whose seed is not `host.seed`, whose duration is not the
+  film's, or whose own bytes changed, naming the command to run again. It returns the `src` for a
+  clip.
 
-**Limit:** only the module and the `--inputs` files are checked. A file the module imports (a
-shared synth, a table of notes) or reads that `--inputs` does not list is not: list it, or a change
-to it plays the old file without a word.
+**Limit:** imports are found by running them, but a file the module reads itself (`readFileSync`,
+`fetch`) is not seen: list it with `--inputs`, or a change to it plays the old file without a
+word. Packages in `node_modules` are not checked; the lockfile pins them.
 
 Run it from the project root, with the module, the inputs and the output inside the project.
 Needs ffmpeg on PATH.

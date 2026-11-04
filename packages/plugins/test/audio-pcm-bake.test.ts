@@ -38,6 +38,7 @@ const LEVEL = 0.03
 
 /** A stereo tone at the pitch data/tone.json names, its phase from the seed; and one that breaks. */
 const MODULE = `import { readFileSync } from 'node:fs'
+import { pan } from './pan.ts'
 export const tone = (duration, seed) => {
   const { hz } = JSON.parse(readFileSync('data/tone.json', 'utf8'))
   const n = Math.round(duration * ${RATE})
@@ -45,7 +46,7 @@ export const tone = (duration, seed) => {
   const r = new Float32Array(n)
   for (let i = 0; i < n; i++) {
     l[i] = ${LEVEL} * Math.sin(2 * Math.PI * hz * i / ${RATE} + seed)
-    r[i] = l[i] * 0.5
+    r[i] = l[i] * pan
   }
   return { sampleRate: ${RATE}, channels: [l, r] }
 }
@@ -55,6 +56,9 @@ export const broken = (duration) => {
   return { sampleRate: ${RATE}, channels: [c] }
 }
 `
+
+/** A file the module imports and --inputs never names: stamped all the same. */
+const PAN = 'export const pan = 0.5\n'
 
 const bake = (...args: string[]) =>
   spawnSync(process.execPath, [join(project, 'tools', 'pcm-bake.ts'), ...args], {
@@ -105,7 +109,24 @@ test('audio-pcm-bake: the tool bakes a module, and open refuses a changed seed, 
   mkdirSync(join(project, 'src', 'music'), { recursive: true })
   mkdirSync(join(project, 'data'), { recursive: true })
   writeFileSync(join(project, 'src', 'music', 'tone.ts'), MODULE)
+  writeFileSync(join(project, 'src', 'music', 'pan.ts'), PAN)
   writeFileSync(join(project, 'data', 'tone.json'), JSON.stringify({ hz: 220 }))
+
+  // Mistakes in the command are named, without a stack trace.
+  const help = bake('--help')
+  assert.equal(help.status, 0)
+  assert.match(help.stdout, /^Usage: node tools\/pcm-bake\.ts/)
+  const missing = bake('src/music/none.ts', '--out', 'assets/music/x.m4a')
+  assert.equal(missing.status, 2)
+  assert.equal(missing.stderr.trim(), 'src/music/none.ts not found')
+  const noInput = bake('src/music/tone.ts', '--out', 'assets/music/x.m4a', '--inputs', 'none.json')
+  assert.equal(noInput.stderr.trim(), 'none.json not found')
+  const wav = bake('src/music/tone.ts', '--out', 'assets/music/x.wav')
+  assert.equal(wav.status, 2)
+  assert.match(wav.stderr, /^--out assets\/music\/x\.wav must end in \.m4a/)
+  const unknown = bake('src/music/tone.ts', '--out', 'assets/music/x.m4a', '--bogus')
+  assert.equal(unknown.status, 2)
+  assert.doesNotMatch(unknown.stderr, /\n\s+at /)
 
   const nan = bake('src/music/tone.ts', '--out', 'assets/music/broken.m4a', '--export', 'broken')
   assert.equal(nan.status, 2)
@@ -126,6 +147,10 @@ test('audio-pcm-bake: the tool bakes a module, and open refuses a changed seed, 
   assert.deepEqual(
     stamp.inputs.map((f: { path: string }) => f.path),
     ['data/tone.json'],
+  )
+  assert.deepEqual(
+    stamp.imports.map((f: { path: string }) => f.path),
+    ['src/music/pan.ts'],
   )
   assert.deepEqual(
     { seed: stamp.params.seed, duration: stamp.params.duration, channels: stamp.output.channels },
@@ -164,6 +189,9 @@ test('audio-pcm-bake: the tool bakes a module, and open refuses a changed seed, 
   files.clear()
   files.set('src/music/tone.ts', new TextEncoder().encode(`${MODULE}\n`))
   await assert.rejects(loadBaked(hostOf(files), path), /other bytes than src\/music\/tone\.ts/)
+  files.clear()
+  files.set('src/music/pan.ts', new TextEncoder().encode('export const pan = 0.6\n'))
+  await assert.rejects(loadBaked(hostOf(files), path), /other bytes than src\/music\/pan\.ts/)
   files.clear()
   files.set(path, new Uint8Array([...readFileSync(join(project, path)), 0]))
   await assert.rejects(loadBaked(hostOf(files), path), /is not the file baked/)
