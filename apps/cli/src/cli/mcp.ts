@@ -41,7 +41,7 @@ import { track } from '../review/timing.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { DRAFT_HEIGHT, insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
-import { compareWithFile } from './compare-file.ts'
+import { compareWithFile, onSheet } from './compare-file.ts'
 import { isImage } from './compare-image.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { errorFinding } from './findings.ts'
@@ -49,8 +49,9 @@ import { valueAt } from './inspect.ts'
 import { studios } from './mcp-studio.ts'
 import { exportVideo, extensionOf } from './render.ts'
 import { revisionHosts } from './revision-host.ts'
-import { openFile, stillTimes } from './still.ts'
+import { stillTimes } from './still.ts'
 import { nameOf, sameAsMain, variantList } from './variants.ts'
+import { openFile } from './video-file.ts'
 
 type Obj = { [k: string]: Json }
 type Found = { path: string; value: Obj }
@@ -849,13 +850,7 @@ export const createServer = (
       ...(regions ? { regions, within: root } : {}),
       frame: async (f) => {
         size = { width: f.width, height: f.height }
-        // Every one when they fit, else SHEET spread evenly from the first to the last.
-        const keep =
-          f.count <= SHEET ||
-          Array.from({ length: SHEET }, (_, k) =>
-            Math.round((k * (f.count - 1)) / (SHEET - 1)),
-          ).includes(f.index)
-        if (keep) sheet.push({ t: f.t, label, pixels: f.pixels })
+        if (onSheet(f.index, f.count, SHEET)) sheet.push({ t: f.t, label, pixels: f.pixels })
       },
     })
     const png = await contactSheet(sheet, size.width, size.height, 1)

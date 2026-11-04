@@ -140,6 +140,39 @@ export const probeVideo = (file: string): VideoInfo => {
 }
 
 /**
+ * The presentation times, in seconds and ascending, of a video's first stream's frames, from its
+ * packets (ffprobe, decoding nothing); a packet an edit list discards is left out, and one without
+ * a time is `null`.
+ */
+export const packetTimes = (file: string): (number | null)[] => {
+  const r = spawnSync(
+    'ffprobe',
+    [
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'packet=pts_time,flags',
+      '-of',
+      'csv=p=0',
+      file,
+    ],
+    { encoding: 'utf8', maxBuffer: 1 << 28 },
+  )
+  if (r.error) throw new Error(`ffprobe is needed to read ${file}: ${r.error.message}`)
+  if (r.status !== 0) throw new Error(`ffprobe cannot read ${file}: ${r.stderr.trim()}`)
+  const times: (number | null)[] = []
+  for (const line of r.stdout.split('\n')) {
+    const [pts, flags] = line.trim().split(',')
+    if (!pts || flags?.includes('D')) continue
+    const t = Number(pts)
+    times.push(pts === 'N/A' || !Number.isFinite(t) ? null : t)
+  }
+  return times.some((t) => t === null) ? times : (times as number[]).sort((a, b) => a - b)
+}
+
+/**
  * The longest keyframe gap, in seconds, of each clip file a decoder of this process read the
  * packets of to seek (decoder.ts, keyGap): `check` notes the long ones.
  */

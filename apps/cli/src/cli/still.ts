@@ -2,7 +2,6 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
-import { videoReader } from '../node/services.ts'
 import { activityImage } from '../project/activity.ts'
 import { safeName } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
@@ -11,11 +10,12 @@ import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parseRendering, timesOf } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { compareWithFile, frameLine, summaryLines } from './compare-file.ts'
+import { compareWithFile, frameLine, onSheet, summaryLines } from './compare-file.ts'
 import { imageFrameLines, imageSummaryLines, isImage } from './compare-image.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { EXIT } from './findings.ts'
 import { direct, eachVariant, nameOf, type Output } from './variants.ts'
+import { openFile } from './video-file.ts'
 
 /** `--count n [--from s] [--to s]`: n times evenly from `from` (0) up to before `to` (the end). */
 export type Span = { count: number; from?: number; to?: number }
@@ -184,26 +184,6 @@ const columnsOf = (v: { columns?: string; sheet?: boolean }): number => {
   return n
 }
 
-/**
- * A rendered file, read as `io.video` reads a clip: its size and length, and the frame shown at
- * each t (the frame whose time is the last at or before t).
- */
-export const openFile = (file: string) => {
-  const reader = videoReader(file)
-  const { width, height, fps, frames } = reader.info
-  return {
-    width,
-    height,
-    fps,
-    frames,
-    duration: frames / fps,
-    frame: (t: number) => reader.frame(Math.min(frames - 1, Math.floor(t * fps + 1e-6))),
-    /** Frame i, 0 to frames - 1. */
-    index: (i: number) => reader.frame(i),
-    close: () => reader.dispose(),
-  }
-}
-
 /** The flags `still --file` refuses: they render the source, which a file is not. */
 const SOURCE_ONLY = ['variant', 'variants', 'compare', 'region', 'object', 'diff', 'param'] as const
 
@@ -351,7 +331,8 @@ const stillCompareFile = async (
         await pngs.write(name, toPng(f.pixels, f.width, f.height))
         files.push(name)
         size = { width: f.width, height: f.height }
-        if (v.sheet) shown.push({ t: f.t, label, pixels: f.pixels })
+        // Every time has its PNG; the sheet holds at most SHEET_ROWS of them, spread evenly.
+        if (v.sheet && onSheet(f.index, f.count)) shown.push({ t: f.t, label, pixels: f.pixels })
       },
     })
     const sheet = v.sheet ? join(outDir, `${pair}-sheet.png`) : undefined
