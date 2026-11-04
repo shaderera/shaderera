@@ -33,26 +33,31 @@
 // - An animation first seen while frozen starts at 0, not at its real currentTime, and a sync runs
 //   after each timer and each animation frame's callbacks, and again once the promise
 //   continuations and MessageChannel tasks they queued have run (motion's WAAPI handoff, React's
-//   scheduler), so an animation is caught on the virtual time it started. Input is not dispatched
-//   yet (the trigger is the load); whatever dispatches it later must call sync() after each input.
-// - rAF tick n falls at t0 + n * 1000 / rafHz, counted by index from the freeze, and a tick due at
+//   scheduler), so an animation is caught on the virtual time it started. The capture dispatches
+//   input over CDP between advances and then calls afterInput(), which lets the browser deliver it
+//   and syncs, so an animation the input started is caught at the input's time too.
+// - rAF tick n falls at the freeze + n * 1000 / rafHz, counted by index from it, and a tick due at
 //   the target runs: added-up steps drifted past a frame's time, and JS trailed CSS by a tick.
-// - Frozen from the start, with no free mode; advanceTo takes time from the freeze, and a page
-//   that schedules without end is refused, not cut short. The global is __shadereraClock.
+// - Frozen from the start, or (CFG.free) run on real time until the load event and frozen there,
+//   on a whole millisecond. Either way timers and frames stay in the clock's own queue; before the
+//   freeze a driver advances it to the real time since the first script. advanceTo takes time
+//   from the freeze, rAF ticks are counted from it, and a page that schedules without end is
+//   refused, not cut short. The global is __shadereraClock.
 // - The page's time starts at constants, never at the real time of the injection: at the freeze,
 //   performance.now, rAF timestamps, Event.timeStamp and document.timeline read CFG.timeOrigin
 //   (ms), and Date reads CFG.epoch (ms since 1970). A page that reads absolute time gets the same
-//   values on every run.
+//   values on every run. Frozen at the load event, they read those plus the time the load took.
 //
 // What it holds: Math.random (seeded, mulberry32), performance.now, Date, setTimeout and
 // setInterval (with the 4 ms clamp on nested timers), requestIdleCallback, requestAnimationFrame,
 // Event.timeStamp, document.timeline.currentTime, every CSS and Web Animations API animation on the
-// document timeline, and <video>. What it does not: workers, iframes, scroll and view timelines,
-// AudioContext, requestVideoFrameCallback, Temporal, crypto.getRandomValues, GIF and APNG frames.
+// document timeline, and <video>. What it does not: workers, iframes, scroll and view timelines
+// (they follow the scroll, which only the capture's input moves), AudioContext,
+// requestVideoFrameCallback, Temporal, crypto.getRandomValues, GIF and APNG frames.
 ;(function install(CFG) {
   const w = self
   if (w.__shadereraClock) return
-  const VERSION = '2'
+  const VERSION = '3'
 
   let seed = CFG.seed >>> 0 || 1
   Math.random = function random() {
@@ -68,6 +73,7 @@
     perfNow: performance.now.bind(performance),
     Date: Date,
     setTimeout: w.setTimeout.bind(w),
+    addEventListener: w.addEventListener.bind(w),
   }
   const tsDesc = Object.getOwnPropertyDescriptor(Event.prototype, 'timeStamp')
   const tlDesc =
@@ -78,6 +84,11 @@
   const t0 = Math.round(Number(CFG.timeOrigin) || 0)
   const st = {
     now: t0,
+    // The freeze: where advanceTo, rAF ticks and startOf count from.
+    base: t0,
+    free: Boolean(CFG.free),
+    // Bumped at the freeze, so an advance the driver has under way stops where it is.
+    gen: 0,
     dateOffset: Math.round(Number(CFG.epoch) || 0) - t0,
     nextId: 1,
     seq: 0,
@@ -88,11 +99,13 @@
     tickN: 1,
     anims: new Map(),
     started: new WeakMap(),
+    // Each animation in the order first seen, until the capture takes them (drain()).
+    fresh: [],
     frames: 0,
     keeper: 0,
   }
   // Fix 3: tick n is counted from the freeze, never added up.
-  const nextTick = () => t0 + st.tickN * st.tick
+  const nextTick = () => st.base + st.tickN * st.tick
 
   const call = (cb, args) => {
     try {
@@ -186,7 +199,10 @@
         if (!rec && a.playState !== 'running') continue // paused or finished by the page
         // Fix 2: first seen while frozen, it starts at 0.
         rec = { base: rec ? a.currentTime || 0 : 0, v0: st.now }
-        if (!st.started.has(a)) st.started.set(a, st.now - t0)
+        if (!st.started.has(a)) {
+          st.started.set(a, st.now)
+          st.fresh.push(a)
+        }
         st.anims.set(a, rec)
         try {
           a.pause()
@@ -247,6 +263,10 @@
   const keeper = () => {
     syncAnims()
     st.keeper = N.raf(keeper)
+  }
+  const startKeeper = () => {
+    N.caf(st.keeper)
+    keeper()
   }
 
   // ---------- time sources ----------
@@ -321,18 +341,17 @@
       mc.port2.postMessage(0)
     })
 
-  /**
-   * Runs timers and frames in time order up to `ms` after the freeze, yielding a task between
-   * callbacks so promise chains and MessageChannel schedulers (React) keep up. Returns the time
-   * after the freeze, in ms.
-   */
-  const advanceTo = async (ms) => {
-    const target = t0 + ms
-    if (!(target >= st.now)) throw new Error(`the clock is at ${st.now - t0} ms, not before ${ms}`)
+  // Runs timers and frames in time order up to `target` (absolute), yielding a task between
+  // callbacks so promise chains and MessageChannel schedulers (React) keep up. The freeze stops
+  // it where it is.
+  const advance = async (target) => {
+    const gen = st.gen
     N.caf(st.keeper)
-    for (let guard = 0; ; guard++) {
+    for (let guard = 0; st.gen === gen; guard++) {
       if (guard === 200000)
-        throw new Error(`the page scheduled 200000 callbacks before ${ms} ms: it never settles`)
+        throw new Error(
+          `the page scheduled 200000 callbacks before ${target - st.base} ms: it never settles`,
+        )
       let next = null
       for (const t of st.timers.values())
         if (!next || t.due < next.due || (t.due === next.due && t.seq < next.seq)) next = t
@@ -351,11 +370,62 @@
       // Fix 2: and one a promise or a MessageChannel task started after it, before time moves on.
       syncAnims()
     }
-    st.now = target
+    if (st.gen === gen) st.now = target
     syncAnims()
     syncVideos()
-    keeper()
-    return st.now - t0
+    startKeeper()
+  }
+
+  /** Runs timers and frames up to `ms` after the freeze. Returns the time after it, in ms. */
+  const advanceTo = async (ms) => {
+    if (st.free) throw new Error('the clock runs on real time until the load event')
+    const target = st.base + ms
+    if (!(target >= st.now))
+      throw new Error(`the clock is at ${st.now - st.base} ms, not before ${ms}`)
+    await advance(target)
+    return st.now - st.base
+  }
+
+  // With CFG.free, before the freeze: the clock follows real time from the first script, on
+  // whole milliseconds, until the load event freezes it.
+  const realStart = N.perfNow()
+  let freezing = null
+  const freeze = () => {
+    if (!st.free) return
+    st.free = false
+    st.gen++
+    // On a whole millisecond (fix 1), and ticks are counted again from here (fix 3).
+    st.now = Math.ceil(st.now - 1e-6)
+    st.base = st.now
+    st.tickN = 1
+    syncAnims()
+  }
+  if (st.free) {
+    freezing = (async () => {
+      while (st.free) {
+        const target = t0 + Math.floor(N.perfNow() - realStart)
+        if (target > st.now) await advance(target)
+        if (st.free) await new Promise((r) => N.setTimeout(r, 1))
+      }
+    })()
+    // The first load listener: the page's own run frozen, as they do when frozen from the start.
+    N.addEventListener('load', freeze, { once: true, capture: true })
+  }
+
+  // After the capture dispatched input: the browser delivers it, a scroll lands (the position is
+  // the same on two frames running), and animations it started are caught at this time.
+  const nativeFrame = () => new Promise((r) => N.raf(() => r()))
+  const afterInput = async () => {
+    let last = ''
+    for (let calm = 0, i = 0; calm < 2 && i < 120; i++) {
+      await nativeFrame()
+      const at = `${w.scrollX} ${w.scrollY}`
+      calm = at === last ? calm + 1 : 0
+      last = at
+    }
+    await yieldTask()
+    syncAnims()
+    return st.now - st.base
   }
 
   syncAnims()
@@ -367,15 +437,23 @@
     timeOrigin: t0,
     epoch: st.dateOffset + t0,
     advanceTo,
+    afterInput,
     busy,
+    /** Once frozen: how long after the first script the freeze came, in ms (0 unless CFG.free). */
+    frozen: async () => {
+      await freezing
+      return st.base - t0
+    },
     /** When an animation was first seen, in ms after the freeze, or null if it never was. */
-    startOf: (a) => st.started.get(a) ?? null,
+    startOf: (a) => (st.started.has(a) ? st.started.get(a) - st.base : null),
+    /** The animations first seen since the last call, in the order they were seen. */
+    drain: () => st.fresh.splice(0),
     sync: () => {
       syncAnims()
-      return st.now - t0
+      return st.now - st.base
     },
     state: () => ({
-      now: st.now - t0,
+      now: st.now - st.base,
       timers: st.timers.size,
       rafs: st.rafs.size,
       frames: st.frames,

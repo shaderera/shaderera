@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  Motion linked to the scroll: the page is 3000 px tall in a 400 px viewport. #js follows scrollY
+  from a scroll listener (translateX = scrollY / 2); #css grows on a CSS scroll timeline of the
+  root (scaleX 1 to 3 across the whole scroll range, linear); #sticky is position: fixed, so its
+  box stays put; #inline moves with the page.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; height: 3000px; background: #000 }
+  .box { position: fixed; left: 20px; width: 40px; height: 40px; background: #fff }
+  #js { top: 20px } #sticky { top: 140px }
+  #css {
+    top: 80px; transform-origin: 0 0;
+    animation: grow linear both; animation-timeline: scroll(root block)
+  }
+  @keyframes grow { from { scale: 1 1 } to { scale: 3 1 } }
+  #inline { position: absolute; left: 200px; top: 100px; width: 40px; height: 40px; background: #fff }
+</style>
+<div class="box" id="js"></div>
+<div class="box" id="css"></div>
+<div class="box" id="sticky"></div>
+<div id="inline"></div>
+<script>
+  const js = document.getElementById('js')
+  addEventListener('scroll', () => (js.style.transform = `translateX(${scrollY / 2}px)`))
+</script>

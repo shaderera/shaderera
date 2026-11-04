@@ -4,9 +4,13 @@
 // clocks and clamps by hand, and add CSS, Web Animations, absolute time and animations started
 // off a timer. Two captures give the same bytes, but for source.date; a capture under 6x CPU
 // throttling gives the same bytes as one without; with rafHz equal to the fps, a JS linear move
-// on GSAP's ticker matches a CSS one within 0.5 ms. A page that reaches for this machine is
-// refused without --allow-local, and the local server sees nothing; with it, each response is
-// hashed as served. Skipped, with the reason, when there is no Chrome.
+// on GSAP's ticker matches a CSS one within 0.5 ms. A click at 500 ms starts a CSS transition and
+// motion's animate() on the first frame after it, the transition on its cubic-bezier within
+// 0.001 px; hover, leave and scroll capture the same at any speed, scroll against scrollY; the
+// declared animations keep their keyframes and easing strings; --settle loaded runs the load on
+// real time. A page that reaches for this machine is refused without --allow-local, and the local
+// server sees nothing; with it, each response is hashed as served. Skipped, with the reason, when
+// there is no Chrome.
 
 import assert from 'node:assert/strict'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -51,7 +55,7 @@ const fixture = (name: string) => join(import.meta.dirname, 'web-capture', name)
 // Each library page with its bundle beside it, built once.
 const libraries = join(project, 'libraries')
 mkdirSync(libraries, { recursive: true })
-for (const name of ['gsap', 'motion', 'spring']) {
+for (const name of ['gsap', 'motion', 'spring', 'click']) {
   cpSync(fixture(`libraries/${name}.html`), join(libraries, `${name}.html`))
   await build({
     entryPoints: [fixture(`libraries/${name}.js`)],
@@ -88,10 +92,10 @@ const samplesOf = (json: string, element: string, channel: string) =>
     ?.samples ?? []) as [number, number | null][]
 
 /** The same page captured plainly, again, and at 6x CPU throttling: the same bytes each time. */
-const sameEveryTime = async (page: string, trackList: string[]) => {
-  const first = await capture({ page, track: trackList })
-  const again = await capture({ page, track: trackList })
-  const slow = await capture({ page, track: trackList, cpuThrottle: 6 })
+const sameEveryTime = async (page: string, trackList: string[], more: Partial<Options> = {}) => {
+  const first = await capture({ page, track: trackList, ...more })
+  const again = await capture({ page, track: trackList, ...more })
+  const slow = await capture({ page, track: trackList, ...more, cpuThrottle: 6 })
   assert.equal(undated(again), undated(first), 'a repeat gives the same bytes')
   assert.equal(undated(slow), undated(first), 'a 6x throttled capture gives the same bytes')
   return first
@@ -271,6 +275,285 @@ test('with rafHz equal to the fps, a JS linear move matches a CSS one within 0.5
     })
     assert.ok(worst <= 0.5, `${fps} fps, rafHz ${rafHz}: JS is ${worst.toFixed(3)} ms off CSS`)
     assert.equal(css.find(([t]) => t === 1)?.[1], 300)
+  }
+})
+
+/** A CSS cubic-bezier(x1, y1, x2, y2) at progress p, solved by bisection to the last bit. */
+const cubicBezier = (x1: number, y1: number, x2: number, y2: number) => (p: number) => {
+  const at = (a: number, b: number, s: number) =>
+    3 * (1 - s) ** 2 * s * a + 3 * (1 - s) * s ** 2 * b + s ** 3
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2
+    if (at(x1, x2, mid) < p) lo = mid
+    else hi = mid
+  }
+  return at(y1, y2, (lo + hi) / 2)
+}
+
+test("a click at 500 ms starts a CSS transition and motion's animate() on the first frame after it", {
+  skip,
+}, async () => {
+  const json = await sameEveryTime(library('click'), ['#css', '#motion', '#fade'], {
+    trigger: 'click',
+    target: '#button',
+    at: 500,
+  })
+  const doc = JSON.parse(json) as Doc
+  assert.deepEqual(doc.params.trigger, {
+    type: 'click',
+    target: '#button',
+    at: 500,
+    pointer: { x: 660, y: 330 },
+  })
+  assert.equal(doc.params.settle, 'load')
+  for (const el of ['#css', '#motion']) {
+    const x = samplesOf(json, el, 'translateX')
+    // Frame k is at k / 30 s: the click is on frame 15, and the motion shows on frame 16.
+    assert.ok(
+      x.slice(0, 16).every(([, v]) => v === 0),
+      `${el} is still until the click`,
+    )
+    assert.ok((x[16]?.[1] as number) > 0, `${el} moves on the first frame after the click`)
+    assert.equal(x.at(-1)?.[1], 300)
+  }
+  // The transition is its cubic-bezier from the click, within 0.001 px at every frame.
+  const ease = cubicBezier(0.3, 0, 0.2, 1)
+  let worst = 0
+  samplesOf(json, '#css', 'translateX').forEach(([, v], k) => {
+    const p = Math.min(1, Math.max(0, (k / 30 - 0.5) / 1))
+    worst = Math.max(worst, Math.abs((v as number) - 300 * ease(p)))
+  })
+  assert.ok(worst <= 0.001, `the transition is ${worst} px off its cubic-bezier`)
+  const transition = doc.declared.find((d) => d.element === '#css')
+  assert.equal(transition?.type, 'css-transition')
+  assert.equal(transition?.start, 0.5)
+  assert.equal(
+    (transition?.timing as { easing?: string } | undefined)?.easing,
+    'cubic-bezier(0.3, 0, 0.2, 1)',
+  )
+  // motion hands its fade to the Web Animations API on its next frame, the first after the click.
+  const fade = doc.declared.find((d) => d.element === '#fade')
+  assert.equal(fade?.type, 'web-animation')
+  assert.ok(
+    Math.abs((fade?.start as number) - 16 / 30) < 1e-9,
+    `the fade started at ${fade?.start}`,
+  )
+  assert.deepEqual(doc.limits, [])
+})
+
+test('declared holds the keyframes, timing and easing strings as the page wrote them', {
+  skip,
+}, async () => {
+  const doc = JSON.parse(
+    await capture({ page: fixture('declared.html'), track: ['#css', '#waapi'], duration: 0.3 }),
+  ) as Doc
+  const of = (element: string) => doc.declared.filter((d) => d.element === element)
+  const [css] = of('#css')
+  assert.equal(of('#css').length, 1, 'each animation once')
+  assert.equal(css?.type, 'css-animation')
+  assert.equal(css?.name, 'pulse')
+  assert.deepEqual(css?.timing, {
+    delay: 250,
+    direction: 'alternate',
+    duration: 2000,
+    easing: 'linear',
+    endDelay: 0,
+    fill: 'both',
+    iterationStart: 0,
+    iterations: 3,
+  })
+  // A CSS animation's own timing function is each keyframe's easing until one sets its own.
+  assert.deepEqual(
+    ((css?.keyframes ?? []) as Record<string, unknown>[]).map(({ offset, easing, scale }) => ({
+      offset,
+      easing,
+      scale,
+    })),
+    [
+      { offset: 0, easing: 'steps(4, jump-start)', scale: '1' },
+      { offset: 0.4, easing: 'cubic-bezier(0.1, 0.7, 1, 0.1)', scale: '1.5' },
+      { offset: 1, easing: 'cubic-bezier(0.68, -0.6, 0.32, 1.6)', scale: '1' },
+    ],
+  )
+  const [waapi] = of('#waapi')
+  assert.equal(waapi?.type, 'web-animation')
+  assert.equal(waapi?.id, 'slide')
+  assert.equal(waapi?.start, 0)
+  assert.deepEqual(waapi?.timing, {
+    delay: 100,
+    direction: 'alternate-reverse',
+    duration: 1200,
+    easing: 'cubic-bezier(0.42, 0, 0.58, 1)',
+    endDelay: 50,
+    fill: 'forwards',
+    iterationStart: 0.5,
+    iterations: 'infinite',
+  })
+  assert.deepEqual(waapi?.keyframes, [
+    { composite: 'auto', computedOffset: 0, easing: 'ease-in', offset: null, translate: '0px' },
+    {
+      composite: 'auto',
+      computedOffset: 0.3,
+      easing: 'steps(2, jump-none)',
+      offset: 0.3,
+      translate: '100px',
+    },
+    { composite: 'add', computedOffset: 1, easing: 'linear', offset: null, translate: '200px' },
+  ])
+  // An element no --track names is declared too, named by a selector, with its pseudo-element.
+  const blink = doc.declared.find((d) => d.name === 'blink')
+  assert.equal(blink?.element, '#untracked')
+  assert.equal(blink?.pseudoElement, '::after')
+  assert.equal((blink?.timing as { iterations?: unknown } | undefined)?.iterations, 'infinite')
+})
+
+test('a hover and a leave capture the same at any speed', { skip }, async () => {
+  const card = ['#card', '#badge', '#note']
+  const hover = await sameEveryTime(fixture('hover.html'), card, {
+    trigger: 'hover',
+    target: '#card',
+    at: 300,
+    duration: 1,
+  })
+  const opacity = samplesOf(hover, '#card', 'opacity')
+  assert.equal(opacity.find(([t]) => t === 0.3)?.[1], 0.5, 'the card waits for the pointer')
+  assert.equal(opacity.find(([t]) => t === 0.333333)?.[1], 0.5556)
+  assert.equal(opacity.find(([t]) => t === 0.6)?.[1], 1)
+  assert.equal(samplesOf(hover, '#card', 'translateY').at(-1)?.[1], -20)
+  const hovered = JSON.parse(hover) as Doc
+  assert.deepEqual(hovered.params.trigger, {
+    type: 'hover',
+    target: '#card',
+    at: 300,
+    pointer: { x: 200, y: 160 },
+  })
+  // The mouseenter handler's animation and the timer it set start at their own times.
+  const start = (doc: Doc, element: string) =>
+    doc.declared.filter((d) => d.element === element).map((d) => d.start)
+  assert.deepEqual(start(hovered, '#badge'), [0.3])
+  assert.deepEqual(start(hovered, '#note'), [0.5])
+
+  const leave = await sameEveryTime(fixture('hover.html'), card, {
+    trigger: 'leave',
+    target: '#card',
+    at: 800,
+    duration: 1.5,
+  })
+  const left = JSON.parse(leave) as Doc
+  // Over the card from 0 ms, off it at 800.
+  assert.deepEqual(start(left, '#badge'), [0, 0.8])
+  assert.deepEqual(start(left, '#note'), [0.2, 1])
+  const back = samplesOf(leave, '#card', 'opacity')
+  assert.equal(back.find(([t]) => t === 0.8)?.[1], 1)
+  assert.equal(back.find(([t]) => t === 0.833333)?.[1], 0.9444)
+  assert.equal(back.at(-1)?.[1], 0.5)
+})
+
+test('a scroll is recorded against scrollY and captures the same at any speed', {
+  skip,
+}, async () => {
+  const json = await sameEveryTime(fixture('scroll.html'), ['#js', '#css', '#inline'], {
+    trigger: 'scroll',
+    at: 200,
+    scrollTo: 600,
+    scrollMs: 300,
+    duration: 1,
+  })
+  const doc = JSON.parse(json) as Doc
+  assert.deepEqual(doc.params.trigger, {
+    type: 'scroll',
+    at: 200,
+    scrollTo: 600,
+    scrollMs: 300,
+    pointer: { x: 400, y: 200 },
+  })
+  const y = samplesOf(json, 'window', 'scrollY')
+  assert.ok(
+    y.filter(([t]) => t <= 0.2).every(([, v]) => v === 0),
+    'still until 200 ms',
+  )
+  assert.ok(
+    y.filter(([t]) => t >= 0.5).every(([, v]) => v === 600),
+    'at 600 from 500 ms',
+  )
+  // One wheel event each 1/30 s, on a straight line in whole pixels.
+  assert.deepEqual(
+    y.filter(([t]) => t > 0.2 && t < 0.5).map(([, v]) => v),
+    [67, 133, 200, 267, 333, 400, 467, 533],
+  )
+  assert.ok(samplesOf(json, 'window', 'scrollX').every(([, v]) => v === 0))
+  y.forEach(([t, s], i) => {
+    const sy = s as number
+    assert.equal(samplesOf(json, '#js', 'translateX')[i]?.[1], sy / 2, `the listener at ${t} s`)
+    assert.equal(samplesOf(json, '#inline', 'y')[i]?.[1], 100 - sy, `the page at ${t} s`)
+    const scale = samplesOf(json, '#css', 'scaleX')[i]?.[1] as number
+    assert.ok(Math.abs(scale - (1 + (2 * sy) / 2600)) < 1e-4, `the scroll timeline at ${t} s`)
+  })
+  const timeline = doc.declared.find((d) => d.element === '#css')
+  assert.deepEqual(timeline?.timeline, { type: 'scroll', source: 'window', axis: 'block' })
+  assert.deepEqual(doc.limits, [])
+
+  // A scroll past the page's end is what the page did, and says so.
+  const far = JSON.parse(
+    await capture({
+      page: fixture('scroll.html'),
+      track: ['#js'],
+      trigger: 'scroll',
+      at: 0,
+      scrollTo: 5000,
+      scrollMs: 0,
+      duration: 0.1,
+    }),
+  ) as Doc
+  assert.equal(samplesOf(JSON.stringify(far), 'window', 'scrollY').at(-1)?.[1], 2600)
+  assert.ok(
+    far.limits.some(
+      (l) => l.where === 'window' && /scrolled to 2600, not --scroll-to 5000/.test(l.reason),
+    ),
+  )
+})
+
+test('--settle loaded runs timers on real time until the load event, then freezes', {
+  skip,
+}, async () => {
+  const server = createServer((_req, res) => {
+    setTimeout(() => {
+      res.writeHead(200, { 'content-type': 'text/javascript', 'content-length': 6 })
+      res.end('void 0')
+    }, 300)
+  })
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  const { port } = server.address() as AddressInfo
+  try {
+    const page = `${pathToFileURL(fixture('loaded.html')).href}?port=${port}`
+    const track = ['#early', '#moved', '#late']
+    const frozen = JSON.parse(
+      await capture({ page, track, allowLocal: true, duration: 0.3 }),
+    ) as Doc
+    assert.equal(frozen.params.settle, 'load')
+    assert.equal('loadedAt' in frozen.source, false)
+    const at = (doc: Doc, el: string, t: number) =>
+      samplesOf(JSON.stringify(doc), el, 'translateX').find(([s]) => s === t)?.[1]
+    assert.equal(at(frozen, '#moved', 0), 0, 'frozen from the first script, the timer waits')
+    assert.equal(at(frozen, '#moved', 0.1), 50)
+    assert.equal(frozen.declared.find((d) => d.element === '#early')?.start, 0.05)
+
+    const loaded = JSON.parse(
+      await capture({ page, track, allowLocal: true, duration: 0.3, settle: 'loaded' }),
+    ) as Doc
+    assert.equal(loaded.params.settle, 'loaded')
+    const loadedAt = (loaded.source as { loadedAt?: number }).loadedAt as number
+    assert.ok(loadedAt >= 0.3, `the load took ${loadedAt} s`)
+    assert.equal(at(loaded, '#moved', 0), 50, 'the timers ran while the page loaded')
+    // Time is from the freeze: the fade began before it, the load handler's move at it.
+    const early = loaded.declared.find((d) => d.element === '#early')?.start as number
+    assert.ok(Math.abs(early - (0.05 - loadedAt)) < 0.0015, `the fade began at ${early} s`)
+    assert.equal(loaded.declared.find((d) => d.element === '#late')?.start, 0)
+    assert.equal(at(loaded, '#late', 0.1), 10)
+  } finally {
+    server.close()
   }
 })
 

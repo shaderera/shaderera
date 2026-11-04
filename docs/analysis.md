@@ -81,13 +81,15 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
 
 - `source` is a file or a live page, as [below](#artifact-identity-and-provenance). `params` holds
   every setting that changed the samples: for a page capture the fps, `rafHz`, the seed, what the
-  page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`) and what
-  started the motion (`trigger`).
+  page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`), when it
+  froze them (`settle`) and what started the motion (`trigger`: its `type`, and for an input the
+  element, the time and where the pointer went).
 - `frame`: the source's `width` and `height`, in the unit of its position tracks (CSS pixels for a
   page's viewport, pixels for a clip), and `pixelRatio`, device pixels per CSS pixel (1 for a
   clip).
 - `tracks`: one per element and channel, each pair once.
-  - `element` names it as the analyser does: a CSS selector for a page, a tracker's label.
+  - `element` names it as the analyser does: a CSS selector for a page, a tracker's label. A
+    page's own scroll position is the element `window`, channels `scrollX` and `scrollY`.
   - `channel` is an open set. Common names: `x`, `y`, `width`, `height` (the box as seen, origin
     top-left of the frame, rows downward; for a page, the bounding box after transforms),
     `opacity`, `rotate`, `scaleX`, `scaleY`, `translateX`, `translateY`. Any other channel is named
@@ -99,10 +101,11 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
     taken, never resampled. A value is a number, or `null` where the element was not there.
 - `declared`: what the source itself declared, kept as written, never re-derived from the samples:
   for a page each animation's keyframes, timing and easing string. Each entry names its `element`
-  and its `type` (`css-transition`, `css-animation`, `web-animation`); the rest is the source's,
-  but for `start`: for a page, the source second at which the analyser first saw the animation
-  running, as it observed it (absent when it did not), so its keyframes can be placed in source
-  time.
+  and its `type` (`css-transition`, `css-animation`, `web-animation`); the rest is the source's
+  (a value JSON cannot hold, such as infinite iterations, as the source's own language writes it:
+  `"infinite"`), but for `start`: for a page, the source second at which the analyser first saw
+  the animation running, as it observed it (absent when it did not), so its keyframes can be
+  placed in source time.
 - `limits`: what the analyser could not make exact, each with `where` (an element, a URL, a part
   of the source), `reason`, and `from` and `to` in source seconds when it covers only part of the
   time. An empty list means the analyser found nothing it missed, not that nothing was.

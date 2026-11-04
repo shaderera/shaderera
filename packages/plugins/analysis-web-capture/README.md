@@ -1,9 +1,14 @@
-Capture a web page's motion once, as reference tracks a film reads and copies one to one: each tracked element's box, transform and opacity at every frame, measured in your own Chrome on a clock the capture holds.
+Capture a web page's motion once, as reference tracks a film reads and copies one to one: each tracked element's box, transform and opacity at every frame, measured in your own Chrome on a clock the capture holds, from the load or from a click, hover, leave or scroll sent at a time you give.
 
 ```sh
 node tools/capture-web.ts https://example.com/ --out references/hero \
   --track '.hero h1' --track '.hero .card' --fps 30 --duration 3 --viewport 1280x720
 # writes references/hero/tracks.json
+
+# the menu as it opens on a click at 500 ms
+node tools/capture-web.ts https://example.com/ --out references/menu \
+  --track '.menu' --fps 60 --duration 2 --viewport 1280x720 \
+  --trigger click --target '.menu-button' --at 500
 ```
 
 ```ts
@@ -45,6 +50,33 @@ smoothed, no time stretched.
   at the time origin, `Date` at the clock date, in that time zone. They are constants, never the
   real time of the capture, so a page that shows the date or animates from absolute time gives
   the same samples on every run; give the date and zone the reference showed when that matters.
+- `--settle load|loaded`: when the clock freezes. `load` (the default) freezes it at the first
+  script, so the page loads with its timers held. `loaded` lets the page run on real time until
+  its load event and freezes it there, for a page that waits on its own timers while it loads
+  (as Playwright's clock guide advises for such pages). Frame 0 is the freeze in both. With
+  `loaded`, what ran before the freeze ran at the machine's speed, so two captures can differ: the
+  clocks read the time origin and the clock date plus the time the load took, which
+  `source.loadedAt` records in seconds.
+- `--trigger <what>`: what starts the motion. Each input is sent over the DevTools protocol's
+  `Input` domain at its own time on the page's clock, as a person's would arrive, and the clock
+  syncs once the browser has delivered it, so an animation the input starts starts at that time.
+  The pointer goes to the centre of `--target`'s box (the first match), which must be in the
+  viewport then; if another element covers that point, it gets the input and a limit says so.
+  `--at <ms>` is the page's time after frame 0. There are no defaults for these: each moves the
+  motion.
+
+  | `--trigger` | Takes | Sends |
+  |---|---|---|
+  | `load` (the default) | | nothing: the motion starts with the page |
+  | `none` | | nothing: for motion that nothing starts (a loop, a drift); only the record differs from `load` |
+  | `click` | `--target`, `--at` | the pointer moves onto the target, presses and releases the left button, all at `--at` |
+  | `hover` | `--target`, `--at` | the pointer moves onto the target at `--at` |
+  | `leave` | `--target`, `--at` (above 0) | the pointer is on the target from 0 ms, and moves out of the viewport at `--at`, so it goes over nothing else |
+  | `scroll` | `--at`, `--scroll-to <px>`, `--scroll-ms <ms>`, `--target` if the wheel should be over it (else the viewport's centre) | wheel events from `--at` for `--scroll-ms`, one each 1/rafHz second (one at `--at` for 0), in whole pixels on a straight line in time, adding up to `--scroll-to` minus the window's `scrollY` at `--at` |
+
+  A scroll that does not end at `--scroll-to` (the page is shorter, an element under the pointer
+  scrolled instead, the page took the wheel itself) is what the page did: a limit says where the
+  window ended.
 
 One capture runs at a time on a machine (a lock in the OS temp folder).
 
@@ -59,13 +91,15 @@ script and freezes the page from the start: `Date`, `performance.now`, timers,
 `requestAnimationFrame`, `requestIdleCallback`, `Event.timeStamp`, `document.timeline`, every CSS
 and Web Animations API animation, `<video>`, and a seeded `Math.random`. An animation is caught on
 the time it started, whether a timer, an animation frame, a promise or a MessageChannel task
-(React's scheduler) started it. The motion starts at the load and no input is sent; a trigger
-added later (a click, a scroll) must sync the clock after each input, as timers and frames do.
-Each frame, in this order:
-animations are synced, the clock advances to the frame's time (timers and animation frames run in
-time order, a tick due at the frame included), the capture waits for the network and the page's
-pending worker replies and video seeks, then every element is read. So frame k is the page at
-k / fps however slow the machine is: two captures give the same bytes but for `source.date`.
+(React's scheduler) or an input started it. Each frame, in this order: an input due by the
+frame's time is sent at its own time (the clock advanced to it, then synced once the browser has
+delivered it and any scroll has landed), animations are synced, the clock advances to the frame's
+time (timers and animation frames run in time order, a tick due at the frame included), the
+capture waits for the network and the page's pending worker replies and video seeks, then every
+element is read. An input at a frame's time is sent before that frame is read, so the frame shows
+the page right after it and the motion shows on the next. So frame k is the page at k / fps
+however slow the machine is: two captures give the same bytes but for `source.date` (and, with
+`--settle loaded`, what the load did on real time).
 
 **What each element gets**, one track per channel:
 
@@ -81,12 +115,32 @@ k / fps however slow the machine is: two captures give the same bytes but for `s
 `rotate` is unwrapped: each sample is the angle nearest the one before, so a turn past 180°
 keeps counting. A value is `null` on a frame where nothing matches the selector.
 
-**`declared`** holds each animation the page ran on a tracked element, as Chrome reports it:
-type (`css-transition`, `css-animation`, `web-animation`), the transition's property or the
-animation's name, `start` (the source second the clock first saw it running; `docs/analysis.md`
-defines it for every page analyser), `timing` (duration, delay,
-easing, iterations, fill…) and `keyframes`. Read them when the motion is CSS or WAAPI: they are
-the page's own numbers, exact at any time.
+The window itself is the element `window`, with `scrollX` and `scrollY` (`css-px`, from
+`window.scrollX` and `scrollY`) on every capture, whatever the trigger: scroll-linked motion is
+read against `scrollY` as well as time. No `--track` may be named `window`.
+
+**`declared`** holds every animation the page ran (from the clock, which sees each one as it
+starts, and `document.getAnimations()`), each once, in the order first seen, as the page wrote
+it and Chrome returns it, never fitted:
+- `element`: the `--track` selector when the animation's target is that selector's tracked
+  element; else the target's `#id` when it is unique, else its path from the root
+  (`html > body:nth-child(2) > div:nth-child(3)`); the tag with `"inDocument": false` for a target
+  out of the document or in a shadow root. `pseudoElement` (`::after`) when it is on one.
+- `type` (`css-transition`, `css-animation`, `web-animation`), the transition's `property` or the
+  animation's `name`, its `id`, `playbackRate` and `composite`.
+- `start`: the source second the clock first saw it running (`docs/analysis.md` defines it for
+  every page analyser); negative for one that began before a `--settle loaded` freeze, absent for
+  one the clock does not hold.
+- `timing`: every field of `getTiming()` (delay, direction, duration, easing, endDelay, fill,
+  iterationStart, iterations), unchanged, but for infinite iterations, which JSON cannot hold:
+  `"infinite"`, as CSS writes it. A CSS animation's own timing function is in its keyframes'
+  `easing`, as Chrome reports it, and its `timing.easing` is `linear`.
+- `keyframes`: `getKeyframes()` as returned: each keyframe's `offset`, `computedOffset`, `easing`,
+  `composite` and property values as strings.
+- `timeline`, for one not on the document timeline: `{ "type": "scroll", "source": "window",
+  "axis": "block" }`, `{ "type": "view", "subject", "axis" }`, or `{ "type": "none" }`.
+
+Read them when the motion is CSS or WAAPI: they are the page's own numbers, exact at any time.
 
 **`source`** is the URL, the date, the viewport, the pixel ratio and each response's status and
 sha256. The hash is of the body's bytes as served, after any `Content-Encoding` is undone: a
@@ -98,7 +152,9 @@ as the text it decoded with its charset, so such a response carries `"hashOf": "
 (an image it could not decode) has no hash and is a limit. **`tool`** is this script's version, the
 Chrome version and user agent, its flags, and the clock's version and sha256. **`params`** are the
 fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, the duration, the selectors, the
-media features, `allowLocal` and `trigger: "load"` (frame 0 is the page once it has loaded).
+media features, `allowLocal`, `settle` and `trigger`: its `type` and the settings it took
+(`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where its
+input went, so a film can put a cursor where the page saw one.
 
 **Outside requests.** Chrome's only way out is a proxy in the tool, loopback included. It resolves
 each host once, refuses it when any of its addresses is loopback, private, link-local, cloud
@@ -117,7 +173,11 @@ A page given as a file reads files, as Chrome lets it.
 - More than one element matching a selector: the first is tracked.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.
-- Not held at all: scroll and view timelines, canvas and WebGL drawing (no channel reads them),
+- Input goes to the top frame at the target's centre; an iframe under it gets it on its own
+  clock. There is no touch, keyboard or drag yet.
+- Scroll and view timelines are not on the clock: they follow the scroll position, which only
+  input moves, and which the `window` channels record.
+- Not held at all: canvas and WebGL drawing (no channel reads them),
   `AudioContext`, `requestVideoFrameCallback`, `Temporal`, `crypto.getRandomValues`, GIF and APNG
   frames. A response that arrives while a frame's timers run can land on that frame or the next.
 - The layout box before transforms is not a channel: `x`, `y`, `width`, `height` are the box as
