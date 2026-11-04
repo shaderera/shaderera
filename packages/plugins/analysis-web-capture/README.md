@@ -132,8 +132,8 @@ once the fonts it started loading have loaded, everything is read at once.
   there so your OS settings do not leak in, and it is recorded in `params.media`.
 - `--root <selector>` (`:root`): the element whose subtree is read, the first match.
 - `--style <property>`: a computed style read beside the default list, repeated for more. The
-  default list is what changes how text, a box and its edges, its background, an image or an SVG
-  shape are drawn (where it is and how big are its box):
+  default list is a fixed set of properties of text, a box and its edges, its background, an
+  image or an SVG shape (where it is and how big are its box), recorded in `params.styles`:
   - text: `font-family`, `font-weight`, `font-style`, `font-stretch`, `font-size`,
     `line-height`, `letter-spacing`, `word-spacing`, `font-feature-settings`,
     `font-variation-settings`, `text-transform`, `text-align`, `text-decoration-line`, `-style`,
@@ -145,7 +145,10 @@ once the fonts it started loading have loaded, everything is read at once.
     `visibility`, `filter`, `backdrop-filter`, `mix-blend-mode`, `clip-path`, `mask-image`,
     `object-fit`, `object-position`, and SVG's `fill`, `stroke` and `stroke-width`.
 
-  Anything else (`white-space`, `cursor`, a grid's tracks) is one `--style` away. A custom
+  It is not every property that changes how a frame is drawn: `overflow-x` and `overflow-y` (a
+  clip), `font-variant-*`, `font-kerning`, `writing-mode`, `direction`, `-webkit-text-stroke`,
+  `border-image-*`, `background-blend-mode`, `stroke-dasharray`, `fill-opacity`, `perspective`,
+  `text-overflow` and others are not in it. Add what your reference uses with `--style`. A custom
   property (`--accent`) cannot be read: the standard properties it feeds are.
 
 What it reads, all from Chrome over the DevTools protocol, never from the pixels:

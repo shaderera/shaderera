@@ -1,9 +1,9 @@
 // The style facts of a reference at one moment, read as frozen analysis data
-// (shaderera.analysis/1, kind "reference-style"): each element's box and the computed styles that
-// decide its look, each run of text's line boxes and the fonts it was drawn with, the web fonts
-// the page loaded (named, never copied) and a screenshot beside the file. tools/capture-web.ts
-// --still writes it; a film reads it here. Nothing here picks a value: the film reads what Chrome
-// drew and decides in its own code what to copy.
+// (shaderera.analysis/1, kind "reference-style"): each element's box and a set of its computed
+// styles (the default list plus any --style), each run of text's line boxes and the fonts it was
+// drawn with, the web fonts the page loaded (named, never copied) and a screenshot beside the
+// file. tools/capture-web.ts --still writes it; a film reads it here. Nothing here picks a value:
+// the film reads what Chrome drew and decides in its own code what to copy.
 
 import { type Host, sha256 } from '@shaderera/core'
 import { isFileSource, type Limit, type PageSource, sourceProblem } from './tracks.ts'
