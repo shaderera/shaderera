@@ -36,7 +36,7 @@ Every number is a measurement. Nothing passes or fails unless requirements.json 
 - **The font Chrome really drew with.** `CSS.getPlatformFontsForNode` "Requests information about
   platform fonts which we used to render child TextNodes in the given node". Each entry has
   `familyName`, `postScriptName`, `isCustomFont` ("downloaded or resolved locally") and
-  `glyphCount` ([CSS.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/CSS.pdl);
+  `glyphCount` ([CSS.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/b0d96c6cdf39e5583e67a3762b2815a33154455b/pdl/domains/CSS.pdl);
   [docs](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getPlatformFontsForNode)).
   This is the only source that shows a fallback: a Thai line in a Latin web font reports two
   fonts with their glyph counts. `font-family` in CSS only names what was asked for.
@@ -52,22 +52,22 @@ Every number is a measurement. Nothing passes or fails unless requirements.json 
   and `length` into the text. The source warns that "The exact layout should not be regarded as
   stable and may change between versions"; `includeBlendedBackgroundColors` and
   `includeTextColorOpacities` are experimental
-  ([DOMSnapshot.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/DOMSnapshot.pdl)).
+  ([DOMSnapshot.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/b0d96c6cdf39e5583e67a3762b2815a33154455b/pdl/domains/DOMSnapshot.pdl)).
 - **In-page geometry.** `getBoundingClientRect()` gives an element's box and `Range.getClientRects()`
   one rect per line box ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect);
   [MDN](https://developer.mozilla.org/en-US/docs/Web/API/Range/getClientRects)).
 - **The picture itself.** `Page.captureScreenshot` is stable; the viewport and device scale factor
   are set with `Emulation.setDeviceMetricsOverride`, stable in `Emulation` (deprecated in `Page`)
-  ([Page.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/Page.pdl);
-  [Emulation.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/Emulation.pdl)).
+  ([Page.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/b0d96c6cdf39e5583e67a3762b2815a33154455b/pdl/domains/Page.pdl);
+  [Emulation.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/b0d96c6cdf39e5583e67a3762b2815a33154455b/pdl/domains/Emulation.pdl)).
 
 ### Stability
 
 - **The `CSS` and `DOMSnapshot` domains are both marked `experimental domain`** in the protocol
   source as of its 2026-11-04 commit. `DOM.getBoxModel` is stable; `DOM.getContentQuads` is
-  experimental ([DOM.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/master/pdl/domains/DOM.pdl)).
-- So the artifact records the Chrome version, and the plugin's tests pin it. A field that goes
-  missing fails with a message, never with a silent default.
+  experimental ([DOM.pdl](https://github.com/ChromeDevTools/devtools-protocol/blob/b0d96c6cdf39e5583e67a3762b2815a33154455b/pdl/domains/DOM.pdl)).
+- So the artifact records the Chrome version, and the tests record which Chrome they ran on. A
+  field that goes missing fails with a message, never with a silent default.
 
 ### What a page cannot tell
 
@@ -233,12 +233,15 @@ Neutral, from primary sources; not legal advice. 0017 puts the decision with the
 
 Smallest first:
 1. **`still --compare-file <png>` in core** (plumbing, measures, never judges): PSNR, ΔE, SSIM
-   and an edge score, the reference scaled once to the frame. Then `--region <mask>` scores, read
-   from `image-regions` artifacts. Pure TS beside `review/compare.ts`; tested against scikit-image.
-2. **Style facts in the web capture plugin**: a `DOMSnapshot.captureSnapshot` with a fixed list of
-   text and colour properties, `getPlatformFontsForNode` per text node, `fontsUpdated` font faces,
-   and the screenshot, as one `shaderera.analysis/1` artifact recording Chrome's version. No font
-   files copied.
+   and an edge score, the reference scaled once to the frame. Then `--regions <file>` scores, read
+   from masks in a form analysis.md defines (its `u8` mask raster and a named list of masks or
+   boxes); `image-regions` conforms to it, and core names no plugin. Pure TS beside
+   `review/compare.ts`; tested against scikit-image.
+2. **Style facts in the web capture plugin**: a `DOMSnapshot.captureSnapshot` of computed style
+   properties, every one or the person's list, recorded in params (a list fixed to text and
+   colour would drop shadows, gradients, filters, blend modes, radii and transforms unmeasured),
+   `getPlatformFontsForNode` per text node, `fontsUpdated` font faces, and the screenshot, as
+   one `shaderera.analysis/1` artifact recording Chrome's version. No font files copied.
 3. **An image text analyser plugin** beside `image-regions`: PaddleOCR PP-OCRv5 with the Thai
    model, CPU, model sha256 recorded, `check.png`; Apple Vision as a second analyser writing the
    same JSON. Tesseract only if a film needs baselines.
