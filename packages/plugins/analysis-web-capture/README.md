@@ -37,9 +37,9 @@ smoothed, no time stretched.
 - `--rafHz <n>`: how often the page's `requestAnimationFrame` runs. The fps when left out, and it
   must be a whole multiple of it: otherwise a JS animation shows its last tick before the frame
   while CSS shows the frame itself (8.7 ms off at 24 fps with 60).
-- `--seed <n>` (1), `--dpr <n>` (1), `--media <name>=<value>` (repeat; by default
-  `prefers-color-scheme=light` and `prefers-reduced-motion=no-preference`, so your OS settings do
-  not leak in).
+- `--seed <n>` (1; 0 is a seed like any other), `--dpr <n>` (1), `--media <name>=<value>`
+  (repeat; by default `prefers-color-scheme=light` and `prefers-reduced-motion=no-preference`),
+  `--locale <BCP 47 tag>` (`en-US`: what `Intl`, `navigator.language` and `Accept-Language` see).
 - `--allow-local`: let the page reach this machine and its network (loopback, private, link-local
   addresses). A page on `localhost` needs it. Cloud metadata addresses stay refused.
 - `--cpu-throttle <n>`: run Chrome n times slower. The tracks must not change; if they do, the
@@ -81,10 +81,17 @@ smoothed, no time stretched.
   scrolled instead, the page took the wheel itself) is what the page did: a limit says where the
   window ended.
 
+Each default above is a constant, never your OS's setting, so that two runs on two machines
+repeat, and each is recorded (`params.seed`, `params.media`, `params.locale`, the clock's in
+`params`, the pixel ratio in `frame.pixelRatio`). They still decide which variant of a page is
+captured: the media defaults pick the light, full-motion variant of a page that has others,
+`--dpr 1` its 1x images, `en-US` its English copy and number formats. Pass the values the
+reference was seen with.
+
 One capture runs at a time on a machine (a lock in the OS temp folder).
 
-**Chrome.** Your own, found as `shaderera doctor` finds it: `CHROME`, else the install paths. It
-starts in `--headless=new` with a throwaway profile in the OS temp folder, deleted afterwards
+**Chrome.** Your own: `CHROME` (as `docs/determinism.md` in the `shaderera` package documents
+it), else the first of a few usual install paths. It starts in `--headless=new` with a throwaway profile in the OS temp folder, deleted afterwards
 (also on Ctrl-C), never the project's `.shaderera/chrome`: no sign-ins, no cookies, nothing the
 page writes is kept. Smooth scrolling is off, scrollbars are hidden, service workers are
 bypassed.
@@ -155,12 +162,13 @@ as the text it decoded with its charset, so such a response carries `"hashOf": "
 (that text encoded as UTF-8, the served file only when it was UTF-8). A body Chrome did not keep
 (an image it could not decode) has no hash and is a limit. **`tool`** is this script's version, the
 Chrome version and user agent, its flags, and the clock's version and sha256. **`params`** are the
-fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, the duration, the selectors, the
-media features, `allowLocal`, `settle` and `trigger`: its `type` and the settings it took
-(`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where its
-input went, so a film can put a cursor where the page saw one. For a `leave` it is where the
-pointer was from 0 ms until `at`; then it is off the viewport. A capture sends one trigger; a
-later version that sends several would list them in a new field and keep `trigger` as the first.
+fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, `locale`, the duration, the
+selectors, the media features, `allowLocal`, `settle` and `trigger`: its `type` and the settings
+it took (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where
+its input went, so a film can put a cursor where the page saw one. For a `leave` it is where the
+pointer was from 0 ms until `at`; then it is off the viewport. With `trigger` `load` frame 0 is the page once it has loaded.
+A capture sends one trigger; a later version that sends several would list them in a new field
+and keep `trigger` as the first.
 
 **Outside requests.** Chrome's only way out is a proxy in the tool, loopback included. It resolves
 each host once, refuses it when any of its addresses is loopback, private, link-local, cloud
@@ -169,7 +177,7 @@ the addresses it checked, so a name cannot pass the check and then reach 127.0.0
 request fails in the page and is listed in `limits`. WebRTC sends nothing outside the proxy.
 A page given as a file reads files, as Chrome lets it.
 
-**Limits**, listed in `limits` when the capture meets them:
+**Limits recorded in `limits`** when the capture meets them:
 - Iframes and workers run on real time; the clock holds the top frame only. A worker's reply is
   waited for (2 s at most), its own clock is not held.
 - A 3D transform: `rotate`, `skewX`, `scaleX` and `scaleY` are of its 2D part; the box is as drawn.
@@ -181,11 +189,16 @@ A page given as a file reads files, as Chrome lets it.
   15 s is read as it is.
 - Input goes to the top frame at the target's centre; an iframe under it gets it on its own
   clock. There is no touch, keyboard or drag yet.
+- A request the proxy refused, a response that did not load, or one whose body has no hash.
+
+**Limits not held and not detected**: a capture that meets them has nothing in `limits` for them.
 - Scroll and view timelines are not on the clock: they follow the scroll position, which only
   input moves, and which the `window` channels record.
-- Not held at all: canvas and WebGL drawing (no channel reads them),
-  `AudioContext`, `requestVideoFrameCallback`, `Temporal`, `crypto.getRandomValues`, GIF and APNG
-  frames. A response that arrives while a frame's timers run can land on that frame or the next.
+- Canvas and WebGL drawing (no channel reads them), `AudioContext`, `requestVideoFrameCallback`,
+  `Temporal`, `crypto.getRandomValues`, GIF and APNG frames.
+- A response that arrives while a frame's timers run can land on that frame or the next.
+- Fonts installed on the machine: text whose web font is missing, or lacks a glyph, falls back to
+  them, and they are neither held nor recorded (only web fonts' response hashes are).
 - The layout box before transforms is not a channel: `x`, `y`, `width`, `height` are the box as
   drawn.
 

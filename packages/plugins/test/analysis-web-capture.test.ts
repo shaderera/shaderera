@@ -255,6 +255,10 @@ test('options are checked before anything starts', async () => {
   assert.equal(o.clockDate, '2000-01-01T00:00:00.000Z')
   assert.equal(o.epoch, Date.UTC(2000, 0, 1))
   assert.equal(o.timezone, 'UTC')
+  // The locale is a constant too, so the machine's does not change the text laid out.
+  assert.equal(o.locale, 'en-US')
+  assert.equal(checkOptions({ ...base, locale: 'th-th' }).locale, 'th-TH')
+  assert.throws(() => checkOptions({ ...base, locale: 'not a tag' }), /--locale not a tag/)
   const moved = checkOptions({ ...base, clockDate: '2026-11-04T19:00+07:00', timeOrigin: 250 })
   assert.equal(moved.clockDate, '2026-11-04T12:00:00.000Z')
   assert.equal(moved.timeOrigin, 250)

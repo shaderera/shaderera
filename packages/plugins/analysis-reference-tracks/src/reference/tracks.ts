@@ -129,6 +129,13 @@ export const tracksProblem = (doc: unknown, name: string): string | undefined =>
   const f = doc.frame
   if (!isObject(f) || !isSize(f.width) || !isSize(f.height) || !isSize(f.pixelRatio))
     return `${name} needs frame { width, height, pixelRatio }, each above 0`
+  if ('url' in s) {
+    const v = s.viewport as { width: number; height: number }
+    if (f.width !== v.width || f.height !== v.height)
+      return `${name}'s frame is ${f.width}x${f.height} but its source page's viewport is ${v.width}x${v.height}`
+    if (f.pixelRatio !== s.devicePixelRatio)
+      return `${name}'s frame pixelRatio is ${f.pixelRatio} but its source page's devicePixelRatio is ${s.devicePixelRatio}`
+  }
   if (!Array.isArray(doc.tracks)) return `${name} has no tracks`
   const seen = new Set<string>()
   for (const [i, tr] of doc.tracks.entries()) {
@@ -206,17 +213,26 @@ export const track = (tracks: ReferenceTracks, element: string, channel: string)
 export type Between = 'hold' | 'linear'
 
 /**
- * The track's value at `sourceTime` seconds. `between` is required, since it changes the frame.
- * Before the first sample it is null; at a sample's time, that sample's value; after the last,
- * the last value, held. `linear` next to a null sample holds the earlier one.
+ * What to read after the last sample: its value held, or none. The data does not say whether the
+ * source stopped moving there or the measurement stopped.
+ */
+export type After = 'hold' | 'none'
+
+/**
+ * The track's value at `sourceTime` seconds. `between` and `after` are required, since each
+ * changes the frame. Before the first sample it is null; at a sample's time, that sample's value;
+ * after the last, the last value with `after: 'hold'` and null with `'none'`. `linear` next to a
+ * null sample holds the earlier one.
  */
 export const at = (
   tr: Track,
   sourceTime: number,
-  { between }: { between: Between },
+  { between, after }: { between: Between; after: After },
 ): number | null => {
   if (between !== 'hold' && between !== 'linear')
     throw new Error(`at() needs between: 'hold' or 'linear', not ${JSON.stringify(between)}`)
+  if (after !== 'hold' && after !== 'none')
+    throw new Error(`at() needs after: 'hold' or 'none', not ${JSON.stringify(after)}`)
   if (!Number.isFinite(sourceTime))
     throw new Error(`at() needs a finite source time, not ${sourceTime}`)
   const s = tr.samples
@@ -232,6 +248,7 @@ export const at = (
   }
   const [t0, v0] = s[lo] as Sample
   const next = s[lo + 1]
+  if (!next && sourceTime > t0 && after === 'none') return null
   if (between === 'hold' || !next || t0 === sourceTime) return v0
   const [t1, v1] = next
   if (v0 === null || v1 === null) return v0

@@ -8,6 +8,7 @@
 //     --fps <n> --duration <s> --viewport <width>x<height>
 //     [--rafHz <n>] [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
 //     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
+//     [--locale <BCP 47>]
 //     [--settle load|loaded] [--trigger load|none|click|hover|leave|scroll --target <selector>
 //     --at <ms> [--scroll-to <px> --scroll-ms <ms>]]
 //
@@ -26,7 +27,7 @@ import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 /** This tool's version, recorded in every capture. */
 export const VERSION = '0.2.0'
 
-/** Chrome as the CLI finds it (`shaderera doctor`): CHROME, else the usual install paths. */
+/** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
   const { existsSync } = await import('node:fs')
   return (
@@ -61,6 +62,8 @@ export type CaptureOptions = {
   clockDate?: string
   /** The time zone the page's Date and Intl see, an IANA name. */
   timezone?: string
+  /** The locale the page's Intl, navigator.language and Accept-Language see, a BCP 47 tag. */
+  locale?: string
   /** Device pixels per CSS pixel. */
   devicePixelRatio?: number
   /** Media features the page sees, over MEDIA. */
@@ -113,6 +116,9 @@ export const WINDOW_CHANNELS: [channel: string, unit: string][] = [
   ['scrollX', 'css-px'],
   ['scrollY', 'css-px'],
 ]
+
+/** The locale a capture sets unless asked otherwise: a constant, so the machine's does not leak in. */
+export const LOCALE = 'en-US'
 
 /** Each channel read per element, and its unit. */
 export const CHANNELS: [channel: string, unit: string][] = [
@@ -185,6 +191,12 @@ export const checkOptions = (o: CaptureOptions) => {
   const settle = o.settle ?? 'load'
   if (!SETTLES.includes(settle))
     throw new Error(`--settle ${settle} is not one of ${SETTLES.join(', ')}`)
+  let locale: string
+  try {
+    locale = Intl.getCanonicalLocales(o.locale ?? LOCALE)[0] as string
+  } catch {
+    throw new Error(`--locale ${o.locale} is not a BCP 47 language tag, like en-US or th-TH`)
+  }
   const frames = Math.floor(o.duration * o.fps + 1e-9) + 1
   const trigger = checkTrigger(o, frameMs(frames - 1, o.fps))
   return {
@@ -195,6 +207,7 @@ export const checkOptions = (o: CaptureOptions) => {
     clockDate: new Date(epoch).toISOString(),
     epoch,
     timezone,
+    locale,
     devicePixelRatio,
     cpuThrottle: throttle,
     media: { ...MEDIA, ...o.media },
@@ -756,6 +769,7 @@ export const captureWeb = async (options: CaptureOptions) => {
         `--user-data-dir=${profile}`,
         `--proxy-server=http://127.0.0.1:${proxy.port}`,
         `--window-size=${o.viewport.width},${o.viewport.height}`,
+        `--lang=${o.locale}`,
         '--do-not-de-elevate',
         'about:blank',
       ],
@@ -1003,6 +1017,12 @@ export const captureWeb = async (options: CaptureOptions) => {
       page,
     )
     await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, page)
+    await c.send('Emulation.setLocaleOverride', { locale: o.locale }, page)
+    await c.send(
+      'Network.setUserAgentOverride',
+      { userAgent: version.userAgent, acceptLanguage: o.locale },
+      page,
+    )
     if (o.cpuThrottle > 1)
       await c.send('Emulation.setCPUThrottlingRate', { rate: o.cpuThrottle }, page)
     await c.send(
@@ -1345,6 +1365,7 @@ export const captureWeb = async (options: CaptureOptions) => {
         timeOrigin: o.timeOrigin,
         clockDate: o.clockDate,
         timezone: o.timezone,
+        locale: o.locale,
         duration: o.duration,
         track: o.track,
         settle: o.settle,
@@ -1397,6 +1418,7 @@ if (import.meta.main) {
       at: { type: 'string' },
       'scroll-to': { type: 'string' },
       'scroll-ms': { type: 'string' },
+      locale: { type: 'string' },
     },
   })
   const number = (name: string, v: string | undefined) => {
@@ -1443,6 +1465,7 @@ if (import.meta.main) {
       at: number('at', values.at),
       scrollTo: number('scroll-to', values['scroll-to']),
       scrollMs: number('scroll-ms', values['scroll-ms']),
+      locale: values.locale,
       log: (line) => console.error(line),
     })
     console.log(path)

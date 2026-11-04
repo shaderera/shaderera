@@ -60,7 +60,7 @@
   if (w.__shadereraClock) return
   const VERSION = '3'
 
-  let seed = CFG.seed >>> 0 || 1
+  let seed = CFG.seed >>> 0
   Math.random = function random() {
     seed = (seed + 0x6d2b79f5) | 0
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
