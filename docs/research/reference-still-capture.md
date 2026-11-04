@@ -239,9 +239,9 @@ Smallest first:
    `review/compare.ts`; tested against scikit-image.
 2. **Style facts in the web capture plugin**: a `DOMSnapshot.captureSnapshot` of computed style
    properties, every one or the person's list, recorded in params (a list fixed to text and
-   colour would drop shadows, gradients, filters, blend modes, radii and transforms unmeasured), `getPlatformFontsForNode` per text node, `fontsUpdated` font faces,
-   and the screenshot, as one `shaderera.analysis/1` artifact recording Chrome's version. No font
-   files copied.
+   colour would drop shadows, gradients, filters, blend modes, radii and transforms unmeasured),
+   `getPlatformFontsForNode` per text node, `fontsUpdated` font faces, and the screenshot, as
+   one `shaderera.analysis/1` artifact recording Chrome's version. No font files copied.
 3. **An image text analyser plugin** beside `image-regions`: PaddleOCR PP-OCRv5 with the Thai
    model, CPU, model sha256 recorded, `check.png`; Apple Vision as a second analyser writing the
    same JSON. Tesseract only if a film needs baselines.
