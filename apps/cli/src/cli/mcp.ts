@@ -42,6 +42,7 @@ import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { DRAFT_HEIGHT, insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { compareWithFile, onSheet } from './compare-file.ts'
+import { isImage } from './compare-image.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { errorFinding } from './findings.ts'
 import { valueAt } from './inspect.ts'
@@ -266,7 +267,15 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       every: say(num, 'Also a frame every this many seconds from 0.'),
       compare_file: say(
         str,
-        "A reference clip inside the project: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t. With no times, the clip's frames at its own rate over from to to. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
+        "A reference clip, or a PNG or JPEG, inside the project. A clip: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t; with no times, the clip's frames at its own rate over from to to. An image: the film's final frame at each time (times or every, needed) against it (PSNR, ΔE, SSIM on luma, the Sobel edge score, and per region with regions), and the sheet shows film | image | SSIM heat map. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
+      ),
+      regions: say(
+        str,
+        'With compare_file an image: a regions artifact of that image (its folder or regions.json; shaderera.analysis/1 of kind regions, as docs/analysis.md defines it), or a JSON file of boxes { format: "shaderera.boxes/1" (may be left out), width, height, boxes: [{ name, x, y, width, height }] } in the image\'s or the film\'s pixels, inside the project, as are its masks (a symbolic link out of it is refused). Each region is scored apart. Not with region.',
+      ),
+      fit: say(
+        { type: 'string', enum: ['stretch'] },
+        "With compare_file an image of another shape than the film's frame, needed then: stretch scales it to the frame, its regions too. Recorded in scaled.",
       ),
       offset: say(num, 'With compare_file: seconds, the clip is read at t + offset. Default 0.'),
       max_shift: say(
@@ -809,8 +818,11 @@ export const createServer = (
     c: Child,
   ) => {
     if (typeof a.compare_file !== 'string')
-      throw new Error('compare_file is a video file inside the project.')
+      throw new Error('compare_file is a video or image file inside the project.')
     const reference = inside(root, a.compare_file)
+    if (a.regions !== undefined && typeof a.regions !== 'string')
+      throw new Error('regions is a regions folder or JSON file inside the project.')
+    const regions = typeof a.regions === 'string' ? inside(root, a.regions) : undefined
     const given = timesOf(a.times)
     const every = typeof a.every === 'number' ? a.every : undefined
     const times =
@@ -828,10 +840,12 @@ export const createServer = (
       to: number('to'),
       floor: number('floor'),
     }
+    if (a.fit !== undefined && typeof a.fit !== 'string')
+      throw new Error(`fit is stretch, not ${shown(a.fit)}.`)
     const region = Array.isArray(a.region) ? parseRegion(a.region.join(',')) : undefined
     const sheet: { t: number; label: string; pixels: Uint8Array }[] = []
     let size = { width: manifest.width, height: manifest.height }
-    const label = `film | ${basename(reference)} | difference`
+    const label = `film | ${basename(reference)} | ${isImage(reference) ? 'SSIM heat map' : 'difference'}`
     const report = await compareWithFile({
       reference,
       film: { ...manifest, render: (t) => final(c, t) },
@@ -839,6 +853,8 @@ export const createServer = (
       limit: MEASURED,
       ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
       ...(region ? { region } : {}),
+      ...(regions ? { regions, within: root } : {}),
+      ...(a.fit === undefined ? {} : { fit: a.fit }),
       frame: async (f) => {
         size = { width: f.width, height: f.height }
         if (onSheet(f.index, f.count, SHEET)) sheet.push({ t: f.t, label, pixels: f.pixels })
@@ -848,6 +864,9 @@ export const createServer = (
     const text = {
       ...report,
       reference: { ...report.reference, file: slash(relative(root, reference)) },
+      ...('regions' in report && report.regions
+        ? { regions: { ...report.regions, file: slash(relative(root, report.regions.file)) } }
+        : {}),
       sheet: sheet.map((f) => f.t),
     }
     return [{ type: 'text', text: JSON.stringify(text) }, image(png.toString('base64'))]
@@ -945,9 +964,9 @@ export const createServer = (
     const revision = await revisionOf(root, name, a, params)
     if (name === 'still' && a.compare_file !== undefined && a.variants !== undefined)
       throw new Error(
-        'compare_file measures one variant against the clip: give variant, not variants.',
+        'compare_file measures one variant against the reference: give variant, not variants.',
       )
-    for (const k of ['offset', 'max_shift', 'from', 'to', 'region', 'floor'])
+    for (const k of ['offset', 'max_shift', 'from', 'to', 'region', 'floor', 'regions', 'fit'])
       if (name === 'still' && a[k] !== undefined && a.compare_file === undefined)
         throw new Error(`${k} goes with compare_file.`)
     if (a.variants !== undefined && ['still', 'check', 'review'].includes(name))

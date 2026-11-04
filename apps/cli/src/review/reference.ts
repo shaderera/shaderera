@@ -130,6 +130,33 @@ export const align = (film: Curve, reference: Curve, maxShift: number, lead = 0)
 /** The filter scaleFrame uses, named in the report. */
 export const FILTER = 'triangle'
 
+/** How a reference was scaled to the film's frame, as a report names it. */
+export type Scaling = {
+  from: [number, number]
+  to: [number, number]
+  filter: string
+  /** `stretched` when the two frames have other shapes (more than 0.5 % apart). */
+  aspect: 'same' | 'stretched'
+}
+
+/** How scaleFrame takes a reference of one size to the film's; `null` when they are the same. */
+export const scaling = (
+  ref: { width: number; height: number },
+  film: { width: number; height: number },
+): Scaling | null =>
+  ref.width === film.width && ref.height === film.height
+    ? null
+    : {
+        from: [ref.width, ref.height],
+        to: [film.width, film.height],
+        filter: FILTER,
+        aspect:
+          Math.abs(ref.width * film.height - ref.height * film.width) <=
+          0.005 * ref.height * film.width
+            ? 'same'
+            : 'stretched',
+      }
+
 /**
  * An RGBA frame matted over black and scaled to `w`×`h` with one separable triangle filter
  * (bilinear, widened when shrinking so every source pixel counts, as Pillow's BILINEAR). The same
