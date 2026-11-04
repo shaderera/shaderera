@@ -6,10 +6,12 @@
 // Needs ffmpeg and ffprobe on PATH, and an ffmpeg built with librubberband for --tempo.
 //
 //   node tools/voice-repace.ts audio/voice.wav words/voice.json --out audio/voice-paced.wav
-//     [--max-pause 0.3] [--keep 18.2,21.5] [--tempo 1] [--fade 0.01]
+//     [--max-pause 0.3] [--keep 18.2,21.5] [--cut 40.1-44.8] [--tempo 1] [--fade 0.01]
 //
 // --max-pause the longest pause left between two words, in seconds
 // --keep      a time inside each pause to leave alone (a reveal, a title), original seconds
+// --cut       stretches to take out whatever they hold (a flubbed take), from-to in original
+//             seconds, comma-separated; each edge moves to the quietest 20 ms within 50 ms
 // --tempo     the speed after the pauses: under 1 slower, over 1 faster
 // --fade      the crossfade at each join, in seconds; shorter than --max-pause
 //
@@ -19,9 +21,51 @@
 import { sha256 } from '@shaderera/core'
 import { parseTimedText, type Word } from '../src/type/timed-text.ts'
 
-export type Repace = { maxPause: number; keep: readonly number[]; tempo: number; fade: number }
+export type Repace = {
+  maxPause: number
+  keep: readonly number[]
+  tempo: number
+  fade: number
+  /** Stretches to take out whatever they hold (a flubbed take), [from, to] in original seconds. */
+  cut?: readonly (readonly [number, number])[]
+}
 
 const RATE = 48000
+
+/**
+ * The centre of the quietest 20 ms within ±50 ms of `t`, in 5 ms steps, all channels summed: where
+ * a named cut's edge lands, so it falls between words and not inside one.
+ */
+export const quietest = (pcm: Float32Array, channels: number, rate: number, t: number) => {
+  const frames = pcm.length / channels
+  const half = Math.round(0.01 * rate)
+  let best = Number.POSITIVE_INFINITY
+  let at = t
+  for (let k = -10; k <= 10; k++) {
+    const c = t + k * 0.005
+    const i = Math.round(c * rate)
+    if (c < 0 || i > frames) continue
+    let e = 0
+    for (let j = Math.max(0, i - half); j < Math.min(frames, i + half); j++)
+      for (let ch = 0; ch < channels; ch++) e += (pcm[j * channels + ch] as number) ** 2
+    if (e < best) {
+      best = e
+      at = c
+    }
+  }
+  return Math.round(at * 1e6) / 1e6
+}
+
+/** Stretches in seconds, sorted, with any that overlap or touch joined into one. */
+const joined = (cuts: readonly (readonly [number, number])[]) =>
+  [...cuts]
+    .sort((x, y) => x[0] - y[0])
+    .reduce<[number, number][]>((all, [a, b]) => {
+      const last = all[all.length - 1]
+      if (last && a <= last[1]) last[1] = Math.max(last[1], b)
+      else all.push([a, b])
+      return all
+    }, [])
 
 /** The stretches of the original, in seconds, that come out: the middle of each long, unkept pause. */
 export const cutsOf = (words: readonly Word[], o: Pick<Repace, 'maxPause' | 'keep'>) => {
@@ -57,7 +101,15 @@ export const repace = (
     throw new Error(`--fade ${o.fade} must be from 0 to under --max-pause ${o.maxPause}`)
   if (!(o.tempo > 0)) throw new Error(`--tempo ${o.tempo} must be over 0`)
   const frames = pcm.length / channels
-  const cuts = cutsOf(words, o).map(
+  const named = (o.cut ?? []).map(([a, b]) => {
+    if (!(a >= 0 && b > a)) throw new Error(`--cut ${a}-${b} must run forward from 0 or later`)
+    return [
+      a === 0 ? 0 : quietest(pcm, channels, rate, a),
+      quietest(pcm, channels, rate, b),
+    ] as const
+  })
+  const pauses = cutsOf(words, o)
+  const cuts = joined([...pauses, ...named]).map(
     ([a, b]) =>
       [Math.round(a * rate), Math.round(b * rate)].map((i) => Math.max(0, Math.min(frames, i))) as [
         number,
@@ -91,6 +143,8 @@ export const repace = (
   return {
     pcm: out,
     cuts: cuts.length,
+    pauses: pauses.length,
+    named: named.length,
     knots: knots.map(([x, y]) => [x, Math.round((y / o.tempo) * 1e6) / 1e6] as [number, number]),
   }
 }
@@ -110,6 +164,7 @@ if (import.meta.main) {
       out: { type: 'string' },
       'max-pause': { type: 'string', default: '0.3' },
       keep: { type: 'string', default: '' },
+      cut: { type: 'string', default: '' },
       tempo: { type: 'string', default: '1' },
       fade: { type: 'string', default: '0.01' },
     },
@@ -117,7 +172,7 @@ if (import.meta.main) {
   const [audio, wordsFile] = positionals
   if (!audio || !wordsFile || !values.out?.toLowerCase().endsWith('.wav'))
     fail(
-      'Usage: node tools/voice-repace.ts <audio> <words> --out <new.wav> [--max-pause 0.3] [--keep <s,s>] [--tempo 1] [--fade 0.01]',
+      'Usage: node tools/voice-repace.ts <audio> <words> --out <new.wav> [--max-pause 0.3] [--keep <s,s>] [--cut <from-to,...>] [--tempo 1] [--fade 0.01]',
     )
   const inProject = (p: string) => {
     const rel = relative(process.cwd(), resolve(p)).replaceAll('\\', '/')
@@ -136,6 +191,12 @@ if (import.meta.main) {
   }
   if (o.keep.some((k) => !Number.isFinite(k)))
     fail(`--keep ${values.keep} must be seconds, comma-separated`)
+  const spans = (values.cut as string).split(',').filter(Boolean)
+  o.cut = spans.map((span) => {
+    const m = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(span.trim())
+    if (!m) return fail(`--cut ${span} must be from-to in seconds, such as 40.1-44.8`)
+    return [Number(m[1]), Number(m[2])] as const
+  })
   const words = parseTimedText(
     wordsFile as string,
     readFileSync(wordsFile as string, 'utf8'),
@@ -223,6 +284,6 @@ if (import.meta.main) {
   }
   writeFileSync(map, `${JSON.stringify(doc, null, 2)}\n`)
   console.log(
-    `${out}: ${doc.source.seconds.toFixed(2)} s -> ${doc.output.seconds.toFixed(2)} s, ${paced.cuts} pauses shortened; ${map}`,
+    `${out}: ${doc.source.seconds.toFixed(2)} s -> ${doc.output.seconds.toFixed(2)} s, ${paced.pauses} pauses shortened${paced.named ? `, ${paced.named} stretch${paced.named === 1 ? '' : 'es'} cut` : ''}; ${map}`,
   )
 }

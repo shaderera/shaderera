@@ -1,7 +1,7 @@
-Re-pace a narration: its long pauses between words shortened, the ones you name kept, the tempo changed with the pitch kept, and a time map the edit's times follow.
+Re-pace a narration: its long pauses between words shortened, the ones you name kept, flubbed stretches cut out, the tempo changed with the pitch kept, and a time map the edit's times follow.
 
 ```sh
-node tools/voice-repace.ts audio/voice.wav words/voice.json --out audio/voice-paced.wav --keep 18.2
+node tools/voice-repace.ts audio/voice.wav words/voice.json --out audio/voice-paced.wav --keep 18.2 --cut 40.1-44.8
 # writes audio/voice-paced.wav and audio/voice-paced.map.json
 ```
 
@@ -16,8 +16,8 @@ const cut = pacedTime(map, 12.4)   // where 12.4 s of the original falls in the 
 ```
 
 Then play `audio/voice-paced.wav`, and move every time written against the original (cuts, cues,
-`text-timed-cues` words) through `pacedTime`. It shortens pauses and changes the speed only: it
-does not transcribe, mix, or lay several files on a timeline.
+`text-timed-cues` words) through `pacedTime`. It cuts and changes the speed only: it does not
+transcribe, mix, or lay several files on a timeline.
 
 - **The words** come from any file `text-timed-cues` reads with word times: a speech-to-text
   transcript's `words` (Paxa Labs STT), Whisper's segments with words, enhanced LRC. Their times
@@ -27,14 +27,19 @@ does not transcribe, mix, or lay several files on a timeline.
   after the last is left alone.
 - `--keep` takes times, in seconds of the original, inside the pauses to leave as they are: a
   reveal, a title's gap.
+- `--cut` takes stretches to take out whatever they hold, such as a flubbed take, as
+  `from-to` in seconds of the original, comma-separated. Each edge moves to the quietest 20 ms
+  within 50 ms of the time given, so it lands between words; the stretch joins the pause cuts, with
+  the same `--fade`, and the map moves every later time by it. A word inside a cut has no new time:
+  `pacedTime` puts it at the join.
 - `--tempo` (1) changes the speed after the pauses are cut: 0.9 is slower. It needs an ffmpeg
   built with librubberband (`ffmpeg -filters` lists `rubberband`). At tempo 1 the map is exact to
   the sample; with a tempo, rubberband smears each word's start up to about 25 ms early, under a
   frame at 25 fps.
 - **The map** is a `shaderera.analysis/1` artifact of kind `time-map` (see `docs/analysis.md` in
   the `shaderera` package): `knots` of `[old seconds, new seconds]`, the recording's path and
-  sha256 in `source`, every setting in `params`. A removed stretch of pause is two knots at one
-  new time. Before the first knot and after the last, time keeps its own length.
+  sha256 in `source`, every setting in `params`. A removed stretch, of pause or cut, is two knots
+  at one new time. Before the first knot and after the last, time keeps its own length.
 
 Run it from the project root, on a recording inside the project. It writes 48 kHz, 24-bit WAV,
 with the source's channels. Needs ffmpeg and ffprobe on PATH.
