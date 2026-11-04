@@ -197,3 +197,14 @@ test('audio-pcm-mix: a mix written by hand comes out the same on the plugin, apa
   }
   assert.ok(same > SR && differ > SR / 10, `${same} same, ${differ} differ under the pans`)
 })
+
+test('audio-pcm-mix: a bad duration, sample rate or gain is refused, not written as NaN', () => {
+  for (const duration of [0, -1, Number.NaN])
+    assert.throws(() => mixBuffer({ duration, sampleRate: SR, channels: 2 }), /duration .* above 0/)
+  for (const sampleRate of [0, 44100.5, Number.NaN])
+    assert.throws(() => mixBuffer({ duration: 1, sampleRate, channels: 2 }), /whole number/)
+  const buf = mixBuffer({ duration: 1, sampleRate: SR, channels: 2 })
+  for (const gain of [undefined, Number.NaN, Number.POSITIVE_INFINITY])
+    assert.throws(() => add(buf, [A], 0, { gain, pan: 0 } as never), /gain .* finite/)
+  assert.equal(check(buf).nonFinite, 0)
+})

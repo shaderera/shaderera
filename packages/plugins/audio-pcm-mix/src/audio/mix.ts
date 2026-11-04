@@ -20,6 +20,10 @@ export const mixBuffer = (o: {
   channels: 1 | 2
   start?: number
 }): MixBuffer => {
+  if (!(o.duration > 0 && Number.isFinite(o.duration)))
+    throw new RangeError(`duration ${o.duration} must be a number of seconds above 0`)
+  if (!(Number.isInteger(o.sampleRate) && o.sampleRate > 0))
+    throw new RangeError(`sampleRate ${o.sampleRate} must be a whole number of hertz above 0`)
   const n = Math.ceil(o.duration * o.sampleRate)
   return {
     sampleRate: o.sampleRate,
@@ -40,6 +44,7 @@ export const add = (
   at: number,
   o: { gain: number; pan: number },
 ) => {
+  if (!Number.isFinite(o.gain)) throw new RangeError(`gain ${o.gain} must be a finite number`)
   if (!(o.pan >= -1 && o.pan <= 1)) throw new RangeError(`pan ${o.pan} is outside [-1, 1]`)
   const gains =
     buf.channels.length === 1
