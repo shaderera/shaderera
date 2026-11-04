@@ -39,8 +39,12 @@ const look = await loadStyle(host, 'references/hero-look/style.json')
 const card = styleOf(look, '[data-id="card"]')
 card.box                               // [x, y, width, height], css-px
 card.styles['box-shadow']              // 'rgba(0, 0, 0, 0.25) 0px 12px 32px 0px'
-textsOf(look, '.hero > h1')[0]?.fonts  // [{ familyName, postScriptName, isCustomFont, glyphCount }]
+textsOf(look, '[data-id="card"] > h1:nth-child(1)')[0]?.fonts
+// [{ familyName, postScriptName, isCustomFont, glyphCount }]
 ```
+
+`styleOf` and `textsOf` take an element's name as `style.json` writes it in `element` (below), not
+a CSS selector: `.hero > h1` matches nothing.
 
 The file is a `shaderera.analysis/1` artifact of kind `reference-tracks`, written by
 `analysis-reference-tracks`' writer and read by its reader (see `docs/analysis.md` in the
@@ -115,7 +119,9 @@ The page loads, the clock runs and a `--trigger` is sent as for motion, up to th
 once the fonts it started loading have loaded, everything is read at once.
 - `--still <ms>`: the time after the freeze. `--rafHz` has no default here and the still must be
   on one of its frames (500 at 60 is, 510 is not), so a JS animation is where CSS is. `--viewport`
-  as for motion; `--track`, `--fps` and `--duration` are refused.
+  as for motion; `--track`, `--fps` and `--duration` are refused. A page with a dark scheme is
+  captured in its light look unless `--media prefers-color-scheme=dark` is given: the default is
+  there so your OS settings do not leak in, and it is recorded in `params.media`.
 - `--root <selector>` (`:root`): the element whose subtree is read, the first match.
 - `--style <property>`: a computed style read beside the default list, repeated for more. The
   default list is what changes how text, a box and its edges, its background, an image or an SVG
@@ -138,7 +144,8 @@ What it reads, all from Chrome over the DevTools protocol, never from the pixels
 - each element and pseudo-element under the root, from `DOMSnapshot.captureSnapshot`: its box as
   drawn (after transforms, from the viewport's top left), its paint order and each style as
   computed. It is named by `[data-id="…"]` or `#id` when that is unique, else by its path from the
-  root (`html > body:nth-child(2) > canvas:nth-child(3)`); an element in a shadow tree after its
+  document, or from the nearest ancestor with a unique data-id or id
+  (`html > body:nth-child(2) > canvas:nth-child(3)`, `[data-id="card"] > h1:nth-child(1)`); an element in a shadow tree after its
   host and ` >>> `.
 - each text node's line boxes, from the same snapshot, with the range of its text each holds.
   White space laid out between elements has no line box and no entry: nothing of it is drawn.
@@ -162,7 +169,8 @@ hold. Two stills give the same bytes, JSON and PNG, but for `source.date`.
 
 `loadStyle` and the kind's writer live in this plugin for now, as it is the one source of still
 facts. When a second one comes (an image read by OCR, say), they move to a shared component, as
-the tracks' reader did, and the kind stays as it is.
+the tracks' reader did. The kind holds what a live page gives (paint order, the platform fonts,
+the scroll): a source that cannot give a field changes the kind under a new format number.
 
 One capture runs at a time on a machine (a lock in the OS temp folder).
 
@@ -277,7 +285,8 @@ A page given as a file reads files, as Chrome lets it.
   `Temporal`, `crypto.getRandomValues`, GIF and APNG frames.
 - A response that arrives while a frame's timers run can land on that frame or the next.
 - Fonts installed on the machine: text whose web font is missing, or lacks a glyph, falls back to
-  them, and they are neither held nor recorded (only web fonts' response hashes are).
+  them, and they are neither held nor recorded (only web fonts' response hashes are; a still
+  names the fonts it drew with, not their files).
 - The layout box before transforms is not a channel: `x`, `y`, `width`, `height` are the box as
   drawn.
 

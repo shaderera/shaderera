@@ -185,6 +185,9 @@ and the fonts it was drawn with, and a screenshot. Kind `reference-style`; the
   the same page differ only in `source.date` and in what the site served.
 - A reader keeps fields it does not know. Nothing in it is a choice: a film reads what was drawn
   and decides in its own code what to copy.
+- Every field above is required, as a live page gives them all. A source that cannot give one (an
+  image read by OCR has no paint order, scroll or platform fonts) changes the kind under a new
+  format number; it does not make one up.
 
 ### Artifact identity and provenance
 

@@ -1234,7 +1234,12 @@ export const captureWeb = async (options: CaptureOptions) => {
     }
     for (const s of o.styles ?? []) {
       const known = await evaluate<boolean>(`CSS.supports(${JSON.stringify(s)}, 'inherit')`)
-      if (!known) throw new Error(`--style ${s}: this Chrome knows no such CSS property`)
+      if (!known)
+        throw new Error(
+          STYLES.includes(s)
+            ? `the default style ${s} is unknown to this Chrome (${version.product}): give its version in an issue`
+            : `--style ${s}: this Chrome knows no such CSS property`,
+        )
     }
 
     // The network and the page's own pending work (worker replies, video seeks) settle before a

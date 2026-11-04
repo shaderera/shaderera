@@ -12,7 +12,8 @@
 // the load on real time. A page that reaches for this machine is refused without --allow-local,
 // and the local server sees nothing; with it, each response is hashed as served. A still of a page
 // with a web font, a Thai line it falls back from and a shadowed card gives the families and glyph
-// counts, boxes within 0.5 px and the computed values, the same bytes and screenshot each time.
+// counts, boxes within 0.5 px and the computed values, the same bytes and screenshot each time;
+// a still after a scroll has its boxes from the viewport and the scroll recorded.
 // Skipped, with the reason, when there is no Chrome.
 
 import assert from 'node:assert/strict'
@@ -969,6 +970,29 @@ test('a still reads the web font, the Thai fallback, the shadowed card, the same
   } finally {
     server.close()
   }
+})
+
+test('a still after a scroll has its boxes from the viewport and the scroll recorded', {
+  skip,
+}, async () => {
+  const { path } = await captureWeb({
+    page: fixture('scroll.html'),
+    out: join(outs, `still-${n++}`),
+    still: 500,
+    rafHz: 60,
+    viewport: { width: 800, height: 400 },
+    trigger: 'scroll',
+    at: 0,
+    scrollTo: 600,
+    scrollMs: 0,
+  })
+  const host = { io: { read: async (p: string) => new Uint8Array(readFileSync(p)) } } as Host
+  const style = await loadStyle(host, path)
+  assert.deepEqual(style.scroll, { x: 0, y: 600 })
+  // #inline is at 100 on the page, so 600 px of scroll puts it at -500 in the viewport.
+  assert.deepEqual(styleOf(style, '#inline').box, [200, -500, 40, 40])
+  // #sticky is position: fixed, so its box stays where the viewport has it.
+  assert.deepEqual(styleOf(style, '#sticky').box, [20, 140, 40, 40])
 })
 
 test.after(() => rmSync(outs, { recursive: true, force: true }))
