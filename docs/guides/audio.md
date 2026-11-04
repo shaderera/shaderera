@@ -13,7 +13,13 @@ is what the engine does with sound.
   constant gain, with no compression or limiting, and reports the true peak it reached. No target
   is assumed: each placement publishes its own.
 - Sound made in code is a clip with `pcm: { sampleRate, channels }` instead of `src`, computed
-  in `open` or `audio()` from the seed, and mixed like any file.
+  in `open` or `audio()` from the seed, and mixed like any file. The plumbing for it is in three
+  plugins that carry no taste: `audio-pcm-mix` places sounds at film seconds (to the sample, with a
+  constant-power pan) and checks the peak, NaN and DC; `audio-filters` has the one-pole and RBJ
+  biquad filters set in Hz, a MIDI note's frequency and a fade that ends at zero; `audio-pcm-bake`
+  renders a bed of a minute or more to an `.m4a` once, and the film refuses that file when the
+  code, the seed or the duration that made it change. The instruments, the notes and the mix are
+  the film's own code.
 - Times taken from music come from measuring the exact file that plays: tempo, beats, onsets and
   band energy (the `audio-beat-clock` plugin measures and keys them). Listen to check the tempo: a measured
   BPM can be a ratio of the real one.
