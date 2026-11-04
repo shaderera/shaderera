@@ -6,12 +6,12 @@ box and computed styles, every text node's line boxes and fonts, and a screensho
 
 ```sh
 node tools/capture-web.ts https://example.com/ --out references/hero \
-  --track '.hero h1' --track '.hero .card' --fps 30 --duration 3 --viewport 1280x720
+  --track '.hero h1' --track '.hero .card' --fps 30 --rafHz 60 --duration 3 --viewport 1280x720
 # writes references/hero/tracks.json
 
 # the menu as it opens on a click at 500 ms
 node tools/capture-web.ts https://example.com/ --out references/menu \
-  --track '.menu' --fps 60 --duration 2 --viewport 1280x720 \
+  --track '.menu' --fps 60 --rafHz 60 --duration 2 --viewport 1280x720 \
   --trigger click --target '.menu-button' --at 500
 
 # the hero's look at 1.5 s
@@ -56,11 +56,14 @@ smoothed, no time stretched.
 - `--out <dir>`: the folder `tracks.json` goes in.
 - `--track <selector>`: one CSS selector per element, repeated for more. The first match in
   document order is tracked; a selector list (`a, b`) is one selector.
-- `--fps`, `--duration` (seconds from the load), `--viewport <width>x<height>` (CSS pixels): no
-  defaults, since each changes every sample. Frames are at 0, 1/fps, … up to the duration.
-- `--rafHz <n>`: how often the page's `requestAnimationFrame` runs. The fps when left out, and it
-  must be a whole multiple of it: otherwise a JS animation shows its last tick before the frame
-  while CSS shows the frame itself (8.7 ms off at 24 fps with 60).
+- `--fps`, `--rafHz`, `--duration` (seconds from the load), `--viewport <width>x<height>` (CSS
+  pixels): no defaults, since each changes every sample. Frames are at 0, 1/fps, … up to the
+  duration.
+- `--rafHz <n>`: how often the page's `requestAnimationFrame` runs, a whole multiple of the fps:
+  otherwise a JS animation shows its last tick before the frame while CSS shows the frame itself
+  (8.7 ms off at 24 fps with 60). Every multiple repeats, but a page that steps its motion once
+  per animation frame (a spring, a lerp, a smooth scroll) moves differently at each, so give the
+  refresh rate the reference was seen at.
 - `--seed <n>` (1; 0 is a seed like any other), `--dpr <n>` (1), `--media <name>=<value>`
   (repeat; by default `prefers-color-scheme=light` and `prefers-reduced-motion=no-preference`),
   `--locale <BCP 47 tag>` (`en-US`: what `Intl`, `navigator.language` and `Accept-Language` see).
@@ -96,10 +99,10 @@ smoothed, no time stretched.
   |---|---|---|
   | `load` (the default) | | nothing: the motion starts with the page |
   | `none` | | nothing: for motion that nothing starts (a loop, a drift); only the record differs from `load` |
-  | `click` | `--target`, `--at` | the pointer moves onto the target, presses and releases the left button, all at `--at` |
-  | `hover` | `--target`, `--at` | the pointer moves onto the target at `--at` |
-  | `leave` | `--target`, `--at` (above 0) | the pointer is on the target from 0 ms, and moves out of the viewport at `--at`, so it goes over nothing else |
-  | `scroll` | `--at`, `--scroll-to <px>`, `--scroll-ms <ms>`, `--target` if the wheel should be over it (else the viewport's centre) | the pointer moves to the wheel's point at `--at`, so it hovers what it turns over, as a person's does; wheel events from `--at` for `--scroll-ms`, evenly spaced and at most 1/rafHz second apart (one at `--at` for 0), in whole pixels on a straight line in time, adding up to `--scroll-to` minus the window's `scrollY` at `--at` |
+  | `click` | `--target`, `--at` | the pointer jumps to the target's centre (one mousemove, no path), presses and releases the left button, all at `--at` |
+  | `hover` | `--target`, `--at` | the pointer jumps to the target's centre at `--at` (one mousemove, no path) |
+  | `leave` | `--target`, `--at` (above 0) | the pointer is on the target's centre from 0 ms, and moves to (-1, -1), just past the viewport's top-left corner, at `--at`, so it goes over nothing else |
+  | `scroll` | `--at`, `--scroll-to <px>`, `--scroll-ms <ms>`, `--target` if the wheel should be over it (else the viewport's centre) | the pointer jumps to the wheel's point at `--at` (one mousemove), so it hovers what it turns over, as a person's does; wheel events from `--at` for `--scroll-ms`, evenly spaced and at most 1/rafHz second apart (one at `--at` for 0), in whole pixels on a straight line in time, adding up to `--scroll-to` minus the window's `scrollY` at `--at` |
 
   A scroll that does not end at `--scroll-to` (the page is shorter, an element under the pointer
   scrolled instead, the page took the wheel itself) is what the page did: a limit says where the
@@ -109,8 +112,13 @@ Each default above is a constant, never your OS's setting, so that two runs on t
 repeat, and each is recorded (`params.seed`, `params.media`, `params.locale`, the clock's in
 `params`, the pixel ratio in `frame.pixelRatio`). They still decide which variant of a page is
 captured: the media defaults pick the light, full-motion variant of a page that has others,
-`--dpr 1` its 1x images, `en-US` its English copy and number formats. Pass the values the
-reference was seen with.
+`--dpr 1` its 1x images, `en-US` its English copy and number formats. Two more are fixed and
+recorded: the page is always a desktop page (`params.mobile: false`: its viewport meta is
+ignored and there is no touch, so a phone layout that depends on them is not captured), and
+scrollbars are hidden (`--hide-scrollbars` in `tool.chromeFlags`), so an overflowing page is
+laid out at the full viewport width, as with overlay scrollbars; a reference seen with classic
+scrollbars was laid out about 15 CSS pixels narrower. Pass the values the reference was seen
+with.
 
 **A still.** `--still <ms>` reads the page at one time on its clock instead of its motion, and
 writes `style.json`, a `shaderera.analysis/1` artifact of kind `reference-style`
@@ -247,14 +255,15 @@ as the text it decoded with its charset, so such a response carries `"hashOf": "
 (an image it could not decode) has no hash and is a limit. **`tool`** is this script's version, the
 Chrome version and user agent, its flags, and the clock's version and sha256. **`params`** are the
 fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, `locale`, the duration, the
-selectors, the media features, `allowLocal`, `settle` and `trigger`: its `type` and the settings
-it took (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where
-its input went, so a film can put a cursor where the page saw one. For a `leave` it is where the
-pointer was from 0 ms until `at`; then it is off the viewport. A scroll without `--target` also
-records `over`, the element the wheel's point was over (`div#hero`, `nothing`), so a hover state
-it shows can be read back to it. With `trigger` `load` frame 0 is the page once it has loaded.
-A capture sends one trigger; a later version that sends several would list them in a new field
-and keep `trigger` as the first.
+selectors, the media features, `allowLocal`, `mobile` (always `false`), `settle` and `trigger`: its
+`type` and the settings it took (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer`
+`{ x, y }` in CSS pixels where its input went, so a film can put a cursor where the page saw one.
+For a `leave` it is where the pointer was from 0 ms until `at`; then it is at `leftTo`
+(`{ x: -1, y: -1 }`), off the viewport. A scroll without `--target` also records `over`, the
+element the wheel's point was over (`div#hero`, `nothing`), so a hover state it shows can be read
+back to it. With `trigger` `load` frame 0 is the page once it has loaded. A capture sends one
+trigger; a later version that sends several would list them in a new field and keep `trigger` as
+the first.
 
 **Outside requests.** Chrome's only way out is a proxy in the tool, loopback included. It resolves
 each host once, refuses it when any of its addresses is loopback, private, link-local, cloud
@@ -274,7 +283,9 @@ A page given as a file reads files, as Chrome lets it.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.
 - Input goes to the top frame at the target's centre; an iframe under it gets it on its own
-  clock. There is no touch, keyboard or drag yet.
+  clock. There is no pointer path, touch, keyboard or drag yet: a page that reacts to mousemove
+  (a magnetic button, a tilt) gets one move from nowhere. A click's press and release are one
+  instant, so an `:active` look shows on no frame.
 - A request the proxy refused, a response that did not load, or one whose body has no hash.
 
 **Limits not held and not detected**: a capture that meets them has nothing in `limits` for them.

@@ -83,9 +83,9 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
   every setting that changed the samples: for a page capture the fps, `rafHz`, the seed, what the
   page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`), when it
   froze them (`settle`), the `locale` its `Intl`, language and `Accept-Language` saw, the `media`
-  features it was shown with and what started the motion (`trigger`); its pixel ratio is
-  `frame.pixelRatio`. A setting the analyser gives a default is a constant, recorded like any
-  other, never the machine's.
+  features it was shown with, whether it was a `mobile` page and what started the motion
+  (`trigger`); its pixel ratio is `frame.pixelRatio`. A setting the analyser gives a default is a
+  constant, recorded like any other, never the machine's.
 - `frame`: the source's `width` and `height`, in the unit of its position tracks (CSS pixels for a
   page's viewport, pixels for a clip), and `pixelRatio`, device pixels per CSS pixel (1 for a
   clip).
@@ -112,10 +112,13 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
   of the source), `reason`, and `from` and `to` in source seconds when it covers only part of the
   time. An empty list means the analyser found nothing it missed, not that nothing was.
 - **Reading a sample** is a state, not a frame: before the first sample there is none (`null`); at
-  a sample's time it is that value. Between samples the film chooses `hold` or `linear`, and after
-  the last it chooses `hold` (the last value) or `none` (`null`, as the [Time](#time) contract
-  gives): the data does not say whether the source stopped there or the measurement did. The
-  reader has no default for either, since each changes a frame.
+  a sample's time it is that value. Between samples the data says nothing: the film fills as it
+  chooses (the `analysis-reference-tracks` reader offers `hold` and `linear`, and next to a
+  `null` sample there is no line, so its `linear` holds the earlier value until the `null`; any
+  other fill is the film's own code over `samples`). After the last sample the data does not say
+  whether the source stopped there or the measurement did, so the film chooses again (that
+  reader offers `hold`, the last value, or `none`, `null` as the [Time](#time) contract gives).
+  The reader has no default for either, since each changes a frame.
 - **The bytes are stable.** Keys in one order, tracks sorted by element then channel, a page's
   responses by url, times rounded to a microsecond and values to 1/10000 of their unit. The
   writer adds no differences of its own; whether two captures of the same motion match is up to
