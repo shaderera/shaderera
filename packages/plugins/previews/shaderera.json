@@ -17,6 +17,7 @@
           "audio-filters",
           "audio-hall-ending",
           "audio-listen",
+          "audio-pcm-bake",
           "audio-pcm-mix",
           "audio-voice-repace",
           "camera-ken-burns",
@@ -118,6 +119,13 @@
       "label": "audio-listen",
       "params": {
         "item": "audio-listen",
+        "state": "default"
+      }
+    },
+    "audio-pcm-bake": {
+      "label": "audio-pcm-bake",
+      "params": {
+        "item": "audio-pcm-bake",
         "state": "default"
       }
     },

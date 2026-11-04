@@ -67,6 +67,7 @@ What is on the shelf:
   - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
+  - `audio-pcm-bake`: sound made in code baked once to an .m4a, refused in `open` when its code, inputs or seed change;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
   - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking, the lines as text runs for review;
   - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;

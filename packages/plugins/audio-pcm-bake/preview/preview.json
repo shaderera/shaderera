@@ -1,0 +1,12 @@
+{
+  "caption": "Writes sound made in code to a file once, and refuses that file when the code, its inputs or the seed change.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": true,
+  "poster": 1.4
+}
