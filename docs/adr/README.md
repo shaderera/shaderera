@@ -60,5 +60,8 @@ One file per decision, in the order they were made.
 - [0031](0031-footage-at-ten-bits.md): footage at 10 bits, as `yuv420p10` Y'CbCr planes a film
   asks for per call, converted by core's `videoTexture` to exact half float; RGBA and 8-bit
   planes unchanged (amends 0027).
+- [0032](0032-reference-copying.md): reference copying, measured into frozen data and never
+  reduced to named easings; web capture is a plugin with an injected clock, comparing is core
+  and measures only (proposed).
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.
