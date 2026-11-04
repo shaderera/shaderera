@@ -65,9 +65,10 @@
 // Event.timeStamp, document.timeline.currentTime, every CSS and Web Animations API animation on the
 // document timeline, <video>, and the same in frames and dedicated workers. What it does not:
 // shared and service workers, messages on a MessagePort or BroadcastChannel between two of them,
-// messages between frames that are not parent and child, a video that cannot be seeked, scroll
-// and view timelines (they follow the scroll, which only the capture's input moves),
-// AudioContext, requestVideoFrameCallback, Temporal, crypto.getRandomValues, GIF and APNG frames.
+// messages between frames that are not parent and child, a video that cannot be seeked, <audio>
+// (its currentTime and events run on real time), scroll and view timelines (they follow the
+// scroll, which the input or the page's script moves), AudioContext, requestVideoFrameCallback,
+// Temporal, crypto.getRandomValues, GIF and APNG frames.
 ;(function install(CFG) {
   const w = self
   if (w.__shadereraClock) return
@@ -85,7 +86,7 @@
   // How long a child may take to answer: longer than it may wait on its own children.
   const ASK_MS = waitMs * 4
 
-  let seed = CFG.seed >>> 0 || 1
+  let seed = CFG.seed >>> 0
   Math.random = function random() {
     seed = (seed + 0x6d2b79f5) | 0
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
@@ -449,7 +450,8 @@
   }
   if (media) {
     media.play = function play(...args) {
-      if (!isVideo(this)) return nativePlay.apply(this, args)
+      // Not a video, or one whose source Chrome cannot play: Chrome's own play(), which rejects.
+      if (!isVideo(this) || this.error?.code === 4) return nativePlay.apply(this, args)
       // A video that would load only once played loads now.
       if (this.readyState === 0 && this.preload === 'none') this.load()
       hold(this, true)
@@ -1015,6 +1017,13 @@
       ? []
       : new Set([...doc().querySelectorAll('video'), ...videos.keys()])) {
       const rec = videos.get(v)
+      // A held video that cannot play played for the page all the same, so a fallback the page
+      // shows a visitor when play() fails (a poster, an image) may be missing here.
+      if (v.error && rec)
+        limitOnce(
+          videoName(v),
+          `a video that could not be played (MediaError code ${v.error.code}): its play() resolved, so a fallback a visitor sees may be missing`,
+        )
       if (!v.isConnected || v.error || rec?.stuck) continue
       // A seek landing, the frame shown still loading or not yet on screen, or one more seek due.
       if (v.seeking || (v.networkState === 2 && v.readyState < 2)) n++

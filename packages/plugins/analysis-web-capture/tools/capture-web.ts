@@ -8,6 +8,7 @@
 //     --fps <n> --duration <s> --viewport <width>x<height>
 //     [--rafHz <n>] [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
 //     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
+//     [--locale <BCP 47>]
 //     [--settle load|loaded] [--trigger load|none|click|hover|leave|scroll --target <selector>
 //     --at <ms> [--scroll-to <px> --scroll-ms <ms>]]
 //   node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n>
@@ -33,7 +34,7 @@ import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 /** This tool's version, recorded in every capture. */
 export const VERSION = '0.4.0'
 
-/** Chrome as the CLI finds it (`shaderera doctor`): CHROME, else the usual install paths. */
+/** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
   const { existsSync } = await import('node:fs')
   return (
@@ -78,6 +79,8 @@ export type CaptureOptions = {
   clockDate?: string
   /** The time zone the page's Date and Intl see, an IANA name. */
   timezone?: string
+  /** The locale the page's Intl, navigator.language and Accept-Language see, a BCP 47 tag. */
+  locale?: string
   /** Device pixels per CSS pixel. */
   devicePixelRatio?: number
   /** Media features the page sees, over MEDIA. */
@@ -130,6 +133,9 @@ export const WINDOW_CHANNELS: [channel: string, unit: string][] = [
   ['scrollX', 'css-px'],
   ['scrollY', 'css-px'],
 ]
+
+/** The locale a capture sets unless asked otherwise: a constant, so the machine's does not leak in. */
+export const LOCALE = 'en-US'
 
 /** Each channel read per element, and its unit. */
 export const CHANNELS: [channel: string, unit: string][] = [
@@ -187,6 +193,12 @@ export const checkOptions = (o: CaptureOptions) => {
   const settle = o.settle ?? 'load'
   if (!SETTLES.includes(settle))
     throw new Error(`--settle ${settle} is not one of ${SETTLES.join(', ')}`)
+  let locale: string
+  try {
+    locale = Intl.getCanonicalLocales(o.locale ?? LOCALE)[0] as string
+  } catch {
+    throw new Error(`--locale ${o.locale} is not a BCP 47 language tag, like en-US or th-TH`)
+  }
   const last = mode.times.at(-1) as number
   const trigger = checkTrigger(
     o,
@@ -203,6 +215,7 @@ export const checkOptions = (o: CaptureOptions) => {
     clockDate: new Date(epoch).toISOString(),
     epoch,
     timezone,
+    locale,
     devicePixelRatio,
     cpuThrottle: throttle,
     media: { ...MEDIA, ...o.media },
@@ -870,6 +883,7 @@ export const captureWeb = async (options: CaptureOptions) => {
         `--user-data-dir=${profile}`,
         `--proxy-server=http://127.0.0.1:${proxy.port}`,
         `--window-size=${o.viewport.width},${o.viewport.height}`,
+        `--lang=${o.locale}`,
         '--do-not-de-elevate',
         'about:blank',
       ],
@@ -1083,7 +1097,10 @@ export const captureWeb = async (options: CaptureOptions) => {
     // (tools/inpage/clock.js). A frame of the page's process gets it with the page's script; a
     // frame in a process of its own and a worker attach here, paused before their first script,
     // and get it then, starting at the page's time. Any other target runs on real time.
+    // Each named by its URL, with its kind in the reason.
     const realTime = new Map<string, string>()
+    const kindOf = (type: string) =>
+      type === 'iframe' ? 'an iframe' : `a ${type.replace('_', ' ')}`
     const workerClocks = new Map<string, { breakpointId: string; source: string; name: string }>()
     c.on('Debugger.paused', (_p, s) => {
       if (s === undefined) return
@@ -1100,7 +1117,7 @@ export const captureWeb = async (options: CaptureOptions) => {
           if (failed)
             realTime.set(
               w.name,
-              `the clock could not be added (${failed.exception?.description ?? failed.text}): it runs on real time`,
+              `a worker the clock could not be added to (${failed.exception?.description ?? failed.text}): it runs on real time`,
             )
           await c
             .send('Debugger.removeBreakpoint', { breakpointId: w.breakpointId }, s)
@@ -1117,7 +1134,9 @@ export const captureWeb = async (options: CaptureOptions) => {
       targetInfo: { type: string; url: string }
       waitingForDebugger: boolean
     }>('Target.attachedToTarget', (p, parent) => {
-      const { type, url: at } = p.targetInfo
+      const { type } = p.targetInfo
+      // A frame can attach before it has a URL of its own.
+      const at = p.targetInfo.url || type.replace('_', ' ')
       const s = p.sessionId
       // Our own page attaches on the browser's session, and so does a shared worker, which no
       // page owns: it runs on real time (the page's clock names it), and its network is followed
@@ -1147,13 +1166,13 @@ export const captureWeb = async (options: CaptureOptions) => {
                 { instrumentation: 'beforeScriptExecution' },
                 s,
               )
-              workerClocks.set(s, { breakpointId, source: clockFor(start), name: `worker ${at}` })
+              workerClocks.set(s, { breakpointId, source: clockFor(start), name: at })
             } else {
               await c.send('Page.enable', {}, s)
               await c.send('Page.addScriptToEvaluateOnNewDocument', { source: clockFor(start) }, s)
               await emulate(s)
             }
-          } else realTime.set(`${type.replace('_', ' ')} ${at}`, 'it runs on real time')
+          } else realTime.set(at, `${kindOf(type)}: it runs on real time`)
           await c.send(
             'Target.setAutoAttach',
             { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
@@ -1161,8 +1180,8 @@ export const captureWeb = async (options: CaptureOptions) => {
           )
         } catch (e) {
           realTime.set(
-            `${type.replace('_', ' ')} ${at}`,
-            `the clock could not be added (${(e as Error).message}): it runs on real time`,
+            at,
+            `${kindOf(type)} the clock could not be added to (${(e as Error).message}): it runs on real time`,
           )
         }
         await c.send('Runtime.runIfWaitingForDebugger', {}, s).catch(() => {})
@@ -1187,7 +1206,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       },
       page,
     )
-    // The media features and time zone, for the page and each frame in a process of its own.
+    // The media features, time zone and locale, for the page and each frame in a process of its own.
     const emulate = async (session: string) => {
       await c.send(
         'Emulation.setEmulatedMedia',
@@ -1195,6 +1214,18 @@ export const captureWeb = async (options: CaptureOptions) => {
         session,
       )
       await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, session)
+      // The locale is one per renderer process: a frame in a process that already has it (this
+      // capture set it, to the same locale) is refused, and has it.
+      await c
+        .send('Emulation.setLocaleOverride', { locale: o.locale }, session)
+        .catch((e: Error) => {
+          if (!/already in effect/.test(e.message)) throw e
+        })
+      await c.send(
+        'Network.setUserAgentOverride',
+        { userAgent: version.userAgent, acceptLanguage: o.locale },
+        session,
+      )
     }
     await emulate(page)
     if (o.cpuThrottle > 1)
@@ -1280,7 +1311,12 @@ export const captureWeb = async (options: CaptureOptions) => {
     }
     for (const s of o.styles ?? []) {
       const known = await evaluate<boolean>(`CSS.supports(${JSON.stringify(s)}, 'inherit')`)
-      if (!known) throw new Error(`--style ${s}: this Chrome knows no such CSS property`)
+      if (!known)
+        throw new Error(
+          STYLES.includes(s)
+            ? `the default style ${s} is unknown to this Chrome (${version.product}): give its version in an issue`
+            : `--style ${s}: this Chrome knows no such CSS property`,
+        )
     }
 
     // The network and the page's own pending work (frames and workers starting, video seeks and
@@ -1387,6 +1423,9 @@ export const captureWeb = async (options: CaptureOptions) => {
           to: ms / 1000,
         })
       trigger.pointer = { x: p.x, y: p.y }
+      // Without a target the wheel's point hovers whatever is there: name it, so a hover state in
+      // the capture can be read back to it.
+      if (sel === null) trigger.over = p.hit
       return p
     }
     const send = async (input: Input) => {
@@ -1515,8 +1554,10 @@ export const captureWeb = async (options: CaptureOptions) => {
     // that never had one. Asking for those brings each child's last limits up first.
     const unclocked = await evaluate<string[]>('self.__shadereraClock.unclocked()')
     limits.push(...(await evaluate<Limit[]>('self.__shadereraClock.limits()')))
+    // A frame the clock could not be added to is named once, by realTime.
     for (const where of unclocked)
-      limits.push({ where, reason: 'an iframe the clock did not reach: it runs on real time' })
+      if (!realTime.has(where))
+        limits.push({ where, reason: 'an iframe the clock did not reach: it runs on real time' })
     for (const [where, reason] of realTime) limits.push({ where, reason })
     for (const s of spans.values()) limits.push(s)
     for (const r of refused) limits.push({ where: r.where, reason: r.reason })
@@ -1542,6 +1583,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       timeOrigin: o.timeOrigin,
       clockDate: o.clockDate,
       timezone: o.timezone,
+      locale: o.locale,
       settle: o.settle,
       trigger,
       media: o.media,
@@ -1637,6 +1679,7 @@ if (import.meta.main) {
       still: { type: 'string' },
       root: { type: 'string' },
       style: { type: 'string', multiple: true },
+      locale: { type: 'string' },
     },
   })
   const number = (name: string, v: string | undefined) => {
@@ -1688,6 +1731,7 @@ if (import.meta.main) {
       at: number('at', values.at),
       scrollTo: number('scroll-to', values['scroll-to']),
       scrollMs: number('scroll-ms', values['scroll-ms']),
+      locale: values.locale,
       log: (line) => console.error(line),
     })
     console.log(path)

@@ -12,13 +12,15 @@
 // the load on real time. A page that reaches for this machine is refused without --allow-local,
 // and the local server sees nothing; with it, each response is hashed as served. A still of a page
 // with a web font, a Thai line it falls back from and a shadowed card gives the families and glyph
-// counts, boxes within 0.5 px and the computed values, the same bytes and screenshot each time.
+// counts, boxes within 0.5 px and the computed values, the same bytes and screenshot each time;
+// a still after a scroll has its boxes from the viewport and the scroll recorded.
 // Workers (classic and module) and frames (of this origin, of another site, added later) run on
 // the clock: their timers, animation frames, Date and replies land at the page's times; an
 // OffscreenCanvas a worker draws and a video show the frame at the still's time, pixel for pixel.
-// A worker that ends itself is let go. A shared worker, a BroadcastChannel, a MessagePort sent to
-// a worker or a frame, a frame that messages its sibling and a video its server cannot seek are
-// limits, named in the file and by the CLI. Skipped, with the reason, when there is no Chrome.
+// A frame of another site sees the page's locale. A worker that ends itself is let go. A shared
+// worker, a BroadcastChannel, a MessagePort sent to a worker or a frame, a frame that messages its
+// sibling, a video its server cannot seek and one that cannot play are limits, named in the file
+// and by the CLI. Skipped, with the reason, when there is no Chrome.
 
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
@@ -192,6 +194,31 @@ test('a page that reads absolute time gets the same values on every run', { skip
     samplesOf(JSON.stringify(moved), el, 'translateX').find(([s]) => s === 0.1)?.[1]
   assert.equal(atMoved('#perf'), 330)
   assert.equal(atMoved('#hours'), 19)
+})
+
+test('the locale and the seed are held and recorded, and seed 0 is a seed of its own', {
+  skip,
+}, async () => {
+  const run = async (o: Partial<Options>) =>
+    JSON.parse(
+      await capture({
+        page: fixture('locale.html'),
+        track: ['#lang', '#random'],
+        duration: 0.1,
+        ...o,
+      }),
+    ) as Doc
+  const first = (doc: Doc, el: string) =>
+    doc.tracks.find((t) => t.element === el && t.channel === 'translateX')?.samples[0]?.[1]
+  const plain = await run({})
+  assert.equal(plain.params.locale, 'en-US')
+  assert.equal(first(plain, '#lang'), 0)
+  const thai = await run({ locale: 'th-TH' })
+  assert.equal(thai.params.locale, 'th-TH')
+  assert.equal(first(thai, '#lang'), 3, 'navigator.language and Intl both see the locale')
+  const zero = await run({ seed: 0 })
+  assert.equal(zero.params.seed, 0)
+  assert.notEqual(first(zero, '#random'), first(plain, '#random'), 'seed 0 is not seed 1')
 })
 
 test('an animation started in a frame or a promise starts at its own time', {
@@ -509,6 +536,8 @@ test('a scroll is recorded against scrollY and captures the same at any speed', 
     scrollTo: 600,
     scrollMs: 300,
     pointer: { x: 400, y: 200 },
+    // No --target: what the wheel's point hovered is named.
+    over: 'body',
   })
   const y = samplesOf(json, 'window', 'scrollY')
   assert.ok(
@@ -1014,11 +1043,14 @@ test('a worker runs on the clock: its timers, frames, Date and replies, at any s
 }, async () => {
   const server = await serveContexts()
   try {
+    const started = performance.now()
     const json = await sameEveryTime(
       server.url('worker.html'),
       ['#timer', '#raf', '#date', '#reply', '#module'],
       { allowLocal: true },
     )
+    // The worker that ends itself is let go at once, not waited for.
+    assert.ok(performance.now() - started < 30000, 'no capture waits out a worker that ended')
     const doc = JSON.parse(json) as Doc
     assert.deepEqual(doc.limits, [])
     const each = (id: string, expected: (ms: number) => number) => {
@@ -1064,6 +1096,31 @@ test('frames run on the clock, of this origin or another, and added later', { sk
     }
     // The frames' CSS spinners are drawn at the still's time: the same screenshot every time.
     await sameStill(server.url('frames.html'), { allowLocal: true })
+  } finally {
+    server.close()
+  }
+})
+
+test("a frame of another site sees the page's locale", { skip }, async () => {
+  const server = await serveContexts()
+  try {
+    const flags = async (locale?: string) => {
+      const doc = JSON.parse(
+        await capture({
+          page: server.url('locale.html'),
+          track: ['#page', '#frame'],
+          duration: 0.3,
+          allowLocal: true,
+          ...(locale ? { locale } : {}),
+        }),
+      ) as Doc
+      assert.deepEqual(doc.limits, [])
+      const last = (el: string) =>
+        doc.tracks.find((t) => t.element === el && t.channel === 'translateX')?.samples.at(-1)?.[1]
+      return [last('#page'), last('#frame')]
+    }
+    assert.deepEqual(await flags(), [0, 0])
+    assert.deepEqual(await flags('th-TH'), [3, 3], 'navigator.language and Intl in both')
   } finally {
     server.close()
   }
@@ -1144,6 +1201,29 @@ test('what the clock cannot hold is a limit, named in the file and on the comman
   }
 })
 
+test('a held video that cannot play is a limit', { skip }, async () => {
+  const server = await serveContexts()
+  try {
+    const json = await capture({
+      page: server.url('unplayable.html'),
+      track: ['video'],
+      duration: 0.3,
+      allowLocal: true,
+    })
+    assert.deepEqual(
+      (JSON.parse(json) as Doc).limits.map((l) => [l.where, l.reason]),
+      [
+        [
+          server.url('unplayable.html'),
+          'a video that could not be played (MediaError code 4): its play() resolved, so a fallback a visitor sees may be missing',
+        ],
+      ],
+    )
+  } finally {
+    server.close()
+  }
+})
+
 test('a video its server cannot seek is a limit, and frames do not wait on it', {
   skip,
 }, async () => {
@@ -1171,6 +1251,29 @@ test('a video its server cannot seek is a limit, and frames do not wait on it', 
   } finally {
     server.close()
   }
+})
+
+test('a still after a scroll has its boxes from the viewport and the scroll recorded', {
+  skip,
+}, async () => {
+  const { path } = await captureWeb({
+    page: fixture('scroll.html'),
+    out: join(outs, `still-${n++}`),
+    still: 500,
+    rafHz: 60,
+    viewport: { width: 800, height: 400 },
+    trigger: 'scroll',
+    at: 0,
+    scrollTo: 600,
+    scrollMs: 0,
+  })
+  const host = { io: { read: async (p: string) => new Uint8Array(readFileSync(p)) } } as Host
+  const style = await loadStyle(host, path)
+  assert.deepEqual(style.scroll, { x: 0, y: 600 })
+  // #inline is at 100 on the page, so 600 px of scroll puts it at -500 in the viewport.
+  assert.deepEqual(styleOf(style, '#inline').box, [200, -500, 40, 40])
+  // #sticky is position: fixed, so its box stays where the viewport has it.
+  assert.deepEqual(styleOf(style, '#sticky').box, [20, 140, 40, 40])
 })
 
 test.after(() => rmSync(outs, { recursive: true, force: true }))

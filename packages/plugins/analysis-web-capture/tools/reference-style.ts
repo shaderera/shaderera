@@ -54,22 +54,25 @@ export const styleJson = (doc: StyleDoc): string => {
     throw new Error(`reference-style has no field ${extra.join(', ')}: put it in params or tool`)
   const wrong = styleProblem(doc, 'the reference style')
   if (wrong) throw new Error(wrong)
-  const elements = doc.elements.map((e) =>
-    ordered({ ...e, box: box(e.box) }, [
-      'element',
-      'dataId',
-      'tag',
-      'pseudoElement',
-      'box',
-      'paintOrder',
-      'styles',
-    ]),
+  const S = "the reference style's "
+  const elements = doc.elements.map((e, i) =>
+    ordered(
+      { ...e, box: box(e.box) },
+      ['element', 'dataId', 'tag', 'pseudoElement', 'box', 'paintOrder', 'styles'],
+      `${S}elements[${i}]`,
+    ),
   )
-  const texts = doc.texts.map((t) =>
+  const texts = doc.texts.map((t, i) =>
     ordered(
       {
         ...t,
-        boxes: t.boxes.map((b) => ordered({ ...b, box: box(b.box) }, ['box', 'start', 'length'])),
+        boxes: t.boxes.map((b, j) =>
+          ordered(
+            { ...b, box: box(b.box) },
+            ['box', 'start', 'length'],
+            `${S}texts[${i}].boxes[${j}]`,
+          ),
+        ),
         fonts: [...t.fonts]
           .sort(
             (a, b) =>
@@ -77,13 +80,20 @@ export const styleJson = (doc: StyleDoc): string => {
               byCode(a.postScriptName, b.postScriptName) ||
               Number(a.isCustomFont) - Number(b.isCustomFont),
           )
-          .map((g) => ordered(g, ['familyName', 'postScriptName', 'isCustomFont', 'glyphCount'])),
+          .map((g, j) =>
+            ordered(
+              g,
+              ['familyName', 'postScriptName', 'isCustomFont', 'glyphCount'],
+              `${S}texts[${i}].fonts[${j}]`,
+            ),
+          ),
       },
       ['element', 'pseudoElement', 'child', 'text', 'boxes', 'fonts'],
+      `${S}texts[${i}]`,
     ),
   )
   const faces = [...doc.fontFaces]
-    .map(sorted)
+    .map((f, i) => sorted(f, `${S}fontFaces[${i}]`))
     .sort(
       (a, b) =>
         byCode(
@@ -94,17 +104,17 @@ export const styleJson = (doc: StyleDoc): string => {
   const parts = [
     `"format": ${JSON.stringify(doc.format)}`,
     `"kind": ${JSON.stringify(doc.kind)}`,
-    `"source": ${json(sourceJson(doc.source), '  ')}`,
-    `"tool": ${json(sorted(doc.tool), '  ')}`,
-    `"params": ${json(sorted(doc.params), '  ')}`,
-    `"frame": ${JSON.stringify(ordered(doc.frame, ['width', 'height', 'pixelRatio']))}`,
+    `"source": ${json(sourceJson(doc.source, `${S}source`), '  ')}`,
+    `"tool": ${json(sorted(doc.tool, `${S}tool`), '  ')}`,
+    `"params": ${json(sorted(doc.params, `${S}params`), '  ')}`,
+    `"frame": ${JSON.stringify(ordered(doc.frame, ['width', 'height', 'pixelRatio'], `${S}frame`))}`,
     `"scroll": ${JSON.stringify({ x: round(doc.scroll.x, BOX_DIGITS), y: round(doc.scroll.y, BOX_DIGITS) })}`,
-    `"screenshot": ${JSON.stringify(ordered(doc.screenshot, ['path', 'width', 'height', 'sha256']))}`,
+    `"screenshot": ${JSON.stringify(ordered(doc.screenshot, ['path', 'width', 'height', 'sha256'], `${S}screenshot`))}`,
     lines('elements', elements),
     lines('texts', texts),
     lines('fontFaces', faces),
     `"limits": ${json(
-      doc.limits.map((l) => ordered(l, ['where', 'reason', 'from', 'to'])),
+      doc.limits.map((l, i) => ordered(l, ['where', 'reason', 'from', 'to'], `${S}limits[${i}]`)),
       '  ',
     )}`,
   ]

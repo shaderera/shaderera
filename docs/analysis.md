@@ -82,10 +82,10 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
 - `source` is a file or a live page, as [below](#artifact-identity-and-provenance). `params` holds
   every setting that changed the samples: for a page capture the fps, `rafHz`, the seed, what the
   page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`), when it
-  froze them (`settle`) and what started the motion (`trigger`: its `type`, and for an input the
-  element, the time and where the pointer went; for a leave, where it was until it left). One
-  trigger today: a capture that sends several would list them in a new field, `trigger` kept as
-  the first.
+  froze them (`settle`), the `locale` its `Intl`, language and `Accept-Language` saw, the `media`
+  features it was shown with and what started the motion (`trigger`); its pixel ratio is
+  `frame.pixelRatio`. A setting the analyser gives a default is a constant, recorded like any
+  other, never the machine's.
 - `frame`: the source's `width` and `height`, in the unit of its position tracks (CSS pixels for a
   page's viewport, pixels for a clip), and `pixelRatio`, device pixels per CSS pixel (1 for a
   clip).
@@ -103,21 +103,23 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
     taken, never resampled. A value is a number, or `null` where the element was not there.
 - `declared`: what the source itself declared, kept as written, never re-derived from the samples:
   for a page each animation's keyframes, timing and easing string. Each entry names its `element`
-  and its `type` (`css-transition`, `css-animation`, `web-animation`); the rest is the source's
-  (a value JSON cannot hold, such as infinite iterations, as the source's own language writes it:
-  `"infinite"`), but for `start`: for a page, the source second at which the analyser first saw
-  the animation running, as it observed it (absent when it did not), so its keyframes can be
-  placed in source time.
+  and its `type`, an open set named by the analyser (for a page, `css-transition`,
+  `css-animation`, `web-animation`); the rest is the source's (a value JSON cannot hold, such as
+  infinite iterations, as the source's own language writes it: `"infinite"`), but for `start`: for
+  a page, the source second at which the analyser first saw the animation running, as it observed
+  it (absent when it did not), so its keyframes can be placed in source time.
 - `limits`: what the analyser could not make exact, each with `where` (an element, a URL, a part
   of the source), `reason`, and `from` and `to` in source seconds when it covers only part of the
   time. An empty list means the analyser found nothing it missed, not that nothing was.
 - **Reading a sample** is a state, not a frame: before the first sample there is none (`null`); at
-  a sample's time it is that value; after the last, the last value holds, since the source stays
-  where its motion ended. Between samples the film chooses `hold` or `linear`; the reader has no
-  default, since the choice changes a frame.
+  a sample's time it is that value. Between samples the film chooses `hold` or `linear`, and after
+  the last it chooses `hold` (the last value) or `none` (`null`, as the [Time](#time) contract
+  gives): the data does not say whether the source stopped there or the measurement did. The
+  reader has no default for either, since each changes a frame.
 - **The bytes are stable.** Keys in one order, tracks sorted by element then channel, a page's
-  responses by url, times rounded to a microsecond and values to 1/10000 of their unit. Two
-  captures of the same motion differ only in `source.date` and in what the site served.
+  responses by url, times rounded to a microsecond and values to 1/10000 of their unit. The
+  writer adds no differences of its own; whether two captures of the same motion match is up to
+  the analyser.
 - A reader keeps fields it does not know. A field that changes what a sample means is an
   incompatible change: a new kind or format number.
 
@@ -183,6 +185,9 @@ and the fonts it was drawn with, and a screenshot. Kind `reference-style`; the
   the same page differ only in `source.date` and in what the site served.
 - A reader keeps fields it does not know. Nothing in it is a choice: a film reads what was drawn
   and decides in its own code what to copy.
+- Every field above is required, as a live page gives them all. A source that cannot give one (an
+  image read by OCR has no paint order, scroll or platform fonts) changes the kind under a new
+  format number; it does not make one up.
 
 ### Artifact identity and provenance
 
@@ -196,8 +201,9 @@ and the fonts it was drawn with, and a screenshot. Kind `reference-style`; the
   instead: `"text-as-utf8"` is the body as the browser decoded it with its charset, encoded as
   UTF-8, which matches the served file only when it was UTF-8. A second capture that differs is
   then explained.
-- `tool`: script, its tool versions (ffmpeg version string; model name, version and checkpoint
-  sha256 for model-backed analysers); `params`: every setting that changes the output.
+- `tool`: script, and the name and version string of every program that produced the samples
+  (ffmpeg, the browser a page was captured in, a model's name, version and checkpoint sha256);
+  `params`: every setting that changes the output.
 - Artifacts are project files: saved revisions and jobs freeze them like any asset (their sha256 is
   in `job.inputs.assets`).
 

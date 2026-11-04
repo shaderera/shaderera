@@ -119,6 +119,13 @@ test('analysis-reference-tracks: the writer rounds, orders and gives the same by
   assert.equal(round(-0.00004, 4), 0)
   assert.equal(round(2.00005, 4), 2.0001)
   assert.equal(round(-2.00005, 4), -2.0001)
+  // What JSON would write as null or drop is refused, by its path.
+  const base = await doc()
+  const lossy = (patch: object, message: RegExp) =>
+    assert.throws(() => tracksJson({ ...base, ...patch }), message)
+  lossy({ params: { fps: 30, seed: Number.NaN } }, /params\.seed is NaN/)
+  lossy({ params: { fps: 30, rafHz: undefined } }, /params\.rafHz is undefined/)
+  lossy({ tool: { sizes: [1, Number.POSITIVE_INFINITY] } }, /tool\.sizes\[1\] is Infinity/)
 })
 
 test('analysis-reference-tracks: loads a file source and reads one channel', async () => {
@@ -245,6 +252,7 @@ test('analysis-reference-tracks: a page source needs no file, and its responses 
   const h = 'b'.repeat(64)
   const page = {
     ...d,
+    frame: { width: 1280, height: 720, pixelRatio: 2 },
     source: {
       url: 'https://example.com/hero',
       date: '2026-11-04T08:00:00.000Z',
@@ -284,42 +292,59 @@ test('analysis-reference-tracks: a page source needs no file, and its responses 
     )
   bad({ date: 'yesterday' }, /source page date is "yesterday", not ISO 8601 in UTC/)
   bad({ date: '2026-11-04T08:00:00+07:00' }, /not ISO 8601 in UTC/)
+  // The frame is the page's viewport at its pixel ratio.
+  bad({ devicePixelRatio: 1 }, /frame pixelRatio is 2 but its source page's devicePixelRatio is 1/)
+  bad(
+    { viewport: { width: 1920, height: 1080 } },
+    /frame is 1280x720 but its source page's viewport is 1920x1080/,
+  )
   bad(
     { responses: [{ url: 'x', status: 200.5, sha256: h }] },
     /source response 0 needs a url, a status/,
   )
 })
 
-test('analysis-reference-tracks: null before the first sample, the sample at its time, the last held after', async () => {
+test('analysis-reference-tracks: null before the first sample, the sample at its time, after the last as the film says', async () => {
   const r = await loadTracks(hostOf(files), 'references/card.tracks.json')
   const x = track(r, 'card', 'x')
   for (const between of ['hold', 'linear'] as const) {
-    assert.equal(at(x, 0, { between }), null)
-    assert.equal(at(x, 0.499999, { between }), null)
-    assert.equal(at(x, 0.5, { between }), 100)
-    assert.equal(at(x, 0.533333, { between }), 112)
-    assert.equal(at(x, 1, { between }), 160)
-    assert.equal(at(x, 1.000001, { between }), 160)
-    assert.equal(at(x, 60, { between }), 160)
+    for (const after of ['hold', 'none'] as const) {
+      assert.equal(at(x, 0, { between, after }), null)
+      assert.equal(at(x, 0.499999, { between, after }), null)
+      assert.equal(at(x, 0.5, { between, after }), 100)
+      assert.equal(at(x, 0.533333, { between, after }), 112)
+      assert.equal(at(x, 1, { between, after }), 160)
+    }
+    assert.equal(at(x, 1.000001, { between, after: 'hold' }), 160)
+    assert.equal(at(x, 60, { between, after: 'hold' }), 160)
+    assert.equal(at(x, 1.000001, { between, after: 'none' }), null)
+    assert.equal(at(x, 60, { between, after: 'none' }), null)
   }
 })
 
 test('analysis-reference-tracks: hold keeps the earlier sample, linear draws a line to the next', async () => {
   const r = await loadTracks(hostOf(files), 'references/card.tracks.json')
   const x = track(r, 'card', 'x')
-  assert.equal(at(x, 0.52, { between: 'hold' }), 100)
-  assert.equal(at(x, 0.8, { between: 'hold' }), 130)
+  assert.equal(at(x, 0.52, { between: 'hold', after: 'hold' }), 100)
+  assert.equal(at(x, 0.8, { between: 'hold', after: 'hold' }), 130)
   // Halfway from 0.566667 (130) to 1 (160).
   const mid = (0.566667 + 1) / 2
-  assert.ok(Math.abs((at(x, mid, { between: 'linear' }) as number) - 145) < 1e-9)
-  assert.ok(Math.abs((at(x, 0.5 + 0.0333333 / 2, { between: 'linear' }) as number) - 106) < 1e-3)
+  assert.ok(Math.abs((at(x, mid, { between: 'linear', after: 'hold' }) as number) - 145) < 1e-9)
+  assert.ok(
+    Math.abs((at(x, 0.5 + 0.0333333 / 2, { between: 'linear', after: 'hold' }) as number) - 106) <
+      1e-3,
+  )
   // Next to a null sample, linear holds the earlier value; at and after the null, null.
   const o = track(r, 'card', 'opacity')
-  assert.equal(at(o, 0.75, { between: 'linear' }), 0.5)
-  assert.equal(at(o, 1.25, { between: 'linear' }), 1)
-  assert.equal(at(o, 1.5, { between: 'linear' }), null)
-  assert.equal(at(o, 9, { between: 'hold' }), null)
-  // `between` is required, and the time must be a number.
+  assert.equal(at(o, 0.75, { between: 'linear', after: 'hold' }), 0.5)
+  assert.equal(at(o, 1.25, { between: 'linear', after: 'hold' }), 1)
+  assert.equal(at(o, 1.5, { between: 'linear', after: 'hold' }), null)
+  assert.equal(at(o, 9, { between: 'hold', after: 'hold' }), null)
+  // `between` and `after` are required, and the time must be a number.
   assert.throws(() => at(x, 0.6, {} as never), /needs between: 'hold' or 'linear'/)
-  assert.throws(() => at(x, Number.NaN, { between: 'hold' }), /needs a finite source time/)
+  assert.throws(() => at(x, 0.6, { between: 'hold' } as never), /needs after: 'hold' or 'none'/)
+  assert.throws(
+    () => at(x, Number.NaN, { between: 'hold', after: 'hold' }),
+    /needs a finite source time/,
+  )
 })
