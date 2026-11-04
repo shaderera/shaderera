@@ -113,6 +113,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       'max-shift': { type: 'string' },
       floor: { type: 'string' },
       regions: { type: 'string' },
+      fit: { type: 'string' },
       json: { type: 'boolean' },
       variants: { type: 'string' },
     },
@@ -120,10 +121,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   )
   const against = values['compare-file']
   if (against === undefined)
-    for (const flag of ['offset', 'max-shift', 'floor', 'regions'] as const)
+    for (const flag of ['offset', 'max-shift', 'floor', 'regions', 'fit'] as const)
       if (values[flag] !== undefined)
         throw new Error(
-          `--${flag} goes with --compare-file <${flag === 'regions' ? 'image' : 'video'}>: give it too.`,
+          `--${flag} goes with --compare-file <${flag === 'regions' || flag === 'fit' ? 'image' : 'video'}>: give it too.`,
         )
   if (against !== undefined) {
     for (const flag of ['file', 'compare', 'object', 'diff', 'scale'] as const)
@@ -279,6 +280,7 @@ const stillCompareFile = async (
     'max-shift'?: string
     floor?: string
     regions?: string
+    fit?: string
     json?: boolean
   },
   given: readonly number[],
@@ -324,6 +326,7 @@ const stillCompareFile = async (
       ...(floor === undefined ? {} : { floor }),
       ...(v.region ? { region: parseRegion(v.region) } : {}),
       ...(v.regions === undefined ? {} : { regions: resolve(v.regions) }),
+      ...(v.fit === undefined ? {} : { fit: v.fit }),
       frame: async (f) => {
         // Times under 0.5 ms apart would share a name at 3 decimals: those get 6.
         let name = join(outDir, `${pair}-${f.t.toFixed(3)}.png`)

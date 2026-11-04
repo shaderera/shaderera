@@ -1,6 +1,7 @@
 // `still --compare-file <image> --regions <file>`: the parts of a still reference scored apart.
-// The file is an `image-regions` artifact (shaderera.analysis/1, kind `regions`), or boxes with
-// names (shaderera.boxes/1). Every region becomes a mask in the film's frame pixels.
+// The file is a regions artifact (shaderera.analysis/1, kind `regions`) or boxes with names
+// (shaderera.boxes/1), both as docs/analysis.md ("Regions (still image)") defines them; a field it
+// does not know is ignored. Every region becomes a mask in the film's frame pixels.
 import { readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { inside } from '../node/inside.ts'
@@ -22,7 +23,7 @@ export type ScoredRegion = {
 
 export type RegionsFile = {
   file: string
-  /** `regions`: an image-regions artifact; `boxes`: boxes with names. */
+  /** `regions`: a regions artifact; `boxes`: boxes with names (docs/analysis.md). */
   kind: 'regions' | 'boxes'
   /** The pixels the file is written in: the reference's or the film's frame. */
   in: [number, number]
@@ -103,7 +104,7 @@ export const loadRegionsFile = (
 }
 
 /** What --regions takes, for the messages. */
-const shapes = `give an image-regions artifact (its folder or regions.json) or boxes: { "format": "${BOXES}", "width": w, "height": h, "boxes": [{ "name": "title", "x": 0, "y": 0, "width": 10, "height": 10 }] }.`
+const shapes = `give a regions artifact (its folder or regions.json, shaderera.analysis/1 of kind regions, as docs/analysis.md defines it) or boxes: { "format": "${BOXES}", "width": w, "height": h, "boxes": [{ "name": "title", "x": 0, "y": 0, "width": 10, "height": 10 }] }.`
 
 type Placed = {
   kind: RegionsFile['kind']
@@ -111,7 +112,7 @@ type Placed = {
   masks: { id: string; label?: string; coverage: Uint8Array }[]
 }
 
-/** An image-regions artifact: each region's u8 mask placed in the reference's pixels. */
+/** A regions artifact (docs/analysis.md): each region's u8 mask placed in the reference's pixels. */
 const artifact = (
   file: string,
   doc: Obj,
@@ -120,7 +121,7 @@ const artifact = (
 ): Placed => {
   if (doc.format !== FORMAT)
     throw new Error(
-      `--regions ${file} is ${JSON.stringify(doc.format)}: this shaderera reads ${FORMAT} (image-regions) and ${BOXES}. Update shaderera, or run its analyser again.`,
+      `--regions ${file} is ${JSON.stringify(doc.format)}: this shaderera reads ${FORMAT} of kind regions and ${BOXES}. Update shaderera, or write it again in one of those.`,
     )
   if (doc.kind !== 'regions')
     throw new Error(
@@ -134,7 +135,7 @@ const artifact = (
   const [W, H] = [reference.width, reference.height]
   if (source.width !== W || source.height !== H)
     throw new Error(
-      `--regions ${file} says its image is ${String(source.width)}×${String(source.height)}, and ${reference.file} is ${W}×${H}: run its analyser again.`,
+      `--regions ${file} says its image is ${String(source.width)}×${String(source.height)}, and ${reference.file} is ${W}×${H}: its regions are of another image. Measure this one, or give boxes.`,
     )
   if (!Array.isArray(doc.regions) || doc.regions.length === 0)
     throw new Error(`--regions ${file} has no regions.`)
@@ -156,7 +157,7 @@ const artifact = (
       !whole(at[1], 0)
     )
       throw new Error(
-        `--regions ${file}: region ${id ?? n} is not as image-regions writes one (an id, and a u8 mask of 1 channel with width, height, rowStride and at): run its analyser again.`,
+        `--regions ${file}: region ${id ?? n} is not as docs/analysis.md defines one (an id, and a u8 mask of 1 channel with file, width, height, rowStride and at): write it again.`,
       )
     // A mask is a file beside regions.json: a name, never a path out of the folder.
     if (!/^[^/\\]+$/.test(name) || name === '.' || name === '..')
@@ -166,13 +167,13 @@ const artifact = (
       bytes = read(join(dir, name))
     } catch (e) {
       throw new Error(
-        `--regions ${file}: region ${id}'s mask ${name} could not be read (${(e as Error).message}): run its analyser again.`,
+        `--regions ${file}: region ${id}'s mask ${name} could not be read (${(e as Error).message}): write it again.`,
       )
     }
     const { width, height, rowStride } = m as { width: number; height: number; rowStride: number }
     if (bytes.length !== rowStride * height)
       throw new Error(
-        `--regions ${file}: ${name} has ${bytes.length} bytes, not ${rowStride} × ${height}: run its analyser again.`,
+        `--regions ${file}: ${name} has ${bytes.length} bytes, not ${rowStride} × ${height}: write it again.`,
       )
     const coverage = new Uint8Array(W * H)
     const [x0, y0] = at as [number, number]

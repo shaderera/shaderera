@@ -237,7 +237,8 @@ instead: the frames as they were encoded.
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
 | `--compare-file <video\|image>` | none. Measures the film against a reference clip, [below](#measuring-against-a-reference-clip), or a PNG or JPEG at each t, [below that](#measuring-against-a-reference-image). With one `--variant` only; not with `--file`, `--compare`, `--object`, `--diff` or `--scale` |
-| `--regions <file>` | none. With `--compare-file <image>`: an `image-regions` artifact of the image, or boxes with names; each region is scored apart. Not with `--region` |
+| `--regions <file>` | none. With `--compare-file <image>`: a regions artifact of the image, or boxes with names ([analysis.md](analysis.md#regions-still-image)); each region is scored apart. Not with `--region` |
+| `--fit stretch` | none. With `--compare-file <image>` of another shape than the film's frame, needed then: how the image (and its regions) is fitted to the frame. Only `stretch` so far |
 | `--offset <s>` | 0. With `--compare-file`: the clip is read at t + offset. A negative one is written `--offset=-0.2`, or it reads as a flag |
 | `--max-shift <n>` | one second of steps. With `--compare-file`: how many steps (the time between two times) either way the alignment searches |
 | `--floor <level>` | 0. With `--compare-file`: the change a motion window counts as still, in levels (0–255), such as a clip's codec noise |
@@ -346,7 +347,9 @@ input is bad (2).
   read a clip over time and are refused.
 - **The image** is decoded as `io.image` decodes it (a JPEG's EXIF orientation is not applied;
   a 16-bit PNG is read to 8 bits), matted over black, and scaled to the film's frame once as a
-  clip's frames are (`scaled` says so). The report keeps its `sha256`.
+  clip's frames are (`scaled` says so). The report keeps its `sha256`. An image of another shape
+  than the frame (more than 0.5 % apart) is refused unless `--fit` says how to fit it: `stretch`
+  scales it to the frame, its regions too, and `scaled.fit` records it.
 - **Per time, for the whole frame:** PSNR and ΔE as `--compare` measures them, and:
   - **SSIM** (Wang et al. 2004) on luma (BT.709 weights on the sRGB values, 0–255): a Gaussian
     window of 11 with σ 1.5, K1 0.01, K2 0.03 and L 255, reflected at the frame's edge. The
@@ -358,15 +361,14 @@ input is bad (2).
     have: Σ 2·min(film, image) / Σ (film + image). 1 when the edges are the same, 0 when no edge
     of one is where the other has one, and null when neither has an edge there. `film` and
     `reference` are each side's mean magnitude, in levels: a softer line has less.
-- **`--regions <file>`** scores each part apart. The file is either:
-  - an `image-regions` artifact of this image (its folder or its `regions.json`,
-    `shaderera.analysis/1` of kind `regions`): each region's u8 mask. One measured from other
-    bytes (its `source.sha256`) is refused;
-  - or boxes with names, in the image's pixels or the film's, which `width` and `height` say:
-    `{ "format": "shaderera.boxes/1", "width": 1080, "height": 1350, "boxes": [{ "name": "title",
-    "x": 80, "y": 120, "width": 900, "height": 200 }] }`, in whole pixels. A box partly outside
-    the frame counts where it is inside. A file without `format` is read as
-    `shaderera.boxes/1`; another version is refused, so update shaderera to read it.
+- **`--regions <file>`** scores each part apart. The file is one of the two forms
+  [analysis.md](analysis.md#regions-still-image) defines:
+  - a regions artifact of this image (its folder or its `regions.json`, `shaderera.analysis/1`
+    of kind `regions`): each region's u8 mask. One of another image (its `source.sha256` or
+    size) is refused;
+  - or boxes with names (`shaderera.boxes/1`), in the image's pixels or the film's, which
+    `width` and `height` say: `{ "width": 1080, "height": 1350, "boxes": [{ "name": "title",
+    "x": 80, "y": 120, "width": 900, "height": 200 }] }`.
 
   Through MCP, `regions.json` and each mask must be in the project: one linked from outside it is
   refused.
@@ -383,7 +385,7 @@ input is bad (2).
   matplotlib's inferno ramp, a fixed scale: black where the structure is the same, pale yellow at
   SSIM 0 or below.
 
-With `--json`: `reference` (`kind: "image"`, `file`, `width`, `height`, `bits`, `sha256`), `scaled`,
+With `--json`: `reference` (`kind: "image"`, `file`, `width`, `height`, `bits`, `sha256`), `scaled` (with `fit` when given),
 `region`, `method` (how SSIM and the edge score were measured, by name and constant), `regions`
 (null, or `file`, `kind` (`regions` or `boxes`), `in` (the pixels the file is written in) and
 `list`, each region's `id`, `label` (an artifact's), `box` and `area` in the film's frame pixels),

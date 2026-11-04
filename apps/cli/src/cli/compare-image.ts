@@ -66,8 +66,11 @@ export type CompareImageReport = {
     bits: 8 | 16
     sha256: string
   }
-  /** How the image was scaled to the film's frame, or `null` when the sizes are the same. */
-  scaled: Scaling | null
+  /**
+   * How the image was scaled to the film's frame, or `null` when the sizes are the same; `fit` is
+   * the fit the person gave, needed when the shapes differ (`aspect: "stretched"`).
+   */
+  scaled: (Scaling & { fit?: Fit }) | null
   region: Region | null
   /** How SSIM and the edge score are measured, so a report says what its numbers are. */
   method: { ssim: typeof SSIM; edges: typeof EDGES }
@@ -92,6 +95,10 @@ export type CompareImageReport = {
     regions: RegionScore[]
   }[]
 }
+
+/** How an image of another shape is fitted to the film's frame. Only `stretch` so far. */
+export type Fit = 'stretch'
+const FITS: readonly string[] = ['stretch'] satisfies Fit[]
 
 /** The clip-only options, by the flag that gives them. */
 const CLIP_ONLY = {
@@ -135,6 +142,13 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
   const bytes = readFileSync(o.reference)
   const image = decodeImage(bytes, o.reference)
   const sha256 = createHash('sha256').update(bytes).digest('hex')
+  if (o.fit !== undefined && !FITS.includes(o.fit))
+    throw new Error(`--fit is ${FITS.join(' or ')}, not ${JSON.stringify(o.fit)}.`)
+  const scaled = scaling(image, film)
+  if (scaled?.aspect === 'stretched' && o.fit === undefined)
+    throw new Error(
+      `${o.reference} is ${image.width}×${image.height} and the film is ${width}×${height}, another shape: give --fit stretch to stretch it to the frame.`,
+    )
   const whole = scaleFrame(eightBits(image.data), image.width, image.height, width, height)
   const found = o.regions
     ? loadRegionsFile(
@@ -201,7 +215,7 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
       bits: image.bits,
       sha256,
     },
-    scaled: scaling(image, film),
+    scaled: scaled && { ...scaled, ...(o.fit === undefined ? {} : { fit: o.fit as Fit }) },
     region,
     method: { ssim: SSIM, edges: EDGES },
     regions: found && {
@@ -223,13 +237,13 @@ export const imageSummaryLines = (r: CompareImageReport): string[] => {
   const lines = [
     `reference: ${ref.width}×${ref.height} image${ref.bits === 16 ? ' (16 bits, read to 8)' : ''}${
       r.scaled
-        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.aspect === 'stretched' ? ', stretched: the frames have other shapes' : ''})`
+        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.aspect === 'stretched' ? `, stretched by --fit ${r.scaled.fit}: the frames have other shapes` : ''})`
         : ''
     }${r.region ? `; measured in ${r.region.width}×${r.region.height} at ${r.region.x},${r.region.y}` : ''}`,
   ]
   if (r.regions)
     lines.push(
-      `regions: ${r.regions.list.map((q) => q.id).join(', ')} (${r.regions.kind === 'regions' ? 'image-regions' : 'boxes'} in ${r.regions.in.join('×')})`,
+      `regions: ${r.regions.list.map((q) => q.id).join(', ')} (${r.regions.kind} in ${r.regions.in.join('×')})`,
     )
   return lines
 }

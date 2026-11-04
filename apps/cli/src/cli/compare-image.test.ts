@@ -135,7 +135,7 @@ test('--regions with boxes scores each part apart, over the known mask (#665)', 
   )
 })
 
-test('--regions reads an image-regions artifact of the image, its u8 masks scaled to the frame (#665)', async () => {
+test('--regions reads a regions artifact of the image, its u8 masks scaled to the frame (#665)', async () => {
   const dir = tempDir('compare-image-artifact')
   // The image at twice the film's size: it and its regions are scaled to the frame once.
   const { file, sha256 } = poster(dir, 1, 2)
@@ -323,7 +323,7 @@ test('--compare-file <image> refuses what does not fit a still, saying what to g
   writeFileSync(boxes, JSON.stringify({ format: 'something/1', ...one }))
   await assert.rejects(
     compare({ reference: file, times: [1], regions: boxes }),
-    /reads shaderera\.analysis\/1 \(image-regions\) and shaderera\.boxes\/1/,
+    /reads shaderera\.analysis\/1 of kind regions and shaderera\.boxes\/1/,
   )
   writeFileSync(boxes, JSON.stringify([1, 2]))
   await assert.rejects(
@@ -351,4 +351,41 @@ test('--compare-file <image> refuses what does not fit a still, saying what to g
   })
   assert.deepEqual(part.region, { x: 20, y: 6, width: 24, height: 24 })
   assert.equal(part.frames[0]?.ssim, 1)
+})
+
+test('an image of another shape than the frame is refused unless --fit says how; the fit is recorded (#685)', async () => {
+  const dir = tempDir('compare-image-fit')
+  const file = join(dir, 'square.png')
+  writeFileSync(
+    file,
+    encode({
+      width: W,
+      height: W,
+      data: new Uint8Array(W * W * 4).fill(255),
+      channels: 4,
+      depth: 8,
+    }),
+  )
+  await assert.rejects(
+    compare({ reference: file, times: [0] }),
+    /square\.png is 48×48 and the film is 48×36, another shape: give --fit stretch/,
+  )
+  await assert.rejects(
+    compare({ reference: file, times: [0], fit: 'cover' }),
+    /--fit is stretch, not "cover"/,
+  )
+  const r = await compare({ reference: file, times: [0], fit: 'stretch' })
+  assert.deepEqual(r.scaled, {
+    from: [W, W],
+    to: [W, H],
+    filter: 'triangle',
+    aspect: 'stretched',
+    fit: 'stretch',
+  })
+  assert.match(imageSummaryLines(r)[0] as string, /stretched by --fit stretch/)
+  // A clip has no fit.
+  await assert.rejects(
+    compareWithFile({ film, times: [0], reference: join(dir, 'clip.mp4'), fit: 'stretch' }),
+    /--fit fits a still reference of another shape, and .*clip\.mp4 is a clip/,
+  )
 })

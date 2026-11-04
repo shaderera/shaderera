@@ -271,7 +271,11 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       ),
       regions: say(
         str,
-        'With compare_file an image: an image-regions artifact of that image (its folder or regions.json), or a JSON file of boxes { format: "shaderera.boxes/1" (may be left out), width, height, boxes: [{ name, x, y, width, height }] } in the image\'s or the film\'s pixels, inside the project, as are its masks (a symbolic link out of it is refused). Each region is scored apart. Not with region.',
+        'With compare_file an image: a regions artifact of that image (its folder or regions.json; shaderera.analysis/1 of kind regions, as docs/analysis.md defines it), or a JSON file of boxes { format: "shaderera.boxes/1" (may be left out), width, height, boxes: [{ name, x, y, width, height }] } in the image\'s or the film\'s pixels, inside the project, as are its masks (a symbolic link out of it is refused). Each region is scored apart. Not with region.',
+      ),
+      fit: say(
+        { type: 'string', enum: ['stretch'] },
+        "With compare_file an image of another shape than the film's frame, needed then: stretch scales it to the frame, its regions too. Recorded in scaled.",
       ),
       offset: say(num, 'With compare_file: seconds, the clip is read at t + offset. Default 0.'),
       max_shift: say(
@@ -836,6 +840,8 @@ export const createServer = (
       to: number('to'),
       floor: number('floor'),
     }
+    if (a.fit !== undefined && typeof a.fit !== 'string')
+      throw new Error(`fit is stretch, not ${shown(a.fit)}.`)
     const region = Array.isArray(a.region) ? parseRegion(a.region.join(',')) : undefined
     const sheet: { t: number; label: string; pixels: Uint8Array }[] = []
     let size = { width: manifest.width, height: manifest.height }
@@ -848,6 +854,7 @@ export const createServer = (
       ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
       ...(region ? { region } : {}),
       ...(regions ? { regions, within: root } : {}),
+      ...(a.fit === undefined ? {} : { fit: a.fit }),
       frame: async (f) => {
         size = { width: f.width, height: f.height }
         if (onSheet(f.index, f.count, SHEET)) sheet.push({ t: f.t, label, pixels: f.pixels })
@@ -959,7 +966,7 @@ export const createServer = (
       throw new Error(
         'compare_file measures one variant against the reference: give variant, not variants.',
       )
-    for (const k of ['offset', 'max_shift', 'from', 'to', 'region', 'floor', 'regions'])
+    for (const k of ['offset', 'max_shift', 'from', 'to', 'region', 'floor', 'regions', 'fit'])
       if (name === 'still' && a[k] !== undefined && a.compare_file === undefined)
         throw new Error(`${k} goes with compare_file.`)
     if (a.variants !== undefined && ['still', 'check', 'review'].includes(name))

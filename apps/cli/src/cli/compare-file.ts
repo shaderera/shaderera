@@ -61,6 +61,11 @@ export type CompareFileOptions = {
   floor?: number
   /** With an image: a regions file whose regions are scored apart (compare-image.ts). */
   regions?: string
+  /**
+   * With an image of another shape than the film's frame: how it is fitted to the frame, which
+   * the person chooses (an image of another shape is refused without it). Only `stretch` so far.
+   */
+  fit?: string
   /** A project's root that every file the regions file names must be in (MCP: inside). */
   within?: string
   /** Each time's film, reference and difference side by side, as it is measured. */
@@ -177,6 +182,10 @@ export const compareWithFile = async (
   if (o.regions !== undefined)
     throw new Error(
       `--regions scores parts of a still reference, and ${o.reference} is a clip: give a PNG or JPEG with it.`,
+    )
+  if (o.fit !== undefined)
+    throw new Error(
+      `--fit fits a still reference of another shape, and ${o.reference} is a clip: give no --fit.`,
     )
   const offset = o.offset ?? 0
   if (!Number.isFinite(offset)) throw new Error(`--offset is seconds, not ${o.offset}.`)
