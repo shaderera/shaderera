@@ -51,13 +51,17 @@ Two research notes and six experiments
    a throwaway profile, never the project's `.shaderera/chrome`.
    - **Time** comes from a clock injected before any page script (ported from reanimate's
      `clock.js`, MIT, with the three fixes the experiments needed), never from CDP virtual time.
-     `rafHz` is a multiple of the capture fps, by default equal to it.
+     `rafHz` is a multiple of the capture fps and is required: any multiple is deterministic,
+     and a page that steps once per frame (a spring, a lerp, smooth scroll) moves differently at
+     each rate, so the person gives the refresh rate the reference was seen at.
    - **What it records:** in `params`, every setting that can change a captured frame
      (analysis.md): the viewport, the device pixel ratio, media emulation (reduced motion, colour
      scheme), the user agent, the locale and time zone, the clock's epoch, the seed, the fps,
      `rafHz`, the launch flags, the scripted inputs with their virtual times, and the tracked
      selectors; and the Chrome version. A default among these exists only for determinism and is
-     documented as such.
+     documented as such. `--disable-smooth-scrolling` is one: the compositor's smooth scroll runs
+     on the real clock, so a page's smooth scroll is not captured, and scrolling is scripted at
+     virtual times instead.
    - **Its source** is a second `source` form in analysis.md, for a live capture: the URL, the
      date and the sha256 of each response the page loaded. A live page cannot be hashed; its
      responses can. For that form the reader checks only the format and kind, since there is no
