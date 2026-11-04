@@ -149,6 +149,36 @@ test('audio-voice-repace: long unkept pauses lose their middle, and the map says
   )
 })
 
+test('audio-voice-repace: a named cut takes out the word inside it, its edges moved into silence', () => {
+  const pcm = voice()
+  // Asked a little inside 'pause' (2.1-2.5): each edge moves to the quietest 20 ms nearby.
+  const paced = repace(pcm, 1, RATE, WORDS, { ...OPTIONS, cut: [[2.12, 2.48]] })
+  assert.equal(paced.named, 1)
+  assert.equal(paced.pauses, 2)
+  const map = { knots: paced.knots } as Parameters<typeof pacedTime>[0]
+  const edges = paced.knots.filter(([x], i, k) =>
+    k.some(([x2, y2], j) => j !== i && y2 === k[i]?.[1] && x2 !== x),
+  )
+  const named = edges.map(([x]) => x).filter((x) => x >= 2 && x <= 2.6)
+  assert.equal(named.length, 2, `${paced.knots}`)
+  for (const x of named) {
+    const i = Math.round(x * RATE)
+    const around = pcm.subarray(i - RATE / 100, i + RATE / 100)
+    assert.ok(
+      around.every((v) => v === 0),
+      `edge ${x} is not in silence`,
+    )
+  }
+  assert.ok((named[0] as number) <= 2.1 && (named[1] as number) >= 2.5, `${named}`)
+  const kept = WORDS.filter((w) => w.text !== 'pause')
+  const moved = kept.map((w) => pacedTime(map, w.start))
+  assert.ok(near(onsets(paced.pcm), moved, 0.002), `${onsets(paced.pcm)} vs ${moved}`)
+  assert.throws(
+    () => repace(pcm, 1, RATE, WORDS, { ...OPTIONS, cut: [[2.5, 2.1]] }),
+    /--cut 2.5-2.1 must run forward/,
+  )
+})
+
 test('audio-voice-repace: each join crossfades the end of the piece before into the start of the piece after', () => {
   // Stereo, 1 / -1 up to the middle of the first cut and -1 / 1 after it: each join's fade turns over.
   const step = Math.round(1.6 * RATE)
