@@ -2,7 +2,7 @@ Capture a web page's motion once, as reference tracks a film reads and copies on
 
 ```sh
 node tools/capture-web.ts https://example.com/ --out references/hero \
-  --track '.hero h1' --track '.hero .card' --fps 30 --duration 3 --viewport 1280x720
+  --track '.hero h1' --track '.hero .card' --fps 30 --rafHz 60 --duration 3 --viewport 1280x720
 # writes references/hero/tracks.json
 
 # the menu as it opens on a click at 500 ms
@@ -32,11 +32,14 @@ smoothed, no time stretched.
 - `--out <dir>`: the folder `tracks.json` goes in.
 - `--track <selector>`: one CSS selector per element, repeated for more. The first match in
   document order is tracked; a selector list (`a, b`) is one selector.
-- `--fps`, `--duration` (seconds from the load), `--viewport <width>x<height>` (CSS pixels): no
-  defaults, since each changes every sample. Frames are at 0, 1/fps, … up to the duration.
-- `--rafHz <n>`: how often the page's `requestAnimationFrame` runs. The fps when left out, and it
-  must be a whole multiple of it: otherwise a JS animation shows its last tick before the frame
-  while CSS shows the frame itself (8.7 ms off at 24 fps with 60).
+- `--fps`, `--rafHz`, `--duration` (seconds from the load), `--viewport <width>x<height>` (CSS
+  pixels): no defaults, since each changes every sample. Frames are at 0, 1/fps, … up to the
+  duration.
+- `--rafHz <n>`: how often the page's `requestAnimationFrame` runs, a whole multiple of the fps:
+  otherwise a JS animation shows its last tick before the frame while CSS shows the frame itself
+  (8.7 ms off at 24 fps with 60). Every multiple repeats, but a page that steps its motion once
+  per animation frame (a spring, a lerp, a smooth scroll) moves differently at each, so give the
+  refresh rate the reference was seen at.
 - `--seed <n>` (1; 0 is a seed like any other), `--dpr <n>` (1), `--media <name>=<value>`
   (repeat; by default `prefers-color-scheme=light` and `prefers-reduced-motion=no-preference`),
   `--locale <BCP 47 tag>` (`en-US`: what `Intl`, `navigator.language` and `Accept-Language` see).
@@ -85,8 +88,13 @@ Each default above is a constant, never your OS's setting, so that two runs on t
 repeat, and each is recorded (`params.seed`, `params.media`, `params.locale`, the clock's in
 `params`, the pixel ratio in `frame.pixelRatio`). They still decide which variant of a page is
 captured: the media defaults pick the light, full-motion variant of a page that has others,
-`--dpr 1` its 1x images, `en-US` its English copy and number formats. Pass the values the
-reference was seen with.
+`--dpr 1` its 1x images, `en-US` its English copy and number formats. Two more are fixed and
+recorded: the page is always a desktop page (`params.mobile: false`: its viewport meta is
+ignored and there is no touch, so a phone layout that depends on them is not captured), and
+scrollbars are hidden (`--hide-scrollbars` in `tool.chromeFlags`), so an overflowing page is
+laid out at the full viewport width, as with overlay scrollbars; a reference seen with classic
+scrollbars was laid out about 15 CSS pixels narrower. Pass the values the reference was seen
+with.
 
 One capture runs at a time on a machine (a lock in the OS temp folder).
 
@@ -163,7 +171,7 @@ as the text it decoded with its charset, so such a response carries `"hashOf": "
 (an image it could not decode) has no hash and is a limit. **`tool`** is this script's version, the
 Chrome version and user agent, its flags, and the clock's version and sha256. **`params`** are the
 fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, `locale`, the duration, the
-selectors, the media features, `allowLocal`, `settle` and `trigger`: its `type` and the settings
+selectors, the media features, `allowLocal`, `mobile` (always `false`), `settle` and `trigger`: its `type` and the settings
 it took (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where
 its input went, so a film can put a cursor where the page saw one. For a `leave` it is where the
 pointer was from 0 ms until `at`; then it is off the viewport. A scroll without `--target` also

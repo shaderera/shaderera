@@ -5,8 +5,8 @@
 // k is the page at k / fps however slow the machine is.
 //
 //   node tools/capture-web.ts <url|file> --out <dir> --track <selector> [--track <selector>…]
-//     --fps <n> --duration <s> --viewport <width>x<height>
-//     [--rafHz <n>] [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
+//     --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>
+//     [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
 //     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
 //     [--locale <BCP 47>]
 //     [--settle load|loaded] [--trigger load|none|click|hover|leave|scroll --target <selector>
@@ -137,6 +137,10 @@ export const CHANNELS: [channel: string, unit: string][] = [
   ['originY', 'css-px'],
 ]
 
+// Always a desktop page: Chrome ignores the page's viewport meta, reports no touch and matches the
+// desktop hover and pointer media. Recorded as params.mobile.
+const MOBILE = false
+
 const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
 
 /** The options checked and filled, or a refusal naming what is wrong. Nothing starts before it. */
@@ -152,7 +156,13 @@ export const checkOptions = (o: CaptureOptions) => {
   const { width, height } = o.viewport
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1)
     throw new Error(`--viewport ${width}x${height} is not whole CSS pixels, like 1280x720`)
-  const rafHz = o.rafHz ?? o.fps
+  // No default: any whole multiple of the fps is deterministic, and a page that steps once per
+  // animation frame (a spring, a lerp, a smooth scroll) moves differently at each one.
+  if (o.rafHz === undefined)
+    throw new Error(
+      `give --rafHz <n>, how often the page's requestAnimationFrame runs: the refresh rate the reference was seen at, a whole multiple of --fps ${o.fps} (${[1, 2, 3].map((m) => m * o.fps).join(', ')}…). A page that steps once per frame moves differently at each rate.`,
+    )
+  const rafHz = o.rafHz
   if (!positive(rafHz)) throw new Error(`--rafHz ${rafHz} is not a rate above 0`)
   const ratio = rafHz / o.fps
   if (ratio < 1 - 1e-9 || Math.abs(ratio - Math.round(ratio)) > 1e-9)
@@ -1007,7 +1017,7 @@ export const captureWeb = async (options: CaptureOptions) => {
         width: o.viewport.width,
         height: o.viewport.height,
         deviceScaleFactor: o.devicePixelRatio,
-        mobile: false,
+        mobile: MOBILE,
       },
       page,
     )
@@ -1375,6 +1385,7 @@ export const captureWeb = async (options: CaptureOptions) => {
         trigger,
         media: o.media,
         allowLocal: o.allowLocal,
+        mobile: MOBILE,
       },
       frame: {
         width: o.viewport.width,
@@ -1433,7 +1444,7 @@ if (import.meta.main) {
   try {
     if (positionals.length !== 1)
       throw new Error(
-        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --duration <s> --viewport <width>x<height>',
+        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>',
       )
     for (const name of ['fps', 'duration', 'viewport'] as const)
       if (values[name] === undefined) throw new Error(`give --${name}: it changes every sample`)
