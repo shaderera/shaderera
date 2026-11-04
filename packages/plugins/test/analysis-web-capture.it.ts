@@ -16,8 +16,9 @@
 // Workers (classic and module) and frames (of this origin, of another site, added later) run on
 // the clock: their timers, animation frames, Date and replies land at the page's times; an
 // OffscreenCanvas a worker draws and a video show the frame at the still's time, pixel for pixel.
-// A shared worker, a BroadcastChannel and a MessagePort sent to a worker are limits, named in the
-// file and by the CLI. Skipped, with the reason, when there is no Chrome.
+// A worker that ends itself is let go. A shared worker, a BroadcastChannel, a MessagePort sent to
+// a worker or a frame, a frame that messages its sibling and a video its server cannot seek are
+// limits, named in the file and by the CLI. Skipped, with the reason, when there is no Chrome.
 
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
@@ -1094,6 +1095,7 @@ test('a video shows the frame at its own time, and plays for the page', { skip }
   )
   // The page reads the rate it set and its own ratechange only, and only #never as paused.
   const json = await sameEveryTime(page, ['#probe'], { viewport, duration: 0.6 })
+  assert.deepEqual((JSON.parse(json) as Doc).limits, [])
   for (const [t, v] of samplesOf(json, '#probe', 'translateX'))
     assert.equal(v, t >= 0.45 ? 201 : 0, `#probe at ${t} s`)
   for (const [t, v] of samplesOf(json, '#probe', 'translateY'))
@@ -1114,15 +1116,19 @@ test('what the clock cannot hold is a limit, named in the file and on the comman
       ...['--viewport', '200x100', '--allow-local'],
     ])
     const doc = JSON.parse(readFileSync(join(out, 'tracks.json'), 'utf8')) as Doc
+    const port =
+      'a MessagePort was sent to it: messages on that port are not waited for, so a reply on it can land on a later frame'
     const expected = [
       [server.url('shared.js'), 'a shared worker: its clock is not held, so it runs on real time'],
-      [
-        server.url('port.js'),
-        'a MessagePort was sent to it: messages on that port are not waited for, so a reply on it can land on a later frame',
-      ],
+      [server.url('port.js'), port],
       [
         'BroadcastChannel motion',
         'its messages between frames and workers are not waited for, so one can land on a later frame',
+      ],
+      [server.url('port.html'), port],
+      [
+        server.url('sibling.html'),
+        'it messaged a frame that is not its parent or child: those messages are not waited for, so one can land on a later frame',
       ],
     ]
     for (const [where, reason] of expected) {
@@ -1132,7 +1138,36 @@ test('what the clock cannot hold is a limit, named in the file and on the comman
       )
       assert.ok(cli.stderr.includes(`limit: ${where}: ${reason}`), `and the CLI names ${where}`)
     }
-    assert.equal(doc.limits.length, 3, JSON.stringify(doc.limits))
+    assert.equal(doc.limits.length, expected.length, JSON.stringify(doc.limits))
+  } finally {
+    server.close()
+  }
+})
+
+test('a video its server cannot seek is a limit, and frames do not wait on it', {
+  skip,
+}, async () => {
+  // The test's server does not serve ranges, so Chrome can seek the video only to 0.
+  const server = await serveContexts()
+  try {
+    const started = performance.now()
+    const json = await capture({
+      page: server.url('unseekable.html'),
+      track: ['video'],
+      duration: 1,
+      fps: 10,
+      allowLocal: true,
+    })
+    assert.ok(performance.now() - started < 30000, 'no frame waits out the settle time')
+    assert.deepEqual(
+      (JSON.parse(json) as Doc).limits.map((l) => [l.where, l.reason]),
+      [
+        [
+          server.url('video.webm'),
+          'a video that cannot be seeked to its time (its server may not serve ranges): it shows the frame it has',
+        ],
+      ],
+    )
   } finally {
     server.close()
   }

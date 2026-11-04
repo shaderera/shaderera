@@ -3,7 +3,8 @@
   Workers that read their own clocks. worker.js posts the time on a 50 ms interval (#timer), on
   each of its animation frames with its Date (#raf, #date), and in reply to the message the page
   posts on each of its own frames (#reply); module.js, a module worker with an import, posts it on
-  a 100 ms timeout chain (#module). Each box moves by the whole milliseconds it was given.
+  a 100 ms timeout chain (#module). Each box moves by the whole milliseconds it was given. close.js
+  posts once and ends itself at 20 ms, which is no limit.
 -->
 <meta charset="utf-8" />
 <style>
@@ -28,6 +29,7 @@
   }
   const module = new Worker('module.js', { type: 'module' })
   module.onmessage = ({ data }) => set('module', data)
+  new Worker('close.js')
   const ask = () => {
     worker.postMessage('when?')
     requestAnimationFrame(ask)

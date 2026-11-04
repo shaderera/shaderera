@@ -178,8 +178,9 @@ input due by the frame's time is sent at its own time (the clock advanced to it,
 the browser has delivered it and any scroll has landed), animations are synced, the clock
 advances to the frame's time (timers and animation frames run in time order, a tick due at the
 frame included), the capture waits for the network, for frames and workers that are starting,
-and for videos to show their frame, then every element is read. An input at a frame's time is sent before that frame is read, so the frame shows
-the page right after it and the motion shows on the next. So frame k is the page at k / fps
+and for videos to show their frame, then every element is read. An input at a frame's time is
+sent before that frame is read, so the frame shows the page right after it and the motion shows
+on the next. So frame k is the page at k / fps
 however slow the machine is: two captures give the same bytes but for `source.date` (and, with
 `--settle loaded`, what the load did on real time).
 
@@ -274,11 +275,15 @@ A page given as a file reads files, as Chrome lets it.
 
 **Limits**, listed in `limits` when the capture meets them:
 - A shared worker runs on real time: no page owns it, so no clock drives it. A message on a
-  `BroadcastChannel`, or on a `MessagePort` sent to a frame or worker, is not counted, so it can
-  land on a later frame. Each names its URL (`BroadcastChannel <name>` for a channel).
+  `BroadcastChannel`, on a `MessagePort` sent to or from a frame or worker, or between two frames
+  that are not parent and child (siblings, a grandchild and the page), is not counted, so it can
+  land on a later frame. Each names its URL (`BroadcastChannel <name>` for a channel, the sender
+  for a message between frames).
 - A frame or worker the clock did not reach, or that stops answering it for 60 s, runs on real
-  time; one that does not start in 15 s is let go. Each is named by its URL. Messages between two
-  frames that are not parent and child are not counted.
+  time; one that does not start in 15 s is let go. Each is named by its URL. A worker that ends
+  itself (`close()`) or is terminated is let go, and is no limit.
+- A video the decoder cannot seek to its time (from a server that does not serve ranges, Chrome
+  seeks only to 0) shows the frame it has, and frames do not wait on it. It is named by its URL.
 - A 3D transform: `rotate`, `skewX`, `scaleX` and `scaleY` are of its 2D part; the box is as drawn.
   An `offset-path`, or a `translate` the capture cannot read (`calc()`, or a percentage on an SVG
   element, whose box depends on `transform-box`), is left out of the transform channels. A

@@ -56,16 +56,17 @@
 //   a reply lands at the time its question was sent, and a worker's timers, animation frames and
 //   OffscreenCanvas drawing run on the same time as the page. The messages between a parent and a
 //   child are FIFO: the child's answer comes after every message it sent before it.
-// - <video> runs at playbackRate 0 and is seeked with the clock, so it plays (paused is false, as
-//   it would be) and shows the frame at its own time; an autoplay video starts when it is first
-//   seen in the document, however long it takes to load.
+// - <video> is paused for Chrome and seeked with the clock, while for the page it plays (paused is
+//   false, as it would be), so it shows the frame at its own time; an autoplay video starts when
+//   it is first seen in the document, however long it takes to load.
 //
 // What it holds: Math.random (seeded, mulberry32), performance.now, Date, setTimeout and
 // setInterval (with the 4 ms clamp on nested timers), requestIdleCallback, requestAnimationFrame,
 // Event.timeStamp, document.timeline.currentTime, every CSS and Web Animations API animation on the
 // document timeline, <video>, and the same in frames and dedicated workers. What it does not:
-// shared and service workers, messages on a MessageChannel or BroadcastChannel between two of
-// them, scroll and view timelines (they follow the scroll, which only the capture's input moves),
+// shared and service workers, messages on a MessagePort or BroadcastChannel between two of them,
+// messages between frames that are not parent and child, a video that cannot be seeked, scroll
+// and view timelines (they follow the scroll, which only the capture's input moves),
 // AudioContext, requestVideoFrameCallback, Temporal, crypto.getRandomValues, GIF and APNG frames.
 ;(function install(CFG) {
   const w = self
@@ -152,6 +153,16 @@
   // A limit with the time it began, in seconds after the freeze.
   const limit = (where, reason) =>
     st.limits.push({ where: String(where), reason, from: (st.now - st.base) / 1000 })
+  // The same limit once, at the first time it is met.
+  const met = new Set()
+  const limitOnce = (where, reason) => {
+    const key = `${where}\n${reason}`
+    if (met.has(key)) return
+    met.add(key)
+    limit(where, reason)
+  }
+  const PORT_REASON =
+    'a MessagePort was sent to it: messages on that port are not waited for, so a reply on it can land on a later frame'
 
   const call = (cb, args) => {
     try {
@@ -335,6 +346,10 @@
         quiet: 0,
         shown: true,
         seekedAt: 0,
+        // The time the clock last sought, how many times in a row, and whether it gave up.
+        tried: null,
+        tries: 0,
+        stuck: false,
       }
       videos.set(v, rec)
       // Paused, Chrome does not autoplay it either.
@@ -360,8 +375,33 @@
     // frame is on screen: a paused video seeked again before that can go on showing an earlier
     // frame after the last seek has landed. Chrome keeps media time in whole microseconds.
     const t = target(v, rec)
-    if (seek && !v.seeking && presented(v, rec) && Math.abs(timeDesc.get.call(v) - t) > 1e-6)
-      seekTo(v, rec, t)
+    // Before its metadata a seek only sets where it will start, and presents nothing.
+    if (!seek || rec.stuck || v.readyState < 1 || v.seeking) return
+    if (Math.abs(timeDesc.get.call(v) - t) <= 1e-6) return
+    // A time the decoder cannot reach (a server that does not serve ranges gives a video it can
+    // seek only to 0), or seeks to it that keep landing elsewhere: it is not waited on again. A
+    // seek that landed elsewhere may present nothing, so this comes before waiting for it.
+    if (!seekable(v, t)) return giveUp(v, rec)
+    if (!presented(v, rec)) return
+    rec.tries = rec.tried === t ? rec.tries + 1 : 1
+    rec.tried = t
+    if (rec.tries > 3) return giveUp(v, rec)
+    seekTo(v, rec, t)
+  }
+  const giveUp = (v, rec) => {
+    rec.stuck = true
+    limit(
+      videoName(v),
+      'a video that cannot be seeked to its time (its server may not serve ranges): it shows the frame it has',
+    )
+  }
+  const videoName = (v) => v.currentSrc || v.src || 'a video'
+  // Whether the decoder can seek to t, once it has the video's metadata.
+  const seekable = (v, t) => {
+    const r = v.seekable
+    for (let i = 0; i < r.length; i++)
+      if (r.start(i) - 1e-6 <= t && t <= r.end(i) + 1e-6) return true
+    return false
   }
   // A seek, the clock's or the page's, and when Chrome has presented its frame, which it does
   // after every seek.
@@ -371,7 +411,9 @@
     } catch {
       return
     }
-    if (!frameCallback) return
+    // Before its metadata, or moved by Chrome to a time it can seek to (which may be the frame it
+    // shows), it may present nothing.
+    if (!frameCallback || v.readyState < 1 || Math.abs(timeDesc.get.call(v) - t) > 1e-6) return
     rec.shown = false
     rec.seekedAt = N.perfNow()
     frameCallback.call(v, () => {
@@ -379,7 +421,9 @@
     })
   }
   // Whether the last seek's frame is on screen. A video with no box or out of the viewport
-  // presents nothing, and one that has not in 1 s is taken as shown, so a frame is never held.
+  // presents nothing, and one that has not in 1 s is taken as shown, so a frame is never held. That
+  // is no limit: Chrome does not call back after every seek (one that lands on the frame it shows,
+  // 0 to 1/30 s in a 30 fps clip, is one), and the frames read then are right in the video test.
   const presented = (v, rec) => {
     if (rec.shown || N.perfNow() - rec.seekedAt > 1000) return true
     const r = v.getBoundingClientRect()
@@ -602,6 +646,9 @@
         for (const l of data.limits ?? []) st.limits.push(l)
         a.done(data)
       }
+    } else if (op === 'bye') {
+      for (const l of data.limits ?? []) st.limits.push(l)
+      drop(key)
     }
     return true
   }
@@ -664,6 +711,7 @@
               e.stopImmediatePropagation()
               hello(wk, child)
             } else if (fromChild(wk, e.data)) e.stopImmediatePropagation()
+            else if (e.ports.length > 0) limitOnce(url, PORT_REASON)
           },
           true,
         )
@@ -676,14 +724,10 @@
         return wk
       },
     })
+    // A port sent to a worker, here; one sent to or from a frame, or from a worker, is seen where
+    // it arrives.
     NativeWorker.prototype.postMessage = function postMessage(...args) {
-      if (ports(args) && !this.__shadereraPorts) {
-        this.__shadereraPorts = true
-        limit(
-          urls.get(this) ?? 'a worker',
-          'a MessagePort was sent to it: messages on that port are not waited for, so a reply on it can land on a later frame',
-        )
-      }
+      if (ports(args)) limitOnce(urls.get(this) ?? 'a worker', PORT_REASON)
       return post.apply(this, args)
     }
     NativeWorker.prototype.terminate = function terminate_() {
@@ -751,7 +795,27 @@
           })
           return
         }
-        if (children.has(src) && fromChild(src, e.data)) e.stopImmediatePropagation()
+        const c = children.get(src)
+        if (c) {
+          if (fromChild(src, e.data)) e.stopImmediatePropagation()
+          else if (e.ports.length > 0) limitOnce(c.where, PORT_REASON)
+          return
+        }
+        // From a frame that is neither this one's parent nor its child (a sibling, a grandchild, a
+        // popup): no clock counts it. A frame of this one with no clock is named as unclocked.
+        let theirs = null
+        try {
+          theirs = src.parent
+        } catch {}
+        if (theirs === w || src === w.parent) return
+        let from = e.origin
+        try {
+          from = src.location.href
+        } catch {}
+        limitOnce(
+          from,
+          'it messaged a frame that is not its parent or child: those messages are not waited for, so one can land on a later frame',
+        )
       },
       true,
     )
@@ -950,8 +1014,8 @@
     for (const v of isWorker
       ? []
       : new Set([...doc().querySelectorAll('video'), ...videos.keys()])) {
-      if (!v.isConnected || v.error) continue
       const rec = videos.get(v)
+      if (!v.isConnected || v.error || rec?.stuck) continue
       // A seek landing, the frame shown still loading or not yet on screen, or one more seek due.
       if (v.seeking || (v.networkState === 2 && v.readyState < 2)) n++
       else if (
@@ -965,6 +1029,28 @@
       if (a) n += a.n
     }
     return n
+  }
+
+  // The frames of this document that have no clock, and the same in each child.
+  const gather = async () => {
+    const out = []
+    if (!isWorker)
+      for (const el of doc().querySelectorAll('iframe, frame')) {
+        const win = el.contentWindow
+        if (!win || children.has(win)) continue
+        let url = el.src || 'about:blank'
+        try {
+          url = win.location.href
+          // A frame of this origin with no script of its own runs nothing on any clock.
+          if (url === 'about:blank' || url === 'about:srcdoc') continue
+        } catch {}
+        out.push(url)
+      }
+    for (const k of [...children.keys()]) {
+      const a = await ask(k, { op: 'gather' })
+      if (a && Array.isArray(a.unclocked)) out.push(...a.unclocked)
+    }
+    return out
   }
 
   // ---------- a child's side ----------
@@ -1000,6 +1086,7 @@
           gotFromParent = 0
           answer(data, { got })
         } else if (op === 'busy') answer(data, { n: await busy() })
+        else if (op === 'gather') answer(data, { unclocked: await gather() })
       })
     }
     N.addEventListener(
@@ -1009,10 +1096,23 @@
         if (isControl(e.data)) {
           e.stopImmediatePropagation()
           onControl(e.data)
-        } else gotFromParent++
+        } else {
+          gotFromParent++
+          // A worker's parent names a port it sends; a frame names one it is sent.
+          if (isFrame && e.ports.length > 0) limitOnce(w.location.href, PORT_REASON)
+        }
       },
       true,
     )
+    // A worker that ends itself says so first, after every message it sent, so its parent stops
+    // asking it.
+    if (isWorker && typeof w.close === 'function') {
+      const close = w.close.bind(w)
+      w.close = function close_() {
+        toParent({ [MARK]: 'bye', limits: st.limits.splice(0) })
+        close()
+      }
+    }
     toParent({ [MARK]: 'hello' })
   }
   syncAll()
@@ -1042,23 +1142,11 @@
     drain: () => st.fresh.splice(0),
     /** What the clock could not hold since the last call, here and in every child. */
     limits: () => st.limits.splice(0),
-    /** The page's frames that have no clock: what the capture cannot hold. */
-    unclocked: () => {
-      if (isWorker) return []
-      const out = []
-      for (const el of doc().querySelectorAll('iframe, frame')) {
-        const win = el.contentWindow
-        if (!win || children.has(win)) continue
-        let url = el.src || 'about:blank'
-        try {
-          url = win.location.href
-          // A frame of this origin with no script of its own runs nothing on any clock.
-          if (url === 'about:blank' || url === 'about:srcdoc') continue
-        } catch {}
-        out.push(url)
-      }
-      return out
-    },
+    /**
+     * At the end: the frames here and in every child that have no clock, what the capture cannot
+     * hold. The children's last limits come up with their answers, for limits() to take.
+     */
+    unclocked: gather,
     sync: () => {
       syncAll()
       return st.now - st.base

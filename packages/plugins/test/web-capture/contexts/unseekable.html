@@ -1,0 +1,11 @@
+<!doctype html>
+<!--
+  A video from a server that does not serve ranges (the test's), which Chrome can seek only to 0.
+  It is a limit, named by its URL, and frames do not wait on it.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  video { position: absolute; top: 0; left: 0; width: 64px; height: 64px }
+</style>
+<video src="video.webm" autoplay muted loop></video>

@@ -359,7 +359,9 @@ So:
   `Page.enable` and the script on its own session before it runs. An OffscreenCanvas a worker
   draws, and a paused `<video>` seeked once and then waited on with `requestVideoFrameCallback`,
   show the frame at the virtual time; a paused video seeked again before its last frame was
-  presented, or one held at `playbackRate` 0, showed an earlier frame.
+  presented, or one held at `playbackRate` 0, showed an earlier frame. A video from a server
+  that does not serve ranges has `seekable` [0, 0] in Chrome 156, so it is seeked only to 0: a
+  limit, named by its URL, that frames do not wait on.
 - **reanimate's own scripts** were not run. Only its `clock.js` was, in our harness.
 - **Playwright's clock.** Its licence (Apache-2.0) and whether reusing its timer code would be
   simpler than `clock.js`. Not compared in depth.

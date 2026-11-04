@@ -1,21 +1,33 @@
 <!doctype html>
 <!--
-  What the clock cannot hold: a shared worker, a BroadcastChannel, and a MessagePort sent to a
-  worker, which answers on it. Each is a limit, named by its URL or channel.
+  What the clock cannot hold: a shared worker, a BroadcastChannel, a MessagePort sent to a worker
+  and one sent to a frame, each of which answers on it, and a frame that messages its sibling.
+  Each is a limit, named by its URL or channel.
 -->
 <meta charset="utf-8" />
 <style>
   body { margin: 0; background: #000 }
   #box { position: absolute; left: 20px; top: 20px; width: 20px; height: 20px; background: #fff }
+  iframe { position: absolute; top: 50px; width: 20px; height: 20px; border: 0 }
 </style>
 <div id="box"></div>
+<iframe id="answers" title="answers on a port" src="port.html" style="left: 0"></iframe>
+<iframe id="sibling" title="messages its sibling" src="sibling.html" style="left: 40px"></iframe>
 <script>
   new SharedWorker('shared.js')
   new BroadcastChannel('motion')
-  const worker = new Worker('port.js')
-  const { port1, port2 } = new MessageChannel()
-  port1.onmessage = ({ data }) => {
+  const move = ({ data }) => {
     box.style.transform = `translate(${data}px, 0px)`
   }
-  worker.postMessage('port', [port2])
+  const worker = new Worker('port.js')
+  const toWorker = new MessageChannel()
+  toWorker.port1.onmessage = move
+  worker.postMessage('port', [toWorker.port2])
+  // Once both frames have loaded: one is sent a port, the other is told to message its sibling.
+  addEventListener('load', () => {
+    const toFrame = new MessageChannel()
+    toFrame.port1.onmessage = move
+    answers.contentWindow.postMessage('port', '*', [toFrame.port2])
+    sibling.contentWindow.postMessage('go', '*')
+  })
 </script>

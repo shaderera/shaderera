@@ -1284,7 +1284,8 @@ export const captureWeb = async (options: CaptureOptions) => {
     }
 
     // The network and the page's own pending work (frames and workers starting, video seeks and
-    // loads, in the page and each frame) settle before a frame is read. A request open for LONG_REQUEST_MS no longer holds frames.
+    // loads, in the page and each frame) settle before a frame is read. A request open for
+    // LONG_REQUEST_MS no longer holds frames.
     const settle = async (time: number) => {
       const started = performance.now()
       for (let calm = 0; calm < 2; ) {
@@ -1511,9 +1512,10 @@ export const captureWeb = async (options: CaptureOptions) => {
     }
 
     // What the clocks could not hold, in the page and in each frame and worker, and the frames
-    // that never had one.
+    // that never had one. Asking for those brings each child's last limits up first.
+    const unclocked = await evaluate<string[]>('self.__shadereraClock.unclocked()')
     limits.push(...(await evaluate<Limit[]>('self.__shadereraClock.limits()')))
-    for (const where of await evaluate<string[]>('self.__shadereraClock.unclocked()'))
+    for (const where of unclocked)
       limits.push({ where, reason: 'an iframe the clock did not reach: it runs on real time' })
     for (const [where, reason] of realTime) limits.push({ where, reason })
     for (const s of spans.values()) limits.push(s)

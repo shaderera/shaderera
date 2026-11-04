@@ -3,8 +3,8 @@
   Videos on the clock. video.webm is 2 s at 30 fps, 64x64, and frame n is one grey (luma 16 + 3n),
   so the screenshot names the frame shown. #auto autoplays and loops; #later is played at 200 ms;
   #never is never played; #fast autoplays and loops at playbackRate 2; #seek autoplays and loops,
-  and is seeked to 1 s at 300 ms. #loud autoplays with its sound on, which Chrome's autoplay policy
-  decides. At 450 ms #probe moves by what the page reads: x is #fast's playbackRate times 100 plus
+  and is seeked to 1 s at 300 ms. #loud autoplays with its sound on: the capture lets every video
+  autoplay, so it plays as #auto does. At 450 ms #probe moves by what the page reads: x is #fast's playbackRate times 100 plus
   the ratechange events it saw, y the videos it reads as paused.
 -->
 <meta charset="utf-8" />
