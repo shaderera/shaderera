@@ -15,8 +15,12 @@ export type PageSource = {
   /** The layout viewport, in CSS pixels. */
   viewport: { width: number; height: number }
   devicePixelRatio: number
-  /** Every response the page loaded, with its status and the sha256 of its body. */
-  responses: { url: string; status: number; sha256: string }[]
+  /**
+   * Every response the page loaded, with its status and the sha256 of its body as served (after
+   * any Content-Encoding is undone). `hashOf` names what was hashed instead when the bytes were
+   * not available: `text-as-utf8` is the body as the browser decoded it, encoded as UTF-8.
+   */
+  responses: { url: string; status: number; sha256: string; hashOf?: string }[]
 }
 
 /** One sample: the source time in seconds, and the value then, or null where there was none. */

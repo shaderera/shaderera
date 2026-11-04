@@ -1,0 +1,29 @@
+<!doctype html>
+<!--
+  Animations started off a timer: #raf-waapi by the Web Animations API inside the first animation
+  frame, beside #raf-js, the same move on requestAnimationFrame from that frame's timestamp (0 to
+  1000 px in 1 s, both linear). #promise starts in a promise a 110 ms timer resolves.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #raf-waapi { top: 20px } #raf-js { top: 80px } #promise { top: 140px }
+</style>
+<div class="box" id="raf-waapi"></div>
+<div class="box" id="raf-js"></div>
+<div class="box" id="promise"></div>
+<script>
+  const move = [{ transform: 'translateX(0px)' }, { transform: 'translateX(1000px)' }]
+  const timing = { duration: 1000, easing: 'linear', fill: 'both' }
+  const js = document.getElementById('raf-js')
+  requestAnimationFrame((start) => {
+    document.getElementById('raf-waapi').animate(move, timing)
+    const tick = (ts) => {
+      js.style.transform = `translateX(${Math.min(1000, ts - start)}px)`
+      requestAnimationFrame(tick)
+    }
+    tick(start)
+  })
+  setTimeout(() => Promise.resolve().then(() => document.getElementById('promise').animate(move, timing)), 110)
+</script>

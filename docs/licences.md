@@ -97,6 +97,11 @@ The fixtures in `apps/cli` are not published (`files` leaves out `dist/**/fixtur
 `three` 0.186.1 (MIT), `webgpu` 0.6.2 (MIT; Dawn BSD-3-Clause) and `@napi-rs/canvas` 1.0.10 (MIT),
 and carry Noto Sans and Noto Sans Thai (SIL OFL 1.1, `OFL.txt` beside the fonts).
 
+`analysis-web-capture`'s slow tests bundle real animation libraries into fixture pages, as
+devDependencies of `packages/plugins` that are neither vendored nor shipped: `gsap` 3.15.1
+(GSAP's standard "no charge" licence), `motion` 12.43.0 (MIT), `@react-spring/web` 9.7.5 (MIT),
+`react` and `react-dom` 18.3.1 (MIT), bundled by `esbuild` 0.28.1 (MIT).
+
 ## Plugins
 
 The official plugins in `packages/plugins/` are MIT code, written for Shaderera; `add` copies them

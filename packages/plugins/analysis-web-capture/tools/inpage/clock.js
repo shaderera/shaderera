@@ -31,11 +31,18 @@
 // - The freeze and the Date offset are on whole milliseconds, so Date.now's 1 ms steps fall the
 //   same way on every run (GSAP reads them).
 // - An animation first seen while frozen starts at 0, not at its real currentTime, and a sync runs
-//   after each timer, so an animation is caught on the virtual time it started.
+//   after each timer and each animation frame's callbacks, and again once the promise
+//   continuations and MessageChannel tasks they queued have run (motion's WAAPI handoff, React's
+//   scheduler), so an animation is caught on the virtual time it started. Input is not dispatched
+//   yet (the trigger is the load); whatever dispatches it later must call sync() after each input.
 // - rAF tick n falls at t0 + n * 1000 / rafHz, counted by index from the freeze, and a tick due at
 //   the target runs: added-up steps drifted past a frame's time, and JS trailed CSS by a tick.
 // - Frozen from the start, with no free mode; advanceTo takes time from the freeze, and a page
 //   that schedules without end is refused, not cut short. The global is __shadereraClock.
+// - The page's time starts at constants, never at the real time of the injection: at the freeze,
+//   performance.now, rAF timestamps, Event.timeStamp and document.timeline read CFG.timeOrigin
+//   (ms), and Date reads CFG.epoch (ms since 1970). A page that reads absolute time gets the same
+//   values on every run.
 //
 // What it holds: Math.random (seeded, mulberry32), performance.now, Date, setTimeout and
 // setInterval (with the 4 ms clamp on nested timers), requestIdleCallback, requestAnimationFrame,
@@ -45,7 +52,7 @@
 ;(function install(CFG) {
   const w = self
   if (w.__shadereraClock) return
-  const VERSION = '1'
+  const VERSION = '2'
 
   let seed = CFG.seed >>> 0 || 1
   Math.random = function random() {
@@ -59,7 +66,6 @@
     raf: w.requestAnimationFrame.bind(w),
     caf: w.cancelAnimationFrame.bind(w),
     perfNow: performance.now.bind(performance),
-    dateNow: Date.now,
     Date: Date,
     setTimeout: w.setTimeout.bind(w),
   }
@@ -68,11 +74,11 @@
     w.AnimationTimeline &&
     Object.getOwnPropertyDescriptor(AnimationTimeline.prototype, 'currentTime')
 
-  // Fix 1: whole milliseconds.
-  const t0 = Math.ceil(N.perfNow())
+  // Fix 1: whole milliseconds, and the origins are constants.
+  const t0 = Math.round(Number(CFG.timeOrigin) || 0)
   const st = {
     now: t0,
-    dateOffset: Math.round(N.dateNow() - N.perfNow()),
+    dateOffset: Math.round(Number(CFG.epoch) || 0) - t0,
     nextId: 1,
     seq: 0,
     nesting: 0,
@@ -158,6 +164,8 @@
     const due = [...st.rafs.values()]
     st.rafs.clear() // callbacks registered while these run belong to the next frame
     for (const cb of due) call(cb, [ts])
+    // Fix 2: an animation a callback started is caught on this tick.
+    syncAnims()
   }
 
   // ---------- CSS animations, transitions and WAAPI ----------
@@ -246,8 +254,8 @@
     return st.now
   }
   function VDate(...a) {
-    if (!new.target) return new N.Date(st.dateOffset + st.now).toString()
-    return a.length ? new N.Date(...a) : new N.Date(st.dateOffset + st.now)
+    if (!new.target) return new N.Date(VDate.now()).toString()
+    return a.length ? new N.Date(...a) : new N.Date(VDate.now())
   }
   VDate.prototype = N.Date.prototype
   VDate.now = () => Math.round(st.dateOffset + st.now)
@@ -340,6 +348,8 @@
         runFrame(st.now)
       }
       await yieldTask()
+      // Fix 2: and one a promise or a MessageChannel task started after it, before time moves on.
+      syncAnims()
     }
     st.now = target
     syncAnims()
@@ -354,6 +364,8 @@
     version: VERSION,
     seed: CFG.seed,
     rafHz: CFG.rafHz,
+    timeOrigin: t0,
+    epoch: st.dateOffset + t0,
     advanceTo,
     busy,
     /** When an animation was first seen, in ms after the freeze, or null if it never was. */

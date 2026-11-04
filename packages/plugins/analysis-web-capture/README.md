@@ -39,6 +39,12 @@ smoothed, no time stretched.
   addresses). A page on `localhost` needs it. Cloud metadata addresses stay refused.
 - `--cpu-throttle <n>`: run Chrome n times slower. The tracks must not change; if they do, the
   page reads a clock the capture does not hold.
+- `--time-origin <ms>` (0), `--clock-date <ISO 8601>` (`2000-01-01T00:00:00.000Z`),
+  `--timezone <IANA name>` (`UTC`): what the page's clocks read when the capture freezes them.
+  `performance.now`, animation frame timestamps, `Event.timeStamp` and `document.timeline` start
+  at the time origin, `Date` at the clock date, in that time zone. They are constants, never the
+  real time of the capture, so a page that shows the date or animates from absolute time gives
+  the same samples on every run; give the date and zone the reference showed when that matters.
 
 One capture runs at a time on a machine (a lock in the OS temp folder).
 
@@ -51,7 +57,11 @@ bypassed.
 **The clock** (`tools/inpage/clock.js`, ported from reanimate's, MIT) is injected before any page
 script and freezes the page from the start: `Date`, `performance.now`, timers,
 `requestAnimationFrame`, `requestIdleCallback`, `Event.timeStamp`, `document.timeline`, every CSS
-and Web Animations API animation, `<video>`, and a seeded `Math.random`. Each frame, in this order:
+and Web Animations API animation, `<video>`, and a seeded `Math.random`. An animation is caught on
+the time it started, whether a timer, an animation frame, a promise or a MessageChannel task
+(React's scheduler) started it. The motion starts at the load and no input is sent; a trigger
+added later (a click, a scroll) must sync the clock after each input, as timers and frames do.
+Each frame, in this order:
 animations are synced, the clock advances to the frame's time (timers and animation frames run in
 time order, a tick due at the frame included), the capture waits for the network and the page's
 pending worker replies and video seeks, then every element is read. So frame k is the page at
@@ -73,15 +83,22 @@ keeps counting. A value is `null` on a frame where nothing matches the selector.
 
 **`declared`** holds each animation the page ran on a tracked element, as Chrome reports it:
 type (`css-transition`, `css-animation`, `web-animation`), the transition's property or the
-animation's name, `start` (the source second the clock first saw it), `timing` (duration, delay,
+animation's name, `start` (the source second the clock first saw it running; `docs/analysis.md`
+defines it for every page analyser), `timing` (duration, delay,
 easing, iterations, fill…) and `keyframes`. Read them when the motion is CSS or WAAPI: they are
 the page's own numbers, exact at any time.
 
 **`source`** is the URL, the date, the viewport, the pixel ratio and each response's status and
-sha256 (a text body hashed as UTF-8). **`tool`** is this script's version, the Chrome version and
-user agent, its flags, and the clock's version and sha256. **`params`** are the fps, `rafHz`, the
-seed, the duration, the selectors, the media features, `allowLocal` and `trigger: "load"` (frame 0
-is the page once it has loaded).
+sha256. The hash is of the body's bytes as served, after any `Content-Encoding` is undone: a
+response with a `Content-Length` (up to 16 MB) is held at its headers until its bytes are read,
+and a file is read from disk. A response without a length may be a stream, which holding would
+stop, so it is read once it has loaded: Chrome keeps a binary body as bytes, but a text body only
+as the text it decoded with its charset, so such a response carries `"hashOf": "text-as-utf8"`
+(that text encoded as UTF-8, the served file only when it was UTF-8). A body Chrome did not keep
+(an image it could not decode) has no hash and is a limit. **`tool`** is this script's version, the
+Chrome version and user agent, its flags, and the clock's version and sha256. **`params`** are the
+fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, the duration, the selectors, the
+media features, `allowLocal` and `trigger: "load"` (frame 0 is the page once it has loaded).
 
 **Outside requests.** Chrome's only way out is a proxy in the tool, loopback included. It resolves
 each host once, refuses it when any of its addresses is loopback, private, link-local, cloud
@@ -94,8 +111,9 @@ A page given as a file reads files, as Chrome lets it.
 - Iframes and workers run on real time; the clock holds the top frame only. A worker's reply is
   waited for (2 s at most), its own clock is not held.
 - A 3D transform: `rotate`, `skewX`, `scaleX` and `scaleY` are of its 2D part; the box is as drawn.
-  An `offset-path`, or a `translate` the capture cannot read (`calc()`), is left out of the
-  transform channels.
+  An `offset-path`, or a `translate` the capture cannot read (`calc()`, or a percentage on an SVG
+  element, whose box depends on `transform-box`), is left out of the transform channels. A
+  percentage on an HTML element is of its border box, unrounded.
 - More than one element matching a selector: the first is tracked.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.

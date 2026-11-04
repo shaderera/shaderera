@@ -7,7 +7,7 @@
 //   node tools/capture-web.ts <url|file> --out <dir> --track <selector> [--track <selector>…]
 //     --fps <n> --duration <s> --viewport <width>x<height>
 //     [--rafHz <n>] [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
-//     [--cpu-throttle <n>]
+//     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
 //
 // Writes <dir>/tracks.json. Each frame, in this order: animations are synced, the clock advances
 // to the frame's time, running timers and animation frames in time order, the capture waits for
@@ -51,6 +51,12 @@ export type CaptureOptions = {
   rafHz?: number
   /** Math.random's seed in the page. */
   seed?: number
+  /** What performance.now, rAF timestamps and document.timeline read at the freeze, in ms. */
+  timeOrigin?: number
+  /** What Date reads at the freeze, as ISO 8601. */
+  clockDate?: string
+  /** The time zone the page's Date and Intl see, an IANA name. */
+  timezone?: string
   /** Device pixels per CSS pixel. */
   devicePixelRatio?: number
   /** Media features the page sees, over MEDIA. */
@@ -68,6 +74,9 @@ export const MEDIA: Record<string, string> = {
   'prefers-color-scheme': 'light',
   'prefers-reduced-motion': 'no-preference',
 }
+
+/** What the page's clocks read at the freeze unless asked otherwise: constants, never today. */
+export const CLOCK = { timeOrigin: 0, clockDate: '2000-01-01T00:00:00.000Z', timezone: 'UTC' }
 
 /** Each channel read per element, and its unit. */
 export const CHANNELS: [channel: string, unit: string][] = [
@@ -116,11 +125,32 @@ export const checkOptions = (o: CaptureOptions) => {
   const throttle = o.cpuThrottle ?? 1
   if (!(Number.isFinite(throttle) && throttle >= 1))
     throw new Error(`--cpu-throttle ${throttle} is not a rate of 1 or more`)
+  const timeOrigin = o.timeOrigin ?? CLOCK.timeOrigin
+  if (!Number.isInteger(timeOrigin) || timeOrigin < 0)
+    throw new Error(`--time-origin ${timeOrigin} is not whole milliseconds of 0 or more`)
+  const given = o.clockDate ?? CLOCK.clockDate
+  const epoch = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d{1,3})?)?(Z|[+-]\d\d:\d\d)$/.test(given)
+    ? Date.parse(given)
+    : Number.NaN
+  if (!Number.isFinite(epoch))
+    throw new Error(
+      `--clock-date ${given} is not an ISO 8601 date and time with its offset, like ${CLOCK.clockDate}`,
+    )
+  const timezone = o.timezone ?? CLOCK.timezone
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone })
+  } catch {
+    throw new Error(`--timezone ${timezone} is not an IANA time zone, like UTC or Asia/Bangkok`)
+  }
   const frames = Math.floor(o.duration * o.fps + 1e-9) + 1
   return {
     ...o,
     rafHz,
     seed,
+    timeOrigin,
+    clockDate: new Date(epoch).toISOString(),
+    epoch,
+    timezone,
     devicePixelRatio,
     cpuThrottle: throttle,
     media: { ...MEDIA, ...o.media },
@@ -180,7 +210,8 @@ export const unwrap = (angle: number, before: number | null) =>
 // Run in the page each frame: for each selector, null when nothing matches, else the first
 // match's box, opacity, transform (the translate, rotate and scale properties, then transform,
 // composed as CSS composes them) and transform origin. Percentages in `translate` are of the
-// border box. Also each new animation on a tracked element, with the time the clock first saw it.
+// border box before transforms, unrounded, for an HTML element; an SVG element's are left unread,
+// since their box depends on transform-box. Also each new animation on a tracked element, with the time the clock first saw it.
 const READ = `(sels) => {
   const c = self.__shadereraClock
   const seen = (self.__shadereraSeen ??= new WeakSet())
@@ -195,8 +226,18 @@ const READ = `(sels) => {
     const cs = getComputedStyle(el)
     const unread = []
     let m = new DOMMatrix()
-    const w = el.offsetWidth ?? r.width
-    const h = el.offsetHeight ?? r.height
+    // The border box from the used width and height, which offsetWidth rounds.
+    let w = NaN
+    let h = NaN
+    if (el instanceof HTMLElement && cs.width.endsWith('px') && cs.height.endsWith('px')) {
+      const n = (v) => parseFloat(v) || 0
+      w = parseFloat(cs.width)
+      h = parseFloat(cs.height)
+      if (cs.boxSizing !== 'border-box') {
+        w += n(cs.paddingLeft) + n(cs.paddingRight) + n(cs.borderLeftWidth) + n(cs.borderRightWidth)
+        h += n(cs.paddingTop) + n(cs.paddingBottom) + n(cs.borderTopWidth) + n(cs.borderBottomWidth)
+      }
+    }
     if (cs.translate && cs.translate !== 'none') {
       const [x = '0px', y = '0px', z = '0px'] = cs.translate.split(' ')
       const t = [px(x, w), px(y, h), px(z, 0)]
@@ -319,35 +360,70 @@ const cdp = async (url: string) => {
   }
 }
 
-/** The lock that keeps one capture at a time on this machine; a dead holder's lock is taken over. */
+/**
+ * The lock that keeps one capture at a time on this machine. It is made whole and then linked in
+ * place, which fails if one is there; a dead holder's lock is renamed away, which only one taker
+ * can do, and put back if it turns out to be a live one.
+ */
 const takeLock = async () => {
-  const { openSync, readFileSync, rmSync, writeSync, closeSync } = await import('node:fs')
+  const { linkSync, readFileSync, renameSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const path = join(tmpdir(), 'shaderera-web-capture.lock')
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const mine = `${path}.${process.pid}`
+  const holder = (file: string) => {
+    let text = ''
     try {
-      const fd = openSync(path, 'wx')
-      writeSync(fd, String(process.pid))
-      closeSync(fd)
-      return () => rmSync(path, { force: true })
+      text = readFileSync(file, 'utf8')
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
-      const pid = Number(readFileSync(path, 'utf8'))
-      let alive = false
-      try {
-        alive = Number.isInteger(pid) && pid > 0 && process.kill(pid, 0)
-      } catch (k) {
-        alive = (k as NodeJS.ErrnoException).code === 'EPERM'
-      }
-      if (alive)
-        throw new Error(
-          `another capture is running (process ${pid}, ${path}): one capture runs at a time`,
-        )
-      rmSync(path, { force: true })
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw e
     }
+    const pid = Number(text)
+    let alive = false
+    try {
+      alive = Number.isInteger(pid) && pid > 0 && process.kill(pid, 0)
+    } catch (k) {
+      alive = (k as NodeJS.ErrnoException).code === 'EPERM'
+    }
+    return { pid, alive }
   }
-  throw new Error(`could not take ${path}`)
+  const busy = (pid: number) =>
+    new Error(`another capture is running (process ${pid}, ${path}): one capture runs at a time`)
+  writeFileSync(mine, String(process.pid))
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        linkSync(mine, path)
+        return () => rmSync(path, { force: true })
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
+      }
+      const h = holder(path)
+      if (!h) continue
+      if (h.alive) throw busy(h.pid)
+      const stale = `${path}.stale.${process.pid}`
+      try {
+        renameSync(path, stale)
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw e
+      }
+      const moved = holder(stale)
+      if (moved?.alive) {
+        // Another taker's fresh lock: put it back.
+        try {
+          linkSync(stale, path)
+        } catch {}
+        rmSync(stale, { force: true })
+        throw busy(moved.pid)
+      }
+      rmSync(stale, { force: true })
+    }
+    throw new Error(`could not take ${path}`)
+  } finally {
+    rmSync(mine, { force: true })
+  }
 }
 
 /** The flags every capture's Chrome starts with, besides its profile and the proxy's port. */
@@ -369,6 +445,14 @@ export const CHROME_FLAGS = [
   '--proxy-bypass-list=<-loopback>',
 ]
 
+/** The largest response held to read its bytes as served; a larger one is read at its end. */
+const HELD_BODY_BYTES = 16 * 1024 * 1024
+/** Every response, paused at its headers. */
+const FETCH_PATTERNS = [{ urlPattern: '*', requestStage: 'Response' }]
+
+/** A response the page loaded. `hashOf` is there only when the hash is not of the bytes served. */
+type Served = { url: string; status: number; sha256: string; hashOf?: string }
+
 /** How long a request may stay open before frames stop waiting for it, in real ms. */
 const LONG_REQUEST_MS = 5000
 /** How long a frame may wait for the page to settle, in real ms. */
@@ -388,6 +472,7 @@ export const captureWeb = async (options: CaptureOptions) => {
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const { setTimeout: sleep } = await import('node:timers/promises')
+  const { fileURLToPath } = await import('node:url')
 
   const url = await pageUrl(o.page)
   const parsed = new URL(url)
@@ -406,26 +491,30 @@ export const captureWeb = async (options: CaptureOptions) => {
 
   const release = await takeLock()
   const refused: Refused[] = []
-  let proxy: Awaited<ReturnType<typeof startProxy>>
+  let proxy: Awaited<ReturnType<typeof startProxy>> | undefined
+  let profile: string
+  let browser: ReturnType<typeof spawn>
   try {
     proxy = await startProxy({ allowLocal: o.allowLocal, onRefused: (r) => refused.push(r) })
+    profile = mkdtempSync(join(tmpdir(), 'shaderera-web-capture-'))
+    browser = spawn(
+      chrome,
+      [
+        ...CHROME_FLAGS,
+        `--user-data-dir=${profile}`,
+        `--proxy-server=http://127.0.0.1:${proxy.port}`,
+        `--window-size=${o.viewport.width},${o.viewport.height}`,
+        '--do-not-de-elevate',
+        'about:blank',
+      ],
+      { stdio: 'ignore' },
+    )
   } catch (e) {
+    await proxy?.close()
     release()
     throw e
   }
-  const profile = mkdtempSync(join(tmpdir(), 'shaderera-web-capture-'))
-  const browser = spawn(
-    chrome,
-    [
-      ...CHROME_FLAGS,
-      `--user-data-dir=${profile}`,
-      `--proxy-server=http://127.0.0.1:${proxy.port}`,
-      `--window-size=${o.viewport.width},${o.viewport.height}`,
-      '--do-not-de-elevate',
-      'about:blank',
-    ],
-    { stdio: 'ignore' },
-  )
+  const net = proxy
   let gone: string | undefined
   const exited = new Promise<void>((done) => {
     browser.once('exit', (code, signal) => {
@@ -448,7 +537,7 @@ export const captureWeb = async (options: CaptureOptions) => {
     if (!gone) browser.kill()
     await Promise.race([exited, sleep(5000, undefined, { ref: false })])
     if (!gone) browser.kill('SIGKILL')
-    await proxy.close()
+    await net.close()
     rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     release()
   }
@@ -485,9 +574,53 @@ export const captureWeb = async (options: CaptureOptions) => {
     const limits: Limit[] = []
     const open = new Map<string, { url: string; type?: string; at: number; long: boolean }>()
     const responses = new Map<string, { url: string; status: number }>()
-    const hashed: { url: string; status: number; sha256: string }[] = []
+    const hashed: Served[] = []
     const reading: Promise<void>[] = []
     const keyOf = (session: string | undefined, id: string) => `${session ?? ''} ${id}`
+    // A response of a known length is held at its headers and its bytes read as they were served
+    // (Network.getResponseBody gives a text body only as decoded text); one without a length may
+    // be a stream, which holding would stop, so it is let through and read at the end.
+    const served = new Map<string, Promise<Uint8Array | null>>()
+    const received = new Map<string, number>()
+    c.on<{
+      requestId: string
+      networkId?: string
+      request: { method: string }
+      responseStatusCode?: number
+      responseErrorReason?: string
+      responseHeaders?: { name: string; value: string }[]
+    }>('Fetch.requestPaused', (p, s) => {
+      const go = (method: string) => c.send(method, { requestId: p.requestId }, s).catch(() => {})
+      const status = p.responseStatusCode
+      if (p.responseErrorReason || status === undefined) return void go('Fetch.continueRequest')
+      const length = Number(
+        p.responseHeaders?.find((h) => h.name.toLowerCase() === 'content-length')?.value ?? '',
+      )
+      const kept =
+        p.networkId !== undefined &&
+        p.request.method !== 'HEAD' &&
+        (status < 300 || status >= 400) &&
+        Number.isInteger(length) &&
+        length > 0 &&
+        length <= HELD_BODY_BYTES
+      if (!kept) return void go('Fetch.continueResponse')
+      const body = c
+        .send<{ body: string; base64Encoded: boolean }>(
+          'Fetch.getResponseBody',
+          { requestId: p.requestId },
+          s,
+        )
+        .then(({ body, base64Encoded }) =>
+          base64Encoded ? new Uint8Array(Buffer.from(body, 'base64')) : null,
+        )
+        .catch(() => null)
+      served.set(keyOf(s, p.networkId as string), body)
+      void body.finally(() => go('Fetch.continueResponse'))
+    })
+    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p, s) => {
+      const key = keyOf(s, p.requestId)
+      received.set(key, (received.get(key) ?? 0) + p.dataLength)
+    })
     c.on<{ requestId: string; request: { url: string }; type?: string }>(
       'Network.requestWillBeSent',
       (p, s) => {
@@ -511,24 +644,40 @@ export const captureWeb = async (options: CaptureOptions) => {
       const key = keyOf(s, p.requestId)
       open.delete(key)
       const r = responses.get(key)
+      const held = served.get(key)
+      served.delete(key)
       if (!r) return
-      reading.push(
-        c
-          .send<{ body: string; base64Encoded: boolean }>(
+      const read = async () => {
+        let bytes = held ? await held : null
+        let hashOf: string | undefined
+        if (!bytes && r.url.startsWith('file:')) {
+          try {
+            bytes = new Uint8Array(readFileSync(fileURLToPath(r.url)))
+          } catch {}
+        }
+        if (!bytes) {
+          const got = await c.send<{ body: string; base64Encoded: boolean }>(
             'Network.getResponseBody',
             { requestId: p.requestId },
             s,
           )
-          .then(async ({ body, base64Encoded }) => {
-            // A text body comes back decoded: it is hashed as UTF-8.
-            const bytes = base64Encoded
-              ? new Uint8Array(Buffer.from(body, 'base64'))
-              : new TextEncoder().encode(body)
-            hashed.push({ ...r, sha256: await sha256(bytes) })
-          })
-          .catch((e: Error) => {
-            limits.push({ where: r.url, reason: `its body could not be read: ${e.message}` })
-          }),
+          if (got.base64Encoded) bytes = new Uint8Array(Buffer.from(got.body, 'base64'))
+          else {
+            // Chrome decoded it with its charset; its bytes as served are gone.
+            bytes = new TextEncoder().encode(got.body)
+            hashOf = 'text-as-utf8'
+          }
+          if (bytes.length === 0 && (received.get(key) ?? 0) > 0) {
+            limits.push({ where: r.url, reason: 'its body was not kept by Chrome: it has no hash' })
+            return
+          }
+        }
+        hashed.push({ ...r, sha256: await sha256(bytes), ...(hashOf ? { hashOf } : {}) })
+      }
+      reading.push(
+        read().catch((e: Error) => {
+          limits.push({ where: r.url, reason: `its body could not be read: ${e.message}` })
+        }),
       )
     })
     c.on<{ requestId: string; errorText: string; canceled?: boolean; blockedReason?: string }>(
@@ -567,6 +716,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       void (async () => {
         try {
           await c.send('Network.enable', {}, s)
+          await c.send('Fetch.enable', { patterns: FETCH_PATTERNS }, s).catch(() => {})
           await c.send(
             'Target.setAutoAttach',
             { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
@@ -584,6 +734,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       page,
     )
     await c.send('Network.setBypassServiceWorker', { bypass: true }, page)
+    await c.send('Fetch.enable', { patterns: FETCH_PATTERNS }, page)
     await c.send(
       'Emulation.setDeviceMetricsOverride',
       {
@@ -599,6 +750,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       { features: Object.entries(o.media).map(([name, value]) => ({ name, value })) },
       page,
     )
+    await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, page)
     if (o.cpuThrottle > 1)
       await c.send('Emulation.setCPUThrottlingRate', { rate: o.cpuThrottle }, page)
     await c.send(
@@ -607,7 +759,12 @@ export const captureWeb = async (options: CaptureOptions) => {
       page,
     )
     // The clock holds the top frame only: a frame's clock that nothing advances would stop it.
-    const config = JSON.stringify({ seed: o.seed, rafHz: o.rafHz })
+    const config = JSON.stringify({
+      seed: o.seed,
+      rafHz: o.rafHz,
+      timeOrigin: o.timeOrigin,
+      epoch: o.epoch,
+    })
     await c.send(
       'Page.addScriptToEvaluateOnNewDocument',
       { source: `if (self === self.top) {\n${clockSource}(${config})\n}` },
@@ -764,7 +921,11 @@ export const captureWeb = async (options: CaptureOptions) => {
       if (k % Math.max(1, Math.round(o.fps)) === 0) log(`  ${time.toFixed(2)} s`)
     }
     // Bodies are read as their loads finish; reading one can come after the last frame.
-    for (let n = 0; n < reading.length; n = reading.length) await Promise.all(reading.slice(n))
+    for (let n = 0; n < reading.length; ) {
+      const m = reading.length
+      await Promise.all(reading.slice(n, m))
+      n = m
+    }
 
     for (const [where, reason] of realTime) limits.push({ where, reason })
     for (const s of spans.values()) limits.push(s)
@@ -804,6 +965,9 @@ export const captureWeb = async (options: CaptureOptions) => {
         fps: o.fps,
         rafHz: o.rafHz,
         seed: o.seed,
+        timeOrigin: o.timeOrigin,
+        clockDate: o.clockDate,
+        timezone: o.timezone,
         duration: o.duration,
         track: o.track,
         trigger: 'load',
@@ -846,6 +1010,9 @@ if (import.meta.main) {
       media: { type: 'string', multiple: true },
       'allow-local': { type: 'boolean' },
       'cpu-throttle': { type: 'string' },
+      'time-origin': { type: 'string' },
+      'clock-date': { type: 'string' },
+      timezone: { type: 'string' },
     },
   })
   const number = (name: string, v: string | undefined) => {
@@ -883,6 +1050,9 @@ if (import.meta.main) {
       media,
       allowLocal: values['allow-local'] ?? false,
       cpuThrottle: number('cpu-throttle', values['cpu-throttle']),
+      timeOrigin: number('time-origin', values['time-origin']),
+      clockDate: values['clock-date'],
+      timezone: values.timezone,
       log: (line) => console.error(line),
     })
     console.log(path)

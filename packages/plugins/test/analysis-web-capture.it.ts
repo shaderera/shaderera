@@ -1,10 +1,12 @@
-// analysis-web-capture, in the machine's own Chrome: the research's experiments as tests, on
-// fixture pages in test/web-capture/ that move as GSAP, motion and react-spring do (their clocks,
-// lag smoothing and delta clamps, with none of their code), plus CSS and Web Animations. Two
-// captures give the same bytes, but for source.date; a capture under 6x CPU throttling gives the
-// same bytes as one without; with rafHz equal to the fps, a JS linear move matches a CSS one
-// within 0.5 ms. A page that reaches for this machine is refused without --allow-local, and the
-// local server sees nothing. Skipped, with the reason, when there is no Chrome.
+// analysis-web-capture, in the machine's own Chrome: the research's experiments as tests. Pages
+// in test/web-capture/libraries/ run GSAP, motion and react-spring themselves (exact versions,
+// devDependencies bundled here by esbuild); the other pages in test/web-capture/ copy their
+// clocks and clamps by hand, and add CSS, Web Animations, absolute time and animations started
+// off a timer. Two captures give the same bytes, but for source.date; a capture under 6x CPU
+// throttling gives the same bytes as one without; with rafHz equal to the fps, a JS linear move
+// on GSAP's ticker matches a CSS one within 0.5 ms. A page that reaches for this machine is
+// refused without --allow-local, and the local server sees nothing; with it, each response is
+// hashed as served. Skipped, with the reason, when there is no Chrome.
 
 import assert from 'node:assert/strict'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -15,6 +17,7 @@ import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { type Host, sha256 } from '@shaderera/core'
+import { build } from 'esbuild'
 
 const plugins = join(import.meta.dirname, '..')
 const project = join(plugins, 'out', 'analysis-web-capture.it')
@@ -44,6 +47,22 @@ const skip =
     ? false
     : 'no Chrome on this machine: install Google Chrome, or set CHROME to its path'
 const fixture = (name: string) => join(import.meta.dirname, 'web-capture', name)
+
+// Each library page with its bundle beside it, built once.
+const libraries = join(project, 'libraries')
+mkdirSync(libraries, { recursive: true })
+for (const name of ['gsap', 'motion', 'spring']) {
+  cpSync(fixture(`libraries/${name}.html`), join(libraries, `${name}.html`))
+  await build({
+    entryPoints: [fixture(`libraries/${name}.js`)],
+    bundle: true,
+    format: 'iife',
+    outfile: join(libraries, `${name}.bundle.js`),
+    define: { 'process.env.NODE_ENV': '"production"' },
+    logLevel: 'error',
+  })
+}
+const library = (name: string) => join(libraries, `${name}.html`)
 const outs = mkdtempSync(join(tmpdir(), 'shaderera-web-capture-test-'))
 let n = 0
 
@@ -77,6 +96,115 @@ const sameEveryTime = async (page: string, trackList: string[]) => {
   assert.equal(undated(slow), undated(first), 'a 6x throttled capture gives the same bytes')
   return first
 }
+
+test('GSAP captures the same at any speed, and its ticker matches CSS within 0.5 ms', {
+  skip,
+}, async () => {
+  const json = await sameEveryTime(library('gsap'), ['#a', '#b', '#lin', '#css'])
+  const lin = samplesOf(json, '#lin', 'translateX')
+  const css = samplesOf(json, '#css', 'translateX')
+  // 600 px in 2000 ms: 0.3 px a millisecond.
+  let worst = 0
+  css.forEach(([, v], i) => {
+    worst = Math.max(worst, Math.abs((v as number) - (lin[i]?.[1] as number)) / 0.3)
+  })
+  assert.ok(worst <= 0.5, `GSAP's ticker is ${worst.toFixed(3)} ms off CSS`)
+  const a = samplesOf(json, '#a', 'translateX')
+  assert.equal(a.find(([t]) => t === 0.2)?.[1], 0, '#a waits for its 0.2 s delay')
+  assert.ok((a.find(([t]) => t === 0.3)?.[1] as number) > 0, '#a moves after it')
+  assert.equal(samplesOf(json, '#b', 'translateX').at(-1)?.[1], 400)
+})
+
+test('motion captures the same at any speed, with the fade it hands to WAAPI declared', {
+  skip,
+}, async () => {
+  const json = await sameEveryTime(library('motion'), ['#a', '#b', '#c'])
+  const doc = JSON.parse(json) as Doc
+  const fade = doc.declared.find((d) => d.element === '#b')
+  assert.equal(fade?.type, 'web-animation')
+  const start = fade?.start as number
+  assert.ok(start >= 0 && start < 0.1, `the fade was first seen at ${start} s`)
+  // Linear over 1 s from its start: the samples and the declared start agree.
+  for (const [t, v] of samplesOf(json, '#b', 'opacity'))
+    if (t > start && t < start + 1)
+      assert.ok(Math.abs((v as number) - (t - start)) < 1e-3, `#b at ${t} s is ${v}`)
+  assert.ok(Math.abs((samplesOf(json, '#a', 'translateX').at(-1)?.[1] as number) - 400) < 1)
+})
+
+test('react-spring in React 18 captures the same at any speed', { skip }, async () => {
+  const json = await sameEveryTime(library('spring'), ['#a', '#b'])
+  const x = samplesOf(json, '#a', 'translateX')
+  assert.ok((x.find(([t]) => t === 0.2)?.[1] as number) > 0, 'the spring moves')
+  assert.ok(Math.abs((x.at(-1)?.[1] as number) - 400) < 1, `it settles at ${x.at(-1)?.[1]}`)
+  assert.equal(samplesOf(json, '#b', 'opacity').at(-1)?.[1], 1)
+})
+
+test('a page that reads absolute time gets the same values on every run', { skip }, async () => {
+  const json = await sameEveryTime(fixture('absolute.html'), ['#perf', '#ts', '#date', '#hours'])
+  const doc = JSON.parse(json) as Doc
+  assert.equal(doc.params.timeOrigin, 0)
+  assert.equal(doc.params.clockDate, '2000-01-01T00:00:00.000Z')
+  assert.equal(doc.params.timezone, 'UTC')
+  // From the freeze: performance.now and the frame's timestamp read its time, Date whole ms.
+  const at = (el: string, t: number) =>
+    samplesOf(json, el, 'translateX').find(([s]) => s === t)?.[1]
+  assert.equal(at('#perf', 0.1), 30)
+  assert.equal(at('#ts', 0.1), 30)
+  assert.equal(at('#date', 0.033333), 9.9)
+  assert.equal(at('#hours', 1), 0)
+  const moved = JSON.parse(
+    await capture({
+      page: fixture('absolute.html'),
+      track: ['#perf', '#date', '#hours'],
+      timeOrigin: 1000,
+      clockDate: '2026-11-04T19:00:00+07:00',
+      timezone: 'Asia/Bangkok',
+    }),
+  ) as Doc
+  assert.equal(moved.params.clockDate, '2026-11-04T12:00:00.000Z')
+  const atMoved = (el: string) =>
+    samplesOf(JSON.stringify(moved), el, 'translateX').find(([s]) => s === 0.1)?.[1]
+  assert.equal(atMoved('#perf'), 330)
+  assert.equal(atMoved('#hours'), 19)
+})
+
+test('an animation started in a frame or a promise starts at its own time', {
+  skip,
+}, async () => {
+  // rafHz twice the fps: the first frame runs between captured frames.
+  const json = await capture({
+    page: fixture('late-start.html'),
+    track: ['#raf-waapi', '#raf-js', '#promise'],
+    rafHz: 60,
+    duration: 0.5,
+  })
+  const waapi = samplesOf(json, '#raf-waapi', 'translateX')
+  assert.deepEqual(waapi, samplesOf(json, '#raf-js', 'translateX'))
+  assert.equal(waapi.find(([t]) => t === 0.033333)?.[1], 16.6667)
+  const promise = samplesOf(json, '#promise', 'translateX')
+  assert.equal(promise.find(([t]) => t === 0.1)?.[1], 0)
+  assert.equal(promise.find(([t]) => t === 0.133333)?.[1], 23.3333)
+  const doc = JSON.parse(json) as Doc
+  assert.equal(doc.declared.find((d) => d.element === '#promise')?.start, 0.11)
+  const rafStart = doc.declared.find((d) => d.element === '#raf-waapi')?.start as number
+  assert.ok(Math.abs(rafStart - 1 / 60) < 1e-9, `#raf-waapi was first seen at ${rafStart} s`)
+})
+
+test('a percentage translate is of the unrounded border box, and unread on SVG', {
+  skip,
+}, async () => {
+  const json = await capture({
+    page: fixture('percent.html'),
+    track: ['#content', '#border', '#svg'],
+    fps: 10,
+    duration: 0.1,
+  })
+  assert.equal(samplesOf(json, '#content', 'translateX')[0]?.[1], 60.25)
+  assert.equal(samplesOf(json, '#border', 'translateX')[0]?.[1], 50.25)
+  assert.equal(samplesOf(json, '#border', 'x')[0]?.[1], 58.25)
+  const doc = JSON.parse(json) as Doc
+  assert.ok(doc.limits.some((l) => l.where === '#svg' && /translate 50%/.test(l.reason)))
+})
 
 test('a GSAP-style ticker (Date.now, lag smoothing) captures the same at any speed', {
   skip,
@@ -174,10 +302,31 @@ test('the capture is read by the reader of reference tracks', { skip }, async ()
 
 test('a page that reaches for this machine is refused unless --allow-local', { skip }, async () => {
   const hits: string[] = []
+  const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9]) // "café" in ISO-8859-1
+  const noise = new Uint8Array(4096).map((_, i) => (i * 7919 + 13) % 251)
   const server = createServer((req, res) => {
     hits.push(req.url ?? '')
-    res.writeHead(200, { 'access-control-allow-origin': '*', 'content-type': 'text/plain' })
-    res.end(`body of ${req.url}`)
+    const cors = { 'access-control-allow-origin': '*' }
+    const text = { ...cors, 'content-type': 'text/plain; charset=iso-8859-1' }
+    const png = { ...cors, 'content-type': 'image/png' }
+    if (req.url === '/latin1') {
+      res.writeHead(200, { ...text, 'content-length': latin1.length })
+      res.end(latin1)
+    } else if (req.url === '/latin1-chunked') {
+      res.writeHead(200, text)
+      res.write(latin1)
+      res.end()
+    } else if (req.url === '/bad.png') {
+      res.writeHead(200, { ...png, 'content-length': noise.length })
+      res.end(noise)
+    } else if (req.url === '/bad-chunked.png') {
+      res.writeHead(200, png)
+      res.write(noise)
+      res.end()
+    } else {
+      res.writeHead(200, { ...cors, 'content-type': 'text/plain' })
+      res.end(`body of ${req.url}`)
+    }
   })
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   const { port } = server.address() as AddressInfo
@@ -195,11 +344,41 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
     const allowed = JSON.parse(
       await capture({ page, track: ['#box'], fps: 10, duration: 0.3, allowLocal: true }),
     ) as Doc
-    assert.deepEqual([...hits].sort(), ['/pixel', '/secret'])
+    assert.deepEqual([...hits].sort(), [
+      '/bad-chunked.png',
+      '/bad.png',
+      '/latin1',
+      '/latin1-chunked',
+      '/pixel',
+      '/secret',
+    ])
+    assert.ok('responses' in allowed.source)
+    const response = (path: string) => {
+      const found =
+        'responses' in allowed.source
+          ? allowed.source.responses.filter((r) => new URL(r.url).pathname === path)
+          : []
+      assert.equal(found.length <= 1, true, `${path} is listed once`)
+      return found[0]
+    }
     const secret = await sha256(new TextEncoder().encode('body of /secret'))
+    assert.equal(response('/secret')?.sha256, secret)
+    // A body of a known length is hashed as its bytes were served, whatever its charset.
+    assert.equal(response('/latin1')?.sha256, await sha256(latin1))
+    assert.equal(response('/latin1')?.hashOf, undefined)
+    assert.equal(response('/bad.png')?.sha256, await sha256(noise))
+    // Without a length it is read at its end: text as Chrome decoded it, said so.
+    assert.equal(response('/latin1-chunked')?.hashOf, 'text-as-utf8')
+    assert.equal(
+      response('/latin1-chunked')?.sha256,
+      await sha256(new TextEncoder().encode('café')),
+    )
+    // An image Chrome could not decode and did not keep is a limit, not the hash of nothing.
+    assert.equal(response('/bad-chunked.png'), undefined)
     assert.ok(
-      'responses' in allowed.source &&
-        allowed.source.responses.some((r) => r.url.endsWith('/secret') && r.sha256 === secret),
+      allowed.limits.some(
+        (l) => l.where.endsWith('/bad-chunked.png') && /not kept by Chrome/.test(l.reason),
+      ),
     )
 
     // A page served from this machine is refused before Chrome starts.
