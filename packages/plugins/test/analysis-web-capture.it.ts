@@ -70,6 +70,7 @@ const capture = async (o: Partial<Options> & Pick<Options, 'page' | 'track'>) =>
   const { json } = await captureWeb({
     out: join(outs, String(n++)),
     fps: 30,
+    rafHz: o.fps ?? 30,
     duration: 1.6,
     viewport: { width: 800, height: 400 },
     ...o,
@@ -306,6 +307,7 @@ test('the capture is read by the reader of reference tracks', { skip }, async ()
     out,
     track: ['#css', '#missing'],
     fps: 10,
+    rafHz: 10,
     duration: 0.5,
     viewport: { width: 640, height: 360 },
   })
@@ -413,6 +415,7 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
         out: join(outs, 'local-page'),
         track: ['#box'],
         fps: 10,
+        rafHz: 10,
         duration: 0.3,
         viewport: { width: 800, height: 400 },
       }),

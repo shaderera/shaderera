@@ -220,11 +220,16 @@ test('options are checked before anything starts', async () => {
     out: 'references/hero',
     track: ['.hero h1'],
     fps: 24,
+    rafHz: 24,
     duration: 2,
     viewport: { width: 1280, height: 720 },
   }
   const o = checkOptions(base)
-  assert.equal(o.rafHz, 24, 'rafHz is the fps when left out')
+  assert.equal(o.rafHz, 24)
+  assert.throws(
+    () => checkOptions({ ...base, rafHz: undefined }),
+    /give --rafHz <n>.*whole multiple of --fps 24 \(24, 48, 72…\)/,
+  )
   assert.equal(o.seed, 1)
   assert.equal(o.frames, 49)
   assert.deepEqual(o.media, {
@@ -232,7 +237,7 @@ test('options are checked before anything starts', async () => {
     'prefers-reduced-motion': 'no-preference',
   })
   assert.equal(checkOptions({ ...base, rafHz: 72 }).rafHz, 72)
-  assert.equal(checkOptions({ ...base, fps: 30, duration: 1 }).frames, 31)
+  assert.equal(checkOptions({ ...base, fps: 30, rafHz: 30, duration: 1 }).frames, 31)
   assert.throws(
     () => checkOptions({ ...base, rafHz: 60 }),
     /--rafHz 60 is not a whole multiple of --fps 24.*24, 48, 72/,
