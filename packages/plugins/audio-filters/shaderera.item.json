@@ -1,0 +1,29 @@
+{
+  "name": "audio-filters",
+  "type": "component",
+  "title": "Audio filters",
+  "description": "Filters and pitch for sound made in code: a one-pole low-pass, the RBJ cookbook biquads (low-pass, high-pass, band-pass, notch, peak, low and high shelf), a MIDI note's frequency, and a fade that ends a buffer at zero",
+  "category": "Audio & Music",
+  "tags": [
+    "dsp",
+    "filter",
+    "biquad",
+    "rbj",
+    "audio eq cookbook",
+    "low-pass",
+    "high-pass",
+    "band-pass",
+    "notch",
+    "peaking eq",
+    "shelf",
+    "one-pole",
+    "midi",
+    "pitch",
+    "fade",
+    "synthesis",
+    "pcm"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "files": ["src/audio/filters.ts"]
+}

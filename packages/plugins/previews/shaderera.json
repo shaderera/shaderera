@@ -14,6 +14,7 @@
         "enum": [
           "asset-provenance",
           "audio-beat-clock",
+          "audio-filters",
           "audio-hall-ending",
           "audio-listen",
           "audio-pcm-mix",
@@ -97,6 +98,13 @@
       "params": {
         "item": "audio-beat-clock",
         "state": "grid"
+      }
+    },
+    "audio-filters": {
+      "label": "audio-filters",
+      "params": {
+        "item": "audio-filters",
+        "state": "default"
       }
     },
     "audio-hall-ending": {

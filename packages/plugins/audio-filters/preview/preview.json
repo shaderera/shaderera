@@ -1,0 +1,12 @@
+{
+  "caption": "Filters for sound made in code: low-pass, high-pass, band-pass, notch, peak and shelves, each measured as it plays.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": true,
+  "poster": 4.3
+}
