@@ -1,0 +1,12 @@
+{
+  "caption": "Places sound made in code on the film's timeline, to the sample, panned left to right at the same loudness.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": true,
+  "poster": 3.5
+}

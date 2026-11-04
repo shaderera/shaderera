@@ -59,6 +59,8 @@ What is on the shelf:
 - **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
   plumbing again, and says so:
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
+  - `audio-pcm-mix`: sound made in code placed at film seconds with a gain and a constant-power pan,
+    seeded noise, a peak, NaN and DC check, and core's `Pcm` for `audio()`;
   - `motion-eases`: eases, clamp, lerp, the progress of t through a span, an envelope over hits;
   - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each

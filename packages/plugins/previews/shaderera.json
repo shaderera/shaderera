@@ -16,6 +16,7 @@
           "audio-beat-clock",
           "audio-hall-ending",
           "audio-listen",
+          "audio-pcm-mix",
           "audio-voice-repace",
           "camera-ken-burns",
           "camera-keyframes",
@@ -109,6 +110,13 @@
       "label": "audio-listen",
       "params": {
         "item": "audio-listen",
+        "state": "default"
+      }
+    },
+    "audio-pcm-mix": {
+      "label": "audio-pcm-mix",
+      "params": {
+        "item": "audio-pcm-mix",
         "state": "default"
       }
     },
