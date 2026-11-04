@@ -7,7 +7,7 @@ node tools/capture-web.ts https://example.com/ --out references/hero \
 
 # the menu as it opens on a click at 500 ms
 node tools/capture-web.ts https://example.com/ --out references/menu \
-  --track '.menu' --fps 60 --duration 2 --viewport 1280x720 \
+  --track '.menu' --fps 60 --rafHz 60 --duration 2 --viewport 1280x720 \
   --trigger click --target '.menu-button' --at 500
 ```
 
@@ -75,10 +75,10 @@ smoothed, no time stretched.
   |---|---|---|
   | `load` (the default) | | nothing: the motion starts with the page |
   | `none` | | nothing: for motion that nothing starts (a loop, a drift); only the record differs from `load` |
-  | `click` | `--target`, `--at` | the pointer moves onto the target, presses and releases the left button, all at `--at` |
-  | `hover` | `--target`, `--at` | the pointer moves onto the target at `--at` |
-  | `leave` | `--target`, `--at` (above 0) | the pointer is on the target from 0 ms, and moves out of the viewport at `--at`, so it goes over nothing else |
-  | `scroll` | `--at`, `--scroll-to <px>`, `--scroll-ms <ms>`, `--target` if the wheel should be over it (else the viewport's centre) | the pointer moves to the wheel's point at `--at`, so it hovers what it turns over, as a person's does; wheel events from `--at` for `--scroll-ms`, evenly spaced and at most 1/rafHz second apart (one at `--at` for 0), in whole pixels on a straight line in time, adding up to `--scroll-to` minus the window's `scrollY` at `--at` |
+  | `click` | `--target`, `--at` | the pointer jumps to the target's centre (one mousemove, no path), presses and releases the left button, all at `--at` |
+  | `hover` | `--target`, `--at` | the pointer jumps to the target's centre at `--at` (one mousemove, no path) |
+  | `leave` | `--target`, `--at` (above 0) | the pointer is on the target's centre from 0 ms, and moves to (-1, -1), just past the viewport's top-left corner, at `--at`, so it goes over nothing else |
+  | `scroll` | `--at`, `--scroll-to <px>`, `--scroll-ms <ms>`, `--target` if the wheel should be over it (else the viewport's centre) | the pointer jumps to the wheel's point at `--at` (one mousemove), so it hovers what it turns over, as a person's does; wheel events from `--at` for `--scroll-ms`, evenly spaced and at most 1/rafHz second apart (one at `--at` for 0), in whole pixels on a straight line in time, adding up to `--scroll-to` minus the window's `scrollY` at `--at` |
 
   A scroll that does not end at `--scroll-to` (the page is shorter, an element under the pointer
   scrolled instead, the page took the wheel itself) is what the page did: a limit says where the
@@ -171,14 +171,15 @@ as the text it decoded with its charset, so such a response carries `"hashOf": "
 (an image it could not decode) has no hash and is a limit. **`tool`** is this script's version, the
 Chrome version and user agent, its flags, and the clock's version and sha256. **`params`** are the
 fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, `locale`, the duration, the
-selectors, the media features, `allowLocal`, `mobile` (always `false`), `settle` and `trigger`: its `type` and the settings
-it took (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer` `{ x, y }` in CSS pixels where
-its input went, so a film can put a cursor where the page saw one. For a `leave` it is where the
-pointer was from 0 ms until `at`; then it is off the viewport. A scroll without `--target` also
-records `over`, the element the wheel's point was over (`div#hero`, `nothing`), so a hover state
-it shows can be read back to it. With `trigger` `load` frame 0 is the page once it has loaded.
-A capture sends one trigger; a later version that sends several would list them in a new field
-and keep `trigger` as the first.
+selectors, the media features, `allowLocal`, `mobile` (always `false`), `settle` and `trigger`: its
+`type` and the settings it took (`target`, `at`, `scrollTo`, `scrollMs`), and the `pointer`
+`{ x, y }` in CSS pixels where its input went, so a film can put a cursor where the page saw one.
+For a `leave` it is where the pointer was from 0 ms until `at`; then it is at `leftTo`
+(`{ x: -1, y: -1 }`), off the viewport. A scroll without `--target` also records `over`, the
+element the wheel's point was over (`div#hero`, `nothing`), so a hover state it shows can be read
+back to it. With `trigger` `load` frame 0 is the page once it has loaded. A capture sends one
+trigger; a later version that sends several would list them in a new field and keep `trigger` as
+the first.
 
 **Outside requests.** Chrome's only way out is a proxy in the tool, loopback included. It resolves
 each host once, refuses it when any of its addresses is loopback, private, link-local, cloud
@@ -198,7 +199,9 @@ A page given as a file reads files, as Chrome lets it.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.
 - Input goes to the top frame at the target's centre; an iframe under it gets it on its own
-  clock. There is no touch, keyboard or drag yet.
+  clock. There is no pointer path, touch, keyboard or drag yet: a page that reacts to mousemove
+  (a magnetic button, a tilt) gets one move from nowhere. A click's press and release are one
+  instant, so an `:active` look shows on no frame.
 - A request the proxy refused, a response that did not load, or one whose body has no hash.
 
 **Limits not held and not detected**: a capture that meets them has nothing in `limits` for them.

@@ -469,6 +469,7 @@ test('a hover and a leave capture the same at any speed', { skip }, async () => 
     duration: 1.5,
   })
   const left = JSON.parse(leave) as Doc
+  assert.deepEqual((left.params.trigger as { leftTo?: unknown }).leftTo, { x: -1, y: -1 })
   // Over the card from 0 ms, off it at 800.
   assert.deepEqual(start(left, '#badge'), [0, 0.8])
   assert.deepEqual(start(left, '#note'), [0.2, 1])
@@ -580,7 +581,13 @@ test('the wheel hovers what it turns over, as a person does', { skip }, async ()
 
 test('a capture holds one document: an input that navigates is refused', { skip }, async () => {
   const page = fixture('nav.html')
-  const options = { out: join(outs, String(n++)), track: ['#box'], fps: 10, duration: 0.6 }
+  const options = {
+    out: join(outs, String(n++)),
+    track: ['#box'],
+    fps: 10,
+    rafHz: 10,
+    duration: 0.6,
+  }
   const viewport = { width: 800, height: 400 }
   await assert.rejects(
     captureWeb({ page, ...options, viewport, trigger: 'click', target: '#go', at: 200 }),

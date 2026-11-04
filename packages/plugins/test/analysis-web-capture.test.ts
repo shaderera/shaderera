@@ -287,6 +287,7 @@ test('each trigger takes its own settings and refuses the others', () => {
     out: 'references/hero',
     track: ['.hero h1'],
     fps: 30,
+    rafHz: 30,
     duration: 2,
     viewport: { width: 1280, height: 720 },
   }

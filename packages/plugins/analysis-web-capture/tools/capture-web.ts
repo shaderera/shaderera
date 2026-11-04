@@ -141,6 +141,10 @@ export const CHANNELS: [channel: string, unit: string][] = [
 // desktop hover and pointer media. Recorded as params.mobile.
 const MOBILE = false
 
+// Where a leave sends the pointer: just past the viewport's top-left corner. Recorded as
+// params.trigger.leftTo.
+const LEFT_TO = { x: -1, y: -1 }
+
 const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
 
 /** The options checked and filled, or a refusal naming what is wrong. Nothing starts before it. */
@@ -1241,8 +1245,10 @@ export const captureWeb = async (options: CaptureOptions) => {
           await mouse('mouseReleased', x, y, { button: 'left', buttons: 0, clickCount: 1 })
         }
       } else if (input.kind === 'leave') {
-        // Out of the viewport, so the pointer goes over nothing else.
-        await mouse('mouseMoved', -1, -1)
+        // Out of the viewport past its top-left corner, so the pointer goes over nothing else. A
+        // constant, recorded: a hover-out that depends on direction leaves this way.
+        trigger.leftTo = { ...LEFT_TO }
+        await mouse('mouseMoved', LEFT_TO.x, LEFT_TO.y)
       } else if (input.kind === 'scroll-start') {
         // The pointer is over what the wheel turns over, as a person's is: it hovers it.
         const { x, y } = await pointer(input.ms)
