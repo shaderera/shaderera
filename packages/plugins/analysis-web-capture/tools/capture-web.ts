@@ -5,8 +5,8 @@
 // k is the page at k / fps however slow the machine is.
 //
 //   node tools/capture-web.ts <url|file> --out <dir> --track <selector> [--track <selector>…]
-//     --fps <n> --duration <s> --viewport <width>x<height>
-//     [--rafHz <n>] [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
+//     --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>
+//     [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
 //     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
 //     [--locale <BCP 47>]
 //     [--settle load|loaded] [--trigger load|none|click|hover|leave|scroll --target <selector>
@@ -154,6 +154,14 @@ export const CHANNELS: [channel: string, unit: string][] = [
   ['originY', 'css-px'],
 ]
 
+// Always a desktop page: Chrome ignores the page's viewport meta, reports no touch and matches the
+// desktop hover and pointer media. Recorded as params.mobile.
+const MOBILE = false
+
+// Where a leave sends the pointer: just past the viewport's top-left corner. Recorded as
+// params.trigger.leftTo.
+const LEFT_TO = { x: -1, y: -1 }
+
 const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
 
 /** The options checked and filled, or a refusal naming what is wrong. Nothing starts before it. */
@@ -248,7 +256,13 @@ const motionOf = (o: CaptureOptions) => {
   if (!positive(fps)) throw new Error(`--fps ${fps} is not a rate above 0`)
   const duration = o.duration as number
   if (!positive(duration)) throw new Error(`--duration ${duration} is not seconds above 0`)
-  const rafHz = o.rafHz ?? fps
+  // No default: any whole multiple of the fps is deterministic, and a page that steps once per
+  // animation frame (a spring, a lerp, a smooth scroll) moves differently at each one.
+  if (o.rafHz === undefined)
+    throw new Error(
+      `give --rafHz <n>, how often the page's requestAnimationFrame runs: the refresh rate the reference was seen at, a whole multiple of --fps ${fps} (${[1, 2, 3].map((m) => m * fps).join(', ')}…). A page that steps once per frame moves differently at each rate.`,
+    )
+  const rafHz = o.rafHz
   if (!positive(rafHz)) throw new Error(`--rafHz ${rafHz} is not a rate above 0`)
   const ratio = rafHz / fps
   if (ratio < 1 - 1e-9 || Math.abs(ratio - Math.round(ratio)) > 1e-9)
@@ -1202,7 +1216,7 @@ export const captureWeb = async (options: CaptureOptions) => {
         width: o.viewport.width,
         height: o.viewport.height,
         deviceScaleFactor: o.devicePixelRatio,
-        mobile: false,
+        mobile: MOBILE,
       },
       page,
     )
@@ -1441,8 +1455,10 @@ export const captureWeb = async (options: CaptureOptions) => {
           await mouse('mouseReleased', x, y, { button: 'left', buttons: 0, clickCount: 1 })
         }
       } else if (input.kind === 'leave') {
-        // Out of the viewport, so the pointer goes over nothing else.
-        await mouse('mouseMoved', -1, -1)
+        // Out of the viewport past its top-left corner, so the pointer goes over nothing else. A
+        // constant, recorded: a hover-out that depends on direction leaves this way.
+        trigger.leftTo = { ...LEFT_TO }
+        await mouse('mouseMoved', LEFT_TO.x, LEFT_TO.y)
       } else if (input.kind === 'scroll-start') {
         // The pointer is over what the wheel turns over, as a person's is: it hovers it.
         const { x, y } = await pointer(input.ms)
@@ -1588,6 +1604,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       trigger,
       media: o.media,
       allowLocal: o.allowLocal,
+      mobile: MOBILE,
     }
     const frame = {
       width: o.viewport.width,
@@ -1691,7 +1708,7 @@ if (import.meta.main) {
   try {
     if (positionals.length !== 1)
       throw new Error(
-        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --duration <s> --viewport <width>x<height>\n   or: node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n> --viewport <width>x<height>',
+        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>\n   or: node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n> --viewport <width>x<height>',
       )
     const still = values.still !== undefined
     for (const name of still ? (['viewport'] as const) : (['fps', 'duration', 'viewport'] as const))
