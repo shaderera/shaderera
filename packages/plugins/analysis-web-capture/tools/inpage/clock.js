@@ -53,14 +53,14 @@
 // setInterval (with the 4 ms clamp on nested timers), requestIdleCallback, requestAnimationFrame,
 // Event.timeStamp, document.timeline.currentTime, every CSS and Web Animations API animation on the
 // document timeline, and <video>. What it does not: workers, iframes, scroll and view timelines
-// (they follow the scroll, which only the capture's input moves), AudioContext,
+// (they follow the scroll, which the input or the page's script moves), AudioContext,
 // requestVideoFrameCallback, Temporal, crypto.getRandomValues, GIF and APNG frames.
 ;(function install(CFG) {
   const w = self
   if (w.__shadereraClock) return
   const VERSION = '3'
 
-  let seed = CFG.seed >>> 0 || 1
+  let seed = CFG.seed >>> 0
   Math.random = function random() {
     seed = (seed + 0x6d2b79f5) | 0
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)

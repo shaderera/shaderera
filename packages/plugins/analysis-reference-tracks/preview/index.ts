@@ -3,7 +3,8 @@
 // through the plugin's own writer and come back through its reader, as a film reads them. Above,
 // the track against source time: the samples as dots, hold as steps, linear as lines, and the
 // playhead. Below, two cards placed by `at` at the same time, one with hold and one with linear.
-// Before the first sample both read null and no card shows; after the last both hold it.
+// Before the first sample both read null and no card shows; after the last this film chooses
+// to hold it.
 
 import type { Host } from '@shaderera/core'
 import { createHouse, L, R, RED, type Word } from '../../previews/src/house.ts'
@@ -93,7 +94,7 @@ const preview: OpenPreview = async (host, stateId) => {
       ? 'before the first sample: null'
       : s < LAST
         ? 'between samples, the film says how to fill'
-        : 'after the last sample: the last value, held'
+        : 'after the last sample: held, as this film chose'
 
   const lane = (y: number, name: string, v: number | null, now: boolean) => {
     ctx.fillStyle = 'rgba(255,255,255,0.15)'
@@ -115,8 +116,8 @@ const preview: OpenPreview = async (host, stateId) => {
   return {
     async render(t, o) {
       const s = sourceOf(t)
-      const held = at(x, s, { between: 'hold' })
-      const line = at(x, s, { between: 'linear' })
+      const held = at(x, s, { between: 'hold', after: 'hold' })
+      const line = at(x, s, { between: 'linear', after: 'hold' })
       ctx.fillStyle = '#000'
       ctx.fillRect(0, 0, width, height)
       house.index()
@@ -168,8 +169,8 @@ const preview: OpenPreview = async (host, stateId) => {
       ctx.textAlign = 'right'
       ctx.fillText('SOURCE TIME', R, GRAPH.bottom + 38)
 
-      lane(LANES.hold, "HOLD   at(x, t, { between: 'hold' })", held, true)
-      lane(LANES.linear, "LINEAR at(x, t, { between: 'linear' })", line, false)
+      lane(LANES.hold, "HOLD   at(x, t, { between: 'hold', after: 'hold' })", held, true)
+      lane(LANES.linear, "LINEAR at(x, t, { between: 'linear', after: 'hold' })", line, false)
 
       house.words(top, bottom, t, o.frame)
       house.note(notes(s))
@@ -182,15 +183,15 @@ const preview: OpenPreview = async (host, stateId) => {
       return [{ color: canvas }]
     },
     status(t) {
-      return fmt(at(x, sourceOf(t), { between: 'linear' }))
+      return fmt(at(x, sourceOf(t), { between: 'linear', after: 'hold' }))
     },
     inspect(t) {
       const s = sourceOf(t)
       return {
         id: 'reference-tracks',
         source: s,
-        hold: at(x, s, { between: 'hold' }),
-        linear: at(x, s, { between: 'linear' }),
+        hold: at(x, s, { between: 'hold', after: 'hold' }),
+        linear: at(x, s, { between: 'linear', after: 'hold' }),
         samples: x.samples.length,
       }
     },

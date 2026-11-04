@@ -9,12 +9,12 @@ const x = track(ref, '.hero h1', 'x')                               // { element
 
 // in render(t): the film maps its time to source time, then reads
 const source = t + 0.4
-const value = at(x, source, { between: 'linear' })                 // null before the first sample
+const value = at(x, source, { between: 'linear', after: 'hold' })  // null before the first sample
 ```
 
 It reads what an analyser measured, and decides nothing: no easing is fitted, no curve smoothed,
-no time stretched. A web page capture writes these files, and so will a video tracker; the film
-reads every one the same way.
+no time stretched. A web page capture (#658) and a video tracker will write these files; the
+film reads every one the same way.
 
 **The data** is a `shaderera.analysis/1` artifact of kind `reference-tracks` (see
 `docs/analysis.md` in the `shaderera` package, which lists every field):
@@ -33,9 +33,11 @@ reads every one the same way.
   whose bytes are not the ones measured. A page has no file to check: its `responses` say what
   was loaded.
 - `track(ref, element, channel)` returns one track, or refuses and names what there is.
-- `at(track, sourceTime, { between })`: `'hold'` keeps the earlier sample, `'linear'` draws a line
-  to the next. Before the first sample it is `null`, at a sample's time that sample's value, and
-  after the last the last value, held. Next to a `null` sample, `linear` holds.
+- `at(track, sourceTime, { between, after })`: `between: 'hold'` keeps the earlier sample,
+  `'linear'` draws a line to the next. Before the first sample it is `null`, and at a sample's time
+  that sample's value. After the last, `after: 'hold'` keeps its value and `'none'` gives `null`:
+  the data does not say whether the source stopped there or the measurement did. Both are
+  required, since each changes a frame. Next to a `null` sample, `linear` holds.
 - Units are as measured: `deg` stays degrees and `css-px` CSS pixels. Convert in the film.
 - Time is the source's. Mapping render time to it (an offset, a speed, cuts) is the film's code.
 
