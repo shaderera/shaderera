@@ -229,6 +229,35 @@ test('motion-lottie-read: valueAt is the bezier formula, per dimension, held and
     near(v[1] as number, 100 - 50 * formula(0.6, 0.1, 0.3, 1.4, u), `s.y at ${f}`)
     near(v[2] as number, 100, `s.z at ${f}`)
   }
+  // A hard curve, upright at its middle: still the formula.
+  const hard = L.readLottie({
+    fr: FR,
+    ip: 0,
+    op: 30,
+    w: 1,
+    h: 1,
+    layers: [
+      {
+        ty: 3,
+        ks: {
+          o: {
+            a: 1,
+            k: [
+              { t: 0, s: [0], o: { x: [1], y: [0] }, i: { x: [0], y: [1] } },
+              { t: 30, s: [1] },
+            ],
+          },
+        },
+      },
+    ],
+  }).layers[0]?.transform.o as never
+  // Off the middle itself, where x is so flat that a float solve of the formula misses by 1e-6;
+  // there the curve's symmetry gives the answer.
+  for (let i = 0; i < 2000; i++) {
+    const u = (i + 0.5) / 2000
+    near(L.valueAt(hard, u)[0] as number, formula(1, 0, 0, 1, u), `hard at ${u}`)
+  }
+  assert.equal(L.valueAt(hard, 0.5)[0], 0.5)
   assert.deepEqual(L.valueAt(s, 0), [100, 100, 100], 'before the first key')
   assert.deepEqual(L.valueAt(s, 3), [150, 50, 100], 'after the last key')
   // y past 1 overshoots the key.
@@ -296,6 +325,19 @@ test('motion-lottie-read: a curved path is followed by arc length, a straight on
     near(v[0] as number, 400 - 100 * e, `p.x at ${f}`)
     near(v[1] as number, 120 - 60 * e, `p.y at ${f}`)
   }
+  // Tangents written as zero with a handle per axis: a player eases the move with the first.
+  const flat = fixture()
+  const pk = (flat.layers[0] as unknown as { ks: { p: { k: Record<string, unknown>[] } } }).ks.p
+    .k[1] as Record<string, unknown>
+  pk.o = { x: [0.1, 0.9], y: [0, 0] }
+  pk.i = { x: [0.2, 0.8], y: [1, 1] }
+  const fp = L.readLottie(flat).layers[0]?.transform.p as never
+  for (const f of [35, 45, 59]) {
+    const e = formula(0.1, 0, 0.2, 1, (f - 30) / 30)
+    const v = L.valueAt(fp, f / FR)
+    near(v[0] as number, 400 - 100 * e, `flat p.x at ${f}`)
+    near(v[1] as number, 120 - 60 * e, `flat p.y at ${f}`)
+  }
 })
 
 test('motion-lottie-read: keysOf makes the same curve as a motion-keyframes track, on request', () => {
@@ -336,11 +378,51 @@ test('motion-lottie-read: what is not read is listed, never dropped', () => {
     ks: {},
   })
   more.layers.push({ ty: 7, nm: 'New', ip: 0, op: 90, ks: {} })
-  assert.deepEqual(L.readLottie(more).unsupported.slice(5), [
+  // Switched off, as a boolean or 0, is not listed.
+  more.layers.push({ ty: 3, nm: 'Off', ip: 0, op: 90, mb: false, ao: false, bm: 0, ks: {} })
+  // An animated orientation is turned as a quaternion by a player: listed, and not played.
+  more.layers.push({
+    ty: 3,
+    nm: 'Turn',
+    ddd: 1,
+    ip: 0,
+    op: 90,
+    ks: {
+      or: {
+        a: 1,
+        k: [
+          { t: 0, s: [0, 0, 0], ...ease },
+          { t: 30, s: [90, 90, 0] },
+        ],
+      },
+    },
+  })
+  const lot2 = L.readLottie(more)
+  assert.deepEqual(lot2.unsupported.slice(5), [
     { feature: 'precomp', where: 'layers[2].refId' },
     { feature: 'time remap', where: 'layers[2].tm' },
     { feature: 'layer type 7', where: 'layers[3].ty' },
+    { feature: '3D orientation', where: 'layers[5].ks.or' },
   ])
+  const or = lot2.layers[5]?.transform.or as never
+  assert.throws(() => L.valueAt(or, 0.5), /layers\[5\]\.ks\.or is an animated 3D orientation/)
+  assert.throws(() => L.keysOf(or), /animated 3D orientation/)
+  // A name a file writes is only a name, `__proto__` and `constructor` too.
+  const odd = fixture() as Record<string, unknown> & { layers: Record<string, unknown>[] }
+  odd.layers.push({ ty: 3, nm: 'Odd', ip: 0, op: 90, ks: {} })
+  const json = JSON.stringify(odd).replace(
+    '"nm":"Odd","ip":0,"op":90,"ks":{}',
+    '"nm":"Odd","ip":0,"op":90,"ks":{"__proto__":{"a":0,"k":5},"constructor":{"a":0,"k":1}}',
+  )
+  const ks = L.readLottie(json).layers[2]?.transform ?? {}
+  assert.deepEqual(Object.keys(ks), ['__proto__', 'constructor'])
+  assert.deepEqual(
+    Object.values(ks).map((p) => [p.label, p.value]),
+    [
+      ['__proto__', [5]],
+      ['constructor', [1]],
+    ],
+  )
 })
 
 test('motion-lottie-read: refuses what it cannot read as written, by name', async () => {
@@ -365,6 +447,19 @@ test('motion-lottie-read: refuses what it cannot read as written, by name', asyn
   const handle = rKey(wide, 0).o as { x: number }
   handle.x = 1.5
   assert.throws(() => L.readLottie(wide), /k\[0\]\.o\.x is 1\.5: a handle's x is 0 to 1/)
+  const late = fixture()
+  ;(late.layers[1] as { ip: number }).ip = 90
+  assert.throws(() => L.readLottie(late), /layers\[1\]\.op is 90, not after ip 90/)
+  const mixed = fixture()
+  ;(rKey(mixed, 1) as { s: number[] }).s = [90, 0]
+  assert.throws(
+    () => L.readLottie(mixed),
+    /layers\[0\]\.ks\.r\.k\[1\]\.s has 2 values, not 1 as the first key has/,
+  )
+  const r = L.readLottie(fixture()).layers[0]?.transform.r as never
+  assert.throws(() => L.valueAt(r, Number.NaN), /valueAt: t is NaN, not a number of seconds/)
+  // A byte order mark before the JSON, as some editors save it.
+  assert.equal(L.readLottie(`\uFEFF${JSON.stringify(fixture())}`).layers.length, 2)
   const host = { io: { read: async () => new TextEncoder().encode(JSON.stringify(fixture())) } }
   assert.equal((await L.loadLottie(host, 'assets/fixture.json')).layers.length, 2)
 })

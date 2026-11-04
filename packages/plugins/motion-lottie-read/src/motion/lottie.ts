@@ -107,6 +107,8 @@ export type Lottie = {
 
 type Obj = Record<string, unknown>
 
+// Lookups by a name the file writes go through `own`, so `__proto__` or `constructor` in a file is
+// only a name.
 const LABELS: Record<string, string> = {
   a: 'anchor (px)',
   p: 'position (px)',
@@ -155,6 +157,8 @@ const LAYER_FIELDS: [field: string, feature: string][] = [
   ['bm', 'blend mode'],
 ]
 
+const own = <T>(table: Record<string | number, T>, key: string | number): T | undefined =>
+  Object.hasOwn(table, key) ? table[key] : undefined
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const fail = (where: string, what: string): never => {
   throw new Error(`motion-lottie-read: ${where} ${what}`)
@@ -192,9 +196,16 @@ const readKeys = (k: unknown[], fr: number, where: string): LottieKey[] => {
     return key
   })
   if (keys.length === 0) fail(`${where}.k`, 'is animated with no keyframes')
+  const dims = (keys[0] as LottieKey).value?.length
   keys.forEach((key, i) => {
     const at = `${where}.k[${i}]`
     const prev = keys[i - 1]
+    for (const [field, v] of [
+      ['s', key.value],
+      ['e', key.end],
+    ] as const)
+      if (v && dims !== undefined && v.length !== dims)
+        fail(`${at}.${field}`, `has ${v.length} values, not ${dims} as the first key has`)
     if (prev && key.frame < prev.frame) fail(`${at}.t`, `is ${key.frame}, before the key before it`)
     const last = i === keys.length - 1
     if (!key.value && !(last && prev?.end)) fail(at, 'has no value (s)')
@@ -219,7 +230,7 @@ const readProperty = (
   const p: LottieProperty = {
     path: where,
     name,
-    label: LABELS[name] ?? name,
+    label: own(LABELS, name) ?? name,
     animated,
     value,
     keys,
@@ -228,6 +239,8 @@ const readProperty = (
     p.expression = v.x
     unsupported.push({ feature: 'expression', where: `${where}.x` })
   }
+  // A player turns an orientation as a quaternion, not each angle on its own curve.
+  if (name === 'or' && animated) unsupported.push({ feature: '3D orientation', where })
   if (typeof v.sid === 'string') unsupported.push({ feature: 'slot', where: `${where}.sid` })
   return p
 }
@@ -238,7 +251,7 @@ const readTransform = (
   fr: number,
   unsupported: LottieUnsupported[],
 ): Record<string, LottieProperty> => {
-  const out: Record<string, LottieProperty> = {}
+  const out: Record<string, LottieProperty> = Object.create(null)
   if (ks === undefined) return out
   if (!isObj(ks)) return fail(where, 'is not a transform')
   for (const [name, v] of Object.entries(ks)) {
@@ -259,10 +272,12 @@ const readTransform = (
 export const readLottie = (json: string | object): Lottie => {
   let doc: unknown = json
   if (typeof json === 'string') {
-    if (json.startsWith('PK'))
+    // A byte order mark, as some editors save, is not part of the JSON.
+    const text = json.startsWith('\uFEFF') ? json.slice(1) : json
+    if (text.startsWith('PK'))
       fail('the file', 'is a dotLottie (.lottie) archive: unzip it and read animations/<name>.json')
     try {
-      doc = JSON.parse(json)
+      doc = JSON.parse(text)
     } catch (e) {
       fail('the file', `is not JSON (${(e as Error).message})`)
     }
@@ -279,22 +294,25 @@ export const readLottie = (json: string | object): Lottie => {
     const where = `layers[${index}]`
     if (!isObj(raw)) return fail(where, 'is not a layer')
     const ty = num(raw.ty, `${where}.ty`)
-    const content = CONTENT[ty]
+    const content = own(CONTENT, ty)
     if (content) unsupported.push({ feature: content[0], where: `${where}.${content[1]}` })
-    else if (!TYPES[ty]) unsupported.push({ feature: `layer type ${ty}`, where: `${where}.ty` })
+    else if (!own(TYPES, ty))
+      unsupported.push({ feature: `layer type ${ty}`, where: `${where}.ty` })
     for (const [field, feature] of LAYER_FIELDS) {
       const v = raw[field]
-      const off = field !== 'parent' && (v === 0 || (Array.isArray(v) && v.length === 0))
+      const off =
+        field !== 'parent' && (v === 0 || v === false || (Array.isArray(v) && v.length === 0))
       if (v === undefined || off) continue
       unsupported.push({ feature, where: `${where}.${field}` })
     }
     const lip = num(raw.ip ?? ip, `${where}.ip`)
     const lop = num(raw.op ?? op, `${where}.op`)
+    if (lop <= lip) fail(`${where}.op`, `is ${lop}, not after ip ${lip}`)
     const layer: LottieLayer = {
       index,
       name: typeof raw.nm === 'string' ? raw.nm : `layer-${index}`,
       ty,
-      type: TYPES[ty] ?? `type ${ty}`,
+      type: own(TYPES, ty) ?? `type ${ty}`,
       ip: lip,
       op: lop,
       in: lip / fr,
@@ -351,6 +369,18 @@ const endOf = (keys: readonly LottieKey[], i: number) =>
   (keys[i + 1]?.value ?? keys[i]?.end ?? keys[i]?.value) as number[]
 
 const zero = (v?: number[]) => !v || v.every((x) => x === 0)
+/** A spatial move: the key has path tangents, zero or not. A player then eases it with one curve. */
+const spatial = (key: LottieKey) => key.pathOut !== undefined || key.pathIn !== undefined
+/** A curved path: tangents that are not zero. */
+const curved = (key: LottieKey) => !zero(key.pathOut) || !zero(key.pathIn)
+/** An orientation is turned as a quaternion by a player, so it is not played here. */
+const orientation = (property: LottieProperty) => {
+  if (property.name === 'or' && property.keys.length > 0)
+    fail(
+      property.path,
+      'is an animated 3D orientation, which a player turns as a quaternion: not played here',
+    )
+}
 
 // The spatial path of a move: a cubic from p0 through p0 + to and p3 + ti to p3, travelled by
 // arc length, so the ease sets how far along the path it is. Lengths by Gauss-Legendre.
@@ -411,11 +441,14 @@ const paths = new WeakMap<LottieKey, (u: number) => number[]>()
 /**
  * A property's value at t seconds of the file (frame t × fr), with the file's own curves. Before
  * the first key it is the first key's value; after the last, the last value; a hold keeps the key's
- * value until the next key. A move with path tangents (`to`, `ti`) follows its curve by arc length,
- * eased by its first dimension's handles, and stops at the ends of the path when the ease
- * overshoots.
+ * value until the next key. A move with path tangents (`to`, `ti`), zero or not, is eased by its
+ * first dimension's handles, as a player does; when they are not zero it follows its curve by arc
+ * length and stops at the ends of the path when the ease overshoots. Refuses an animated 3D
+ * orientation (`or`), and a t that is not a number.
  */
 export const valueAt = (property: LottieProperty, t: number): number[] => {
+  if (!Number.isFinite(t)) fail('valueAt: t', `is ${t}, not a number of seconds`)
+  orientation(property)
   const keys = property.keys
   if (keys.length === 0) return [...property.value]
   const first = keys[0] as LottieKey
@@ -428,7 +461,7 @@ export const valueAt = (property: LottieProperty, t: number): number[] => {
     if (key.hold || next.t <= key.t) return [...from]
     const to = endOf(keys, i)
     const u = (t - key.t) / (next.t - key.t)
-    if (!zero(key.pathOut) || !zero(key.pathIn)) {
+    if (curved(key)) {
       let path = paths.get(key)
       if (!path) {
         path = pathOf(from, to, key.pathOut ?? [], key.pathIn ?? [])
@@ -436,7 +469,8 @@ export const valueAt = (property: LottieProperty, t: number): number[] => {
       }
       return path(easeOf(key, 0)(u))
     }
-    return from.map((v, d) => v + ((to[d] ?? v) - v) * easeOf(key, d)(u))
+    const one = spatial(key) ? easeOf(key, 0)(u) : undefined
+    return from.map((v, d) => v + ((to[d] ?? v) - v) * (one ?? easeOf(key, d)(u)))
   }
   const last = keys[keys.length - 1] as LottieKey
   return [...(last.value ?? keys[keys.length - 2]?.end ?? [])]
@@ -448,15 +482,17 @@ export const valueAt = (property: LottieProperty, t: number): number[] => {
  * file as written. Refuses a move along a curved path (`to`, `ti`), which no one-axis track is.
  */
 export const keysOf = (property: LottieProperty, dimension = 0): [number, number, Ease][] => {
+  orientation(property)
   const keys = property.keys
   const at = (v: number[] | undefined, where: string) =>
     v?.[dimension] ?? fail(where, `has no dimension ${dimension}`)
   if (keys.length === 0) return [[0, at(property.value, property.path), linear]]
   return keys.map((key, i) => {
     const prev = keys[i - 1]
-    if (prev && (!zero(prev.pathOut) || !zero(prev.pathIn)))
+    if (prev && curved(prev))
       fail(`${property.path}.k[${i - 1}]`, 'moves along a curved path (to, ti): use valueAt')
     const value = key.value ?? (prev?.end as number[])
-    return [key.t, at(value, `${property.path}.k[${i}]`), prev ? easeOf(prev, dimension) : linear]
+    const ease = prev ? easeOf(prev, spatial(prev) ? 0 : dimension) : linear
+    return [key.t, at(value, `${property.path}.k[${i}]`), ease]
   })
 }

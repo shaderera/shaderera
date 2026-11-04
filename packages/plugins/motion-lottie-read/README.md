@@ -27,8 +27,8 @@ Plumbing: a Lottie file is the spec, so it is read, never re-derived or fitted. 
   scale in percent, rotation and skew in degrees, opacity 0 to 100.
 - **Properties** are every animatable entry of `ks`, by Lottie's name: `a`, `p` (or `px`,
   `py`, `pz` when split), `s`, `r`, `o`, `sk`, `sa`, and a 3D layer's `rx`, `ry`, `rz`, `or`.
-  A name this reader does not know is still read, with its name as its label. A value is always
-  an array, one number a dimension.
+  A name this reader does not know is still read, with its name as its label (`__proto__` too).
+  A value is always an array, one number a dimension, and every key of a property has as many.
 - **Keys** keep `s` as `value`, `e` as `end` (older files), `h` as `hold`, `o` and `i` as
   `out` and `in` (one x and y a dimension, or one for all), and `to` and `ti` as `pathOut` and
   `pathIn`.
@@ -37,21 +37,26 @@ Plumbing: a Lottie file is the spec, so it is read, never re-derived or fitted. 
   when the file has them (else the first). The value moves from the key's `s` to the next key's
   `s` (else the key's `e`). Before the first key it is the first value; after the last, the last
   (an older file's last `e`). A hold keeps its value until the next key, then jumps.
-- **Paths.** A move with `to` or `ti` not zero follows the cubic from `s` through `s + to` and
-  the end `+ ti`, by arc length, with the first dimension's ease setting how far along it is.
-  An ease that overshoots stops at the ends of the path. Players walk a path in straight pieces,
-  so one may differ from this by a fraction of a pixel.
+- **Paths.** A move whose key has `to` or `ti` is eased by the first dimension's handles alone,
+  as a player does, even when they are zero (then it is a straight move). With tangents not zero
+  it follows the cubic from `s` through `s + to` and the end `+ ti`, by arc length, the ease
+  setting how far along it is. An ease that overshoots stops at the ends of the path. Players walk
+  a path in straight pieces, so one may differ from this by a fraction of a pixel.
+- **3D orientation.** A player turns an animated `or` as a quaternion, not each angle on its own
+  curve, so it is listed in `unsupported` and `valueAt` and `keysOf` refuse it. Its keys are read
+  as written. A static `or` is a value like any other.
 - **keysOf(property, dimension)** gives motion-keyframes keys, `[t, value, ease]`, for a film
   that asks for a `track()`. It gives the same curve as `valueAt`, and refuses a curved path,
   which no one-axis track is. `motion-keyframes` is not required: add it when a film wants this.
 - **Listed in `unsupported`, never dropped:** what layers draw (`shapes`, `solid`, `image`,
   `text`, `precomp`, `audio`, any other layer type), `masks`, `effects`, `layer styles`,
-  `time remap`, `track matte`, `auto-orient`, `parenting` (each transform is the layer's own,
-  not composed with its parent's), `motion blur`, `blend mode`, an `expression` (its keys are
+  `time remap`, `track matte`, `auto-orient` (0 or false is off), `parenting` (each transform is the layer's own,
+  not composed with its parent's), `motion blur`, `blend mode`, an animated `3D orientation`, an `expression` (its keys are
   read, the expression is not run) and `slots`. Each with where it is in the file.
-- **Refused by name:** text that is not JSON, a file with no layers, `fr` not above 0, `op` not
-  after `ip`, keys out of time order, a key with no value, a move with no handles that does not
-  hold, a handle's x outside 0 to 1, and a dotLottie (`.lottie`) archive: unzip it and read its
-  `animations/<name>.json`.
+- **Refused by name:** text that is not JSON (a byte order mark before it is fine), a file with no
+  layers, `fr` not above 0, `op` not after `ip` (the file's or a layer's), keys out of time order,
+  a key with no value, keys of one property with different numbers of values, a move with no
+  handles that does not hold, a handle's x outside 0 to 1, a `t` that is not a number, and a
+  dotLottie (`.lottie`) archive: unzip it and read its `animations/<name>.json`.
 
 Stateless: any t gives the same value whenever it is asked. No packages.
