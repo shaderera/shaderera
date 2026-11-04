@@ -3,8 +3,10 @@
 // IPv4 inside IPv6) and a name that resolves to one; the proxy Chrome goes out through refuses
 // such a request before it connects, and lets it through with allowLocal. Bad options are
 // refused before anything starts, each trigger takes only its own settings and sends its inputs
-// at their times, and a transform matrix comes apart into channels that build it back. The
-// captures themselves are in analysis-web-capture.it.ts.
+// at their times, and a transform matrix comes apart into channels that build it back. A still
+// takes its own settings and is on an animation frame; its reference-style artifact is written in
+// one order, read back, and refused with a changed screenshot or a malformed field. The captures
+// themselves are in analysis-web-capture.it.ts.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -34,6 +36,19 @@ const { batchesOf, checkOptions, decompose, frameMs, inputsOf, pageUrl, unwrap, 
   (await from(
     'tools/capture-web.ts',
   )) as typeof import('../analysis-web-capture/tools/capture-web.ts')
+const { styleJson } = (await from(
+  'tools/reference-style.ts',
+)) as typeof import('../analysis-web-capture/tools/reference-style.ts')
+const { pngSize, STYLES } = (await from(
+  'tools/web-capture-style.ts',
+)) as typeof import('../analysis-web-capture/tools/web-capture-style.ts')
+const { loadStyle, styleOf, textsOf } = (await from(
+  'src/reference/style.ts',
+)) as typeof import('../analysis-web-capture/src/reference/style.ts')
+const { loadTracks } = (await from(
+  'src/reference/tracks.ts',
+)) as typeof import('../analysis-reference-tracks/src/reference/tracks.ts')
+type StyleDoc = import('../analysis-web-capture/tools/reference-style.ts').StyleDoc
 
 test('the address check refuses every address that is not public', () => {
   const refused: [string, string][] = [
@@ -450,4 +465,226 @@ test('an input is sent with the first frame not before it, and never after that 
     [frameMs(k, fps)],
   )
   assert.throws(() => batchesOf(click, k, fps), /an input at 8125 ms is after the last frame/)
+})
+
+test('a still takes its own settings, on an animation frame, and refuses motion ones', () => {
+  const base = {
+    page: 'https://example.com/',
+    out: 'references/hero',
+    still: 500,
+    rafHz: 60,
+    viewport: { width: 1280, height: 720 },
+  }
+  const o = checkOptions(base)
+  assert.equal(o.mode, 'still')
+  assert.deepEqual(o.times, [500])
+  assert.equal(o.root, ':root', 'the whole page when no root is given')
+  assert.deepEqual(o.styles, STYLES)
+  assert.deepEqual(checkOptions({ ...base, styles: ['text-align'] }).styles, [
+    ...STYLES,
+    'text-align',
+  ])
+  assert.equal(checkOptions({ ...base, still: 0, rafHz: 24 }).still, 0)
+  assert.equal(checkOptions({ ...base, still: 125, rafHz: 24 }).still, 125)
+  const refuses = (more: Record<string, unknown>, message: RegExp) =>
+    assert.throws(() => checkOptions({ ...base, ...more }), message)
+  refuses({ rafHz: undefined }, /--still needs --rafHz/)
+  refuses(
+    { still: 510 },
+    /--still 510 is not on an animation frame at --rafHz 60 \(one each 16\.667 ms\).*Give 500 or 516\.667/,
+  )
+  refuses({ still: -1 }, /--still -1 is not ms of 0 or more/)
+  refuses({ track: ['#a'] }, /--track is for motion/)
+  refuses({ fps: 30 }, /--fps is for motion/)
+  refuses({ duration: 1 }, /--duration is for motion/)
+  refuses({ root: ' ' }, /--root is empty/)
+  refuses({ styles: ['color'] }, /--style color is read already/)
+  refuses({ styles: ['text-align', 'text-align'] }, /--style text-align is given twice/)
+  refuses({ styles: ['--accent'] }, /--style --accent is a custom property/)
+  refuses({ styles: ['Text Align'] }, /is not a CSS property name/)
+  // An input is sent up to the still, and not after it.
+  assert.deepEqual(checkOptions({ ...base, trigger: 'hover', target: '#b', at: 500 }).trigger, {
+    type: 'hover',
+    target: '#b',
+    at: 500,
+  })
+  refuses(
+    { trigger: 'hover', target: '#b', at: 501 },
+    /--at 501 is not ms from 0 to the still, at 500 ms/,
+  )
+  // And a motion capture refuses the still's.
+  const motion = { ...base, still: undefined, track: ['#a'], fps: 30, duration: 1 }
+  assert.throws(() => checkOptions({ ...motion, root: 'main' }), /--root is for --still/)
+  assert.throws(() => checkOptions({ ...motion, styles: ['x'] }), /--style is for --still/)
+  assert.throws(() => checkOptions({ ...motion, track: [] }), /--track <selector>.*or --still <ms>/)
+})
+
+/** A PNG header for a width and a height: what pngSize and the reader look at. */
+const pngOf = (width: number, height: number) => {
+  const b = new Uint8Array(33)
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+  const v = new DataView(b.buffer)
+  v.setUint32(16, width)
+  v.setUint32(20, height)
+  return b
+}
+const sha = async (b: Uint8Array) =>
+  Buffer.from(await crypto.subtle.digest('SHA-256', b)).toString('hex')
+
+const styleDoc = async (png: Uint8Array): Promise<StyleDoc> => ({
+  format: 'shaderera.analysis/1',
+  kind: 'reference-style',
+  source: {
+    url: 'https://example.com/',
+    date: '2026-11-04T00:00:00.000Z',
+    viewport: { width: 800, height: 400 },
+    devicePixelRatio: 1,
+    responses: [
+      { url: 'https://example.com/z.css', status: 200, sha256: 'b'.repeat(64) },
+      { url: 'https://example.com/', status: 200, sha256: 'a'.repeat(64) },
+    ],
+  },
+  tool: { version: '0.3.0', script: 'tools/capture-web.ts' },
+  params: { still: 500, styles: ['font-size', 'color'], rafHz: 60 },
+  frame: { width: 800, height: 400, pixelRatio: 1 },
+  scroll: { x: 0, y: 0 },
+  screenshot: { path: 'style.png', width: 800, height: 400, sha256: await sha(png) },
+  elements: [
+    {
+      styles: { 'font-size': '40px', color: 'rgb(20, 30, 40)' },
+      tag: 'h1',
+      element: '[data-id="card"] > h1',
+      box: [64, 84.0000001, 272, 48],
+      paintOrder: 2,
+    },
+    {
+      element: '[data-id="card"]',
+      pseudoElement: '::after',
+      tag: 'div',
+      dataId: 'card',
+      box: [40, 256, 320, 4],
+      paintOrder: 3,
+      styles: { 'font-size': '16px', color: 'rgb(0, 0, 0)' },
+    },
+  ],
+  texts: [
+    {
+      element: '[data-id="card"] > h1',
+      child: 0,
+      text: 'Hello',
+      boxes: [{ start: 0, length: 5, box: [64, 82, 91.703125, 52] }],
+      fonts: [
+        { familyName: 'Thonburi', postScriptName: 'Thonburi', isCustomFont: false, glyphCount: 4 },
+        {
+          glyphCount: 5,
+          familyName: 'IBM Plex Sans',
+          postScriptName: 'IBMPlexSans',
+          isCustomFont: true,
+        },
+      ],
+    },
+  ],
+  fontFaces: [{ src: 'https://example.com/plex.ttf', fontFamily: 'Plex' }],
+  limits: [],
+})
+
+test('a reference-style artifact is written in one order and read back', async () => {
+  const png = pngOf(800, 400)
+  assert.deepEqual(pngSize(png), { width: 800, height: 400 })
+  assert.throws(() => pngSize(new Uint8Array(40)), /not a PNG/)
+  const json = styleJson(await styleDoc(png))
+  assert.equal(styleJson(JSON.parse(json)), json, 'what it writes it writes again the same')
+  // One element per line, its keys in one order, its styles in params.styles' order.
+  assert.equal(
+    json.split('\n').find((l) => l.includes('"tag":"h1"')),
+    '    {"element":"[data-id=\\"card\\"] > h1","tag":"h1","box":[64,84,272,48],"paintOrder":2,"styles":{"font-size":"40px","color":"rgb(20, 30, 40)"}},',
+  )
+  assert.match(
+    json,
+    /"element":"\[data-id=\\"card\\"\]","dataId":"card","tag":"div","pseudoElement":"::after"/,
+  )
+  // A text's fonts sorted by family; responses by url.
+  const parsed = JSON.parse(json)
+  assert.deepEqual(
+    parsed.texts[0].fonts.map((f: { familyName: string }) => f.familyName),
+    ['IBM Plex Sans', 'Thonburi'],
+  )
+  assert.deepEqual(Object.keys(parsed.texts[0].boxes[0]), ['box', 'start', 'length'])
+  assert.deepEqual(
+    parsed.source.responses.map((r: { url: string }) => r.url),
+    ['https://example.com/', 'https://example.com/z.css'],
+  )
+  assert.deepEqual(Object.keys(parsed), [
+    'format',
+    'kind',
+    'source',
+    'tool',
+    'params',
+    'frame',
+    'scroll',
+    'screenshot',
+    'elements',
+    'texts',
+    'fontFaces',
+    'limits',
+  ])
+
+  const files = new Map([
+    ['references/hero/style.json', new TextEncoder().encode(json)],
+    ['references/hero/style.png', png],
+  ])
+  const host = {
+    io: {
+      read: async (p: string) => {
+        const b = files.get(p)
+        if (!b) throw new Error(`No file ${p}`)
+        return b
+      },
+    },
+  } as unknown as import('@shaderera/core').Host
+  const style = await loadStyle(host, 'references/hero/style.json')
+  assert.equal(styleOf(style, '[data-id="card"]', '::after').box[1], 256)
+  assert.equal(textsOf(style, '[data-id="card"] > h1')[0]?.text, 'Hello')
+  assert.deepEqual(textsOf(style, '[data-id="card"]'), [])
+  assert.throws(
+    () => styleOf(style, '#nothing'),
+    /has no element #nothing: it has \[data-id="card"\] > h1, \[data-id="card"\]::after/,
+  )
+  // A reference-tracks reader refuses it, and names this reader.
+  await assert.rejects(
+    loadTracks(host, 'references/hero/style.json'),
+    /not reference-tracks: read it with loadStyle, from analysis-web-capture/,
+  )
+  // A screenshot that is not the one captured is refused.
+  files.set('references/hero/style.png', pngOf(800, 401))
+  await assert.rejects(
+    loadStyle(host, 'references/hero/style.json'),
+    /references\/hero\/style\.png is not the screenshot/,
+  )
+})
+
+test('the reference-style writer refuses what its reader would', async () => {
+  const doc = await styleDoc(pngOf(800, 400))
+  const refuses = (more: Record<string, unknown>, message: RegExp) =>
+    assert.throws(() => styleJson({ ...doc, ...more } as StyleDoc), message)
+  refuses({ kind: 'reference-tracks' }, /not reference-style: read it with loadTracks/)
+  refuses({ extra: 1 }, /reference-style has no field extra/)
+  refuses({ scroll: { x: 0 } }, /needs scroll \{ x, y \}/)
+  refuses(
+    { screenshot: { ...doc.screenshot, path: '../style.png' } },
+    /screenshot \.\.\/style\.png is not a file beside it/,
+  )
+  refuses(
+    { elements: [{ ...doc.elements[0], box: [0, 0, -1, 4] }] },
+    /element 0 .* needs a box \[x, y, width, height\]/,
+  )
+  refuses(
+    { elements: [{ ...doc.elements[0], styles: { color: 1 } }] },
+    /styles are not names to computed values/,
+  )
+  refuses(
+    { texts: [{ ...doc.texts[0], fonts: [{ familyName: 'A' }] }] },
+    /fonts need a familyName, postScriptName, isCustomFont and glyphCount/,
+  )
+  refuses({ source: { ...doc.source, date: 'today' } }, /not ISO 8601 in UTC/)
 })

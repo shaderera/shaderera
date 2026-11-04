@@ -88,19 +88,10 @@ export const isFileSource = (
 ): source is { path: string; bytes: number; sha256: string } => 'path' in source
 
 /**
- * What is wrong with a parsed artifact, as one message naming the first problem, or nothing. Used
- * by `loadTracks` and by the writer in tools/reference-tracks.ts, so what one writes the other
- * reads. Fields it does not know are kept: a compatible addition needs no new number.
+ * What is wrong with an artifact's `source`, a file or a live page, or nothing. Every reference
+ * kind (reference-tracks, reference-style) checks its source with it, so they read one the same.
  */
-export const tracksProblem = (doc: unknown, name: string): string | undefined => {
-  if (!isObject(doc)) return `${name} is not a JSON object`
-  if (doc.format !== 'shaderera.analysis/1')
-    return `${name} is ${JSON.stringify(doc.format)}, not shaderera.analysis/1; rebuild it with its analyser`
-  if (doc.kind !== KIND)
-    return `${name} is a ${JSON.stringify(doc.kind)} analysis, not ${KIND}${
-      doc.kind === 'reference-style' ? ': read it with the reader for reference-style' : ''
-    }`
-  const s = doc.source
+export const sourceProblem = (s: unknown, name: string): string | undefined => {
   if (!isObject(s)) return `${name} has no source`
   if ('path' in s) {
     if (!isText(s.path) || !isCount(s.bytes) || typeof s.sha256 !== 'string' || !HEX.test(s.sha256))
@@ -124,6 +115,24 @@ export const tracksProblem = (doc: unknown, name: string): string | undefined =>
     if (bad >= 0)
       return `${name}'s source response ${bad} needs a url, a status and a sha256 in hex`
   } else return `${name}'s source is neither a file (path) nor a page (url)`
+  return undefined
+}
+
+/**
+ * What is wrong with a parsed artifact, as one message naming the first problem, or nothing. Used
+ * by `loadTracks` and by the writer in tools/reference-tracks.ts, so what one writes the other
+ * reads. Fields it does not know are kept: a compatible addition needs no new number.
+ */
+export const tracksProblem = (doc: unknown, name: string): string | undefined => {
+  if (!isObject(doc)) return `${name} is not a JSON object`
+  if (doc.format !== 'shaderera.analysis/1')
+    return `${name} is ${JSON.stringify(doc.format)}, not shaderera.analysis/1; rebuild it with its analyser`
+  if (doc.kind !== KIND)
+    return `${name} is a ${JSON.stringify(doc.kind)} analysis, not ${KIND}${
+      doc.kind === 'reference-style' ? ': read it with loadStyle, from analysis-web-capture' : ''
+    }`
+  const source = sourceProblem(doc.source, name)
+  if (source) return source
   if (!isObject(doc.tool)) return `${name} has no tool`
   if (!isObject(doc.params)) return `${name} has no params`
   const f = doc.frame

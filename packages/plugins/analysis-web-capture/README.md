@@ -1,4 +1,6 @@
-Capture a web page's motion once, as reference tracks a film reads and copies one to one: each tracked element's box, transform and opacity at every frame, measured in your own Chrome on a clock the capture holds, from the load or from a click, hover, leave or scroll sent at a time you give.
+Capture a web page's motion once, as reference tracks a film reads and copies one to one: each tracked element's box, transform and opacity at every frame, measured in your own Chrome on a clock the capture holds, from the load or from a click, hover, leave or scroll sent at a time you give. Or capture its
+look at one moment, as the style facts Chrome drew it with: every element's box and computed
+styles, every text node's line boxes and fonts, and a screenshot.
 
 ```sh
 node tools/capture-web.ts https://example.com/ --out references/hero \
@@ -9,6 +11,11 @@ node tools/capture-web.ts https://example.com/ --out references/hero \
 node tools/capture-web.ts https://example.com/ --out references/menu \
   --track '.menu' --fps 60 --duration 2 --viewport 1280x720 \
   --trigger click --target '.menu-button' --at 500
+
+# the hero's look at 1.5 s
+node tools/capture-web.ts https://example.com/ --out references/hero-look \
+  --still 1500 --rafHz 60 --viewport 1280x720 --root '.hero'
+# writes references/hero-look/style.json and style.png
 ```
 
 ```ts
@@ -20,6 +27,17 @@ const x = track(hero, '.hero .card', 'translateX')     // css-px, at source time
 
 // in render(t)
 const value = at(x, t, { between: 'linear' })
+```
+
+```ts
+import { loadStyle, styleOf, textsOf } from './reference/style.ts'
+
+// in open
+const look = await loadStyle(host, 'references/hero-look/style.json')
+const card = styleOf(look, '[data-id="card"]')
+card.box                               // [x, y, width, height], css-px
+card.styles['box-shadow']              // 'rgba(0, 0, 0, 0.25) 0px 12px 32px 0px'
+textsOf(look, '.hero > h1')[0]?.fonts  // [{ familyName, postScriptName, isCustomFont, glyphCount }]
 ```
 
 The file is a `shaderera.analysis/1` artifact of kind `reference-tracks`, written by
@@ -80,6 +98,46 @@ smoothed, no time stretched.
   A scroll that does not end at `--scroll-to` (the page is shorter, an element under the pointer
   scrolled instead, the page took the wheel itself) is what the page did: a limit says where the
   window ended.
+
+**A still.** `--still <ms>` reads the page at one time on its clock instead of its motion, and
+writes `style.json`, a `shaderera.analysis/1` artifact of kind `reference-style`
+(`src/reference/style.ts` reads it; `docs/analysis.md` defines it), and `style.png` beside it.
+The page loads, the clock runs and a `--trigger` is sent as for motion, up to the still; then,
+once the fonts it started loading have loaded, everything is read at once.
+- `--still <ms>`: the time after the freeze. `--rafHz` has no default here and the still must be
+  on one of its frames (500 at 60 is, 510 is not), so a JS animation is where CSS is. `--viewport`
+  as for motion; `--track`, `--fps` and `--duration` are refused.
+- `--root <selector>` (`:root`): the element whose subtree is read, the first match.
+- `--style <property>`: a computed style read beside the default list, repeated for more. The
+  default list is the styles that decide a look: `font-family`, `font-weight`, `font-style`,
+  `font-size`, `line-height`, `letter-spacing`, `font-feature-settings`,
+  `font-variation-settings`, `text-transform`, `color`, `background-color`, `background-image`,
+  the four corner radii, `box-shadow`, `text-shadow`, `transform`, `translate`, `rotate`,
+  `scale`, `transform-origin`, `opacity`, `filter` and `mix-blend-mode`. A custom property
+  (`--accent`) cannot be read: the standard properties it feeds are.
+
+What it reads, all from Chrome over the DevTools protocol, never from the pixels:
+- each element and pseudo-element under the root, from `DOMSnapshot.captureSnapshot`: its box as
+  drawn (after transforms, from the viewport's top left), its paint order and each style as
+  computed. It is named by `[data-id="…"]` or `#id` when that is unique, else by its path from the
+  root (`html > body:nth-child(2) > canvas:nth-child(3)`); an element in a shadow tree after its
+  host and ` >>> `.
+- each text node's line boxes, from the same snapshot, with the range of its text each holds.
+- the fonts each text node was drawn with, from `CSS.getPlatformFontsForNode`: family, PostScript
+  name, whether it is a web font, and how many glyphs it drew. A fallback shows as a font of its
+  own: a Thai line in a Latin web font lists the web font for its spaces and Latin letters, and
+  the system font that drew the Thai.
+- each web font the page loaded, as `CSS.fontsUpdated` reports it: family, `src`, weight, style,
+  range, and the `platformFontFamily` it turned out to be. The font files are never copied; a font
+  inline in the page as a `data:` URL is kept as its media type only. Each one's sha256 is in
+  `source.responses`, like every response.
+- the screenshot, from `Page.captureScreenshot`, at the viewport in device pixels, with its
+  sha256. `loadStyle` refuses a PNG that is not that one.
+
+`DOMSnapshot` and `CSS` are experimental protocol domains, so `tool` records the Chrome version
+and user agent, and a field Chrome no longer sends stops the capture with its name. A canvas,
+video, iframe, embed or object is a limit: what it shows is in the screenshot only. Two stills
+give the same bytes, JSON and PNG, but for `source.date`.
 
 One capture runs at a time on a machine (a lock in the OS temp folder).
 
@@ -192,4 +250,4 @@ A page given as a file reads files, as Chrome lets it.
 Run it twice (once with `--cpu-throttle 6`) before you build on a capture: the files must differ
 only in `source.date`. Copying a site's motion is your call, as for any outside media: record the
 URL with `asset-provenance`. Fonts, images and code the page loads are not copied; only their
-hashes are kept.
+hashes are kept. A still names the fonts it drew with; copying a font needs its own licence.

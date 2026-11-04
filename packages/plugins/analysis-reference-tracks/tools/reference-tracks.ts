@@ -55,7 +55,7 @@ export const fileSource = async (path: string, bytes: Uint8Array) => ({
 })
 
 /** Every object's keys sorted, recursively; arrays keep their order. */
-const sorted = (v: unknown): unknown => {
+export const sorted = (v: unknown): unknown => {
   if (Array.isArray(v)) return v.map(sorted)
   if (typeof v !== 'object' || v === null) return v
   const o = v as Record<string, unknown>
@@ -67,7 +67,7 @@ const sorted = (v: unknown): unknown => {
 }
 const byCode = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 /** `first` in that order with their values as they are, then the rest sorted, recursively. */
-const ordered = (o: Record<string, unknown>, first: string[]) => {
+export const ordered = (o: Record<string, unknown>, first: string[]) => {
   const rest = Object.keys(o)
     .filter((k) => !first.includes(k))
     .sort(byCode)
@@ -76,6 +76,25 @@ const ordered = (o: Record<string, unknown>, first: string[]) => {
     ...rest.map((k) => [k, sorted(o[k])]),
   ])
 }
+/**
+ * A source in its stable order: a file's path, bytes and sha256; a page's url, date, viewport,
+ * pixel ratio and responses, sorted by url, status and sha256. Every reference kind writes it so.
+ */
+export const sourceJson = (source: TracksDoc['source']) =>
+  isFileSource(source)
+    ? ordered(source, FILE)
+    : ordered(
+        {
+          ...source,
+          viewport: ordered(source.viewport, ['width', 'height']),
+          responses: [...source.responses]
+            .sort(
+              (a, b) => byCode(a.url, b.url) || a.status - b.status || byCode(a.sha256, b.sha256),
+            )
+            .map((r) => ordered(r, ['url', 'status', 'sha256'])),
+        },
+        PAGE,
+      )
 const json = (v: unknown, indent: string) =>
   JSON.stringify(v, null, 2).replaceAll('\n', `\n${indent}`)
 
@@ -108,24 +127,10 @@ export const tracksJson = (doc: TracksDoc): string => {
       return ordered({ ...tr, samples }, ['element', 'channel', 'unit', 'samples']) as Track
     })
     .sort((a, b) => byCode(a.element, b.element) || byCode(a.channel, b.channel))
-  const source = isFileSource(doc.source)
-    ? ordered(doc.source, FILE)
-    : ordered(
-        {
-          ...doc.source,
-          viewport: ordered(doc.source.viewport, ['width', 'height']),
-          responses: [...doc.source.responses]
-            .sort(
-              (a, b) => byCode(a.url, b.url) || a.status - b.status || byCode(a.sha256, b.sha256),
-            )
-            .map((r) => ordered(r, ['url', 'status', 'sha256'])),
-        },
-        PAGE,
-      )
   const head = [
     `"format": ${JSON.stringify(doc.format)}`,
     `"kind": ${JSON.stringify(doc.kind)}`,
-    `"source": ${json(source, '  ')}`,
+    `"source": ${json(sourceJson(doc.source), '  ')}`,
     `"tool": ${json(sorted(doc.tool), '  ')}`,
     `"params": ${json(sorted(doc.params), '  ')}`,
     `"frame": ${JSON.stringify(ordered(doc.frame, ['width', 'height', 'pixelRatio']))}`,

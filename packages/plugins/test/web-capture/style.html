@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>style</title>
+<!-- A still: a web font (IBM Plex Sans, OFL, from font-ibm-plex-sans, served beside the page), a
+     Thai line it has no glyphs for, a shadowed card with a pseudo-element, a turned badge, a
+     canvas, and a bar a CSS animation widens 200 px in 1 s. -->
+<style>
+  @font-face { font-family: 'Plex Test'; src: url('IBMPlexSans-Regular.ttf') format('truetype'); }
+  html, body { margin: 0; }
+  body { background: rgb(244, 241, 234); font-family: 'Plex Test', sans-serif; }
+  .card {
+    position: absolute; left: 40px; top: 60px; width: 320px; height: 200px;
+    box-sizing: border-box; padding: 24px; background: #ffffff;
+    border-radius: 16px 16px 8px 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
+  }
+  .card::after {
+    content: ''; position: absolute; left: 0; bottom: 0; width: 100%; height: 4px;
+    background: rgb(220, 40, 40);
+  }
+  h1 { margin: 0; font-size: 40px; line-height: 48px; letter-spacing: -0.5px; font-weight: 400; color: rgb(20, 30, 40); }
+  p { margin: 0; font-size: 24px; line-height: 32px; }
+  #badge {
+    position: absolute; left: 420px; top: 80px; width: 120px; height: 40px;
+    background: rgb(30, 90, 200); transform: rotate(-8deg); opacity: 0.8;
+  }
+  canvas { position: absolute; left: 600px; top: 80px; }
+  #bar {
+    position: absolute; left: 420px; top: 220px; height: 10px; background: rgb(20, 30, 40);
+    animation: grow 1000ms linear both;
+  }
+  @keyframes grow { from { width: 0; } to { width: 200px; } }
+</style>
+</head>
+<body><div class="card" data-id="card"><h1>Hello</h1><p lang="th">สวัสดี Plex</p></div><div id="badge"></div><canvas width="40" height="40"></canvas><div id="bar"></div></body>
+</html>
