@@ -50,14 +50,17 @@ export const bezier = (x1: number, y1: number, x2: number, y2: number): Ease => 
       if (Math.abs(d) < 1e-6) break
       s -= (at(x1, x2, s) - u) / d
     }
+    if (s >= 0 && s <= 1 && Math.abs(at(x1, x2, s) - u) <= 1e-14) return at(y1, y2, s)
+    // Newton stalled, near an upright tangent: bisect s to the last bits, since a small miss in x
+    // there is a large one in y.
     let lo = 0
     let hi = 1
-    for (let i = 0; i < 30 && Math.abs(at(x1, x2, s) - u) > 1e-7; i++) {
+    for (let i = 0; i < 60 && hi - lo > 1e-15; i++) {
+      s = (lo + hi) / 2
       if (at(x1, x2, s) < u) lo = s
       else hi = s
-      s = (lo + hi) / 2
     }
-    return at(y1, y2, s)
+    return at(y1, y2, (lo + hi) / 2)
   }
 }
 
