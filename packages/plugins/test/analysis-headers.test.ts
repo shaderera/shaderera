@@ -1,6 +1,7 @@
 // Every analysis an official plugin writes or reads has the one header of docs/analysis.md and the
 // plugin guide's conventions: `format: 'shaderera.analysis/1'`, a `kind`, a `source` with its
-// path, bytes and sha256, a `tool` and its `params`. The check reads the plugins' code, TypeScript
+// path, bytes and sha256 (or, for a live page, its url, date, viewport, device pixel ratio and
+// the sha256 of each response), a `tool` and its `params`. The check reads the plugins' code, TypeScript
 // and Python, for every object that names the format, and parses the artifacts committed beside
 // them. It fails on a header in any other shape, such as the old `kind: 'shaderera.analysis/1'`
 // with `of: { path, sha256 }`.
@@ -35,10 +36,23 @@ const headerProblems = (doc: unknown): string[] => {
   const wrong: string[] = []
   if (d.format !== FORMAT) wrong.push(`format is ${JSON.stringify(d.format)}, not "${FORMAT}"`)
   if (typeof d.kind !== 'string' || d.kind === FORMAT) wrong.push('kind does not name the analysis')
-  if (typeof source.path !== 'string') wrong.push('source.path is missing')
-  if (typeof source.bytes !== 'number') wrong.push('source.bytes is missing')
-  if (typeof source.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(source.sha256))
-    wrong.push('source.sha256 is not a sha256 in hex')
+  if ('url' in source) {
+    const responses = Array.isArray(source.responses) ? source.responses : null
+    if (typeof source.url !== 'string') wrong.push('source.url is not a string')
+    if (typeof source.date !== 'string') wrong.push('source.date is missing')
+    if (typeof source.viewport !== 'object' || source.viewport === null)
+      wrong.push('source.viewport is missing')
+    if (typeof source.devicePixelRatio !== 'number')
+      wrong.push('source.devicePixelRatio is missing')
+    if (!responses) wrong.push('source.responses is missing')
+    else if (responses.some((r) => !/^[0-9a-f]{64}$/.test(String(r?.sha256))))
+      wrong.push("a source response's sha256 is not a sha256 in hex")
+  } else {
+    if (typeof source.path !== 'string') wrong.push('source.path is missing')
+    if (typeof source.bytes !== 'number') wrong.push('source.bytes is missing')
+    if (typeof source.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(source.sha256))
+      wrong.push('source.sha256 is not a sha256 in hex')
+  }
   if (typeof d.tool !== 'object' || d.tool === null) wrong.push('tool is missing')
   if (typeof d.params !== 'object' || d.params === null) wrong.push('params is missing')
   return wrong
@@ -82,9 +96,13 @@ const codeProblems = (code: string): string[] => {
     const has = (key: string) => new RegExp(`['"]?\\b${key}\\b['"]?\\s*[:,}]`).test(object)
     for (const key of ['kind', 'tool', 'params'])
       if (!has(key)) wrong.push(`line ${line}: the header has no \`${key}\``)
-    if (!/['"]?\bsource\b['"]?\s*:\s*\{[^}]*\bpath\b[^}]*\bbytes\b[^}]*\bsha256\b/.test(object))
+    const file = /['"]?\bsource\b['"]?\s*:\s*\{[^}]*\bpath\b[^}]*\bbytes\b[^}]*\bsha256\b/
+    const page = /['"]?\bsource\b['"]?\s*:\s*\{[^}]*\burl\b[^}]*\bdate\b[^}]*\bviewport\b/
+    // analysis-reference-tracks' writer builds a file source with its own helper.
+    const helper = /['"]?\bsource\b['"]?\s*:\s*(await\s+)?fileSource\(/
+    if (!file.test(object) && !page.test(object) && !helper.test(object))
       wrong.push(
-        `line ${line}: the header's \`source\` lacks path, bytes and sha256, in that order`,
+        `line ${line}: the header's \`source\` lacks path, bytes and sha256 (or a page's url, date and viewport), in that order`,
       )
   }
   return wrong
@@ -100,6 +118,25 @@ test('the check fails on the old header and passes the shared one', () => {
       `type A = {\n  format: 'shaderera.analysis/1'\n  kind: 'music'\n  source: { path: string; bytes: number; sha256: string }\n  tool: Record<string, unknown>\n  params: Record<string, unknown>\n}\nif (doc.format !== 'shaderera.analysis/1') throw 0`,
     ),
     [],
+  )
+  assert.deepEqual(
+    codeProblems(
+      `const doc = { format: 'shaderera.analysis/1', kind: 'reference-tracks',\n  source: { url, date, viewport, devicePixelRatio, responses }, tool, params }`,
+    ),
+    [],
+  )
+  const page = {
+    url: 'https://example.com/',
+    date: '2026-11-04T00:00:00.000Z',
+    viewport: { width: 1280, height: 720 },
+    devicePixelRatio: 1,
+    responses: [{ url: 'https://example.com/', status: 200, sha256: 'a'.repeat(64) }],
+  }
+  const header = { format: FORMAT, kind: 'reference-tracks', tool: {}, params: {} }
+  assert.deepEqual(headerProblems({ ...header, source: page }), [])
+  assert.deepEqual(
+    headerProblems({ ...header, source: { ...page, responses: [{ url: 'x', sha256: 'no' }] } }),
+    ["a source response's sha256 is not a sha256 in hex"],
   )
   assert.deepEqual(
     headerProblems({ kind: FORMAT, of: { path: 'a.wav', sha256: 'f'.repeat(64) } }),

@@ -260,6 +260,12 @@ A named area of an image in an analysis artifact: its mask, its box, its centre,
 that holds it (an eye's head).
 _Avoid_: segment, selection, object, matte
 
+**Reference tracks**:
+Motion measured from a reference (a web page, a clip) in an analysis artifact: one track per
+element and channel (x, opacity, rotate…), each a list of values at the source times they were
+taken, beside what the source declared. A film copies the reference by reading them.
+_Avoid_: keyframes (what a source declares, or what a film writes), curves, animation data
+
 **Cut**:
 The first frame on which a new shot shows, in a video an analyser measures.
 _Avoid_: scene change, edit point
