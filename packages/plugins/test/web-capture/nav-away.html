@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- Where nav.html's link goes: a #box of its own that a CSS animation moves. -->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #box {
+    position: absolute; left: 0; top: 200px; width: 40px; height: 40px; background: #fff;
+    animation: go 1s linear forwards
+  }
+  @keyframes go { to { translate: 300px 0 } }
+</style>
+<div id="box"></div>

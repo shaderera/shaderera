@@ -2,8 +2,9 @@
 // address check refuses loopback, private, link-local and cloud metadata addresses (IPv4, IPv6,
 // IPv4 inside IPv6) and a name that resolves to one; the proxy Chrome goes out through refuses
 // such a request before it connects, and lets it through with allowLocal. Bad options are
-// refused before anything starts, and a transform matrix comes apart into channels that build it
-// back. The captures themselves are in analysis-web-capture.it.ts.
+// refused before anything starts, each trigger takes only its own settings and sends its inputs
+// at their times, and a transform matrix comes apart into channels that build it back. The
+// captures themselves are in analysis-web-capture.it.ts.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -29,9 +30,10 @@ const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { checkHost, localKind, refusedAddress, refusedName, startProxy } = (await from(
   'tools/web-capture-net.ts',
 )) as typeof import('../analysis-web-capture/tools/web-capture-net.ts')
-const { checkOptions, decompose, pageUrl, unwrap } = (await from(
-  'tools/capture-web.ts',
-)) as typeof import('../analysis-web-capture/tools/capture-web.ts')
+const { batchesOf, checkOptions, decompose, frameMs, inputsOf, pageUrl, unwrap, wheelDelta } =
+  (await from(
+    'tools/capture-web.ts',
+  )) as typeof import('../analysis-web-capture/tools/capture-web.ts')
 
 test('the address check refuses every address that is not public', () => {
   const refused: [string, string][] = [
@@ -274,6 +276,104 @@ test('options are checked before anything starts', async () => {
   )
 })
 
+test('each trigger takes its own settings and refuses the others', () => {
+  const base = {
+    page: 'https://example.com/',
+    out: 'references/hero',
+    track: ['.hero h1'],
+    fps: 30,
+    duration: 2,
+    viewport: { width: 1280, height: 720 },
+  }
+  const o = checkOptions(base)
+  assert.deepEqual(o.trigger, { type: 'load' }, 'the motion starts with the page by default')
+  assert.equal(o.settle, 'load')
+  assert.deepEqual(checkOptions({ ...base, trigger: 'none' }).trigger, { type: 'none' })
+  assert.equal(checkOptions({ ...base, settle: 'loaded' }).settle, 'loaded')
+  assert.deepEqual(checkOptions({ ...base, trigger: 'click', target: '#b', at: 500 }).trigger, {
+    type: 'click',
+    target: '#b',
+    at: 500,
+  })
+  assert.deepEqual(
+    checkOptions({ ...base, trigger: 'scroll', at: 0, scrollTo: 600, scrollMs: 300 }).trigger,
+    { type: 'scroll', at: 0, scrollTo: 600, scrollMs: 300 },
+  )
+  const refuses = (more: Record<string, unknown>, message: RegExp) =>
+    assert.throws(() => checkOptions({ ...base, ...more }), message)
+  refuses({ settle: 'idle' }, /--settle idle is not one of load, loaded/)
+  refuses({ trigger: 'tap' }, /--trigger tap is not one of load, none, click/)
+  refuses({ target: '#b' }, /--target is not for --trigger load: it sends no input/)
+  refuses({ trigger: 'none', at: 10 }, /--at is not for --trigger none/)
+  refuses({ trigger: 'click', at: 500 }, /--trigger click needs --target/)
+  refuses({ trigger: 'hover', target: '#b' }, /--trigger hover needs --at <ms>/)
+  refuses({ trigger: 'click', target: ' ', at: 0 }, /--target is empty/)
+  refuses({ trigger: 'click', target: '#b', at: 2001 }, /--at 2001 is not ms from 0 to .* 2000/)
+  // 0.52 s at 30 fps: the last frame is at 500 ms, so a click at 510 would show on no frame.
+  refuses(
+    { trigger: 'click', target: '#b', at: 510, duration: 0.52 },
+    /--at 510 is not ms from 0 to the last frame, at 500 ms/,
+  )
+  refuses(
+    { trigger: 'scroll', at: 400, scrollTo: 10, scrollMs: 110, duration: 0.52 },
+    /end the scroll at 510 ms, after the last frame, at 500 ms/,
+  )
+  refuses({ trigger: 'click', target: '#b', at: -1 }, /--at -1/)
+  refuses({ trigger: 'leave', target: '#b', at: 0 }, /--at 0 with --trigger leave/)
+  refuses(
+    { trigger: 'click', target: '#b', at: 0, scrollTo: 10 },
+    /--scroll-to is not for --trigger click: it takes --target, --at/,
+  )
+  refuses(
+    { trigger: 'scroll', at: 0, scrollTo: 10 },
+    /--trigger scroll needs --scroll-to.*--scroll-ms/,
+  )
+  refuses({ trigger: 'scroll', at: 0, scrollTo: 10.5, scrollMs: 0 }, /--scroll-to 10.5/)
+  refuses({ trigger: 'scroll', at: 0, scrollTo: 10, scrollMs: -1 }, /--scroll-ms -1/)
+  refuses(
+    { trigger: 'scroll', at: 1900, scrollTo: 10, scrollMs: 200 },
+    /end the scroll at 2100 ms, after the last frame, at 2000 ms/,
+  )
+  refuses({ track: ['window'] }, /--track window: that name holds the window's own scrollX/)
+})
+
+test('a trigger sends its inputs at their times, and a scroll adds up to its distance', () => {
+  assert.deepEqual(inputsOf({ type: 'load' }, 30), [])
+  assert.deepEqual(inputsOf({ type: 'click', target: '#b', at: 500 }, 30), [
+    { ms: 500, kind: 'click' },
+  ])
+  assert.deepEqual(inputsOf({ type: 'leave', target: '#b', at: 800 }, 30), [
+    { ms: 0, kind: 'hover' },
+    { ms: 800, kind: 'leave' },
+  ])
+  assert.deepEqual(inputsOf({ type: 'scroll', at: 100, scrollTo: 50, scrollMs: 0 }, 30), [
+    { ms: 100, kind: 'scroll-start' },
+    { ms: 100, kind: 'wheel', step: 1, of: 1 },
+  ])
+  // 100 ms at rafHz 60: one wheel event each 1/60 s, the last at the end.
+  const wheels = inputsOf({ type: 'scroll', at: 200, scrollTo: 600, scrollMs: 100 }, 60).slice(1)
+  assert.equal(wheels.length, 6)
+  assert.ok(Math.abs((wheels[0]?.ms as number) - (200 + 100 / 6)) < 1e-9)
+  assert.equal(wheels.at(-1)?.ms, 300)
+  for (const [distance, of] of [
+    [600, 9],
+    [-250, 7],
+    [1, 6],
+    [0, 3],
+  ] as const) {
+    const deltas = Array.from({ length: of }, (_, i) => wheelDelta(distance, i + 1, of))
+    assert.equal(
+      deltas.reduce((a, b) => a + b, 0),
+      distance,
+    )
+    assert.ok(deltas.every((d) => Number.isInteger(d)))
+  }
+  assert.deepEqual(
+    Array.from({ length: 9 }, (_, i) => wheelDelta(600, i + 1, 9)),
+    [67, 66, 67, 67, 66, 67, 67, 66, 67],
+  )
+})
+
 test('a transform matrix comes apart into channels that build it back', () => {
   const rad = Math.PI / 180
   const build = (t: ReturnType<typeof decompose>) => {
@@ -324,4 +424,34 @@ test('a transform matrix comes apart into channels that build it back', () => {
   assert.equal(unwrap(170, -175), -190)
   assert.equal(unwrap(10, null), 10)
   assert.equal(unwrap(-350, 0), 10)
+})
+
+test('an input is sent with the first frame not before it, and never after that frame', () => {
+  // At 24 fps a wheel's time rounds a hair past a frame's (208.33333333333334 against
+  // 208.33333333333331): it goes with that frame, sent at the frame's time, so the clock never
+  // goes back.
+  const scroll = inputsOf({ type: 'scroll', at: 0, scrollTo: 240, scrollMs: 500 }, 24)
+  const fps = 24
+  const frames = Math.floor(0.6 * fps + 1e-9) + 1
+  const batches = batchesOf(scroll, frames, fps)
+  assert.equal(batches.flat().length, scroll.length, 'every input has a frame')
+  let clock = 0
+  batches.forEach((batch, k) => {
+    for (const { input, ms } of batch) {
+      assert.ok(ms >= clock && ms <= frameMs(k, fps), `input at ${input.ms} sent by frame ${k}`)
+      assert.ok(Math.abs(ms - input.ms) < 1e-6)
+      clock = ms
+    }
+    clock = frameMs(k, fps)
+  })
+  assert.ok(scroll.some((i) => i.ms > frameMs(Math.round((i.ms * fps) / 1000), fps)))
+  // A click at a whole ms that rounds the same way at 24 fps.
+  const click = inputsOf({ type: 'click', target: '#b', at: 8125 }, 24)
+  const k = Math.round((8125 * fps) / 1000)
+  const sent = batchesOf(click, k + 1, fps)
+  assert.deepEqual(
+    sent[k]?.map((b) => b.ms),
+    [frameMs(k, fps)],
+  )
+  assert.throws(() => batchesOf(click, k, fps), /an input at 8125 ms is after the last frame/)
 })

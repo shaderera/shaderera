@@ -1,0 +1,45 @@
+<!doctype html>
+<!--
+  Animations whose declarations the capture keeps as written: a CSS animation with its own
+  easing and per-keyframe easings (#css), a Web Animations API animation with an id, keyframe
+  offsets and easings, infinite iterations and every timing field set (#waapi), and a CSS
+  animation on a pseudo-element of an element no --track names (#untracked::after).
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #css { top: 20px; animation: pulse 2s cubic-bezier(0.68, -0.6, 0.32, 1.6) 0.25s 3 alternate both }
+  @keyframes pulse {
+    0% { scale: 1; animation-timing-function: steps(4, jump-start) }
+    40% { scale: 1.5; animation-timing-function: cubic-bezier(0.1, 0.7, 1, 0.1) }
+    100% { scale: 1 }
+  }
+  #waapi { top: 80px }
+  #untracked { top: 140px }
+  #untracked::after { content: ''; display: block; width: 10px; height: 10px; background: #f00; animation: blink 0.5s step-end infinite }
+  @keyframes blink { 50% { opacity: 0 } }
+</style>
+<div class="box" id="css"></div>
+<div class="box" id="waapi"></div>
+<div class="box" id="untracked"></div>
+<script>
+  document.getElementById('waapi').animate(
+    [
+      { translate: '0px', easing: 'ease-in' },
+      { translate: '100px', offset: 0.3, easing: 'steps(2, jump-none)' },
+      { translate: '200px', composite: 'add' },
+    ],
+    {
+      id: 'slide',
+      duration: 1200,
+      delay: 100,
+      endDelay: 50,
+      iterationStart: 0.5,
+      iterations: Infinity,
+      direction: 'alternate-reverse',
+      fill: 'forwards',
+      easing: 'cubic-bezier(0.42, 0, 0.58, 1)',
+    },
+  )
+</script>

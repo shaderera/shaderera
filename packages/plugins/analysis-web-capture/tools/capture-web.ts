@@ -9,11 +9,15 @@
 //     [--rafHz <n>] [--seed <n>] [--dpr <n>] [--media <name>=<value>…] [--allow-local]
 //     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
 //     [--locale <BCP 47>]
+//     [--settle load|loaded] [--trigger load|none|click|hover|leave|scroll --target <selector>
+//     --at <ms> [--scroll-to <px> --scroll-ms <ms>]]
 //
-// Writes <dir>/tracks.json. Each frame, in this order: animations are synced, the clock advances
-// to the frame's time, running timers and animation frames in time order, the capture waits for
-// the network and the page's pending work, then every tracked element's box, transform and
-// opacity are read. The README lists the channels and the limits.
+// Writes <dir>/tracks.json. Each frame, in this order: an input due by its time is dispatched
+// over CDP at its own time (the clock advanced to it, then synced once the browser delivered it),
+// animations are synced, the clock advances to the frame's time, running timers and animation
+// frames in time order, the capture waits for the network and the page's pending work, then every
+// tracked element's box, transform and opacity, and the window's scroll, are read. The README
+// lists the channels and the limits.
 
 import { sha256 } from '@shaderera/core'
 import type { Limit, Sample, Track } from '../src/reference/tracks.ts'
@@ -21,7 +25,7 @@ import { tracksJson } from './reference-tracks.ts'
 import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.1.0'
+export const VERSION = '0.2.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -68,6 +72,21 @@ export type CaptureOptions = {
   allowLocal?: boolean
   /** Chrome's CPU throttling rate, to check that a capture does not depend on speed. */
   cpuThrottle?: number
+  /**
+   * When the clock freezes: `load` (the default) at the first script, `loaded` at the load event,
+   * the page running on real time until then.
+   */
+  settle?: Settle
+  /** What starts the motion: `load` (the default), `none`, or an input sent at `at`. */
+  trigger?: Trigger
+  /** The element the input goes to, at the centre of its box: for click, hover, leave, scroll. */
+  target?: string
+  /** When the input is sent, in ms of the page's time after the freeze. */
+  at?: number
+  /** For a scroll: the window's scrollY the wheel aims for, in CSS pixels. */
+  scrollTo?: number
+  /** For a scroll: how long the wheel takes, in ms; 0 is one wheel event. */
+  scrollMs?: number
   /** Progress lines. */
   log?: (line: string) => void
 }
@@ -80,6 +99,23 @@ export const MEDIA: Record<string, string> = {
 
 /** What the page's clocks read at the freeze unless asked otherwise: constants, never today. */
 export const CLOCK = { timeOrigin: 0, clockDate: '2000-01-01T00:00:00.000Z', timezone: 'UTC' }
+
+/** When the clock freezes. */
+export const SETTLES = ['load', 'loaded'] as const
+export type Settle = (typeof SETTLES)[number]
+
+/** What starts the motion: the load, nothing, or an input sent over CDP. */
+export const TRIGGERS = ['load', 'none', 'click', 'hover', 'leave', 'scroll'] as const
+export type Trigger = (typeof TRIGGERS)[number]
+
+/** The element name the window's own channels are under; no --track may take it. */
+export const WINDOW = 'window'
+
+/** The window's channels, read each frame whatever the trigger, and their unit. */
+export const WINDOW_CHANNELS: [channel: string, unit: string][] = [
+  ['scrollX', 'css-px'],
+  ['scrollY', 'css-px'],
+]
 
 /** The locale a capture sets unless asked otherwise: a constant, so the machine's does not leak in. */
 export const LOCALE = 'en-US'
@@ -148,6 +184,13 @@ export const checkOptions = (o: CaptureOptions) => {
   } catch {
     throw new Error(`--timezone ${timezone} is not an IANA time zone, like UTC or Asia/Bangkok`)
   }
+  if (o.track.includes(WINDOW))
+    throw new Error(
+      `--track ${WINDOW}: that name holds the window's own scrollX and scrollY, which every capture records`,
+    )
+  const settle = o.settle ?? 'load'
+  if (!SETTLES.includes(settle))
+    throw new Error(`--settle ${settle} is not one of ${SETTLES.join(', ')}`)
   let locale: string
   try {
     locale = Intl.getCanonicalLocales(o.locale ?? LOCALE)[0] as string
@@ -155,6 +198,7 @@ export const checkOptions = (o: CaptureOptions) => {
     throw new Error(`--locale ${o.locale} is not a BCP 47 language tag, like en-US or th-TH`)
   }
   const frames = Math.floor(o.duration * o.fps + 1e-9) + 1
+  const trigger = checkTrigger(o, frameMs(frames - 1, o.fps))
   return {
     ...o,
     rafHz,
@@ -168,9 +212,161 @@ export const checkOptions = (o: CaptureOptions) => {
     cpuThrottle: throttle,
     media: { ...MEDIA, ...o.media },
     allowLocal: o.allowLocal ?? false,
+    settle,
+    trigger,
     frames,
   }
 }
+
+/** The trigger as recorded in params: its type and only the settings it takes. */
+export type TriggerParams = {
+  type: Trigger
+  target?: string
+  at?: number
+  scrollTo?: number
+  scrollMs?: number
+}
+
+/** The trigger's settings checked: each input takes its own and refuses the others. */
+const checkTrigger = (o: CaptureOptions, lastMs: number): TriggerParams => {
+  const type = o.trigger ?? 'load'
+  if (!TRIGGERS.includes(type))
+    throw new Error(`--trigger ${type} is not one of ${TRIGGERS.join(', ')}`)
+  const given = {
+    target: o.target,
+    at: o.at,
+    scrollTo: o.scrollTo,
+    scrollMs: o.scrollMs,
+  }
+  const flag = { target: '--target', at: '--at', scrollTo: '--scroll-to', scrollMs: '--scroll-ms' }
+  const takes: Record<Trigger, (keyof typeof given)[]> = {
+    load: [],
+    none: [],
+    click: ['target', 'at'],
+    hover: ['target', 'at'],
+    leave: ['target', 'at'],
+    scroll: ['target', 'at', 'scrollTo', 'scrollMs'],
+  }
+  for (const k of Object.keys(given) as (keyof typeof given)[])
+    if (given[k] !== undefined && !takes[type].includes(k))
+      throw new Error(
+        `${flag[k]} is not for --trigger ${type}: ${
+          takes[type].length > 0
+            ? `it takes ${takes[type].map((t) => flag[t]).join(', ')}`
+            : 'it sends no input'
+        }`,
+      )
+  if (type === 'load' || type === 'none') return { type }
+  // The target is where the pointer goes; a scroll without one wheels at the viewport's centre.
+  if (type !== 'scroll' && !o.target)
+    throw new Error(`--trigger ${type} needs --target <selector>, the element the pointer goes to`)
+  if (o.target !== undefined && o.target.trim() === '')
+    throw new Error('--target is empty: give a CSS selector')
+  const at = o.at
+  if (at === undefined)
+    throw new Error(
+      `--trigger ${type} needs --at <ms>, when the input is sent: it moves the motion`,
+    )
+  // An input after the last frame would show on no frame, so it is refused, not dropped.
+  const last = `the last frame, at ${+lastMs.toFixed(3)} ms`
+  if (!(Number.isFinite(at) && at >= 0 && at <= lastMs + EPSILON_MS))
+    throw new Error(`--at ${at} is not ms from 0 to ${last}`)
+  if (type === 'leave' && at === 0)
+    throw new Error(
+      '--at 0 with --trigger leave: the pointer is over the target from 0 ms, so it would leave as it arrives',
+    )
+  const out: TriggerParams = { type, at }
+  if (o.target !== undefined) out.target = o.target
+  if (type !== 'scroll') return out
+  const { scrollTo, scrollMs } = o
+  if (scrollTo === undefined || scrollMs === undefined)
+    throw new Error(
+      '--trigger scroll needs --scroll-to <px>, the scrollY the wheel aims for, and --scroll-ms <ms>, how long it takes (0 for one wheel event)',
+    )
+  if (!(Number.isInteger(scrollTo) && scrollTo >= 0))
+    throw new Error(`--scroll-to ${scrollTo} is not whole CSS pixels of 0 or more`)
+  if (!(Number.isFinite(scrollMs) && scrollMs >= 0))
+    throw new Error(`--scroll-ms ${scrollMs} is not ms of 0 or more`)
+  if (at + scrollMs > lastMs + EPSILON_MS)
+    throw new Error(
+      `--at ${at} and --scroll-ms ${scrollMs} end the scroll at ${at + scrollMs} ms, after ${last}`,
+    )
+  return { ...out, scrollTo, scrollMs }
+}
+
+/** One input the capture sends, at `ms` after the freeze. */
+export type Input =
+  | { ms: number; kind: 'hover' }
+  | { ms: number; kind: 'click' }
+  | { ms: number; kind: 'leave' }
+  | { ms: number; kind: 'scroll-start' }
+  | { ms: number; kind: 'wheel'; step: number; of: number }
+
+/**
+ * The inputs a trigger sends, in time order. A leave has the pointer over the target from 0 ms.
+ * A scroll notes the scrollY at `at`, then sends one wheel event each 1/rafHz second up to
+ * `at + scrollMs` (one at `at` when it is 0), the wheel's position a straight line in time.
+ */
+export const inputsOf = (trigger: TriggerParams, rafHz: number): Input[] => {
+  const at = trigger.at ?? 0
+  switch (trigger.type) {
+    case 'load':
+    case 'none':
+      return []
+    case 'click':
+      return [{ ms: at, kind: 'click' }]
+    case 'hover':
+      return [{ ms: at, kind: 'hover' }]
+    case 'leave':
+      return [
+        { ms: 0, kind: 'hover' },
+        { ms: at, kind: 'leave' },
+      ]
+    case 'scroll': {
+      const span = trigger.scrollMs ?? 0
+      const of = Math.max(1, Math.ceil((span * rafHz) / 1000 - 1e-9))
+      const wheels: Input[] = Array.from({ length: of }, (_, i) => ({
+        ms: at + (span * (i + 1)) / of,
+        kind: 'wheel' as const,
+        step: i + 1,
+        of,
+      }))
+      return [{ ms: at, kind: 'scroll-start' }, ...wheels]
+    }
+  }
+}
+
+/** How far apart two times may be and still be one: float rounding, never a real gap. */
+const EPSILON_MS = 1e-6
+
+/** Frame k's time in ms after the freeze. */
+export const frameMs = (k: number, fps: number) => k * (1000 / fps)
+
+/**
+ * The inputs sent before each frame is read: each input with the first frame not before it, and
+ * the time it is sent. That is its own time, or the frame's when float rounding puts it a hair
+ * after (a wheel at 208.33333333333334 ms, a frame at 208.33333333333331), so the clock never has
+ * to go back. Every input has a frame: the options refuse one after the last.
+ */
+export const batchesOf = (inputs: Input[], frames: number, fps: number) => {
+  const batches: { input: Input; ms: number }[][] = Array.from({ length: frames }, () => [])
+  let next = 0
+  for (let k = 0; k < frames; k++) {
+    const ms = frameMs(k, fps)
+    for (let i = inputs[next]; i && i.ms <= ms + EPSILON_MS; i = inputs[++next])
+      batches[k]?.push({ input: i, ms: Math.min(i.ms, ms) })
+  }
+  if (next < inputs.length)
+    throw new Error(`an input at ${inputs[next]?.ms} ms is after the last frame`)
+  return batches
+}
+
+/**
+ * Wheel event `step` of `of`'s delta for a scroll of `distance` CSS pixels: whole pixels (Chrome
+ * scrolls a window by whole pixels), on a straight line, adding up to the distance exactly.
+ */
+export const wheelDelta = (distance: number, step: number, of: number) =>
+  Math.round((distance * step) / of) - Math.round((distance * (step - 1)) / of)
 
 /** The page's URL: a URL as given, a path to a file as its file: URL. */
 export const pageUrl = async (page: string) => {
@@ -224,7 +420,8 @@ export const unwrap = (angle: number, before: number | null) =>
 // match's box, opacity, transform (the translate, rotate and scale properties, then transform,
 // composed as CSS composes them) and transform origin. Percentages in `translate` are of the
 // border box before transforms, unrounded, for an HTML element; an SVG element's are left unread,
-// since their box depends on transform-box. Also each new animation on a tracked element, with the time the clock first saw it.
+// since their box depends on transform-box. Then the window's scroll, and each animation not
+// declared yet on any element, with the time the clock first saw it.
 const READ = `(sels) => {
   const c = self.__shadereraClock
   const seen = (self.__shadereraSeen ??= new WeakSet())
@@ -285,28 +482,83 @@ const READ = `(sels) => {
       origin: [px(ox, w), px(oy, h)],
       unread,
     })
-    for (const a of el.getAnimations()) {
-      if (seen.has(a)) continue
-      seen.add(a)
-      const e = a.effect
-      const timing = e ? { ...e.getTiming() } : {}
-      if (timing.iterations === Infinity) timing.iterations = 'infinite'
-      const type = typeof CSSAnimation !== 'undefined' && a instanceof CSSAnimation ? 'css-animation'
-        : typeof CSSTransition !== 'undefined' && a instanceof CSSTransition ? 'css-transition' : 'web-animation'
-      const entry = { element: sel, type }
-      if (type === 'css-animation') entry.name = a.animationName
-      if (type === 'css-transition') entry.property = a.transitionProperty
-      if (a.id) entry.id = a.id
-      const start = c.startOf(a)
-      if (start !== null) entry.start = start / 1000
-      entry.playbackRate = a.playbackRate
-      entry.timing = timing
-      if (e) entry.composite = e.composite
-      entry.keyframes = e ? e.getKeyframes() : []
-      animations.push(entry)
-    }
   }
-  return { elements: out, animations }
+  // A target's name: the --track selector it is the first match of, else a path from the root.
+  const tracked = new Map()
+  sels.forEach((sel) => { const el = document.querySelector(sel); if (el && !tracked.has(el)) tracked.set(el, sel) })
+  const name = (el) => {
+    if (!el) return null
+    if (tracked.has(el)) return tracked.get(el)
+    if (!el.isConnected || el.getRootNode() !== document) return null
+    if (el.id && document.querySelectorAll('#' + CSS.escape(el.id)).length === 1) return '#' + CSS.escape(el.id)
+    const path = []
+    for (let e = el; e; e = e.parentElement) {
+      const tag = e.localName
+      const p = e.parentElement
+      path.unshift(p && p.children.length > 1 ? tag + ':nth-child(' + ([...p.children].indexOf(e) + 1) + ')' : tag)
+    }
+    return path.join(' > ')
+  }
+  // Every animation the clock saw, in the order it saw them, then any it does not hold (scroll
+  // and view timelines), each once: as the page wrote it, from getTiming() and getKeyframes().
+  for (const a of [...c.drain(), ...document.getAnimations()]) {
+    if (seen.has(a)) continue
+    seen.add(a)
+    const e = a.effect
+    const target = e && e.target
+    const timing = e ? { ...e.getTiming() } : {}
+    // JSON has no Infinity; CSS writes it as this keyword.
+    if (timing.iterations === Infinity) timing.iterations = 'infinite'
+    const type = typeof CSSAnimation !== 'undefined' && a instanceof CSSAnimation ? 'css-animation'
+      : typeof CSSTransition !== 'undefined' && a instanceof CSSTransition ? 'css-transition' : 'web-animation'
+    const named = name(target)
+    const entry = { element: named ?? (target ? target.localName : '(no target)'), type }
+    if (target && named === null) entry.inDocument = false
+    if (e && e.pseudoElement) entry.pseudoElement = e.pseudoElement
+    if (type === 'css-animation') entry.name = a.animationName
+    if (type === 'css-transition') entry.property = a.transitionProperty
+    if (a.id) entry.id = a.id
+    const start = c.startOf(a)
+    if (start !== null) entry.start = start / 1000
+    const tl = a.timeline
+    if (tl !== document.timeline) {
+      const kind = tl === null ? 'none' : typeof ViewTimeline !== 'undefined' && tl instanceof ViewTimeline ? 'view'
+        : typeof ScrollTimeline !== 'undefined' && tl instanceof ScrollTimeline ? 'scroll' : 'other'
+      entry.timeline = { type: kind }
+      if (kind === 'scroll') entry.timeline.source = tl.source === document.scrollingElement ? 'window' : name(tl.source)
+      if (kind === 'view') entry.timeline.subject = name(tl.subject)
+      if (kind === 'scroll' || kind === 'view') entry.timeline.axis = tl.axis
+    }
+    entry.playbackRate = a.playbackRate
+    entry.timing = timing
+    if (e) entry.composite = e.composite
+    entry.keyframes = e && e.getKeyframes ? e.getKeyframes() : []
+    animations.push(entry)
+  }
+  return { elements: out, scroll: [scrollX, scrollY], animations }
+}`
+
+// Run in the page before an input: the centre of the target's box (the viewport's centre with
+// no target), whether it has a box and is in the viewport, and the element the pointer is then
+// over.
+const POINT = `(sel) => {
+  const describe = (e) => e ? e.localName + (e.id ? '#' + e.id : '') : 'nothing'
+  if (sel === null) {
+    const x = innerWidth / 2, y = innerHeight / 2
+    return { x, y, boxed: true, inView: true, over: true, hit: describe(document.elementFromPoint(x, y)) }
+  }
+  const el = document.querySelector(sel)
+  if (!el) return null
+  const r = el.getBoundingClientRect()
+  const x = r.x + r.width / 2, y = r.y + r.height / 2
+  const hit = document.elementFromPoint(x, y)
+  return {
+    x, y,
+    boxed: el.getClientRects().length > 0 && (r.width > 0 || r.height > 0),
+    inView: x >= 0 && y >= 0 && x < innerWidth && y < innerHeight,
+    over: !!hit && (hit === el || el.contains(hit)),
+    hit: describe(hit),
+  }
 }`
 
 /** A message the page or Chrome sent back that is an error. */
@@ -784,6 +1036,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       rafHz: o.rafHz,
       timeOrigin: o.timeOrigin,
       epoch: o.epoch,
+      free: o.settle === 'loaded',
     })
     await c.send(
       'Page.addScriptToEvaluateOnNewDocument',
@@ -817,14 +1070,44 @@ export const captureWeb = async (options: CaptureOptions) => {
       if (i * 25 > 60000) throw new Error(`${url} did not finish loading in 60 s`)
       await sleep(25)
     }
-    await evaluate('document.fonts.ready.then(() => true)')
     const clock = await evaluate<string | null>('self.__shadereraClock?.version ?? null')
     if (clock === null) throw new Error(`the clock did not load in ${url}`)
-    for (const sel of o.track) {
+    // A capture holds one document. The loaded one is marked, and every read, advance and input
+    // after this checks the mark in the same call: a new document (a link clicked, the page
+    // setting location) has its own clock and none of what was declared, so it is refused.
+    await evaluate('self.__shadereraHeld = true')
+    let navigatedTo: string | undefined
+    c.on<{ frame: { parentId?: string; url: string } }>('Page.frameNavigated', (p, s) => {
+      if (s === page && !p.frame.parentId) navigatedTo = p.frame.url
+    })
+    let lastInput: { kind: string; ms: number } | undefined
+    const held = async <T>(expression: string, ms: number): Promise<T> => {
+      const r = await evaluate<T | { navigated: string }>(
+        `self.__shadereraHeld === true ? (${expression}) : { navigated: location.href }`,
+      )
+      const away =
+        navigatedTo ??
+        (r !== null && typeof r === 'object' && 'navigated' in r ? r.navigated : undefined)
+      if (away !== undefined)
+        throw new Error(
+          lastInput
+            ? `the page navigated to ${away} after the ${lastInput.kind} at ${lastInput.ms} ms: a capture holds one document`
+            : `the page navigated itself to ${away} by ${ms} ms: a capture holds one document`,
+        )
+      return r as T
+    }
+    // With --settle loaded the clock ran on real time until the load event; it is frozen now.
+    const loadedAt = await evaluate<number>('self.__shadereraClock.frozen()')
+    await evaluate('document.fonts.ready.then(() => true)')
+    const selectors = [
+      ...o.track.map((sel) => ['--track', sel] as const),
+      ...(o.trigger.target ? [['--target', o.trigger.target] as const] : []),
+    ]
+    for (const [flag, sel] of selectors) {
       const ok = await evaluate<boolean>(
         `(() => { try { document.querySelector(${JSON.stringify(sel)}); return true } catch { return false } })()`,
       )
-      if (!ok) throw new Error(`--track ${JSON.stringify(sel)} is not a CSS selector`)
+      if (!ok) throw new Error(`${flag} ${JSON.stringify(sel)} is not a CSS selector`)
     }
 
     // The network and the page's own pending work (worker replies, video seeks) settle before a
@@ -889,19 +1172,114 @@ export const captureWeb = async (options: CaptureOptions) => {
       else spans.set(key, { where, reason, from: time, to: time })
     }
     const declared: { element: string; type: string; [key: string]: unknown }[] = []
-    const stepMs = 1000 / o.fps
-    log(`capturing ${o.frames} frames at ${o.fps} fps (rafHz ${o.rafHz})`)
-    for (let k = 0; k < o.frames; k++) {
-      const ms = k * stepMs
-      const time = ms / 1000
-      await evaluate(
+    const advanceTo = (ms: number) =>
+      held(
         `(() => { const c = self.__shadereraClock; c.sync(); return c.advanceTo(${JSON.stringify(ms)}) })()`,
+        ms,
       )
+    const afterInput = (ms: number) => held('self.__shadereraClock.afterInput()', ms)
+
+    // The trigger's inputs, each sent at its own time over CDP, as a person's would arrive.
+    const inputs = inputsOf(o.trigger, o.rafHz)
+    const trigger: Record<string, unknown> = { ...o.trigger }
+    const mouse = (type: string, x: number, y: number, more: Record<string, unknown> = {}) =>
+      c.send('Input.dispatchMouseEvent', { type, x, y, pointerType: 'mouse', ...more }, page)
+    let scrollFrom = 0
+    const pointer = async (ms: number) => {
+      const sel = o.trigger.target ?? null
+      const p = await held<{
+        x: number
+        y: number
+        boxed: boolean
+        inView: boolean
+        over: boolean
+        hit: string
+      } | null>(`(${POINT})(${JSON.stringify(sel)})`, ms)
+      const flag = `--target ${JSON.stringify(sel)}`
+      if (!p) throw new Error(`${flag} matches nothing at ${ms} ms, when the input is sent`)
+      if (!p.boxed)
+        throw new Error(
+          `${flag} has no box at ${ms} ms (display: none?), so the pointer cannot reach it`,
+        )
+      if (!p.inView)
+        throw new Error(
+          `${flag}: the centre of its box (${p.x}, ${p.y}) is outside the ${o.viewport.width}x${o.viewport.height} viewport at ${ms} ms, so the pointer cannot reach it`,
+        )
+      if (!p.over)
+        limits.push({
+          where: sel as string,
+          reason: `the pointer at its centre (${p.x}, ${p.y}) is over ${p.hit}, which got the input`,
+          from: ms / 1000,
+          to: ms / 1000,
+        })
+      trigger.pointer = { x: p.x, y: p.y }
+      // Without a target the wheel's point hovers whatever is there: name it, so a hover state in
+      // the capture can be read back to it.
+      if (sel === null) trigger.over = p.hit
+      return p
+    }
+    const send = async (input: Input) => {
+      const pointed = input.kind === 'hover' || input.kind === 'click' || input.kind === 'leave'
+      lastInput = pointed
+        ? { kind: input.kind, ms: input.ms }
+        : { kind: 'scroll', ms: o.trigger.at as number }
+      if (input.kind === 'hover' || input.kind === 'click') {
+        const { x, y } = await pointer(input.ms)
+        await mouse('mouseMoved', x, y)
+        if (input.kind === 'click') {
+          await mouse('mousePressed', x, y, { button: 'left', buttons: 1, clickCount: 1 })
+          await mouse('mouseReleased', x, y, { button: 'left', buttons: 0, clickCount: 1 })
+        }
+      } else if (input.kind === 'leave') {
+        // Out of the viewport, so the pointer goes over nothing else.
+        await mouse('mouseMoved', -1, -1)
+      } else if (input.kind === 'scroll-start') {
+        // The pointer is over what the wheel turns over, as a person's is: it hovers it.
+        const { x, y } = await pointer(input.ms)
+        await mouse('mouseMoved', x, y)
+        scrollFrom = await held<number>('scrollY', input.ms)
+      } else {
+        const { x, y } = trigger.pointer as { x: number; y: number }
+        const distance = (o.trigger.scrollTo as number) - scrollFrom
+        const delta = wheelDelta(distance, input.step, input.of)
+        if (delta !== 0) await mouse('mouseWheel', x, y, { deltaX: 0, deltaY: delta })
+        if (input.step === input.of) {
+          await afterInput(input.ms)
+          const reached = await held<number>('scrollY', input.ms)
+          if (reached !== o.trigger.scrollTo)
+            limits.push({
+              where: WINDOW,
+              reason: `the wheel moved ${distance} px from scrollY ${scrollFrom}, and the window scrolled to ${reached}, not --scroll-to ${o.trigger.scrollTo}`,
+              from: (o.trigger.at as number) / 1000,
+              to: input.ms / 1000,
+            })
+          return
+        }
+      }
+      await afterInput(input.ms)
+    }
+
+    log(`capturing ${o.frames} frames at ${o.fps} fps (rafHz ${o.rafHz})`)
+    const batches = batchesOf(inputs, o.frames, o.fps)
+    for (let k = 0; k < o.frames; k++) {
+      const ms = frameMs(k, o.fps)
+      const time = ms / 1000
+      for (const { input, ms: at } of batches[k] ?? []) {
+        await advanceTo(at)
+        await settle(at / 1000)
+        await send({ ...input, ms: at })
+      }
+      await advanceTo(ms)
       await settle(time)
-      const read = await evaluate<{ elements: Read[]; animations: typeof declared }>(
-        `(${READ})(${JSON.stringify(o.track)})`,
-      )
+      const read = await held<{
+        elements: Read[]
+        scroll: number[]
+        animations: typeof declared
+      }>(`(${READ})(${JSON.stringify(o.track)})`, ms)
       declared.push(...read.animations)
+      WINDOW_CHANNELS.forEach(([channel], i) => {
+        sampled(WINDOW, channel).push([time, read.scroll[i] as number])
+      })
       read.elements.forEach((r, i) => {
         const el = o.track[i] as string
         if (r === null) {
@@ -958,7 +1336,7 @@ export const captureWeb = async (options: CaptureOptions) => {
     )
     const uniqueResponses = [...new Map(hashed.map((r) => [JSON.stringify(r), r])).values()]
 
-    const unitOf = new Map(CHANNELS)
+    const unitOf = new Map([...CHANNELS, ...WINDOW_CHANNELS])
     const trackList: Track[] = [...tracks].map(([key, samples]) => {
       const [element, channel] = JSON.parse(key) as [string, string]
       return { element, channel, unit: unitOf.get(channel) as string, samples }
@@ -972,6 +1350,8 @@ export const captureWeb = async (options: CaptureOptions) => {
         viewport: { width: o.viewport.width, height: o.viewport.height },
         devicePixelRatio: o.devicePixelRatio,
         responses: uniqueResponses,
+        // The real time the load took, which --settle loaded froze the page's clocks after.
+        ...(o.settle === 'loaded' ? { loadedAt: loadedAt / 1000 } : {}),
       },
       tool: {
         script: 'tools/capture-web.ts',
@@ -991,7 +1371,8 @@ export const captureWeb = async (options: CaptureOptions) => {
         locale: o.locale,
         duration: o.duration,
         track: o.track,
-        trigger: 'load',
+        settle: o.settle,
+        trigger,
         media: o.media,
         allowLocal: o.allowLocal,
       },
@@ -1034,6 +1415,12 @@ if (import.meta.main) {
       'time-origin': { type: 'string' },
       'clock-date': { type: 'string' },
       timezone: { type: 'string' },
+      settle: { type: 'string' },
+      trigger: { type: 'string' },
+      target: { type: 'string' },
+      at: { type: 'string' },
+      'scroll-to': { type: 'string' },
+      'scroll-ms': { type: 'string' },
       locale: { type: 'string' },
     },
   })
@@ -1075,6 +1462,12 @@ if (import.meta.main) {
       timeOrigin: number('time-origin', values['time-origin']),
       clockDate: values['clock-date'],
       timezone: values.timezone,
+      settle: values.settle as Settle | undefined,
+      trigger: values.trigger as Trigger | undefined,
+      target: values.target,
+      at: number('at', values.at),
+      scrollTo: number('scroll-to', values['scroll-to']),
+      scrollMs: number('scroll-ms', values['scroll-ms']),
       locale: values.locale,
       log: (line) => console.error(line),
     })
