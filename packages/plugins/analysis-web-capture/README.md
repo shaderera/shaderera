@@ -259,7 +259,7 @@ however slow the machine is: two captures give the same bytes but for `source.da
 
 **Frames and workers** each get a clock of their own, the same one: a frame of the page's process
 with the page's script, and a frame in a process of its own (another site) and a dedicated worker,
-classic or module, over the DevTools protocol (`Target.setAutoAttach`), paused before their first
+classic or module, the page's or one a worker started, over the DevTools protocol (`Target.setAutoAttach`), paused before their first
 script runs. Each clock is driven by the one that made it, the top frame's by the capture, and
 they step together on one time: before each step a clock asks its frames and workers for their
 next timer or animation frame, the earliest of all is the step, and after it each is stepped to
@@ -370,7 +370,9 @@ A page given as a file reads files, as Chrome lets it.
   for a message between frames).
 - A frame or worker the clock did not reach, or that stops answering it for 60 s, runs on real
   time; one that does not start in 15 s is let go. Each is named by its URL, its kind in the
-  reason. A worker that ends itself (`close()`) or is terminated is let go, and is no limit.
+  reason. A frame sandboxed without `allow-scripts` is one: no script runs in it, the clock's
+  included, so its CSS animations and videos run on real time. A worker that ends itself
+  (`close()`) or is terminated is let go, and is no limit.
 - A video the decoder cannot seek to its time (from a server that does not serve ranges, Chrome
   seeks only to 0) shows the frame it has, and frames do not wait on it. It is named by its URL.
 - A held video that cannot be played (a `MediaError`): its `play()` resolved for the page, so a
