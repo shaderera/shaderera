@@ -52,6 +52,31 @@ test('an HLS playlist naming a file outside the project is refused, naming the c
   assert.throws(() => probeVideo(playlist), /clip\.m3u8 is a playlist \(hls\)/)
 })
 
+test('a stream-copied trim counts the frames it shows, not the packets its edit list discards (#740)', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = tempDir('trim')
+  const film = join(root, 'film.mp4')
+  const cut = join(root, 'cut.mp4')
+  const src = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=30', '-frames:v', '90']
+  assert.equal(spawnSync('ffmpeg', [...src, '-pix_fmt', 'yuv420p', film]).status, 0)
+  // The cut keeps the packets from the keyframe before 0.5 s, which its edit list discards.
+  assert.equal(
+    spawnSync('ffmpeg', ['-v', 'error', '-ss', '0.5', '-i', film, '-c', 'copy', cut]).status,
+    0,
+  )
+  const info = probeVideo(cut)
+  assert.equal(info.frames, 75)
+  assert.equal(info.frames / info.fps, 2.5)
+  const v = videoReader(cut)
+  try {
+    assert.equal((await v.frame(74)).length, 64 * 36 * 4)
+  } finally {
+    await v.close()
+  }
+})
+
 test('two video frames asked at once both arrive, each the right one', {
   skip: !ffmpeg && 'no ffmpeg',
   timeout: 30_000,
