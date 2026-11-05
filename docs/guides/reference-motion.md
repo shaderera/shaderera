@@ -96,6 +96,10 @@ Every flag is in the plugin's README, and the file's fields are in `docs/analysi
 film's frame is the film's code. A dotLottie (`.lottie`) archive is refused: unzip it and read its
 `animations/<name>.json`.
 
+`node tools/lottie-tracks.ts <file> --fps <n>` writes the same keys, `declared` as written, with
+samples at the rate given, as `reference-tracks`: the film then reads the Lottie file through
+`loadTracks`, as it reads a captured page.
+
 ## The spec table
 
 One row per element and property. Every number has a source; one without a source is a guess,

@@ -22,9 +22,8 @@ Plumbing: a Lottie file is the spec, so it is read, never re-derived or fitted. 
 
 This is the reader for a file that is the spec
 ([decision 0032](https://github.com/shaderera/shaderera/blob/main/docs/adr/0032-reference-copying.md),
-points 5 and 2). It does not write `shaderera.analysis/1` `reference-tracks`, so a film reads a
-Lottie file through this API, not the shared reference reader; writing its declared keys into
-`reference-tracks` is a follow-up ([#699](https://github.com/shaderera/shaderera/issues/699)).
+points 5 and 2). A film reads the file through this API, or, after `tools/lottie-tracks.ts`,
+through `analysis-reference-tracks`' reader, as it reads a captured page.
 
 - **Time.** A key's `frame` is the file's frame, as written; `t` is `frame / fr` in seconds.
   `valueAt(property, t)` takes the same seconds: the file plays from `in` to `out`
@@ -74,5 +73,25 @@ Lottie file through this API, not the shared reference reader; writing its decla
   a key with no value, a marker with no `tm` or a `cm` that is not text, keys of one property with different numbers of values, a move with no
   handles that does not hold, a handle's x outside 0 to 1, a `t` that is not a number, and a
   dotLottie (`.lottie`) archive: unzip it and read its `animations/<name>.json`.
+
+**As reference tracks**, run once: `node tools/lottie-tracks.ts assets/intro.json --fps 30`
+writes `assets/intro.tracks.json` (`--out` names another file), a `shaderera.analysis/1` artifact
+of kind `reference-tracks` that `loadTracks` from `analysis-reference-tracks` reads.
+- `--fps` is required: it sets every sample time. A number, or a fraction like `24000/1001`.
+- `source` is the Lottie file (path, bytes, sha256); `frame` its `w` × `h`, pixel ratio 1;
+  `params` the fps.
+- `tracks`: one per layer and property dimension. The element is the layer's place in the file
+  (`layers[2]`; its name is in `declared`), the channel the property's name and dimension (`p[0]`,
+  `p[1]`, `r[0]`), the unit Lottie's (`source-px` for position and anchor, `percent` for scale and
+  opacity, `deg` for angles; `unknown` for a name this reader does not know, also in `limits`).
+  Samples are `valueAt` at each frame time from `in` to `out`, `null` outside the layer's own in
+  and out points. Each transform is the layer's own, not composed with its parent's. An animated
+  `or` has no samples, since `valueAt` refuses it.
+- `declared`: the composition (`lottie-composition`), its markers (`lottie-marker`, element
+  `composition`), each layer (`lottie-layer`) and each transform property (`lottie-property`) with
+  its keys exactly as this reader returns them: `frame`, `t`, `value`, `end`, `hold`, `out`, `in`,
+  `pathOut`, `pathIn`, and its `expression` when the file has one. Each entry has `units`, the
+  unit of each of its fields; a handle's x and y are a `ratio` of the move's time and change.
+- `limits`: each entry of `unsupported`, its `where` and `<feature>: not read`.
 
 Stateless: any t gives the same value whenever it is asked. No packages.
