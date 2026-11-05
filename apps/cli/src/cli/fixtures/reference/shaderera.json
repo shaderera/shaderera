@@ -1,0 +1,12 @@
+{
+  "entry": "./src/composition.ts",
+  "fps": 10,
+  "duration": 2,
+  "width": 64,
+  "height": 36,
+  "params": {
+    "type": "object",
+    "properties": { "delay": { "type": "number", "default": 0 } }
+  },
+  "variants": { "large": { "label": "twice the size", "width": 128, "height": 72 } }
+}

@@ -64,6 +64,7 @@ What is on the shelf:
   - `audio-pcm-mix`: sound made in code placed at film seconds with a gain and a constant-power pan,
     seeded noise, a peak, NaN and DC check, and core's `Pcm` for `audio()`;
   - `motion-eases`: eases, clamp, lerp, the progress of t through a span, an envelope over hits;
+  - `motion-lottie-read`: a Lottie file's keyframes read as written, and a property's value at t with its own curves;
   - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
@@ -82,7 +83,9 @@ What is on the shelf:
   - `color-primary`: the ASC CDL, exposure, contrast and white balance (Bradford, from Kelvin), WGSL and CPU;
   - `color-qualifier`: a hue, saturation and luma key to a soft matte, so a grade touches one colour only, WGSL and CPU;
   - `color-spaces`: ACEScct and ACEScc, the camera log curves (S-Log3, LogC3, LogC4, V-Log, Canon Log 3) and the matrices between gamuts, WGSL and CPU;
+  - `analysis-reference-tracks`: motion measured from a reference, each element's channels at source time, read with hold or linear;
   - `analysis-scopes`: a frame as scope numbers (levels, waveform, parade, balance, vectorscope) to grade from;
+  - `analysis-web-capture`: a web page's motion captured once as reference tracks, on an injected clock, in the person's own Chrome, from the load or a click, hover, leave or scroll; or its style facts at one moment (boxes, computed styles, the fonts each text was drawn with, a screenshot);
   - `render-srgb`: the sRGB transfer functions, display values to linear light and back, WGSL and CPU;
   - `render-gltf-read`: glTF and GLB models read into plain arrays, matrices and materials;
   - `image-fit`: a still into a box of a Canvas2D frame, cover or contain, drawn small the same every time;

@@ -16,10 +16,13 @@ const alpha = await maskOf(host, cat, body)               // u8 coverage over bo
 ```
 
 It gives places and shapes only: what is cut, moved, covered or lined up is the film's code.
+When a film copies the image, `shaderera still <t> --compare-file assets/cat.jpg --regions
+regions/cat` measures it against the image region by region (see `docs/cli.md` in the
+`shaderera` package).
 
-**The data.** `regions/<image>/regions.json` is a `shaderera.analysis/1` artifact (see
-`docs/analysis.md` in the `shaderera` package) of kind `regions`, beside one `<id>.u8` file per
-region. All in the source image's pixels, origin top-left:
+**The data.** `regions/<image>/regions.json` is a `shaderera.analysis/1` artifact of kind
+`regions`, beside one `<id>.u8` file per region: it conforms to the form that "Regions (still image)"
+in `docs/analysis.md` (in the `shaderera` package) defines, and adds its own fields. All in the source image's pixels, origin top-left:
 - `id` is `<label>-<n>`, the label in lowercase letters, digits and dashes (it names the mask's
   file), n counting from the highest score; `label` is the word as asked for (or given); `score`
   is the analyser's confidence (1 for a painted mask);

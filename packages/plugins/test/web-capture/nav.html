@@ -1,0 +1,16 @@
+<!doctype html>
+<!--
+  A link that leaves the page: #go links to nav-away.html, which has an animation of its own.
+  #hidden has no box (display: none). #go covers the viewport's top left corner, where an input
+  sent to the centre of an empty box at (0, 0) would land.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #go { position: absolute; left: 0; top: 0; display: block; width: 200px; height: 100px; background: #fff }
+  #hidden { display: none }
+  #box { position: absolute; left: 0; top: 200px; width: 40px; height: 40px; background: #f00 }
+</style>
+<a id="go" href="nav-away.html">away</a>
+<div id="hidden"></div>
+<div id="box"></div>

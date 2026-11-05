@@ -1,0 +1,21 @@
+<!doctype html>
+<!--
+  Motion started by a click on #button (the test clicks it at 500 ms): #css is a CSS transition of
+  `translate`, 0 to 300 px in 1 s on cubic-bezier(0.3, 0, 0.2, 1); #motion is motion's animate()
+  of x with the same curve, on motion's own frame loop; #fade is motion's linear opacity fade,
+  which it hands to the Web Animations API (click.js, bundled by the test into click.bundle.js).
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #css { top: 20px; transition: translate 1s cubic-bezier(0.3, 0, 0.2, 1) }
+  #css.on { translate: 300px 0 }
+  #motion { top: 80px } #fade { top: 140px; opacity: 0 }
+  #button { position: absolute; left: 600px; top: 300px; width: 120px; height: 60px; background: #f00 }
+</style>
+<div class="box" id="css"></div>
+<div class="box" id="motion"></div>
+<div class="box" id="fade"></div>
+<div id="button"></div>
+<script src="click.bundle.js"></script>

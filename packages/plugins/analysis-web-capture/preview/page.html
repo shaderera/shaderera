@@ -1,0 +1,41 @@
+<!doctype html>
+<!--
+  The page the preview captures, as a site's hero might move: a bar that slides in with a CSS
+  transition at 0.4 s, a card on a spring stepped from performance.now on requestAnimationFrame,
+  and a dot that a Web Animation fades and turns from 1.2 s.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #bar {
+    position: absolute; left: 80px; top: 120px; width: 520px; height: 72px; background: #fff;
+    translate: -700px 0; transition: translate 0.9s cubic-bezier(0.16, 1, 0.3, 1)
+  }
+  #card { position: absolute; left: 80px; top: 300px; width: 240px; height: 300px; background: #fff }
+  #dot { position: absolute; left: 1000px; top: 380px; width: 120px; height: 120px; background: #fff; opacity: 0 }
+</style>
+<div id="bar"></div>
+<div id="card"></div>
+<div id="dot"></div>
+<script>
+  setTimeout(() => { bar.style.translate = '0px 0' }, 400)
+  let x = 0
+  let v = 0
+  let last = performance.now()
+  const step = () => {
+    const now = performance.now()
+    const dt = Math.min(40, Math.max(1, now - last)) / 1000
+    last = now
+    v += (120 * (560 - x) - 9 * v) * dt
+    x += v * dt
+    card.style.transform = `translateX(${x}px) rotate(${x / 40}deg)`
+    requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+  setTimeout(() => {
+    dot.animate(
+      [{ opacity: 0, transform: 'rotate(0deg)' }, { opacity: 1, transform: 'rotate(135deg)' }],
+      { duration: 1400, easing: 'ease-in-out', fill: 'forwards' },
+    )
+  }, 1200)
+</script>

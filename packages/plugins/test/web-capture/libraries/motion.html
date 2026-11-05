@@ -1,0 +1,15 @@
+<!doctype html>
+<!--
+  motion itself (the motion devDependency, bundled by the test into motion.bundle.js): springs on
+  its own frame loop (#a, #c) and a linear fade it hands to the Web Animations API (#b).
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #a { top: 20px } #b { top: 80px } #c { top: 140px }
+</style>
+<div class="box" id="a"></div>
+<div class="box" id="b"></div>
+<div class="box" id="c"></div>
+<script src="motion.bundle.js"></script>

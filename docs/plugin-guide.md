@@ -184,7 +184,8 @@ way: what one returns, another takes as it is.
   }
   ```
 
-  `source.path` is from the project root. The loader takes only where the artifact is (its path,
+  `source.path` is from the project root. A live web page, which cannot be hashed, is a source of
+  its url, date, viewport and the sha256 of each response instead (analysis.md). The loader takes only where the artifact is (its path,
   or `image-regions`' folder), reads the source by `source.path`, and refuses another format or kind, or a source whose sha256 is not the
   recorded one: `loadAnalysis(host, 'audio/song.analysis.json')`. A check in the repository's
   tests fails on an official plugin's header in any other shape.

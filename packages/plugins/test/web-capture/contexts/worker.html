@@ -1,0 +1,38 @@
+<!doctype html>
+<!--
+  Workers that read their own clocks. worker.js posts the time on a 50 ms interval (#timer), on
+  each of its animation frames with its Date (#raf, #date), and in reply to the message the page
+  posts on each of its own frames (#reply); module.js, a module worker with an import, posts it on
+  a 100 ms timeout chain (#module). Each box moves by the whole milliseconds it was given. close.js
+  posts once and ends itself at 20 ms, which is no limit.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 20px; height: 20px; background: #fff }
+  #timer { top: 10px } #raf { top: 40px } #date { top: 70px } #reply { top: 100px }
+  #module { top: 130px }
+</style>
+<div class="box" id="timer"></div>
+<div class="box" id="raf"></div>
+<div class="box" id="date"></div>
+<div class="box" id="reply"></div>
+<div class="box" id="module"></div>
+<script>
+  const set = (id, x) => {
+    document.getElementById(id).style.transform = `translate(${x}px, 0px)`
+  }
+  const worker = new Worker('worker.js')
+  worker.onmessage = ({ data }) => {
+    set(data.kind, data.x)
+    if (data.kind === 'raf') set('date', data.date)
+  }
+  const module = new Worker('module.js', { type: 'module' })
+  module.onmessage = ({ data }) => set('module', data)
+  new Worker('close.js')
+  const ask = () => {
+    worker.postMessage('when?')
+    requestAnimationFrame(ask)
+  }
+  requestAnimationFrame(ask)
+</script>

@@ -1,0 +1,37 @@
+{
+  "name": "analysis-web-capture",
+  "type": "component",
+  "title": "Web capture",
+  "description": "Capture a web page's motion as reference tracks, frame by frame, in the person's own headless Chrome with an injected clock, from the load or from a click, hover, leave or scroll sent at a set time: each tracked element's box, transform and opacity and the window's scroll at source time, the same bytes on every run and at any machine speed, with the page's own keyframes kept as declared and the sha256 of every response; or, with --still, the page's style facts at one moment: every element's box and a set of computed styles, each text node's line boxes and the fonts Chrome drew it with, and a screenshot",
+  "category": "Analysis & Tracking",
+  "tags": [
+    "reference",
+    "copy a reference",
+    "match a reference",
+    "web page",
+    "web animation",
+    "motion capture",
+    "gsap",
+    "css animation",
+    "chrome",
+    "tracks",
+    "computed style",
+    "web font",
+    "screenshot",
+    "analysis"
+  ],
+  "version": "0.4.0",
+  "licence": "MIT",
+  "requires": {
+    "shaderera": ">=0.1.5",
+    "items": { "analysis-reference-tracks": "^0.1.1" }
+  },
+  "files": [
+    "tools/capture-web.ts",
+    "tools/web-capture-net.ts",
+    "tools/web-capture-style.ts",
+    "tools/reference-style.ts",
+    "tools/inpage/clock.js",
+    "src/reference/style.ts"
+  ]
+}

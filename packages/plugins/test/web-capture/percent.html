@@ -1,0 +1,18 @@
+<!doctype html>
+<!--
+  `translate` in percent of a fractional border box: #content is 100.5 px wide with 10 px of
+  padding (content-box), #border is 100.5 px wide as a border box, #svg is an SVG rectangle, whose
+  percentages depend on transform-box and are left unread.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 8px; height: 40px; background: #fff; translate: 50% 0 }
+  #content { top: 20px; width: 100.5px; padding: 0 10px }
+  #border { top: 80px; width: 100.5px; padding: 0 10px; box-sizing: border-box }
+  svg { position: absolute; top: 140px; left: 8px }
+  #svg { translate: 50% 0 }
+</style>
+<div class="box" id="content"></div>
+<div class="box" id="border"></div>
+<svg width="200" height="40"><title>A rectangle</title><rect id="svg" width="40.5" height="40" fill="#fff" /></svg>
