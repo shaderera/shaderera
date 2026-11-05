@@ -9,6 +9,7 @@
 // themselves are in analysis-web-capture.it.ts.
 
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, request } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -787,4 +788,14 @@ test('the reference-style writer refuses what its reader would', async () => {
     /fonts need a familyName, postScriptName, isCustomFont and glyphCount/,
   )
   refuses({ source: { ...doc.source, date: 'today' } }, /not ISO 8601 in UTC/)
+})
+
+test('an unknown option prints one line and the usage, not a stack trace', () => {
+  const run = spawnSync(process.execPath, [join(project, 'tools', 'capture-web.ts'), '--help'], {
+    encoding: 'utf8',
+  })
+  assert.equal(run.status, 1)
+  assert.match(run.stderr, /^Unknown option '--help'/)
+  assert.match(run.stderr, /usage: node tools\/capture-web\.ts <url\|file> --out <dir>/)
+  assert.doesNotMatch(run.stderr, /node:internal|ERR_PARSE_ARGS/)
 })

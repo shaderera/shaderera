@@ -1977,36 +1977,48 @@ export const captureWeb = async (options: CaptureOptions) => {
 
 if (import.meta.main) {
   const { parseArgs } = await import('node:util')
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      out: { type: 'string' },
-      track: { type: 'string', multiple: true },
-      fps: { type: 'string' },
-      duration: { type: 'string' },
-      viewport: { type: 'string' },
-      rafHz: { type: 'string' },
-      seed: { type: 'string' },
-      dpr: { type: 'string' },
-      media: { type: 'string', multiple: true },
-      'allow-local': { type: 'boolean' },
-      'cpu-throttle': { type: 'string' },
-      'time-origin': { type: 'string' },
-      'clock-date': { type: 'string' },
-      timezone: { type: 'string' },
-      settle: { type: 'string' },
-      trigger: { type: 'string' },
-      target: { type: 'string' },
-      at: { type: 'string' },
-      'scroll-to': { type: 'string' },
-      'scroll-ms': { type: 'string' },
-      inputs: { type: 'string' },
-      still: { type: 'string' },
-      root: { type: 'string' },
-      style: { type: 'string', multiple: true },
-      locale: { type: 'string' },
-    },
-  })
+  const usage =
+    'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>\n   or: node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n> --viewport <width>x<height>'
+  const parse = () =>
+    parseArgs({
+      allowPositionals: true,
+      options: {
+        out: { type: 'string' },
+        track: { type: 'string', multiple: true },
+        fps: { type: 'string' },
+        duration: { type: 'string' },
+        viewport: { type: 'string' },
+        rafHz: { type: 'string' },
+        seed: { type: 'string' },
+        dpr: { type: 'string' },
+        media: { type: 'string', multiple: true },
+        'allow-local': { type: 'boolean' },
+        'cpu-throttle': { type: 'string' },
+        'time-origin': { type: 'string' },
+        'clock-date': { type: 'string' },
+        timezone: { type: 'string' },
+        settle: { type: 'string' },
+        trigger: { type: 'string' },
+        target: { type: 'string' },
+        at: { type: 'string' },
+        'scroll-to': { type: 'string' },
+        'scroll-ms': { type: 'string' },
+        inputs: { type: 'string' },
+        still: { type: 'string' },
+        root: { type: 'string' },
+        style: { type: 'string', multiple: true },
+        locale: { type: 'string' },
+      },
+    })
+  let parsed: ReturnType<typeof parse>
+  try {
+    parsed = parse()
+  } catch (e) {
+    // An unknown or malformed option: one line and the usage, not a stack trace.
+    console.error(`${(e as Error).message}\n${usage}`)
+    process.exit(1)
+  }
+  const { values, positionals } = parsed
   const number = (name: string, v: string | undefined) => {
     if (v === undefined) return undefined
     const n = Number(v)
@@ -2028,10 +2040,7 @@ if (import.meta.main) {
     }
   }
   try {
-    if (positionals.length !== 1)
-      throw new Error(
-        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>\n   or: node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n> --viewport <width>x<height>',
-      )
+    if (positionals.length !== 1) throw new Error(usage)
     const still = values.still !== undefined
     for (const name of still ? (['viewport'] as const) : (['fps', 'duration', 'viewport'] as const))
       if (values[name] === undefined)
