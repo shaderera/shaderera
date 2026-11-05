@@ -1,0 +1,38 @@
+<!doctype html>
+<!--
+  A state reached first, then the motion: a click on #open opens the menu (a CSS transition of
+  its opacity), a key K turns #flag (a Web Animations turn), and a click on #item, which takes
+  pointer events only once the menu is open, slides it (a CSS transition).
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #open { position: absolute; left: 20px; top: 20px; width: 100px; height: 40px }
+  #menu {
+    position: absolute; left: 20px; top: 80px; width: 300px; height: 200px; background: #222;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s linear
+  }
+  #menu.open { opacity: 1; pointer-events: auto }
+  #item {
+    position: absolute; left: 20px; top: 20px; width: 200px; height: 40px; background: #fff;
+    transition: translate 0.3s linear
+  }
+  #item.on { translate: 60px 0 }
+  #flag { position: absolute; left: 400px; top: 100px; width: 40px; height: 40px; background: #fff }
+</style>
+<button id="open" type="button">menu</button>
+<div id="menu"><div id="item"></div></div>
+<div id="flag"></div>
+<script>
+  document.getElementById('open').addEventListener('click', () =>
+    document.getElementById('menu').classList.add('open'),
+  )
+  document.getElementById('item').addEventListener('click', (e) => e.target.classList.add('on'))
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'k' && e.code === 'KeyK')
+      document.getElementById('flag').animate([{ rotate: '0deg' }, { rotate: '90deg' }], {
+        duration: 300,
+        fill: 'forwards',
+      })
+  })
+</script>

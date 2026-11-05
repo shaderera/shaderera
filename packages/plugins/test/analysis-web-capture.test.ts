@@ -3,7 +3,7 @@
 // IPv4 inside IPv6) and a name that resolves to one; the proxy Chrome goes out through refuses
 // such a request before it connects, and lets it through with allowLocal. Bad options are
 // refused before anything starts, each trigger takes only its own settings and sends its inputs
-// at their times, and a transform matrix comes apart into channels that build it back. A still
+// at their times, an --inputs list is checked item by item and kept as given, and a transform matrix comes apart into channels that build it back. A still
 // takes its own settings and is on an animation frame; its reference-style artifact is written in
 // one order, read back, and refused with a changed screenshot or a malformed field. The captures
 // themselves are in analysis-web-capture.it.ts.
@@ -32,10 +32,19 @@ const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { checkHost, localKind, refusedAddress, refusedName, startProxy } = (await from(
   'tools/web-capture-net.ts',
 )) as typeof import('../analysis-web-capture/tools/web-capture-net.ts')
-const { batchesOf, checkOptions, decompose, frameMs, inputsOf, pageUrl, unwrap, wheelDelta } =
-  (await from(
-    'tools/capture-web.ts',
-  )) as typeof import('../analysis-web-capture/tools/capture-web.ts')
+const {
+  batchesOf,
+  checkOptions,
+  decompose,
+  frameMs,
+  inputsOf,
+  keyOf,
+  pageUrl,
+  unwrap,
+  wheelDelta,
+} = (await from(
+  'tools/capture-web.ts',
+)) as typeof import('../analysis-web-capture/tools/capture-web.ts')
 const { styleJson } = (await from(
   'tools/reference-style.ts',
 )) as typeof import('../analysis-web-capture/tools/reference-style.ts')
@@ -356,6 +365,75 @@ test('each trigger takes its own settings and refuses the others', () => {
     /end the scroll at 2100 ms, after the last frame, at 2000 ms/,
   )
   refuses({ track: ['window'] }, /--track window: that name holds the window's own scrollX/)
+})
+
+test('an --inputs list is checked item by item and kept as given', () => {
+  const base = {
+    page: 'https://example.com/',
+    out: 'references/hero',
+    track: ['.hero h1'],
+    fps: 30,
+    rafHz: 30,
+    duration: 2,
+    viewport: { width: 1280, height: 720 },
+  }
+  const list = [
+    { at: 0, type: 'move', x: 10, y: 20 },
+    { at: 100, type: 'down' },
+    { at: 116.5, type: 'move', x: 40, y: 20 },
+    { at: 133, type: 'up', x: 80, y: 20 },
+    { at: 200, type: 'wheel', target: '#list', deltaY: 120 },
+    { at: 300, type: 'key', key: 'm', code: 'KeyM' },
+    { at: 300, type: 'key', key: 'Enter' },
+    { at: 500, type: 'click', target: '#b' },
+  ] as const
+  const o = checkOptions({ ...base, inputs: structuredClone(list) as never })
+  assert.deepEqual(o.inputs, list, 'the list is kept as given')
+  assert.equal(o.trigger, undefined)
+  const refuses = (inputs: unknown, message: RegExp, more: Record<string, unknown> = {}) =>
+    assert.throws(() => checkOptions({ ...base, ...more, inputs: inputs as never }), message)
+  refuses([], /--inputs needs a JSON list of at least one input/)
+  refuses({ at: 0 }, /--inputs needs a JSON list/)
+  refuses([{ at: 0, type: 'tap', x: 0, y: 0 }], /item 0: type "tap" is not one of move, down/)
+  refuses([{ at: 0, type: 'move', x: 0, y: 0 }], /--trigger is not for --inputs/, {
+    trigger: 'click',
+  })
+  refuses([{ at: 0, type: 'move', x: 0, y: 0 }], /--at is not for --inputs/, { at: 5 })
+  refuses([{ at: 0, type: 'move' }], /item 0: a move needs target, or x and y/)
+  refuses([{ at: 0, type: 'click', x: 1 }], /item 0: x and y are not both numbers/)
+  refuses([{ at: 0, type: 'move', x: 1, y: 1, target: '#b' }], /give target or x and y, not both/)
+  refuses([{ at: 0, type: 'move', target: ' ' }], /item 0: target is not a CSS selector/)
+  refuses([{ at: 0, type: 'down' }], /needs the pointer placed by an item before it/)
+  refuses([{ at: 0, type: 'up', x: 0, y: 0 }], /item 0: an up while the button is up/)
+  refuses(
+    [
+      { at: 0, type: 'down', x: 0, y: 0 },
+      { at: 1, type: 'down' },
+    ],
+    /item 1: a down while the button is down/,
+  )
+  refuses(
+    [
+      { at: 0, type: 'down', x: 0, y: 0 },
+      { at: 1, type: 'click', x: 0, y: 0 },
+    ],
+    /item 1: a click while the button is down/,
+  )
+  refuses(
+    [
+      { at: 10, type: 'move', x: 0, y: 0 },
+      { at: 5, type: 'move', x: 1, y: 0 },
+    ],
+    /item 1: at 5 is before the item ahead of it, at 10/,
+  )
+  refuses([{ at: 2001, type: 'move', x: 0, y: 0 }], /at 2001 is not ms from 0 to the last frame/)
+  refuses([{ at: 0, type: 'move', x: 0, y: 0, deltaY: 3 }], /deltaY is not for a move/)
+  refuses([{ at: 0, type: 'wheel', x: 0, y: 0 }], /a wheel needs deltaX or deltaY/)
+  refuses([{ at: 0, type: 'key', key: 'Shift' }], /key "Shift" is not one character or one of/)
+  refuses([{ at: 0, type: 'key', key: 'a', x: 1 }], /x is not for a key/)
+  assert.deepEqual(keyOf('m'), { keyCode: 77, text: 'm' })
+  assert.deepEqual(keyOf('Enter'), { keyCode: 13, text: '\r' })
+  assert.deepEqual(keyOf('ArrowDown'), { keyCode: 40 })
 })
 
 test('a trigger sends its inputs at their times, and a scroll adds up to its distance', () => {

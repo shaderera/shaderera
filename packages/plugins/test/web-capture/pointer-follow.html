@@ -1,0 +1,32 @@
+<!doctype html>
+<!--
+  A glow that follows the pointer: on each pointermove #dot jumps to the pointer and the glow's
+  target is set there; on each animation frame #glow moves a fifth of the way to its target (a
+  lerp, stepped once per frame on performance.now's ticks).
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #glow, #dot { position: absolute; left: 0; top: 0; border-radius: 50% }
+  #glow { width: 80px; height: 80px; margin: -40px 0 0 -40px; background: #fff; opacity: 0.4 }
+  #dot { width: 8px; height: 8px; margin: -4px 0 0 -4px; background: #fff }
+</style>
+<div id="glow"></div>
+<div id="dot"></div>
+<script>
+  const glow = document.getElementById('glow')
+  const dot = document.getElementById('dot')
+  let tx = 0, ty = 0, gx = 0, gy = 0
+  addEventListener('pointermove', (e) => {
+    tx = e.clientX
+    ty = e.clientY
+    dot.style.translate = `${tx}px ${ty}px`
+  })
+  const step = () => {
+    gx += (tx - gx) / 5
+    gy += (ty - gy) / 5
+    glow.style.translate = `${gx}px ${gy}px`
+    requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+</script>

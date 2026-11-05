@@ -1,0 +1,13 @@
+<!doctype html>
+<!--
+  A frame the clock cannot reach: sandboxed without allow-scripts, so no script runs in it, the
+  clock's included, while its CSS animation (spin.html) runs on real time.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #box { position: absolute; left: 20px; top: 20px; width: 20px; height: 20px; background: #fff }
+  iframe { position: absolute; left: 0; top: 50px; width: 60px; height: 60px; border: 0 }
+</style>
+<div id="box"></div>
+<iframe title="spins on real time" sandbox src="spin.html"></iframe>

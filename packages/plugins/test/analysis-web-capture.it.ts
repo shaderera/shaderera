@@ -7,7 +7,9 @@
 // on GSAP's ticker matches a CSS one within 0.5 ms. A click at 500 ms starts a CSS transition and
 // motion's animate() on the first frame after it, the transition on its cubic-bezier within
 // 0.001 px; hover, leave and scroll capture the same at any speed, scroll against scrollY, the
-// wheel hovering what it turns over; a click that navigates, and a target with no box, are
+// wheel hovering what it turns over; a list of inputs (a pointer path a glow follows, a drag
+// that flings on with its last points' velocity, a click and a key after a pre-step) captures the
+// same at any speed and is recorded as given; a click that navigates, and a target with no box, are
 // refused; the declared animations keep their keyframes and easing strings; --settle loaded runs
 // the load on real time. A page that reaches for this machine is refused without --allow-local,
 // and the local server sees nothing; with it, each response is hashed as served. A still of a page
@@ -19,7 +21,9 @@
 // Workers (classic and module) and frames (of this origin, of another site, added later) run on
 // the clock: their timers, animation frames, Date and replies land at the page's times; an
 // OffscreenCanvas a worker draws and a video show the frame at the still's time, pixel for pixel.
-// A frame of another site sees the page's locale. A worker that ends itself is let go. A shared
+// A worker a worker started runs on the clock too. A frame of another site sees the page's
+// locale. A worker that ends itself is let go. A frame sandboxed without scripts is a frame the
+// clock did not reach, the same at any speed. A shared
 // worker, a BroadcastChannel, a MessagePort sent to a worker or a frame, a frame that messages its
 // sibling, a video its server cannot seek and one that cannot play are limits, named in the file
 // and by the CLI. Skipped, with the reason, when there is no Chrome.
@@ -503,6 +507,93 @@ test('a hover and a leave capture the same at any speed', { skip }, async () => 
   assert.equal(back.find(([t]) => t === 0.8)?.[1], 1)
   assert.equal(back.find(([t]) => t === 0.833333)?.[1], 0.9444)
   assert.equal(back.at(-1)?.[1], 0.5)
+})
+
+/** An --inputs capture's params: the list as given, and its first item as the trigger. */
+const recordsInputs = (json: string, list: unknown[]) => {
+  const doc = JSON.parse(json) as Doc
+  assert.deepEqual(doc.params.inputs, list, 'the recorded inputs are the given ones')
+  assert.deepEqual(doc.params.trigger, list[0], 'the trigger is the first input')
+  return doc
+}
+
+test('a pointer path moves a glow that follows it, the same at any speed', { skip }, async () => {
+  // Twelve points from (100, 100) to (496, 298), 25 ms apart: a path is its points.
+  const path = Array.from({ length: 12 }, (_, i) => ({
+    at: 100 + 25 * i,
+    type: 'move',
+    x: 100 + 36 * i,
+    y: 100 + 18 * i,
+  }))
+  const json = await sameEveryTime(fixture('pointer-follow.html'), ['#dot', '#glow'], {
+    inputs: structuredClone(path) as never,
+    rafHz: 60,
+    duration: 1,
+  })
+  const doc = recordsInputs(json, path)
+  assert.deepEqual(doc.limits, [])
+  // The dot is at the last point sent by each frame's time, never between two.
+  for (const [t, x] of samplesOf(json, '#dot', 'translateX')) {
+    const sent = path.filter((p) => p.at <= t * 1000 + 1e-6).at(-1)
+    assert.equal(x, sent?.x ?? 0, `the dot at ${t} s`)
+  }
+  // The glow trails the path on its own steps and closes in on the last point.
+  const glow = samplesOf(json, '#glow', 'translateX')
+  const end = glow.at(-1)?.[1] as number
+  assert.ok(end > 490 && end < 496, `the glow ends at ${end}`)
+  const dot = samplesOf(json, '#dot', 'translateX')
+  const at = (track: typeof glow, s: number) =>
+    track.find(([t]) => Math.abs(t - s) < 1e-6)?.[1] as number
+  assert.ok(at(glow, 0.4) < at(dot, 0.4) - 10, 'the glow trails the pointer')
+})
+
+test('a drag flings on with the velocity of its last points, the same at any speed', {
+  skip,
+}, async () => {
+  // Pressed on the puck's centre (130, 180) at 100 ms, moved 30 px each 50 ms, released at 300
+  // while still moving.
+  const list = [
+    { at: 100, type: 'down', target: '#puck' },
+    ...[1, 2, 3, 4].map((i) => ({ at: 100 + 50 * i, type: 'move', x: 130 + 30 * i, y: 180 })),
+    { at: 300, type: 'up' },
+  ]
+  const json = await sameEveryTime(fixture('drag.html'), ['#puck'], {
+    inputs: structuredClone(list) as never,
+    rafHz: 60,
+    duration: 1,
+  })
+  const doc = recordsInputs(json, list)
+  assert.deepEqual(doc.limits, [])
+  const x = samplesOf(json, '#puck', 'translateX')
+  const at = (s: number) => x.find(([t]) => Math.abs(t - s) < 1e-6)?.[1] as number
+  assert.equal(at(0.1), 0)
+  assert.equal(at(0.2), 60, 'the puck follows the pointer while the button is down')
+  assert.equal(at(0.3), 120, 'released at 120 px')
+  // 30 px over 50 ms is 0.6 px/ms, from the points and times given: the glide's two ticks at
+  // 1/60 s each, the second at nine tenths of it, put it at 139 px at 1/3 s.
+  assert.ok(Math.abs(at(1 / 3) - 139) < 0.001, `the fling is at ${at(1 / 3)} px at 1/3 s`)
+  assert.ok((x.at(-1)?.[1] as number) > 200, 'the fling carries the puck on after the release')
+})
+
+test('a pre-step reaches a state, then a key and a click start the motion', { skip }, async () => {
+  const list = [
+    { at: 100, type: 'click', target: '#open' },
+    { at: 300, type: 'key', key: 'k', code: 'KeyK' },
+    { at: 600, type: 'click', target: '#item' },
+  ]
+  const json = await sameEveryTime(fixture('pre-step.html'), ['#menu', '#item', '#flag'], {
+    inputs: structuredClone(list) as never,
+    rafHz: 60,
+    duration: 1,
+  })
+  const doc = recordsInputs(json, list)
+  assert.deepEqual(doc.limits, [])
+  const start = (element: string) =>
+    doc.declared.filter((d) => d.element === element).map((d) => d.start)
+  assert.deepEqual(start('#menu'), [0.1], 'the menu opens on the first click')
+  assert.deepEqual(start('#flag'), [0.3], 'the key turns the flag')
+  assert.deepEqual(start('#item'), [0.6], 'the item slides on the second click')
+  assert.equal(samplesOf(json, '#item', 'translateX').at(-1)?.[1], 60)
 })
 
 test('a scroll at 24 fps, whose wheel times round past a frame, still captures', {
@@ -1289,6 +1380,57 @@ test('what the clock cannot hold is a limit, named in the file and on the comman
       assert.ok(cli.stderr.includes(`limit: ${where}: ${reason}`), `and the CLI names ${where}`)
     }
     assert.equal(doc.limits.length, expected.length, JSON.stringify(doc.limits))
+  } finally {
+    server.close()
+  }
+})
+
+test('a worker a worker started runs on the clock, at any speed', { skip }, async () => {
+  const server = await serveContexts()
+  try {
+    const json = await sameEveryTime(server.url('nested.html'), ['#interval', '#frame'], {
+      allowLocal: true,
+    })
+    const doc = JSON.parse(json) as Doc
+    assert.deepEqual(doc.limits, [])
+    // Started with the page at 0 ms: its 50 ms interval and its animation frames, on the page's
+    // ticks, passed on by the worker that started it.
+    for (const [id, expected] of [
+      ['#interval', (t: number) => 50 * Math.floor(t / 50 + 1e-9)],
+      ['#frame', Math.round],
+    ] as const)
+      for (const [t, v] of samplesOf(json, id, 'translateX'))
+        assert.equal(v, expected(ms(t)), `${id} at ${t} s`)
+  } finally {
+    server.close()
+  }
+})
+
+test('a frame sandboxed without scripts is one the clock did not reach, a limit', {
+  skip,
+}, async () => {
+  const server = await serveContexts()
+  try {
+    for (let run = 0; run < 2; run++) {
+      const json = await capture({
+        page: server.url('sandboxed.html'),
+        track: ['#box'],
+        duration: 0.3,
+        allowLocal: true,
+        // Once as it is, once 6x slower: a slow machine does not let the clock in.
+        ...(run === 1 ? { cpuThrottle: 6 } : {}),
+      })
+      assert.deepEqual(
+        (JSON.parse(json) as Doc).limits,
+        [
+          {
+            where: server.url('spin.html'),
+            reason: 'an iframe the clock did not reach: it runs on real time',
+          },
+        ],
+        `run ${run}`,
+      )
+    }
   } finally {
     server.close()
   }
