@@ -22,7 +22,9 @@ printed by `npx shaderera info <name>`.
    declared keyframes) and maps its own time to the source's. A number copied by hand into the
    code is a row of the table with its source named.
 5. **Compare.** `npx shaderera still --compare-file <clip or image>` ([Compare](#compare)), and
-   look at the sheets it writes every round, not only the numbers.
+   look at the sheets it writes every round, not only the numbers. A film built from reference
+   tracks (a capture's or a Lottie file's) is also measured against them, element by element:
+   `npx shaderera inspect --compare-tracks <tracks.json> --pairs <pairs.json>`.
 6. **Fix one cause.** Find the cause of the largest difference (an offset in time, a scale, a
    font, a position, a colour), change that alone, and compare again, so each round's numbers say
    what the change did.
@@ -128,6 +130,7 @@ and the table says so.
 npx shaderera still --compare-file references/hero.mp4 --sheet
 npx shaderera still --compare-file references/hero.mp4 --offset=<s> --floor <level> --sheet --json
 npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions references/hero-boxes.json
+npx shaderera inspect --compare-tracks references/hero/tracks.json --pairs references/hero-pairs.json
 ```
 
 - **A clip:** per time, PSNR, the mean and largest ΔE, SSIM on luma and the edge score (for the
@@ -142,8 +145,15 @@ npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions 
 - Each time writes the film, the reference and their difference (an SSIM heat map for an image,
   or for a clip with `--heat-map`)
   side by side, and `--sheet` puts them on one sheet. Through MCP, `still` with `compare_file`.
+- **Tracks:** for each pair, a reference track (`element` and `channel`) and what of the film it
+  is compared with (`{ "id": "card", "channel": "x" }`, a DOM element with that `data-id`, or
+  `{ "path": "objects[id=card].x" }`, an inspect path), the largest and mean difference in the
+  reference's unit, each side's motion window, and the offset that aligns them (printed as
+  `Aligned: --offset=<s>`). Pairs are given, never guessed. Through MCP, `inspect` with
+  `compare_tracks`.
 - There is no pass or fail, and the exit code is 0 unless an input is bad. Every field is in
-  `docs/cli.md`, "Measuring against a reference clip" and "Measuring against a reference image".
+  `docs/cli.md`, "Measuring against a reference clip", "Measuring against a reference image"
+  and "Measuring against reference tracks".
 
 ## Pitfalls
 
