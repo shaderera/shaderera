@@ -116,7 +116,8 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   assert.equal(single.status, 2)
   assert.match(single.stderr, /a clip of one frame: .* save it as a PNG once/)
 
-  // A clip whose frames are not at i / fps (a screen recording's held frame) is refused, named.
+  // A clip whose frames are not at i / fps (a screen recording's held frame) is read at each
+  // frame's own time, and each frame held until the next (#703).
   const vfr = join(root, 'vfr.mp4')
   const made = spawnSync('ffmpeg', [
     '-v',
@@ -130,11 +131,60 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
     vfr,
   ])
   assert.equal(made.status, 0, String(made.stderr))
-  const varying = await cli('still', '--root', root, '--out', out, '--compare-file', vfr)
-  assert.equal(varying.status, 2)
+  const own = await cli('still', '--root', root, '--out', out, '--compare-file', vfr, '--json')
+  assert.equal(own.status, 0, own.stderr)
+  const varying = JSON.parse(own.stdout).result
+  assert.equal(varying.reference.timing, 'variable')
+  assert.deepEqual(varying.reference.intervals, { smallest: 0.1, largest: 0.4 })
+  assert.equal(varying.reference.duration, 2.3)
+  // With no times, the clip's own frames up to the film's end: 0 to 0.4, then 0.8 to 1.9.
+  const at = [0, 0.1, 0.2, 0.3, 0.4, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9]
+  assert.deepEqual(
+    varying.frames.map((f: { t: number }) => f.t),
+    at,
+  )
+  assert.deepEqual(
+    varying.frames.map((f: { read: number }) => f.read),
+    at,
+  )
+  assert.deepEqual(
+    varying.frames.map((f: { frame: number }) => f.frame),
+    at.map((_, i) => i),
+  )
+  assert.equal(varying.step, null)
+  // Times between frames read the last frame before them, held: frame 4 from 0.4 s to 0.8 s.
+  const held = await cli(
+    'still',
+    '--root',
+    root,
+    '--out',
+    out,
+    '--compare-file',
+    vfr,
+    '--to',
+    '1',
+    '--count',
+    '10',
+    '--json',
+  )
+  assert.equal(held.status, 0, held.stderr)
+  const sampled = JSON.parse(held.stdout).result.frames
+  assert.deepEqual(
+    sampled.map((f: { frame: number }) => f.frame),
+    [0, 1, 2, 3, 4, 4, 4, 4, 5, 6],
+  )
+  assert.deepEqual(
+    sampled.map((f: { read: number }) => f.read),
+    [0, 0.1, 0.2, 0.3, 0.4, 0.4, 0.4, 0.4, 0.8, 0.9],
+  )
+  // A frame held is the same frame: no change on the reference's side.
+  assert.equal(sampled[6].activity.reference, 0)
+  assert.equal(sampled[7].activity.reference, 0)
+  const lines = await cli('still', '--root', root, '--out', out, '--compare-file', vfr)
+  assert.equal(lines.status, 0, lines.stderr)
   assert.match(
-    varying.stderr,
-    /has a variable frame rate \(frame 5 at 0\.8 s, not 0\.5 s at 10 fps\)/,
+    lines.stdout,
+    /^reference: 64×36 at a variable rate \(frames 0\.1–0\.4 s apart\), 2\.3 s$/m,
   )
 })
 

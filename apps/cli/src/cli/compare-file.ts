@@ -88,9 +88,12 @@ export type CompareFileReport = {
     colour: VideoColour
     /**
      * How a frame's time was found: `constant`, frame i at i / fps, checked against every frame's
-     * time in the file (a clip whose frames are not is refused). Another may be added.
+     * time in the file; `variable` when a frame is more than half a frame from that, each frame
+     * at its own packet time from the first's, held until the next (sample and hold).
      */
-    timing: 'constant'
+    timing: 'constant' | 'variable'
+    /** With `variable`: the smallest and largest time between two frames, in seconds. */
+    intervals?: { smallest: number; largest: number }
   }
   /** How the reference was scaled to the film's frame, or `null` when the sizes are the same. */
   scaled: Scaling | null
@@ -114,6 +117,8 @@ export type CompareFileReport = {
     at: number
     /** The reference's frame read for it: the last whose time is at or before `at`. */
     frame: number
+    /** That frame's time on the reference, in seconds from its first frame. */
+    read: number
     ms: number
     psnr: number
     deltaE: number
@@ -160,6 +165,21 @@ export const varyingRate = (times: readonly (number | null)[], fps: number): str
   return undefined
 }
 
+/**
+ * The frame read at t from frames at `times` (ascending, from the first at 0): the last whose
+ * time is at or before t, with referenceFrame's 10 µs; -1 before the first.
+ */
+export const frameAt = (t: number, times: readonly number[]): number => {
+  let lo = 0
+  let hi = times.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if ((times[mid] as number) <= t + 1e-5) lo = mid + 1
+    else hi = mid
+  }
+  return lo - 1
+}
+
 /** The most rows of a compare-file sheet. */
 export const SHEET_ROWS = 64
 
@@ -199,23 +219,43 @@ export const compareWithFile = async (
       throw new Error(
         `${o.reference} is a clip of one frame: to measure against it as a still, save it as a PNG once.`,
       )
-    // Frame i is read as the frame at i / fps: a clip whose frames are not is refused.
-    const varying = varyingRate(packetTimes(o.reference), ref.fps)
-    if (varying)
+    // Frame i is read as the frame at i / fps, or, when its frames are not, at its own time.
+    const packets = packetTimes(o.reference)
+    const varying = varyingRate(packets.times, ref.fps) !== undefined
+    const missingTime = packets.times.indexOf(null)
+    if (missingTime >= 0)
       throw new Error(
-        `${o.reference} has a variable frame rate (${varying}): --compare-file reads a clip of constant rate; re-encode it with -fps_mode cfr first.`,
+        `${o.reference} has a frame without a time (frame ${missingTime}): --compare-file cannot place it.`,
       )
-    const frameOf = (t: number) => referenceFrame(t + offset, ref.fps)
-    const ends = (t: number) => frameOf(t) >= 0 && frameOf(t) < ref.frames
+    const first = (packets.times[0] ?? 0) as number
+    const own = (packets.times as number[]).map((t) => t - first)
+    // A variable clip ends when its last packet does; one whose packets have no durations, at its
+    // last frame, which is then read only at its own time.
+    const duration = varying
+      ? packets.length === null
+        ? (own.at(-1) as number)
+        : packets.length
+      : ref.duration
+    const frameOf = varying
+      ? (t: number) => frameAt(t + offset, own)
+      : (t: number) => referenceFrame(t + offset, ref.fps)
+    const ends = varying
+      ? (t: number) =>
+          frameOf(t) >= 0 && t + offset < Math.max(duration, (own.at(-1) as number) + 1e-5)
+      : (t: number) => frameOf(t) >= 0 && frameOf(t) < ref.frames
+    const timeOf = (i: number) => (varying ? (own[i] as number) : i / ref.fps)
     let times: number[]
     if (o.times.length === 0) {
       const from = o.from ?? Math.max(0, -offset)
-      const to = o.to ?? Math.min(film.duration, ref.duration - offset)
+      const to = o.to ?? Math.min(film.duration, duration - offset)
       if (!(to > from))
         throw new Error(
-          `Nothing to compare: from ${from} s to ${to} s, with the reference ${ref.duration} s long read at t + ${offset} s.`,
+          `Nothing to compare: from ${from} s to ${to} s, with the reference ${duration} s long read at t + ${offset} s.`,
         )
-      times = rateTimes(from, to, ref.fps)
+      // A variable clip's own frames: each at its time, read at t + offset.
+      times = varying
+        ? own.map((t) => t - offset).filter((t) => t >= from - 1e-9 && t < to - 1e-9)
+        : rateTimes(from, to, ref.fps)
     } else {
       if (o.from !== undefined || o.to !== undefined)
         throw new Error(
@@ -231,7 +271,7 @@ export const compareWithFile = async (
     const missing = times.filter((t) => !ends(t))
     if (missing.length > 0)
       throw new Error(
-        `The reference (${ref.duration} s) has no frame at t + ${offset} s for: ${missing.map(round6).join(', ')}.`,
+        `The reference (${duration} s) has no frame at t + ${offset} s for: ${missing.map(round6).join(', ')}.`,
       )
     const step = stepOf(times)
     let maxShift = 0
@@ -291,6 +331,7 @@ export const compareWithFile = async (
         t: round6(t),
         at: round6(t + offset),
         frame: frameOf(t),
+        read: round6(timeOf(frameOf(t))),
         ms,
         ...compareFrames(ours, theirs),
         activity: {
@@ -324,10 +365,11 @@ export const compareWithFile = async (
         width: ref.width,
         height: ref.height,
         fps: ref.fps,
-        duration: ref.duration,
+        duration: varying ? round6(duration) : ref.duration,
         bits: ref.bits,
         colour: ref.colour,
-        timing: 'constant',
+        timing: varying ? 'variable' : 'constant',
+        ...(varying ? { intervals: intervals(own) } : {}),
       },
       scaled,
       region,
@@ -358,12 +400,24 @@ export const compareWithFile = async (
   }
 }
 
+/** The smallest and largest time between two frames at `times` (ascending), in seconds. */
+const intervals = (times: readonly number[]) => {
+  let smallest = Number.POSITIVE_INFINITY
+  let largest = 0
+  for (let i = 1; i < times.length; i++) {
+    const d = (times[i] as number) - (times[i - 1] as number)
+    smallest = Math.min(smallest, d)
+    largest = Math.max(largest, d)
+  }
+  return { smallest: round6(smallest), largest: round6(largest) }
+}
+
 /** The report as lines: the reference, then the offset and each side's motion window. */
 export const summaryLines = (r: CompareFileReport): string[] => {
   const n = (x: number) => Number(x.toFixed(3))
   const ref = r.reference
   const lines = [
-    `reference: ${ref.width}×${ref.height} at ${n(ref.fps)} fps, ${n(ref.duration)} s${
+    `reference: ${ref.width}×${ref.height} at ${ref.intervals ? `a variable rate (frames ${n(ref.intervals.smallest)}–${n(ref.intervals.largest)} s apart)` : `${n(ref.fps)} fps`}, ${n(ref.duration)} s${
       r.scaled
         ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.aspect === 'stretched' ? ', stretched: the frames have other shapes' : ''})`
         : ''

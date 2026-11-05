@@ -267,7 +267,7 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       every: say(num, 'Also a frame every this many seconds from 0.'),
       compare_file: say(
         str,
-        "A reference clip, or a PNG or JPEG, inside the project. A clip: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t; with no times, the clip's frames at its own rate over from to to. An image: the film's final frame at each time (times or every, needed) against it (PSNR, ΔE, SSIM on luma, the Sobel edge score, and per region with regions), and the sheet shows film | image | SSIM heat map. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
+        "A reference clip, or a PNG or JPEG, inside the project. A clip: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t; with no times, the clip's frames at its own rate over from to to. A variable-rate clip is read at each frame's own time, held until the next (reference.timing variable, intervals, each frame's read time). An image: the film's final frame at each time (times or every, needed) against it (PSNR, ΔE, SSIM on luma, the Sobel edge score, and per region with regions), and the sheet shows film | image | SSIM heat map. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
       ),
       regions: say(
         str,
