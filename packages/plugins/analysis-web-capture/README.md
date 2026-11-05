@@ -284,11 +284,15 @@ Read them when the motion is CSS or WAAPI: they are the page's own numbers, exac
 **`source`** is the URL, the date, the viewport, the pixel ratio and each response's status and
 sha256. The hash is of the body's bytes as served, after any `Content-Encoding` is undone: a
 response with a `Content-Length` (up to 16 MB) is held at its headers until its bytes are read,
-and a file is read from disk. A response without a length may be a stream, which holding would
-stop, so it is read once it has loaded: Chrome keeps a binary body as bytes, but a text body only
-as the text it decoded with its charset, so such a response carries `"hashOf": "text-as-utf8"`
-(that text encoded as UTF-8, the served file only when it was UTF-8). A body Chrome did not keep
-(an image it could not decode) has no hash and is a limit. `fonts` names, for each tracked
+and a file is read from disk. A response without a length (chunked, gzip, a stream) or over 16 MB
+is not held, since holding would stop a stream: Chrome sends the capture its bytes as they arrive
+(`Network.streamResourceContent`, asked while the response is at its headers). If that fails it
+is read once it has loaded: Chrome keeps a binary body as bytes, but a text body only as the text
+it decoded with its charset, so such a response carries `"hashOf": "text-as-utf8"` (that text
+encoded as UTF-8, the served file only when it was UTF-8). A body that cannot be read at all (an
+image Chrome could not decode, when it neither streams nor keeps it, or a body that broke off) is listed with `"sha256":
+null` and `"hashOf": "none"`, and a limit names it and why. A reader older than this refuses
+such a file: add `analysis-reference-tracks` again for the newer reader. `fonts` names, for each tracked
 element with text at the first frame, the fonts Chrome drew that text with then (its children's
 text included), from `CSS.getPlatformFontsForNode` as for a still: family, PostScript name,
 whether it is a web font, and how many glyphs it drew, sorted by family. A font the machine lacks
@@ -329,6 +333,11 @@ A page given as a file reads files, as Chrome lets it.
   An `offset-path`, or a `translate` the capture cannot read (`calc()`, or a percentage on an SVG
   element, whose box depends on `transform-box`), is left out of the transform channels. A
   percentage on an HTML element is of its border box, unrounded.
+- An animation whose timeline is not `document.timeline` (a scroll or view timeline, or none) is
+  not on the clock: it follows its scroll position, which input or the page's own script moves
+  (both on the capture's clock). Each is named once, by its element, with its type, its name and
+  its timeline's type (`a css-animation "grow" on a scroll timeline`); `declared` has the
+  timeline's source or subject and axis. A scroll of the window is in the `window` channels.
 - More than one element matching a selector: the first is tracked.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.
@@ -336,12 +345,10 @@ A page given as a file reads files, as Chrome lets it.
   no pointer path, touch, keyboard or drag yet: a page that reacts to mousemove (a magnetic
   button, a tilt) gets one move from nowhere. A click's press and release are one instant, so an
   `:active` look shows on no frame.
-- A request the proxy refused, a response that did not load, or one whose body has no hash.
+- A request the proxy refused, a response that did not load, or one whose body could not be read
+  (it stays in `source.responses`, without a hash).
 
 **Limits not held and not detected**: a capture that meets them has nothing in `limits` for them.
-- Scroll and view timelines are not on the clock: they follow the scroll position, which input or
-  the page's own script moves (both on the capture's clock), and which the `window` channels
-  record.
 - Canvas and WebGL drawing (no channel reads them), `AudioContext`, `<audio>` (its `currentTime`,
   `timeupdate` and `ended` run on real time), `requestVideoFrameCallback`, `Temporal`,
   `crypto.getRandomValues`, GIF and APNG frames.

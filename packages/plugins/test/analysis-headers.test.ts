@@ -45,7 +45,13 @@ const headerProblems = (doc: unknown): string[] => {
     if (typeof source.devicePixelRatio !== 'number')
       wrong.push('source.devicePixelRatio is missing')
     if (!responses) wrong.push('source.responses is missing')
-    else if (responses.some((r) => !/^[0-9a-f]{64}$/.test(String(r?.sha256))))
+    else if (
+      responses.some(
+        (r) =>
+          !(r?.sha256 === null && r?.hashOf === 'none') &&
+          !/^[0-9a-f]{64}$/.test(String(r?.sha256)),
+      )
+    )
       wrong.push("a source response's sha256 is not a sha256 in hex")
   } else {
     if (typeof source.path !== 'string') wrong.push('source.path is missing')
@@ -136,6 +142,16 @@ test('the check fails on the old header and passes the shared one', () => {
   assert.deepEqual(headerProblems({ ...header, source: page }), [])
   assert.deepEqual(
     headerProblems({ ...header, source: { ...page, responses: [{ url: 'x', sha256: 'no' }] } }),
+    ["a source response's sha256 is not a sha256 in hex"],
+  )
+  // A body that could not be read has no hash, and says so.
+  const unread = { url: 'x', status: 200, sha256: null, hashOf: 'none' }
+  assert.deepEqual(headerProblems({ ...header, source: { ...page, responses: [unread] } }), [])
+  assert.deepEqual(
+    headerProblems({
+      ...header,
+      source: { ...page, responses: [{ ...unread, hashOf: undefined }] },
+    }),
     ["a source response's sha256 is not a sha256 in hex"],
   )
   assert.deepEqual(

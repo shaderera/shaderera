@@ -18,9 +18,10 @@ export type PageSource = {
   /**
    * Every response the page loaded, with its status and the sha256 of its body as served (after
    * any Content-Encoding is undone). `hashOf` names what was hashed instead when the bytes were
-   * not available: `text-as-utf8` is the body as the browser decoded it, encoded as UTF-8.
+   * not available: `text-as-utf8` is the body as the browser decoded it, encoded as UTF-8. A body
+   * that could not be read has `sha256: null` and `hashOf: 'none'`, and a limit says why.
    */
-  responses: { url: string; status: number; sha256: string; hashOf?: string }[]
+  responses: { url: string; status: number; sha256: string | null; hashOf?: string }[]
   /**
    * For a page's motion: the fonts each tracked element's text was drawn with at the first frame,
    * as the browser reports them, a fallback a font of its own. Absent from other sources.
@@ -122,11 +123,12 @@ export const sourceProblem = (s: unknown, name: string): string | undefined => {
         !isObject(r) ||
         !isText(r.url) ||
         !Number.isInteger(r.status) ||
-        typeof r.sha256 !== 'string' ||
-        !HEX.test(r.sha256),
+        (r.sha256 === null
+          ? r.hashOf !== 'none'
+          : typeof r.sha256 !== 'string' || !HEX.test(r.sha256)),
     )
     if (bad >= 0)
-      return `${name}'s source response ${bad} needs a url, a status and a sha256 in hex`
+      return `${name}'s source response ${bad} needs a url, a status and a sha256 in hex (null with hashOf "none")`
   } else return `${name}'s source is neither a file (path) nor a page (url)`
   return undefined
 }
