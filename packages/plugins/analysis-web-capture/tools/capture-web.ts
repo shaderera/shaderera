@@ -11,6 +11,8 @@
 //     [--locale <BCP 47>]
 //     [--settle load|loaded] [--trigger load|none|click|hover|leave|scroll --target <selector>
 //     --at <ms> [--scroll-to <px> --scroll-ms <ms>]]
+//   node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n>
+//     --viewport <width>x<height> [--root <selector>] [--style <property>…] [the same others]
 //
 // Writes <dir>/tracks.json. Each frame, in this order: an input due by its time is dispatched
 // over CDP at its own time (the clock advanced to it, then synced once the browser delivered it),
@@ -18,14 +20,19 @@
 // frames in time order, the capture waits for the network and the page's pending work, then every
 // tracked element's box, transform and opacity, and the window's scroll, are read. The README
 // lists the channels and the limits.
+//
+// With --still, the clock runs the same way to that one moment, and <dir>/style.json (kind
+// reference-style, tools/web-capture-style.ts) and <dir>/style.png are written instead.
 
 import { sha256 } from '@shaderera/core'
 import type { Limit, Sample, Track } from '../src/reference/tracks.ts'
+import { styleJson } from './reference-style.ts'
 import { tracksJson } from './reference-tracks.ts'
 import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
+import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.2.0'
+export const VERSION = '0.4.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -44,16 +51,26 @@ export const chromePath = async () => {
 export type CaptureOptions = {
   /** A URL (http, https, file) or a path to an HTML file. */
   page: string
-  /** The folder tracks.json is written to. */
+  /** The folder tracks.json (or style.json and style.png) is written to. */
   out: string
-  /** CSS selectors, one element each: the first match in document order. */
-  track: string[]
-  fps: number
-  /** Seconds captured from the load; frames at 0, 1/fps, … up to it. */
-  duration: number
+  /** CSS selectors, one element each: the first match in document order. Not with `still`. */
+  track?: string[]
+  /** Frames per second. Not with `still`. */
+  fps?: number
+  /** Seconds captured from the load; frames at 0, 1/fps, … up to it. Not with `still`. */
+  duration?: number
   viewport: { width: number; height: number }
-  /** Animation frames per second the page sees; a whole multiple of fps. fps when left out. */
+  /**
+   * Animation frames per second the page sees; a whole multiple of fps, fps when left out. A
+   * still needs it, and the still's time must be on one of its frames.
+   */
   rafHz?: number
+  /** The page's time to read its style facts at, in ms after the freeze, instead of motion. */
+  still?: number
+  /** For a still: the element whose subtree is read, the first match. `:root` when left out. */
+  root?: string
+  /** For a still: computed styles read beside STYLES, as CSS names them. */
+  styles?: string[]
   /** Math.random's seed in the page. */
   seed?: number
   /** What performance.now, rAF timestamps and document.timeline read at the freeze, in ms. */
@@ -150,29 +167,12 @@ const positive = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && 
 /** The options checked and filled, or a refusal naming what is wrong. Nothing starts before it. */
 export const checkOptions = (o: CaptureOptions) => {
   if (!o.page) throw new Error('give the page to capture: a URL or an HTML file')
-  if (!o.out) throw new Error('give --out <dir>, the folder tracks.json is written to')
-  if (o.track.length === 0)
-    throw new Error('give at least one --track <selector>, the element whose motion to capture')
-  if (new Set(o.track).size !== o.track.length)
-    throw new Error(`--track names an element twice: ${o.track.join(', ')}`)
-  if (!positive(o.fps)) throw new Error(`--fps ${o.fps} is not a rate above 0`)
-  if (!positive(o.duration)) throw new Error(`--duration ${o.duration} is not seconds above 0`)
+  if (!o.out)
+    throw new Error('give --out <dir>, the folder tracks.json (or style.json) is written to')
   const { width, height } = o.viewport
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1)
     throw new Error(`--viewport ${width}x${height} is not whole CSS pixels, like 1280x720`)
-  // No default: any whole multiple of the fps is deterministic, and a page that steps once per
-  // animation frame (a spring, a lerp, a smooth scroll) moves differently at each one.
-  if (o.rafHz === undefined)
-    throw new Error(
-      `give --rafHz <n>, how often the page's requestAnimationFrame runs: the refresh rate the reference was seen at, a whole multiple of --fps ${o.fps} (${[1, 2, 3].map((m) => m * o.fps).join(', ')}…). A page that steps once per frame moves differently at each rate.`,
-    )
-  const rafHz = o.rafHz
-  if (!positive(rafHz)) throw new Error(`--rafHz ${rafHz} is not a rate above 0`)
-  const ratio = rafHz / o.fps
-  if (ratio < 1 - 1e-9 || Math.abs(ratio - Math.round(ratio)) > 1e-9)
-    throw new Error(
-      `--rafHz ${rafHz} is not a whole multiple of --fps ${o.fps}: a JS animation would show a tick from before the frame while CSS shows the frame itself. Give ${[1, 2, 3].map((m) => m * o.fps).join(', ')}…`,
-    )
+  const mode = o.still === undefined ? motionOf(o) : stillOf(o)
   const seed = o.seed ?? 1
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff)
     throw new Error(`--seed ${seed} is not a whole number from 0 to 4294967295`)
@@ -198,10 +198,6 @@ export const checkOptions = (o: CaptureOptions) => {
   } catch {
     throw new Error(`--timezone ${timezone} is not an IANA time zone, like UTC or Asia/Bangkok`)
   }
-  if (o.track.includes(WINDOW))
-    throw new Error(
-      `--track ${WINDOW}: that name holds the window's own scrollX and scrollY, which every capture records`,
-    )
   const settle = o.settle ?? 'load'
   if (!SETTLES.includes(settle))
     throw new Error(`--settle ${settle} is not one of ${SETTLES.join(', ')}`)
@@ -211,11 +207,17 @@ export const checkOptions = (o: CaptureOptions) => {
   } catch {
     throw new Error(`--locale ${o.locale} is not a BCP 47 language tag, like en-US or th-TH`)
   }
-  const frames = Math.floor(o.duration * o.fps + 1e-9) + 1
-  const trigger = checkTrigger(o, frameMs(frames - 1, o.fps))
+  const last = mode.times.at(-1) as number
+  const trigger = checkTrigger(
+    o,
+    last,
+    o.still === undefined
+      ? `the last frame, at ${+last.toFixed(3)} ms`
+      : `the still, at ${last} ms`,
+  )
   return {
     ...o,
-    rafHz,
+    ...mode,
     seed,
     timeOrigin,
     clockDate: new Date(epoch).toISOString(),
@@ -228,7 +230,114 @@ export const checkOptions = (o: CaptureOptions) => {
     allowLocal: o.allowLocal ?? false,
     settle,
     trigger,
+  }
+}
+
+/** A motion capture's settings checked: the tracks, the fps, the duration and its frames. */
+const motionOf = (o: CaptureOptions) => {
+  for (const [given, flag] of [
+    [o.root, '--root'],
+    [o.styles, '--style'],
+  ] as const)
+    if (given !== undefined)
+      throw new Error(`${flag} is for --still: a motion capture reads only the --track elements`)
+  const track = o.track ?? []
+  if (track.length === 0)
+    throw new Error(
+      'give at least one --track <selector>, the element whose motion to capture, or --still <ms> for the style facts at one moment',
+    )
+  if (new Set(track).size !== track.length)
+    throw new Error(`--track names an element twice: ${track.join(', ')}`)
+  if (track.includes(WINDOW))
+    throw new Error(
+      `--track ${WINDOW}: that name holds the window's own scrollX and scrollY, which every capture records`,
+    )
+  const fps = o.fps as number
+  if (!positive(fps)) throw new Error(`--fps ${fps} is not a rate above 0`)
+  const duration = o.duration as number
+  if (!positive(duration)) throw new Error(`--duration ${duration} is not seconds above 0`)
+  // No default: any whole multiple of the fps is deterministic, and a page that steps once per
+  // animation frame (a spring, a lerp, a smooth scroll) moves differently at each one.
+  if (o.rafHz === undefined)
+    throw new Error(
+      `give --rafHz <n>, how often the page's requestAnimationFrame runs: the refresh rate the reference was seen at, a whole multiple of --fps ${fps} (${[1, 2, 3].map((m) => m * fps).join(', ')}…). A page that steps once per frame moves differently at each rate.`,
+    )
+  const rafHz = o.rafHz
+  if (!positive(rafHz)) throw new Error(`--rafHz ${rafHz} is not a rate above 0`)
+  const ratio = rafHz / fps
+  if (ratio < 1 - 1e-9 || Math.abs(ratio - Math.round(ratio)) > 1e-9)
+    throw new Error(
+      `--rafHz ${rafHz} is not a whole multiple of --fps ${fps}: a JS animation would show a tick from before the frame while CSS shows the frame itself. Give ${[1, 2, 3].map((m) => m * fps).join(', ')}…`,
+    )
+  const frames = Math.floor(duration * fps + 1e-9) + 1
+  return {
+    mode: 'motion' as const,
+    track,
+    fps,
+    duration,
+    rafHz,
     frames,
+    times: Array.from({ length: frames }, (_, k) => frameMs(k, fps)),
+    root: undefined,
+    styles: undefined,
+  }
+}
+
+/** A still's settings checked: its time on an animation frame, the root and the styles. */
+const stillOf = (o: CaptureOptions) => {
+  for (const [given, flag] of [
+    [o.track, '--track'],
+    [o.fps, '--fps'],
+    [o.duration, '--duration'],
+  ] as const)
+    if (given !== undefined)
+      throw new Error(
+        `${flag} is for motion: --still reads every element under --root at one moment`,
+      )
+  const still = o.still as number
+  if (!(Number.isFinite(still) && still >= 0))
+    throw new Error(`--still ${still} is not ms of 0 or more`)
+  const rafHz = o.rafHz
+  if (rafHz === undefined)
+    throw new Error(
+      "--still needs --rafHz <n>, how often the page's requestAnimationFrame runs: it changes where a JS animation is at the still",
+    )
+  if (!positive(rafHz)) throw new Error(`--rafHz ${rafHz} is not a rate above 0`)
+  // On an animation frame, a JS animation shows the still itself, as CSS does. The clock runs a
+  // tick due within EPSILON_MS of its target, so that is how near a frame the still must be.
+  const ticks = (still * rafHz) / 1000
+  const frameAt = (k: number) => (k * 1000) / rafHz
+  if (Math.abs(still - frameAt(Math.round(ticks))) > EPSILON_MS) {
+    const before = Math.floor(ticks)
+    throw new Error(
+      `--still ${still} is not on an animation frame at --rafHz ${rafHz} (one each ${+frameAt(1).toFixed(3)} ms): a JS animation would show a tick from before it while CSS shows the moment itself. Give ${frameAt(before)} or ${frameAt(before + 1)}, or a --rafHz that makes ${still} ms a whole number of frames`,
+    )
+  }
+  const root = o.root ?? ':root'
+  if (root.trim() === '') throw new Error('--root is empty: give a CSS selector')
+  const added = o.styles ?? []
+  for (const [i, s] of added.entries()) {
+    if (s.startsWith('--'))
+      throw new Error(
+        `--style ${s} is a custom property, which DOMSnapshot does not read: the standard properties it feeds are read with their computed values`,
+      )
+    if (!/^-?[a-z][a-z0-9-]*$/.test(s))
+      throw new Error(`--style ${JSON.stringify(s)} is not a CSS property name, like white-space`)
+    if (STYLES.includes(s))
+      throw new Error(`--style ${s} is read already: it is in the default list`)
+    if (added.indexOf(s) !== i) throw new Error(`--style ${s} is given twice`)
+  }
+  return {
+    mode: 'still' as const,
+    still,
+    rafHz,
+    root,
+    styles: [...STYLES, ...added],
+    times: [still],
+    track: [] as string[],
+    fps: undefined,
+    duration: undefined,
+    frames: 1,
   }
 }
 
@@ -242,7 +351,7 @@ export type TriggerParams = {
 }
 
 /** The trigger's settings checked: each input takes its own and refuses the others. */
-const checkTrigger = (o: CaptureOptions, lastMs: number): TriggerParams => {
+const checkTrigger = (o: CaptureOptions, lastMs: number, last: string): TriggerParams => {
   const type = o.trigger ?? 'load'
   if (!TRIGGERS.includes(type))
     throw new Error(`--trigger ${type} is not one of ${TRIGGERS.join(', ')}`)
@@ -282,7 +391,6 @@ const checkTrigger = (o: CaptureOptions, lastMs: number): TriggerParams => {
       `--trigger ${type} needs --at <ms>, when the input is sent: it moves the motion`,
     )
   // An input after the last frame would show on no frame, so it is refused, not dropped.
-  const last = `the last frame, at ${+lastMs.toFixed(3)} ms`
   if (!(Number.isFinite(at) && at >= 0 && at <= lastMs + EPSILON_MS))
     throw new Error(`--at ${at} is not ms from 0 to ${last}`)
   if (type === 'leave' && at === 0)
@@ -362,14 +470,19 @@ export const frameMs = (k: number, fps: number) => k * (1000 / fps)
  * after (a wheel at 208.33333333333334 ms, a frame at 208.33333333333331), so the clock never has
  * to go back. Every input has a frame: the options refuse one after the last.
  */
-export const batchesOf = (inputs: Input[], frames: number, fps: number) => {
-  const batches: { input: Input; ms: number }[][] = Array.from({ length: frames }, () => [])
+export const batchesOf = (inputs: Input[], frames: number, fps: number) =>
+  batchesAt(
+    inputs,
+    Array.from({ length: frames }, (_, k) => frameMs(k, fps)),
+  )
+
+/** The same for reads at any increasing times in ms: a still's one, or each frame's. */
+export const batchesAt = (inputs: Input[], times: number[]) => {
+  const batches: { input: Input; ms: number }[][] = times.map(() => [])
   let next = 0
-  for (let k = 0; k < frames; k++) {
-    const ms = frameMs(k, fps)
+  for (const [k, ms] of times.entries())
     for (let i = inputs[next]; i && i.ms <= ms + EPSILON_MS; i = inputs[++next])
       batches[k]?.push({ input: i, ms: Math.min(i.ms, ms) })
-  }
   if (next < inputs.length)
     throw new Error(`an input at ${inputs[next]?.ms} ms is after the last frame`)
   return batches
@@ -714,6 +827,7 @@ export const CHROME_FLAGS = [
   '--disable-smooth-scrolling',
   '--hide-scrollbars',
   '--mute-audio',
+  '--autoplay-policy=no-user-gesture-required',
   '--disable-background-networking',
   '--disable-component-update',
   '--disable-default-apps',
@@ -744,7 +858,7 @@ const SETTLE_MS = 15000
 export const captureWeb = async (options: CaptureOptions) => {
   const o = checkOptions(options)
   const log = o.log ?? (() => {})
-  const { spawn } = await import('node:child_process')
+  const { spawn, spawnSync } = await import('node:child_process')
   const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = await import(
     'node:fs'
   )
@@ -813,13 +927,25 @@ export const captureWeb = async (options: CaptureOptions) => {
     return cleaned
   }
   const end = async () => {
-    client?.close()
-    if (!gone) browser.kill()
-    await Promise.race([exited, sleep(5000, undefined, { ref: false })])
-    if (!gone) browser.kill('SIGKILL')
-    await net.close()
-    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
-    release()
+    try {
+      client?.close()
+      // On Windows, killing chrome.exe leaves its children, which keep the profile's files open.
+      if (!gone && process.platform === 'win32' && browser.pid) {
+        spawnSync('taskkill', ['/pid', String(browser.pid), '/T', '/F'], { stdio: 'ignore' })
+      } else if (!gone) browser.kill()
+      await Promise.race([exited, sleep(5000, undefined, { ref: false })])
+      if (!gone) browser.kill('SIGKILL')
+      await net.close()
+      try {
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      } catch (e) {
+        process.stderr.write(
+          `Could not remove the capture's Chrome profile ${profile}: ${(e as Error).message}\n`,
+        )
+      }
+    } finally {
+      release()
+    }
   }
   const onSignal = (signal: NodeJS.Signals) => {
     void cleanup().finally(() => process.exit(signal === 'SIGINT' ? 130 : 143))
@@ -850,13 +976,33 @@ export const captureWeb = async (options: CaptureOptions) => {
       flatten: true,
     })
 
+    const evaluate = async <T>(expression: string): Promise<T> => {
+      const r = await c.send<{
+        result: { value?: T }
+        exceptionDetails?: { text: string; exception?: { description?: string } }
+      }>('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, page)
+      if (r.exceptionDetails)
+        throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text)
+      return r.result.value as T
+    }
+    // What every clock is given: the top's frees itself until the load event with --settle loaded.
+    const clockConfig = {
+      seed: o.seed,
+      rafHz: o.rafHz,
+      timeOrigin: o.timeOrigin,
+      epoch: o.epoch,
+      free: o.settle === 'loaded',
+      waitMs: SETTLE_MS,
+    }
+
     // What the page loads, from every session: open requests, and each response's sha256.
     const limits: Limit[] = []
     const open = new Map<string, { url: string; type?: string; at: number; long: boolean }>()
     const responses = new Map<string, { url: string; status: number }>()
     const hashed: Served[] = []
     const reading: Promise<void>[] = []
-    const keyOf = (session: string | undefined, id: string) => `${session ?? ''} ${id}`
+    // Requests by id alone: a worker's script is sent on the page's session and finishes on the
+    // worker's, under one id (ids are unique across Chrome's processes).
     // A response of a known length is held at its headers and its bytes read as they were served
     // (Network.getResponseBody gives a text body only as decoded text); one without a length may
     // be a stream, which holding would stop, so it is let through and read at the end.
@@ -894,18 +1040,18 @@ export const captureWeb = async (options: CaptureOptions) => {
           base64Encoded ? new Uint8Array(Buffer.from(body, 'base64')) : null,
         )
         .catch(() => null)
-      served.set(keyOf(s, p.networkId as string), body)
+      served.set(p.networkId as string, body)
       void body.finally(() => go('Fetch.continueResponse'))
     })
-    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p, s) => {
-      const key = keyOf(s, p.requestId)
+    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p) => {
+      const key = p.requestId
       received.set(key, (received.get(key) ?? 0) + p.dataLength)
     })
     c.on<{ requestId: string; request: { url: string }; type?: string }>(
       'Network.requestWillBeSent',
-      (p, s) => {
+      (p) => {
         if (p.type === 'EventSource' || /^(data|blob):/.test(p.request.url)) return
-        open.set(keyOf(s, p.requestId), {
+        open.set(p.requestId, {
           url: p.request.url,
           type: p.type,
           at: performance.now(),
@@ -915,13 +1061,13 @@ export const captureWeb = async (options: CaptureOptions) => {
     )
     c.on<{ requestId: string; response: { url: string; status: number } }>(
       'Network.responseReceived',
-      (p, s) => {
+      (p) => {
         if (/^(data|blob):/.test(p.response.url)) return
-        responses.set(keyOf(s, p.requestId), { url: p.response.url, status: p.response.status })
+        responses.set(p.requestId, { url: p.response.url, status: p.response.status })
       },
     )
     c.on<{ requestId: string }>('Network.loadingFinished', (p, s) => {
-      const key = keyOf(s, p.requestId)
+      const key = p.requestId
       open.delete(key)
       const r = responses.get(key)
       const held = served.get(key)
@@ -962,8 +1108,8 @@ export const captureWeb = async (options: CaptureOptions) => {
     })
     c.on<{ requestId: string; errorText: string; canceled?: boolean; blockedReason?: string }>(
       'Network.loadingFailed',
-      (p, s) => {
-        const key = keyOf(s, p.requestId)
+      (p) => {
+        const key = p.requestId
         const r = open.get(key)
         open.delete(key)
         if (!r || p.canceled || p.errorText === 'net::ERR_ABORTED') return
@@ -973,36 +1119,97 @@ export const captureWeb = async (options: CaptureOptions) => {
       },
     )
 
-    // Frames and workers have clocks of their own, which the capture does not hold.
-    const IFRAME = 'an iframe: its own clock is not held, so it runs on real time'
+    // Every frame and dedicated worker gets a clock of its own, driven by the one that made it
+    // (tools/inpage/clock.js). A frame of the page's process gets it with the page's script; a
+    // frame in a process of its own and a worker attach here, paused before their first script,
+    // and get it then, starting at the page's time. Any other target runs on real time.
+    // Each named by its URL, with its kind in the reason.
     const realTime = new Map<string, string>()
-    c.on<{ frame: { id: string; parentId?: string; url: string } }>(
-      'Page.frameNavigated',
-      (p, s) => {
-        if (s === page && p.frame.parentId) realTime.set(`iframe ${p.frame.url}`, IFRAME)
-      },
-    )
+    const kindOf = (type: string) =>
+      type === 'iframe' ? 'an iframe' : `a ${type.replace('_', ' ')}`
+    const workerClocks = new Map<string, { breakpointId: string; source: string; name: string }>()
+    c.on('Debugger.paused', (_p, s) => {
+      if (s === undefined) return
+      const w = workerClocks.get(s)
+      workerClocks.delete(s)
+      void (async () => {
+        if (w) {
+          const r = await c
+            .send<{
+              exceptionDetails?: { text: string; exception?: { description?: string } }
+            }>('Runtime.evaluate', { expression: w.source }, s)
+            .catch((e: Error) => ({ exceptionDetails: { text: e.message, exception: undefined } }))
+          const failed = r.exceptionDetails
+          if (failed)
+            realTime.set(
+              w.name,
+              `a worker the clock could not be added to (${failed.exception?.description ?? failed.text}): it runs on real time`,
+            )
+          await c
+            .send('Debugger.removeBreakpoint', { breakpointId: w.breakpointId }, s)
+            .catch(() => {})
+        }
+        await c.send('Debugger.resume', {}, s).catch(() => {})
+        await c.send('Debugger.disable', {}, s).catch(() => {})
+      })()
+    })
+    const clockFor = (start: unknown) =>
+      `${clockSource}(${JSON.stringify({ ...clockConfig, start: start ?? undefined })})`
     c.on<{
       sessionId: string
       targetInfo: { type: string; url: string }
       waitingForDebugger: boolean
     }>('Target.attachedToTarget', (p, parent) => {
-      // Our own page attaches on the browser's session; frames and workers on the page's.
-      if (parent === undefined) return
-      const { type, url: at } = p.targetInfo
-      const kind = type.replace('_', ' ')
-      realTime.set(`${kind} ${at}`, type === 'iframe' ? IFRAME : `a ${kind}: it runs on real time`)
+      const { type } = p.targetInfo
+      // A frame can attach before it has a URL of its own.
+      const at = p.targetInfo.url || type.replace('_', ' ')
       const s = p.sessionId
+      // Our own page attaches on the browser's session, and so does a shared worker, which no
+      // page owns: it runs on real time (the page's clock names it), and its network is followed
+      // so frames do not wait for its script.
+      if (parent === undefined) {
+        if (type === 'shared_worker')
+          void c
+            .send('Network.enable', {}, s)
+            .catch(() => {})
+            .then(() => c.send('Runtime.runIfWaitingForDebugger', {}, s).catch(() => {}))
+        return
+      }
       void (async () => {
         try {
           await c.send('Network.enable', {}, s)
           await c.send('Fetch.enable', { patterns: FETCH_PATTERNS }, s).catch(() => {})
+          if (type === 'worker' || type === 'iframe') {
+            const start = await evaluate<unknown>('self.__shadereraClock?.time() ?? null').catch(
+              () => null,
+            )
+            if (type === 'worker') {
+              // Paused at its start, a worker's global has no timers yet: the clock goes in just
+              // before its first script runs.
+              await c.send('Debugger.enable', {}, s)
+              const { breakpointId } = await c.send<{ breakpointId: string }>(
+                'Debugger.setInstrumentationBreakpoint',
+                { instrumentation: 'beforeScriptExecution' },
+                s,
+              )
+              workerClocks.set(s, { breakpointId, source: clockFor(start), name: at })
+            } else {
+              await c.send('Page.enable', {}, s)
+              await c.send('Page.addScriptToEvaluateOnNewDocument', { source: clockFor(start) }, s)
+              await emulate(s)
+            }
+          } else realTime.set(at, `${kindOf(type)}: it runs on real time`)
           await c.send(
             'Target.setAutoAttach',
             { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
             s,
           )
-        } catch {}
+        } catch (e) {
+          realTime.set(
+            at,
+            `${kindOf(type)} the clock could not be added to (${(e as Error).message}): it runs on real time`,
+          )
+        }
         await c.send('Runtime.runIfWaitingForDebugger', {}, s).catch(() => {})
       })()
     })
@@ -1025,18 +1232,28 @@ export const captureWeb = async (options: CaptureOptions) => {
       },
       page,
     )
-    await c.send(
-      'Emulation.setEmulatedMedia',
-      { features: Object.entries(o.media).map(([name, value]) => ({ name, value })) },
-      page,
-    )
-    await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, page)
-    await c.send('Emulation.setLocaleOverride', { locale: o.locale }, page)
-    await c.send(
-      'Network.setUserAgentOverride',
-      { userAgent: version.userAgent, acceptLanguage: o.locale },
-      page,
-    )
+    // The media features, time zone and locale, for the page and each frame in a process of its own.
+    const emulate = async (session: string) => {
+      await c.send(
+        'Emulation.setEmulatedMedia',
+        { features: Object.entries(o.media).map(([name, value]) => ({ name, value })) },
+        session,
+      )
+      await c.send('Emulation.setTimezoneOverride', { timezoneId: o.timezone }, session)
+      // The locale is one per renderer process: a frame in a process that already has it (this
+      // capture set it, to the same locale) is refused, and has it.
+      await c
+        .send('Emulation.setLocaleOverride', { locale: o.locale }, session)
+        .catch((e: Error) => {
+          if (!/already in effect/.test(e.message)) throw e
+        })
+      await c.send(
+        'Network.setUserAgentOverride',
+        { userAgent: version.userAgent, acceptLanguage: o.locale },
+        session,
+      )
+    }
+    await emulate(page)
     if (o.cpuThrottle > 1)
       await c.send('Emulation.setCPUThrottlingRate', { rate: o.cpuThrottle }, page)
     await c.send(
@@ -1044,29 +1261,23 @@ export const captureWeb = async (options: CaptureOptions) => {
       { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
       page,
     )
-    // The clock holds the top frame only: a frame's clock that nothing advances would stop it.
-    const config = JSON.stringify({
-      seed: o.seed,
-      rafHz: o.rafHz,
-      timeOrigin: o.timeOrigin,
-      epoch: o.epoch,
-      free: o.settle === 'loaded',
+    await c.send('Target.setAutoAttach', {
+      autoAttach: true,
+      waitForDebuggerOnStart: true,
+      flatten: true,
+      filter: [{ type: 'shared_worker' }, { exclude: true }],
     })
-    await c.send(
-      'Page.addScriptToEvaluateOnNewDocument',
-      { source: `if (self === self.top) {\n${clockSource}(${config})\n}` },
-      page,
-    )
-
-    const evaluate = async <T>(expression: string): Promise<T> => {
-      const r = await c.send<{
-        result: { value?: T }
-        exceptionDetails?: { text: string; exception?: { description?: string } }
-      }>('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, page)
-      if (r.exceptionDetails)
-        throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text)
-      return r.result.value as T
+    // A still names the web fonts the page loads, as Chrome reports them: their files are not kept.
+    const fontFaces: Record<string, unknown>[] = []
+    if (o.mode === 'still') {
+      c.on<{ font?: Record<string, unknown> }>('CSS.fontsUpdated', (p, s) => {
+        if (s === page && p.font) fontFaces.push(p.font)
+      })
+      await c.send('DOM.enable', {}, page)
+      await c.send('CSS.enable', {}, page)
     }
+    // The top frame's clock is driven by the capture; each frame's and worker's by its parent's.
+    await c.send('Page.addScriptToEvaluateOnNewDocument', { source: clockFor(null) }, page)
 
     const date = new Date().toISOString()
     let loaded = false
@@ -1116,6 +1327,7 @@ export const captureWeb = async (options: CaptureOptions) => {
     const selectors = [
       ...o.track.map((sel) => ['--track', sel] as const),
       ...(o.trigger.target ? [['--target', o.trigger.target] as const] : []),
+      ...(o.root !== undefined ? [['--root', o.root] as const] : []),
     ]
     for (const [flag, sel] of selectors) {
       const ok = await evaluate<boolean>(
@@ -1123,9 +1335,19 @@ export const captureWeb = async (options: CaptureOptions) => {
       )
       if (!ok) throw new Error(`${flag} ${JSON.stringify(sel)} is not a CSS selector`)
     }
+    for (const s of o.styles ?? []) {
+      const known = await evaluate<boolean>(`CSS.supports(${JSON.stringify(s)}, 'inherit')`)
+      if (!known)
+        throw new Error(
+          STYLES.includes(s)
+            ? `the default style ${s} is unknown to this Chrome (${version.product}): give its version in an issue`
+            : `--style ${s}: this Chrome knows no such CSS property`,
+        )
+    }
 
-    // The network and the page's own pending work (worker replies, video seeks) settle before a
-    // frame is read. A request open for LONG_REQUEST_MS no longer holds frames.
+    // The network and the page's own pending work (frames and workers starting, video seeks and
+    // loads, in the page and each frame) settle before a frame is read. A request open for
+    // LONG_REQUEST_MS no longer holds frames.
     const settle = async (time: number) => {
       const started = performance.now()
       for (let calm = 0; calm < 2; ) {
@@ -1275,10 +1497,13 @@ export const captureWeb = async (options: CaptureOptions) => {
       await afterInput(input.ms)
     }
 
-    log(`capturing ${o.frames} frames at ${o.fps} fps (rafHz ${o.rafHz})`)
-    const batches = batchesOf(inputs, o.frames, o.fps)
-    for (let k = 0; k < o.frames; k++) {
-      const ms = frameMs(k, o.fps)
+    log(
+      o.mode === 'still'
+        ? `capturing the style at ${o.still} ms (rafHz ${o.rafHz})`
+        : `capturing ${o.frames} frames at ${o.fps} fps (rafHz ${o.rafHz})`,
+    )
+    const batches = batchesAt(inputs, o.times)
+    for (const [k, ms] of o.times.entries()) {
       const time = ms / 1000
       for (const { input, ms: at } of batches[k] ?? []) {
         await advanceTo(at)
@@ -1287,6 +1512,7 @@ export const captureWeb = async (options: CaptureOptions) => {
       }
       await advanceTo(ms)
       await settle(time)
+      if (o.mode === 'still') break
       const read = await held<{
         elements: Read[]
         scroll: number[]
@@ -1332,7 +1558,18 @@ export const captureWeb = async (options: CaptureOptions) => {
           sampled(el, channel).push([time, Number.isFinite(v) ? v : null])
         }
       })
-      if (k % Math.max(1, Math.round(o.fps)) === 0) log(`  ${time.toFixed(2)} s`)
+      if (k % Math.max(1, Math.round(o.fps as number)) === 0) log(`  ${time.toFixed(2)} s`)
+    }
+    // A still: the style facts at its moment, once fonts that started loading have loaded.
+    let style: Awaited<ReturnType<typeof readStyle>> | undefined
+    if (o.mode === 'still') {
+      await held('document.fonts.ready.then(() => true)', o.still as number)
+      style = await readStyle((method, params) => c.send(method, params, page), {
+        root: o.root,
+        styles: o.styles,
+        fontFaces,
+      })
+      limits.push(...style.limits)
     }
     // Bodies are read as their loads finish; reading one can come after the last frame.
     for (let n = 0; n < reading.length; ) {
@@ -1341,6 +1578,14 @@ export const captureWeb = async (options: CaptureOptions) => {
       n = m
     }
 
+    // What the clocks could not hold, in the page and in each frame and worker, and the frames
+    // that never had one. Asking for those brings each child's last limits up first.
+    const unclocked = await evaluate<string[]>('self.__shadereraClock.unclocked()')
+    limits.push(...(await evaluate<Limit[]>('self.__shadereraClock.limits()')))
+    // A frame the clock could not be added to is named once, by realTime.
+    for (const where of unclocked)
+      if (!realTime.has(where))
+        limits.push({ where, reason: 'an iframe the clock did not reach: it runs on real time' })
     for (const [where, reason] of realTime) limits.push({ where, reason })
     for (const s of spans.values()) limits.push(s)
     for (const r of refused) limits.push({ where: r.where, reason: r.reason })
@@ -1351,6 +1596,63 @@ export const captureWeb = async (options: CaptureOptions) => {
         byCode(a.where, b.where) || byCode(a.reason, b.reason) || (a.from ?? -1) - (b.from ?? -1),
     )
     const uniqueResponses = [...new Map(hashed.map((r) => [JSON.stringify(r), r])).values()]
+    const tool = {
+      script: 'tools/capture-web.ts',
+      version: VERSION,
+      chrome: version.product,
+      userAgent: version.userAgent,
+      chromeFlags: CHROME_FLAGS,
+      clock: { script: 'tools/inpage/clock.js', version: clock, sha256: clockSha },
+    }
+    // What the page's clocks read, when they froze and what started the motion: both kinds.
+    const clockParams = {
+      rafHz: o.rafHz,
+      seed: o.seed,
+      timeOrigin: o.timeOrigin,
+      clockDate: o.clockDate,
+      timezone: o.timezone,
+      locale: o.locale,
+      settle: o.settle,
+      trigger,
+      media: o.media,
+      allowLocal: o.allowLocal,
+      mobile: MOBILE,
+    }
+    const frame = {
+      width: o.viewport.width,
+      height: o.viewport.height,
+      pixelRatio: o.devicePixelRatio,
+    }
+    const viewport = { width: o.viewport.width, height: o.viewport.height }
+    const { devicePixelRatio } = o
+    const hashes = uniqueResponses
+    // The real time the load took, which --settle loaded froze the page's clocks after.
+    const loadTime = o.settle === 'loaded' ? { loadedAt: loadedAt / 1000 } : {}
+    mkdirSync(o.out, { recursive: true })
+
+    if (style) {
+      const png = style.png
+      const screenshot = { path: 'style.png', ...pngSize(png), sha256: await sha256(png) }
+      const json = styleJson({
+        format: 'shaderera.analysis/1',
+        kind: 'reference-style',
+        source: { url, date, viewport, devicePixelRatio, responses: hashes, ...loadTime },
+        tool,
+        params: { still: o.still, root: o.root, styles: o.styles, ...clockParams },
+        frame,
+        scroll: style.scroll,
+        screenshot,
+        elements: style.elements,
+        texts: style.texts,
+        fontFaces: style.fontFaces,
+        limits: distinct,
+      })
+      const path = join(o.out, 'style.json')
+      const shot = join(o.out, screenshot.path)
+      writeFileSync(shot, png)
+      writeFileSync(path, json)
+      return { path, json, limits: distinct, screenshot: shot }
+    }
 
     const unitOf = new Map([...CHANNELS, ...WINDOW_CHANNELS])
     const trackList: Track[] = [...tracks].map(([key, samples]) => {
@@ -1360,49 +1662,14 @@ export const captureWeb = async (options: CaptureOptions) => {
     const json = tracksJson({
       format: 'shaderera.analysis/1',
       kind: 'reference-tracks',
-      source: {
-        url,
-        date,
-        viewport: { width: o.viewport.width, height: o.viewport.height },
-        devicePixelRatio: o.devicePixelRatio,
-        responses: uniqueResponses,
-        // The real time the load took, which --settle loaded froze the page's clocks after.
-        ...(o.settle === 'loaded' ? { loadedAt: loadedAt / 1000 } : {}),
-      },
-      tool: {
-        script: 'tools/capture-web.ts',
-        version: VERSION,
-        chrome: version.product,
-        userAgent: version.userAgent,
-        chromeFlags: CHROME_FLAGS,
-        clock: { script: 'tools/inpage/clock.js', version: clock, sha256: clockSha },
-      },
-      params: {
-        fps: o.fps,
-        rafHz: o.rafHz,
-        seed: o.seed,
-        timeOrigin: o.timeOrigin,
-        clockDate: o.clockDate,
-        timezone: o.timezone,
-        locale: o.locale,
-        duration: o.duration,
-        track: o.track,
-        settle: o.settle,
-        trigger,
-        media: o.media,
-        allowLocal: o.allowLocal,
-        mobile: MOBILE,
-      },
-      frame: {
-        width: o.viewport.width,
-        height: o.viewport.height,
-        pixelRatio: o.devicePixelRatio,
-      },
+      source: { url, date, viewport, devicePixelRatio, responses: hashes, ...loadTime },
+      tool,
+      params: { fps: o.fps, duration: o.duration, track: o.track, ...clockParams },
+      frame,
       tracks: trackList,
       declared,
       limits: distinct,
     })
-    mkdirSync(o.out, { recursive: true })
     const path = join(o.out, 'tracks.json')
     writeFileSync(path, json)
     return { path, json, limits: distinct }
@@ -1438,6 +1705,9 @@ if (import.meta.main) {
       at: { type: 'string' },
       'scroll-to': { type: 'string' },
       'scroll-ms': { type: 'string' },
+      still: { type: 'string' },
+      root: { type: 'string' },
+      style: { type: 'string', multiple: true },
       locale: { type: 'string' },
     },
   })
@@ -1450,10 +1720,12 @@ if (import.meta.main) {
   try {
     if (positionals.length !== 1)
       throw new Error(
-        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>',
+        'usage: node tools/capture-web.ts <url|file> --out <dir> --track <selector> --fps <n> --rafHz <n> --duration <s> --viewport <width>x<height>\n   or: node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n> --viewport <width>x<height>',
       )
-    for (const name of ['fps', 'duration', 'viewport'] as const)
-      if (values[name] === undefined) throw new Error(`give --${name}: it changes every sample`)
+    const still = values.still !== undefined
+    for (const name of still ? (['viewport'] as const) : (['fps', 'duration', 'viewport'] as const))
+      if (values[name] === undefined)
+        throw new Error(`give --${name}: it changes every ${still ? 'box' : 'sample'}`)
     const vp = /^(\d+)x(\d+)$/.exec(values.viewport ?? '')
     if (!vp) throw new Error(`--viewport ${values.viewport} is not <width>x<height>, like 1280x720`)
     const media: Record<string, string> = {}
@@ -1466,9 +1738,12 @@ if (import.meta.main) {
     const { path, limits } = await captureWeb({
       page: positionals[0] as string,
       out: values.out ?? '',
-      track: values.track ?? [],
-      fps: number('fps', values.fps) as number,
-      duration: number('duration', values.duration) as number,
+      track: values.track ?? (still ? undefined : []),
+      fps: number('fps', values.fps),
+      duration: number('duration', values.duration),
+      still: number('still', values.still),
+      root: values.root,
+      styles: values.style,
       viewport: { width: Number(vp[1]), height: Number(vp[2]) },
       rafHz: number('rafHz', values.rafHz),
       seed: number('seed', values.seed),

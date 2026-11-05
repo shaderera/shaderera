@@ -162,7 +162,7 @@ test('analysis-reference-tracks: refuses a changed source, another format or kin
   )
   await assert.rejects(
     loadTracks(host(JSON.stringify({ ...parsed, kind: 'reference-style' })), 't.json'),
-    /read it with the reader for reference-style/,
+    /read it with loadStyle, from analysis-web-capture/,
   )
   await assert.rejects(loadTracks(host('{"format":'), 't.json'), /t\.json is not JSON/)
   const withSamples = (samples: unknown) =>

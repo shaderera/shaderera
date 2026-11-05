@@ -266,6 +266,12 @@ element and channel (x, opacity, rotate…), each a list of values at the source
 taken, beside what the source declared. A film copies the reference by reading them.
 _Avoid_: keyframes (what a source declares, or what a film writes), curves, animation data
 
+**Reference style**:
+The still facts of a reference at one moment in an analysis artifact: each element's box and
+computed styles, each text's line boxes and the fonts it was drawn with, and a screenshot. A film
+copies the reference's look by reading them.
+_Avoid_: design tokens, theme, style guide
+
 **Cut**:
 The first frame on which a new shot shows, in a video an analyser measures.
 _Avoid_: scene change, edit point

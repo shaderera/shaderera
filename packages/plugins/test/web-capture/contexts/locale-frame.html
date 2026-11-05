@@ -1,0 +1,10 @@
+<!doctype html>
+<!-- Posts this frame's locale flags to its parent, as locale.html reads them. -->
+<meta charset="utf-8" />
+<script>
+  parent.postMessage(
+    (navigator.language === 'th-TH' ? 1 : 0) +
+      (new Intl.NumberFormat().resolvedOptions().locale === 'th-TH' ? 2 : 0),
+    '*',
+  )
+</script>

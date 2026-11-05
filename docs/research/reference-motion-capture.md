@@ -349,12 +349,22 @@ So:
 ## Open
 
 - **Other platforms.** The experiments ran on macOS only. Windows and Linux Chrome are untested.
-- **Workers that read time.** A worker's own `performance.now` and timers are real time. Only a
-  worker that computes on messages was tested.
+- **Workers that read time.** Answered (#667): the clock goes into each dedicated worker over
+  `Target.setAutoAttach` with `waitForDebuggerOnStart`, at an instrumentation breakpoint before
+  its first script (paused at its start, a worker's global has no `setTimeout` yet). The page's
+  clock drives it, and a reply lands at the time its question was sent. Shared workers stay on
+  real time.
 - **Real sites.** Only test pages were captured, not production bundles with lazy loading,
   scroll-linked motion or third-party scripts.
-- **Workers and iframes.** Whether `Page.addScriptToEvaluateOnNewDocument` reaches cross-origin
-  iframes and workers, or needs `Target.setAutoAttach`. Not checked.
+- **Workers and iframes.** Answered (#667): the page's script reaches the frames of its own
+  process (a window that keeps its first empty document's global gets a new `document`, so the
+  clock reads it each time). A frame of another site needs `Target.setAutoAttach`, then
+  `Page.enable` and the script on its own session before it runs. An OffscreenCanvas a worker
+  draws, and a paused `<video>` seeked once and then waited on with `requestVideoFrameCallback`,
+  show the frame at the virtual time; a paused video seeked again before its last frame was
+  presented, or one held at `playbackRate` 0, showed an earlier frame. A video from a server
+  that does not serve ranges has `seekable` [0, 0] in Chrome 156, so it is seeked only to 0: a
+  limit, named by its URL, that frames do not wait on.
 - **reanimate's own scripts** were not run. Only its `clock.js` was, in our harness.
 - **Playwright's clock.** Its licence (Apache-2.0) and whether reusing its timer code would be
   simpler than `clock.js`. Not compared in depth.
