@@ -1,7 +1,9 @@
 // motion-lottie-read: copied into a project the way `add` lays it out (with the motion-eases it
-// requires, and motion-keyframes for `keysOf`). One small Lottie made here (MIT): its keyframes
-// come back exactly as written, `valueAt` matches the bezier formula solved apart from the
-// plugin, a curved path is followed by arc length, and what is not read is listed.
+// requires, motion-keyframes for `keysOf`, and analysis-reference-tracks for its tool). One
+// small Lottie made here (MIT): its keyframes come back exactly as written, `valueAt` matches the
+// bezier formula solved apart from the plugin, a curved path is followed by arc length, and what
+// is not read is listed. Its tool writes the file as reference tracks that
+// analysis-reference-tracks' reader reads back.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -12,7 +14,12 @@ import { pathToFileURL } from 'node:url'
 const plugins = join(import.meta.dirname, '..')
 const project = join(plugins, 'out', 'motion-lottie-read')
 rmSync(project, { recursive: true, force: true })
-for (const item of ['motion-lottie-read', 'motion-eases', 'motion-keyframes']) {
+for (const item of [
+  'motion-lottie-read',
+  'motion-eases',
+  'motion-keyframes',
+  'analysis-reference-tracks',
+]) {
   const label = JSON.parse(readFileSync(join(plugins, item, 'shaderera.item.json'), 'utf8')) as {
     files: string[]
   }
@@ -517,4 +524,119 @@ test('motion-lottie-read: refuses what it cannot read as written, by name', asyn
   assert.equal(L.readLottie(`\uFEFF${JSON.stringify(fixture())}`).layers.length, 2)
   const host = { io: { read: async () => new TextEncoder().encode(JSON.stringify(fixture())) } }
   assert.equal((await L.loadLottie(host, 'assets/fixture.json')).layers.length, 2)
+})
+
+test('motion-lottie-read: its tool writes reference tracks the shared reader reads back', async () => {
+  const from = (p: string) => import(pathToFileURL(join(project, p)).href)
+  const { lottieTracks } = (await from(
+    'tools/lottie-tracks.ts',
+  )) as typeof import('../motion-lottie-read/tools/lottie-tracks.ts')
+  const { round, tracksJson } = (await from(
+    'tools/reference-tracks.ts',
+  )) as typeof import('../analysis-reference-tracks/tools/reference-tracks.ts')
+  const { loadTracks, track: trackOf } = (await from(
+    'src/reference/tracks.ts',
+  )) as typeof import('../analysis-reference-tracks/src/reference/tracks.ts')
+  const file = fixture()
+  // The dot shows from frame 15: before it, its samples are null.
+  ;(file.layers[1] as { ip: number }).ip = 15
+  const marked = { ...file, markers: [{ tm: 12, cm: 'intro', dr: 18 }] }
+  const bytes = new TextEncoder().encode(JSON.stringify(marked))
+  const path = 'assets/fixture.json'
+  const fps = 24
+  const written = tracksJson(await lottieTracks({ path, bytes, fps }))
+  const files = new Map([
+    [path, bytes],
+    ['assets/fixture.tracks.json', new TextEncoder().encode(written)],
+  ])
+  const host = {
+    io: {
+      read: async (p: string) => files.get(p) ?? assert.fail(`no file ${p}`),
+    },
+  } as unknown as import('@shaderera/core').Host
+  const ref = await loadTracks(host, 'assets/fixture.tracks.json')
+  const lot = L.readLottie(marked)
+  assert.deepEqual(ref.params, { fps })
+  assert.deepEqual(ref.frame, { width: 512, height: 256, pixelRatio: 1 })
+
+  // Declared: the keys and markers as the reader reads them, each field with its unit.
+  const declared = (type: string) => ref.declared.filter((d) => d.type === type)
+  assert.deepEqual(declared('lottie-marker'), [
+    {
+      ...lot.markers[0],
+      element: 'composition',
+      type: 'lottie-marker',
+      units: { frame: 'frame', t: 's', frames: 'frame', duration: 's' },
+    },
+  ])
+  assert.equal(declared('lottie-composition')[0]?.fr, FR)
+  assert.deepEqual(
+    declared('lottie-layer').map((d) => [d.element, d.name, d.ip]),
+    [
+      ['layers[0]', 'Mover', 0],
+      ['layers[1]', 'Dot', 15],
+    ],
+  )
+  const properties = lot.layers.flatMap((l) =>
+    Object.values(l.transform).map((p) => ({ element: `layers[${l.index}]`, p })),
+  )
+  assert.equal(declared('lottie-property').length, properties.length)
+  for (const { element, p } of properties) {
+    const d = declared('lottie-property').find((e) => e.path === p.path)
+    assert.ok(d, p.path)
+    assert.equal(d.element, element)
+    assert.deepEqual(d.keys, p.keys, p.path)
+    assert.deepEqual(d.value, p.value, p.path)
+    const units = { a: 'source-px', p: 'source-px', px: 'source-px', py: 'source-px', s: 'percent' }
+    const unit = { ...units, r: 'deg', o: 'percent' }[p.name]
+    assert.deepEqual(d.units, {
+      frame: 'frame',
+      t: 's',
+      value: unit,
+      end: unit,
+      pathOut: unit,
+      pathIn: unit,
+      out: 'ratio',
+      in: 'ratio',
+    })
+  }
+  assert.equal(
+    declared('lottie-property').find((e) => e.path === 'layers[1].ks.o')?.expression,
+    'value * 0.5',
+  )
+
+  // Samples: valueAt at each frame time from the file's in point to its out point, null where
+  // the layer is not there.
+  const frames = (lot.out - lot.in) * fps
+  for (const { element, p } of properties) {
+    const layer = lot.layers[Number(element.slice(7, -1))] as (typeof lot.layers)[number]
+    for (let d = 0; d < p.value.length; d++) {
+      const tr = trackOf(ref, element, `${p.name}[${d}]`)
+      assert.equal(tr.samples.length, frames)
+      tr.samples.forEach(([t, v], k) => {
+        assert.equal(t, round(k / fps, 6))
+        const want =
+          k / fps >= layer.in && k / fps < layer.out
+            ? round(L.valueAt(p, k / fps)[d] as number, 4)
+            : null
+        assert.equal(v, want, `${element} ${p.name}[${d}] at frame ${k}`)
+      })
+    }
+  }
+  // Frame 15 of 30 a second is 0.5 s, the 12th sample at 24.
+  const py = trackOf(ref, 'layers[1]', 'py[0]').samples
+  assert.deepEqual([py[11]?.[1], py[12]?.[1] !== null], [null, true])
+
+  // What is not read stays visible.
+  assert.deepEqual(
+    ref.limits,
+    lot.unsupported.map((u) => ({ where: u.where, reason: `${u.feature}: not read` })),
+  )
+
+  // The rate is the person's: no default.
+  for (const bad of [undefined, 0, -24, 'fast'])
+    await assert.rejects(
+      lottieTracks({ path, bytes, fps: bad as number }),
+      /lottie-tracks needs fps, the rate to sample at/,
+    )
 })
