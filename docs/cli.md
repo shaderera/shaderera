@@ -402,7 +402,9 @@ the packets have none. A clip with a frame without a time is refused.
   curves may align better further out.
 - **The motion window** of each side: the first and last time that changes more than `--floor`,
   and the peak. A rendered film is still at exactly 0; a decoded clip has codec noise, so its
-  window at `--floor 0` can be wider than its motion.
+  window at `--floor 0` can be wider than its motion. A side that never changes more than
+  `--floor` still prints its peak and the time of it, `reference still above 2 (peak 0.80 at
+  1.200 s)`: a floor above the peak shows.
 - **Files:** each time's film, clip and difference side by side, `<variant>-vs-<clip>-<t>.png`
   (the difference is |film − clip| per channel, black where they match; with `--heat-map` the
   SSIM heat map in its place, as an image's), and with `--sheet` a
@@ -419,7 +421,8 @@ measured), `method` and `regions` as an image's, `step` (seconds
 between the times; null when not evenly spaced), `floor`, `offset` (`applied` seconds; `found`:
 `steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `atEdge`, true when the
 shift found is ±`maxShift`; `scores`, each shift's `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
-its `t` and `change`, on the film's times, or null when still), `frames` (each `t`, `at` (the
+its `t` and `change`, on the film's times; `first` and `last` null when nothing changes more
+than `floor`, the peak still given; null with one time), `frames` (each `t`, `at` (the
 clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `read` (that frame's time on the clip, from its
 first frame), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `ssim`,
 `edges` (`agreement`, `film`, `reference`), `regions` (each `id`, `ssim`, `edges`, `deltaE`,

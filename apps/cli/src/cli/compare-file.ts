@@ -88,6 +88,16 @@ export type CompareFileOptions = {
 /** A motion window on the film's timeline, in seconds. */
 export type TimedWindow = { first: number; last: number; peak: { t: number; change: number } }
 
+/**
+ * A side's motion window on the film's timeline: `first` and `last` are `null` when nothing
+ * changes more than the floor, and the peak is kept, so a floor above it shows (#743).
+ */
+export type SideWindow = {
+  first: number | null
+  last: number | null
+  peak: { t: number; change: number }
+}
+
 export type CompareFileReport = {
   reference: {
     kind: 'clip'
@@ -133,7 +143,8 @@ export type CompareFileReport = {
     atEdge: boolean
     scores: Score[]
   }
-  window: { film: TimedWindow | null; reference: TimedWindow | null }
+  /** Each side's window; `null` when it has no change measured (one time). */
+  window: { film: SideWindow | null; reference: SideWindow | null }
   frames: ({
     t: number
     /** The reference's time asked for t: t + offset. */
@@ -361,12 +372,18 @@ export const compareWithFile = async (
     }
 
     const inRange = refCurve.slice(lead, lead + times.length).map((c, i) => (i === 0 ? null : c))
-    const timed = (w: ReturnType<typeof motionWindow>): TimedWindow | null =>
-      w && {
-        first: round6(times[w.first] as number),
-        last: round6(times[w.last] as number),
-        peak: { t: round6(times[w.peak.index] as number), change: w.peak.change },
-      }
+    const timed = (curve: (number | null)[]): SideWindow | null => {
+      const w = motionWindow(curve, floor)
+      // Every change is above -1: the window of all of them, and its peak.
+      const all = motionWindow(curve, -1)
+      return (
+        all && {
+          first: w && round6(times[w.first] as number),
+          last: w && round6(times[w.last] as number),
+          peak: { t: round6(times[all.peak.index] as number), change: all.peak.change },
+        }
+      )
+    }
     const a = step === null ? undefined : align(filmCurve, refCurve, maxShift, lead)
     if (a && a.shift === null) why = 'a curve does not change over enough of the times to correlate'
     return {
@@ -404,8 +421,8 @@ export const compareWithFile = async (
         scores: a?.scores ?? [],
       },
       window: {
-        film: timed(motionWindow(filmCurve, floor)),
-        reference: timed(motionWindow(inRange, floor)),
+        film: timed(filmCurve),
+        reference: timed(inRange),
       },
       frames,
     }
@@ -455,12 +472,16 @@ export const summaryLines = (r: CompareFileReport): string[] => {
     lines.push(
       `regions: ${r.regions.list.map((q) => q.id).join(', ')} (${r.regions.kind} in ${r.regions.in.join('×')})`,
     )
-  const win = (w: TimedWindow | null) =>
-    w
-      ? `moves ${w.first.toFixed(3)}–${w.last.toFixed(3)} s, peak ${w.peak.t.toFixed(3)} s (${w.peak.change.toFixed(2)})`
-      : 'still'
+  // A side that never changes more than the floor says so with its peak (#743).
+  const win = (w: SideWindow | null) =>
+    w === null
+      ? 'still'
+      : w.first === null || w.last === null
+        ? `still above ${r.floor} (peak ${w.peak.change.toFixed(2)} at ${w.peak.t.toFixed(3)} s)`
+        : `moves ${w.first.toFixed(3)}–${w.last.toFixed(3)} s, peak ${w.peak.t.toFixed(3)} s (${w.peak.change.toFixed(2)})`
+  const moving = (w: SideWindow | null) => w !== null && w.first !== null
   lines.push(
-    `film ${win(r.window.film)}; reference ${win(r.window.reference)}${r.floor > 0 ? ` (above ${r.floor})` : ''}`,
+    `film ${win(r.window.film)}; reference ${win(r.window.reference)}${r.floor > 0 && moving(r.window.film) && moving(r.window.reference) ? ` (above ${r.floor})` : ''}`,
   )
   const o = r.offset
   const unit = r.step === null ? '' : ` steps of ${n(r.step)} s`
