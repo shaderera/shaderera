@@ -67,6 +67,19 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   assert.equal(aligned.window.reference.last, 1.2)
   assert.ok(aligned.frames[7].psnr > 30, `PSNR ${aligned.frames[7].psnr}`)
 
+  // A floor above both sides' peaks: no window, and each side's peak and its time kept (#743).
+  const high = await still('--offset', '0.3', '--floor', '100', '--json')
+  const over = JSON.parse(high.stdout).result.window
+  assert.deepEqual(over.film, { first: null, last: null, peak: aligned.window.film.peak })
+  assert.deepEqual(over.reference, { first: null, last: null, peak: aligned.window.reference.peak })
+  const peak = (p: { t: number; change: number }) =>
+    `peak ${p.change.toFixed(2)} at ${p.t.toFixed(3)} s`
+  assert.ok(
+    (await still('--offset', '0.3', '--floor', '100')).stdout.includes(
+      `film still above 100 (${peak(over.film.peak)}); reference still above 100 (${peak(over.reference.peak)})\n`,
+    ),
+  )
+
   // The human output says what was found and the offset that aligns them.
   const text = await still('0.5', '0.6', '0.7', '0.8', '0.9', '1', '1.1', '1.2', '--max-shift', '3')
   assert.equal(text.status, 0, text.stderr)
