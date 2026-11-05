@@ -135,7 +135,7 @@ export const sourceProblem = (s: unknown, name: string): string | undefined => {
 
 /**
  * What is wrong with a parsed artifact, as one message naming the first problem, or nothing. Used
- * by `loadTracks` and by the writer in tools/reference-tracks.ts, so what one writes the other
+ * by `readTracks` and by the writer in tools/reference-tracks.ts, so what one writes the other
  * reads. Fields it does not know are kept: a compatible addition needs no new number.
  */
 export const tracksProblem = (doc: unknown, name: string): string | undefined => {
@@ -198,27 +198,37 @@ export const tracksProblem = (doc: unknown, name: string): string | undefined =>
 }
 
 /**
+ * Reads a reference-tracks artifact already in memory: the JSON text, or the parsed object (a DOM
+ * module's `import data from '../references/hero.tracks.json'`). `path` names it in messages and
+ * in what it returns. Refuses what `loadTracks` refuses, except a changed source file: that
+ * needs the file's bytes, which only `loadTracks` reads.
+ */
+export const readTracks = (json: string | object, path: string): ReferenceTracks => {
+  let doc: unknown = json
+  if (typeof json === 'string')
+    try {
+      doc = JSON.parse(json)
+    } catch (e) {
+      throw new Error(`${path} is not JSON (${(e as Error).message}); rebuild it with its analyser`)
+    }
+  const wrong = tracksProblem(doc, path)
+  if (wrong) throw new Error(wrong)
+  return { ...(doc as Omit<ReferenceTracks, 'path'>), path }
+}
+
+/**
  * Reads a reference-tracks artifact. Refuses another format or kind, a malformed one, and a
  * source file whose bytes are not the ones measured: motion copied from a changed reference would
  * not match it. A page source has no file to check; its `responses` say what was loaded.
  */
 export const loadTracks = async (host: Host, path: string): Promise<ReferenceTracks> => {
-  const text = new TextDecoder().decode(await host.io.read(path))
-  let doc: unknown
-  try {
-    doc = JSON.parse(text)
-  } catch (e) {
-    throw new Error(`${path} is not JSON (${(e as Error).message}); rebuild it with its analyser`)
-  }
-  const wrong = tracksProblem(doc, path)
-  if (wrong) throw new Error(wrong)
-  const tracks = doc as Omit<ReferenceTracks, 'path'>
+  const tracks = readTracks(new TextDecoder().decode(await host.io.read(path)), path)
   if (isFileSource(tracks.source)) {
     const { path: file, sha256: expected } = tracks.source
     if ((await sha256(await host.io.read(file))) !== expected)
       throw new Error(`${path} was measured from other bytes than ${file}; run its analyser again`)
   }
-  return { ...tracks, path }
+  return tracks
 }
 
 /** One element's one channel. Refuses a missing one, naming what there is. */
