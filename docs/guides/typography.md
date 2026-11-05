@@ -42,6 +42,8 @@ Node refuses one outside it. Review's `glyphs` check reads the files loaded this
   `safeArea`); otherwise review reports what it measured.
 - The `text-fit` plugin's `textRuns` turns wrapped lines into those runs, one a line, measured
   in the font they are drawn in.
+- Lyrics or subtitles timed by a file (LRC, SRT, WebVTT, Whisper or STT JSON): the
+  `text-timed-cues` plugin reads the file once and gives the line and the word at t.
 
 ## Thai
 - Set Thai only in a face that has Thai (Trirong, Noto Sans/Serif Thai, IBM Plex Sans Thai,

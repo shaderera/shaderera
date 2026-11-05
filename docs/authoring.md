@@ -57,7 +57,7 @@ package plugin that is not installed. The commands are in `docs/plugins.md`.
 What is on the shelf:
 
 - **Plumbing**, which carries no taste. An agent may add one of these instead of writing the same
-  plumbing again, and says so:
+  plumbing again, and says so, with the command that takes it out (`npx shaderera remove <name>`):
   - `audio-beat-clock`: measure a song (tempo, bars, onsets, bands), and a clock;
   - `audio-filters`: a one-pole low-pass, the RBJ cookbook biquads, a MIDI note's frequency and
     a fade to zero, for sound made in code;
@@ -68,7 +68,8 @@ What is on the shelf:
   - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
-  - `audio-pcm-bake`: sound made in code baked once to an .m4a, refused in `open` when its code, inputs or seed change;
+  - `audio-pcm-bake`: sound made in code baked once to an .m4a, refused in `open` when its code,
+    inputs, seed or duration change;
   - `text-timed-cues`: lyrics and subtitles (LRC, SRT, VTT, Whisper or STT JSON), the line and word at t;
   - `text-fit`: the size that fits a width, word wrap (Thai too), a line's width at a tracking, the lines as text runs for review;
   - `motion-shot-list`: film time to shots, the transition's progress and the source frame at t;
@@ -81,6 +82,7 @@ What is on the shelf:
   - `color-lut`: a person's own .cube LUT read, applied (WGSL and CPU) and written back;
   - `color-primary`: the ASC CDL, exposure, contrast and white balance (Bradford, from Kelvin), WGSL and CPU;
   - `color-qualifier`: a hue, saturation and luma key to a soft matte, so a grade touches one colour only, WGSL and CPU;
+  - `color-spaces`: ACEScct and ACEScc, the camera log curves (S-Log3, LogC3, LogC4, V-Log, Canon Log 3) and the matrices between gamuts, WGSL and CPU;
   - `analysis-reference-tracks`: motion measured from a reference, each element's channels at source time, read with hold or linear;
   - `analysis-scopes`: a frame as scope numbers (levels, waveform, parade, balance, vectorscope) to grade from;
   - `analysis-web-capture`: a web page's motion captured once as reference tracks, on an injected clock, in the person's own Chrome, from the load or a click, hover, leave or scroll; or its style facts at one moment (boxes, computed styles, the fonts each text was drawn with, a screenshot);
@@ -104,7 +106,21 @@ What is on the shelf:
 - **Fonts:** `font-ibm-plex-mono`, `font-ibm-plex-sans`, `font-instrument-serif` and
   `font-stix-two-text`.
 
-An agent never searches for plugins or suggests them on its own.
+An agent never searches for plugins or suggests them on its own. The person's word wins: when they,
+or the project's CLAUDE.md or AGENTS.md, say not to use plugins (or one of them), write that code
+in the film and do not offer plugins again.
+
+Some questions are answered better by a number than by looking at a still. Where a plumbing
+plugin already measures it:
+
+- where a face, an eye or a product's label is in a picture, to crop or push in on it:
+  `image-regions` gives its box and centre in pixels, so you do not need to draw a grid over the
+  picture and guess;
+- a frame's levels, clipping, colour cast or skin hue: `analysis-scopes`, and which colour plugin
+  does each grading job is in `guides/color.md`;
+- whether a sound lands on the picture's change: `review-av-timeline`;
+- whether a line fits its width: `text-fit`;
+- the cuts, camera moves and pace of a reference video: `review-shots`.
 
 ## Make it editable
 

@@ -17,7 +17,10 @@ Before you call a draft finished, look at it and check it.
    house style.
 3. Check timing with numbers, not by looking: declare the moments that matter in
    requirements.json `timing` and read curves with `npx shaderera inspect --track`. Vision models
-   judge fine-grained motion poorly (MotionBench, CVPR 2025).
+   judge fine-grained motion poorly (MotionBench, CVPR 2025). For a reference video the person
+   gives, the `review-shots` plugin measures it shot by shot (cuts, camera move, levels, colour);
+   `review-picture-reuse` lists the shots of a draft that show a picture again, a crop or zoom of
+   it counting.
 4. Show the person the cut as a draft: `npx shaderera render --draft` (360 px high, full fps) is
    for flow, timing and transitions. Type sharpness, thin lines, fine texture and colour banding
    are checked with a full-size `still` at those moments, never in the draft. Render the

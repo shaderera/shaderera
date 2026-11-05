@@ -60,7 +60,8 @@ Keep Canvas2D for type and small shapes. A footage frame put on a canvas and dra
 large still drawn with `drawImage`, costs time every frame: 10–24 ms to draw an 8000 px still into
 1080p (21–51 ms with `'high'` smoothing). Measured at 1080p in Node on 4 hosts, a Canvas2D film
 ran at 49 fps on a quiet machine and 22–27 when loaded; the same picture as textures and one WGSL
-pass ran at 70 and 48.
+pass ran at 70 and 48. Type drawn in Canvas2D reaches a WGSL pass as a texture: the
+`render-canvas-texture` plugin uploads a canvas or RGBA bytes, reusing one texture per size.
 
 ```ts
 // in open: a still is written once

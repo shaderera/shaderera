@@ -9,13 +9,13 @@
 //
 // --export  the module's export to call, (duration, seed) => Pcm or a Promise of one; `default`
 //           unless named
-// --inputs  other project files the samples derive from, comma-separated: their hashes go in the
-//           stamp. A file the module imports or reads that is not listed is not checked.
+// --inputs  project files the module reads itself (fs), comma-separated: their hashes go in the
+//           stamp. Every project file the module imports, at any depth, is stamped on its own.
 // --bitrate the AAC bitrate (`-b:a`); ffmpeg's own default when left out
 //
 // Writes <out> and <out without .m4a>.stamp.json: a shaderera.analysis/1 artifact of kind
-// `pcm-bake` whose source is the module, with the inputs', the output's sha256, the seed and the
-// duration. Prints the peak and the synthesis time.
+// `pcm-bake` whose source is the module, with the sha256 of every project file it imported, of
+// the inputs and of the output, the seed and the duration. Prints the peak and the synthesis time.
 
 import { sha256 } from '@shaderera/core'
 
@@ -54,37 +54,56 @@ export const interleave = (pcm: { sampleRate: number; channels: readonly Float32
 
 if (import.meta.main) {
   const { execFileSync, spawnSync } = await import('node:child_process')
-  const { mkdirSync, readFileSync, writeFileSync } = await import('node:fs')
+  const { existsSync, mkdirSync, readFileSync, writeFileSync } = await import('node:fs')
+  const { registerHooks } = await import('node:module')
   const { dirname, isAbsolute, relative, resolve } = await import('node:path')
-  const { pathToFileURL } = await import('node:url')
+  const { fileURLToPath, pathToFileURL } = await import('node:url')
   const { parseArgs } = await import('node:util')
   const fail = (message: string): never => {
     console.error(message)
     process.exit(2)
   }
-  const { values, positionals } = parseArgs({
-    allowPositionals: true,
-    options: {
-      out: { type: 'string' },
-      export: { type: 'string', default: 'default' },
-      inputs: { type: 'string', default: '' },
-      bitrate: { type: 'string' },
-    },
-  })
+  const usage =
+    'Usage: node tools/pcm-bake.ts <module> --out <file.m4a> [--export name] [--inputs a,b] [--bitrate 192k]'
+  const parse = () => {
+    try {
+      return parseArgs({
+        allowPositionals: true,
+        options: {
+          out: { type: 'string' },
+          export: { type: 'string', default: 'default' },
+          inputs: { type: 'string', default: '' },
+          bitrate: { type: 'string' },
+          help: { type: 'boolean' },
+        },
+      })
+    } catch (e) {
+      return fail(`${(e as Error).message}\n${usage}`)
+    }
+  }
+  const { values, positionals } = parse()
+  if (values.help) {
+    console.log(usage)
+    process.exit(0)
+  }
   const [moduleArg] = positionals
-  if (!moduleArg || !values.out?.toLowerCase().endsWith('.m4a'))
-    fail(
-      'Usage: node tools/pcm-bake.ts <module> --out <file.m4a> [--export name] [--inputs a,b] [--bitrate 192k]',
-    )
+  if (!moduleArg || !values.out) fail(usage)
+  if (!values.out?.toLowerCase().endsWith('.m4a'))
+    fail(`--out ${values.out} must end in .m4a\n${usage}`)
   const inProject = (p: string) => {
     const rel = relative(process.cwd(), resolve(p)).replaceAll('\\', '/')
     if (rel === '' || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
       fail(`${p} is outside this project: run from the project root, with the file inside it`)
     return rel
   }
-  const modulePath = inProject(moduleArg as string)
+  const existing = (p: string) => {
+    const rel = inProject(p)
+    if (!existsSync(rel)) fail(`${p} not found`)
+    return rel
+  }
+  const modulePath = existing(moduleArg as string)
   const out = inProject(values.out as string)
-  const inputs = (values.inputs as string).split(',').filter(Boolean).map(inProject)
+  const inputs = (values.inputs as string).split(',').filter(Boolean).map(existing)
   const name = values.export as string
   if (spawnSync('ffmpeg', ['-version']).status !== 0) fail('ffmpeg is not on PATH')
 
@@ -101,6 +120,22 @@ if (import.meta.main) {
   // Hashed before the import, so a file changed while the samples are made is not stamped as read.
   const src = await fileOf(modulePath)
   const read = await Promise.all(inputs.map(fileOf))
+
+  // Every project file the import loads, at any depth and outside node_modules, kept as it loads:
+  // a shared synth or a plugin the module builds on is checked like the module itself.
+  const imported = new Map<string, Uint8Array>()
+  registerHooks({
+    load(url, context, nextLoad) {
+      const result = nextLoad(url, context)
+      if (url.startsWith('file:')) {
+        const rel = relative(process.cwd(), fileURLToPath(url)).replaceAll('\\', '/')
+        const inside = !(rel.startsWith('../') || isAbsolute(rel))
+        if (inside && !rel.split('/').includes('node_modules') && rel !== modulePath)
+          imported.set(rel, new Uint8Array(readFileSync(rel)))
+      }
+      return result
+    },
+  })
 
   const started = performance.now()
   const mod = (await import(pathToFileURL(resolve(modulePath)).href)) as Record<string, unknown>
@@ -155,6 +190,12 @@ if (import.meta.main) {
     },
     params: { export: name, seed, duration, bitrate: values.bitrate ?? null },
     command,
+    imports: await Promise.all(
+      [...imported]
+        .filter(([path]) => !inputs.includes(path))
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(async ([path, bytes]) => ({ path, bytes: bytes.length, sha256: await sha256(bytes) })),
+    ),
     inputs: read,
     output: { ...(await fileOf(out)), seconds, sampleRate, channels, peak },
   }

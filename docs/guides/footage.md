@@ -41,6 +41,10 @@ page, stop: use another source, or ask the person for the file.
 
 - Pictures: a numbered contact sheet of the candidates, then the full-size crop of what the shot
   needs. Stills to be pushed into want about 3,000 px on the long side.
+- To crop, push into or line up on one part of a picture (a face, the eyes, a hand), the
+  `image-regions` plugin measures its box and centre in the picture's pixels, once, from words.
+  `image-fit`'s `cover` and `crop` keep that centre in frame. A grid drawn over the picture only
+  gives a guess to within one cell.
 - Clips: a sheet at 1–2 fps, then 4–10 fps over the stretch with the action, so the moment the
   shot needs falls inside the segment kept.
   `ffmpeg -i clip.mp4 -vf "fps=2,scale=240:-1,tile=8x5" -frames:v 1 sheet.jpg`
@@ -71,7 +75,8 @@ so a freeze or a jump shows only in playback.
 
 - Keep one function from film time to source time, and drive both the picture (the frame index
   asked of `io.video`) and the sound (each clip's `at` and `from`) with it, so they cannot drift
-  apart.
+  apart. For a film cut from shots, the `motion-shot-list` plugin is that function: the shot at t,
+  its local time, its source frame and a transition's progress.
 - Decide what the picture does wherever there is no source time, in a gap between segments or
   past the end of the take: play on, cut away to something else, or freeze on purpose. Never let
   the mapping fall through to the last frame it had, which holds that frame.
