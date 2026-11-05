@@ -13,7 +13,9 @@
 // and the local server sees nothing; with it, each response is hashed as served. A still of a page
 // with a web font, a Thai line it falls back from and a shadowed card gives the families and glyph
 // counts, boxes within 0.5 px and the computed values, the same bytes and screenshot each time;
-// a still after a scroll has its boxes from the viewport and the scroll recorded.
+// a still after a scroll has its boxes from the viewport and the scroll recorded. A motion capture
+// names the system font a tracked title in a missing family fell back to, and lists an animation
+// on a scroll timeline in its limits.
 // Workers (classic and module) and frames (of this origin, of another site, added later) run on
 // the clock: their timers, animation frames, Date and replies land at the page's times; an
 // OffscreenCanvas a worker draws and a video show the frame at the still's time, pixel for pixel.
@@ -40,6 +42,7 @@ import { basename, dirname, extname, join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
+import { gzipSync } from 'node:zlib'
 import { type Host, sha256 } from '@shaderera/core'
 import { build } from 'esbuild'
 import { decode as decodePng } from 'fast-png'
@@ -518,7 +521,11 @@ test('a scroll at 24 fps, whose wheel times round past a frame, still captures',
   })
   const y = samplesOf(json, 'window', 'scrollY')
   assert.equal(y.at(-1)?.[1], 240)
-  assert.deepEqual((JSON.parse(json) as Doc).limits, [])
+  // Only the scroll timeline animation, which is no --track, is a limit.
+  assert.deepEqual(
+    (JSON.parse(json) as Doc).limits.map((l) => l.where),
+    ['#css'],
+  )
 })
 
 test('a scroll is recorded against scrollY and captures the same at any speed', {
@@ -565,7 +572,14 @@ test('a scroll is recorded against scrollY and captures the same at any speed', 
   })
   const timeline = doc.declared.find((d) => d.element === '#css')
   assert.deepEqual(timeline?.timeline, { type: 'scroll', source: 'window', axis: 'block' })
-  assert.deepEqual(doc.limits, [])
+  // Not on the clock, so a limit names it with its timeline: it is recorded against scrollY.
+  assert.deepEqual(doc.limits, [
+    {
+      where: '#css',
+      reason:
+        'a css-animation "grow" on a scroll timeline, not document.timeline: the clock does not hold it',
+    },
+  ])
 
   // A scroll past the page's end is what the page did, and says so.
   const far = JSON.parse(
@@ -708,6 +722,22 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
       res.writeHead(200, text)
       res.write(latin1)
       res.end()
+    } else if (req.url === '/gzip') {
+      res.writeHead(200, { ...text, 'content-encoding': 'gzip' })
+      res.write(gzipSync(latin1))
+      res.end()
+    } else if (req.url === '/stream') {
+      // Three writes 100 ms apart, the last after the page has its headers.
+      res.writeHead(200, text)
+      res.write(latin1)
+      setTimeout(() => {
+        res.write(latin1)
+        setTimeout(() => res.end(latin1), 100)
+      }, 100)
+    } else if (req.url === '/broken') {
+      // Its headers and a first chunk, then the connection cut: the body never ends.
+      res.writeHead(200, text)
+      res.write(latin1, () => setTimeout(() => res.socket?.destroy(), 50))
     } else if (req.url === '/bad.png') {
       res.writeHead(200, { ...png, 'content-length': noise.length })
       res.end(noise)
@@ -739,10 +769,13 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
     assert.deepEqual([...hits].sort(), [
       '/bad-chunked.png',
       '/bad.png',
+      '/broken',
+      '/gzip',
       '/latin1',
       '/latin1-chunked',
       '/pixel',
       '/secret',
+      '/stream',
     ])
     assert.ok('responses' in allowed.source)
     const response = (path: string) => {
@@ -759,19 +792,38 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
     assert.equal(response('/latin1')?.sha256, await sha256(latin1))
     assert.equal(response('/latin1')?.hashOf, undefined)
     assert.equal(response('/bad.png')?.sha256, await sha256(noise))
-    // Without a length it is read at its end: text as Chrome decoded it, said so.
-    assert.equal(response('/latin1-chunked')?.hashOf, 'text-as-utf8')
-    assert.equal(
-      response('/latin1-chunked')?.sha256,
-      await sha256(new TextEncoder().encode('café')),
-    )
-    // An image Chrome could not decode and did not keep is a limit, not the hash of nothing.
-    assert.equal(response('/bad-chunked.png'), undefined)
+    // Without a length (chunked, gzip, written over time) too, as Chrome received them.
+    for (const [path, bytes] of [
+      ['/latin1-chunked', latin1],
+      ['/gzip', latin1],
+      ['/stream', new Uint8Array([...latin1, ...latin1, ...latin1])],
+    ] as const) {
+      assert.equal(response(path)?.sha256, await sha256(bytes), `${path} is hashed as served`)
+      assert.equal(response(path)?.hashOf, undefined)
+    }
+    // A body cut off is served but cannot be read whole: listed without a hash, and a limit.
+    assert.deepEqual(response('/broken'), {
+      url: `http://127.0.0.1:${port}/broken`,
+      status: 200,
+      sha256: null,
+      hashOf: 'none',
+    })
     assert.ok(
       allowed.limits.some(
-        (l) => l.where.endsWith('/bad-chunked.png') && /not kept by Chrome/.test(l.reason),
+        (l) => l.where.endsWith('/broken') && /did not load: net::ERR_/.test(l.reason),
       ),
     )
+    // An image Chrome could not decode is hashed as streamed; when Chrome neither streamed nor
+    // kept it, it is listed without a hash, and is a limit.
+    const bad = response('/bad-chunked.png')
+    if (bad?.sha256 === null) {
+      assert.equal(bad.hashOf, 'none')
+      assert.ok(
+        allowed.limits.some(
+          (l) => l.where.endsWith('/bad-chunked.png') && /not kept by Chrome/.test(l.reason),
+        ),
+      )
+    } else assert.equal(bad?.sha256, await sha256(noise))
 
     // A page served from this machine is refused before Chrome starts.
     await assert.rejects(
@@ -988,6 +1040,37 @@ test('a still reads the web font, the Thai fallback, the shadowed card, the same
     await assert.rejects(still({ root: '#nothing' }), /--root "#nothing" matches nothing/)
   } finally {
     server.close()
+  }
+})
+
+test('a motion capture records the fonts each tracked text fell back to, at the first frame', {
+  skip,
+}, async () => {
+  const doc = JSON.parse(
+    await capture({
+      page: fixture('fonts.html'),
+      track: ['#title', '#card', '#box', '#none'],
+      duration: 0.2,
+    }),
+  ) as Doc
+  const fonts = 'url' in doc.source ? doc.source.fonts : undefined
+  // A child's text counts for the element; one with no text, or none matching, has no entry.
+  assert.deepEqual(
+    fonts?.map((f) => f.element),
+    ['#title', '#card'],
+  )
+  const [title, card] = fonts ?? []
+  // No machine has the family asked for: what drew it is a system font, named.
+  for (const [entry, glyphs] of [
+    [title, 5],
+    [card, 6],
+  ] as const) {
+    assert.equal(entry?.fonts.length, 1, JSON.stringify(entry))
+    const [font] = entry?.fonts ?? []
+    assert.notEqual(font?.familyName, 'Shaderera Missing Face')
+    assert.ok(font?.familyName && font.postScriptName)
+    assert.equal(font?.isCustomFont, false)
+    assert.equal(font?.glyphCount, glyphs)
   }
 })
 

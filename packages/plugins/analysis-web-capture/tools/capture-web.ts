@@ -18,13 +18,15 @@
 // over CDP at its own time (the clock advanced to it, then synced once the browser delivered it),
 // animations are synced, the clock advances to the frame's time, running timers and animation
 // frames in time order, the capture waits for the network and the page's pending work, then every
-// tracked element's box, transform and opacity, and the window's scroll, are read. The README
-// lists the channels and the limits.
+// tracked element's box, transform and opacity, and the window's scroll, are read. At the first
+// frame, so are the fonts each tracked element's text was drawn with. The README lists the
+// channels and the limits.
 //
 // With --still, the clock runs the same way to that one moment, and <dir>/style.json (kind
 // reference-style, tools/web-capture-style.ts) and <dir>/style.png are written instead.
 
 import { sha256 } from '@shaderera/core'
+import type { DrawnFont } from '../src/reference/style.ts'
 import type { Limit, Sample, Track } from '../src/reference/tracks.ts'
 import { styleJson } from './reference-style.ts'
 import { tracksJson } from './reference-tracks.ts'
@@ -32,7 +34,7 @@ import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.4.0'
+export const VERSION = '0.7.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -838,13 +840,16 @@ export const CHROME_FLAGS = [
   '--proxy-bypass-list=<-loopback>',
 ]
 
-/** The largest response held to read its bytes as served; a larger one is read at its end. */
+/** The largest response held to read its bytes as served; a larger one is streamed. */
 const HELD_BODY_BYTES = 16 * 1024 * 1024
 /** Every response, paused at its headers. */
 const FETCH_PATTERNS = [{ urlPattern: '*', requestStage: 'Response' }]
 
-/** A response the page loaded. `hashOf` is there only when the hash is not of the bytes served. */
-type Served = { url: string; status: number; sha256: string; hashOf?: string }
+/**
+ * A response the page loaded. `hashOf` is there only when the hash is not of the bytes served:
+ * `none`, with no sha256, when the body could not be read.
+ */
+type Served = { url: string; status: number; sha256: string | null; hashOf?: string }
 
 /** How long a request may stay open before frames stop waiting for it, in real ms. */
 const LONG_REQUEST_MS = 5000
@@ -1004,9 +1009,12 @@ export const captureWeb = async (options: CaptureOptions) => {
     // Requests by id alone: a worker's script is sent on the page's session and finishes on the
     // worker's, under one id (ids are unique across Chrome's processes).
     // A response of a known length is held at its headers and its bytes read as they were served
-    // (Network.getResponseBody gives a text body only as decoded text); one without a length may
-    // be a stream, which holding would stop, so it is let through and read at the end.
+    // (Network.getResponseBody gives a text body only as decoded text). One without a length may
+    // be a stream, which holding would stop: it is let through, and its bytes are sent to the
+    // capture as Chrome receives them (Network.streamResourceContent, asked while it is paused at
+    // its headers). Either is read at the end if that fails, and kept without a hash if that does.
     const served = new Map<string, Promise<Uint8Array | null>>()
+    const streamed = new Map<string, { chunks: Uint8Array[]; started: Promise<boolean> }>()
     const received = new Map<string, number>()
     c.on<{
       requestId: string
@@ -1022,13 +1030,22 @@ export const captureWeb = async (options: CaptureOptions) => {
       const length = Number(
         p.responseHeaders?.find((h) => h.name.toLowerCase() === 'content-length')?.value ?? '',
       )
-      const kept =
-        p.networkId !== undefined &&
-        p.request.method !== 'HEAD' &&
-        (status < 300 || status >= 400) &&
-        Number.isInteger(length) &&
-        length > 0 &&
-        length <= HELD_BODY_BYTES
+      const id = p.networkId
+      const bodied =
+        id !== undefined && p.request.method !== 'HEAD' && (status < 300 || status >= 400)
+      const kept = bodied && Number.isInteger(length) && length > 0 && length <= HELD_BODY_BYTES
+      if (bodied && !kept) {
+        // Asked before the response goes on, so no byte arrives first; Chrome answers once it does.
+        const chunks: Uint8Array[] = []
+        const started = c
+          .send<{ bufferedData: string }>('Network.streamResourceContent', { requestId: id }, s)
+          .then(({ bufferedData }) => {
+            chunks.unshift(new Uint8Array(Buffer.from(bufferedData, 'base64')))
+            return true
+          })
+          .catch(() => false)
+        streamed.set(id, { chunks, started })
+      }
       if (!kept) return void go('Fetch.continueResponse')
       const body = c
         .send<{ body: string; base64Encoded: boolean }>(
@@ -1043,9 +1060,11 @@ export const captureWeb = async (options: CaptureOptions) => {
       served.set(p.networkId as string, body)
       void body.finally(() => go('Fetch.continueResponse'))
     })
-    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p) => {
+    c.on<{ requestId: string; dataLength: number; data?: string }>('Network.dataReceived', (p) => {
       const key = p.requestId
       received.set(key, (received.get(key) ?? 0) + p.dataLength)
+      if (p.data !== undefined)
+        streamed.get(key)?.chunks.push(new Uint8Array(Buffer.from(p.data, 'base64')))
     })
     c.on<{ requestId: string; request: { url: string }; type?: string }>(
       'Network.requestWillBeSent',
@@ -1072,10 +1091,21 @@ export const captureWeb = async (options: CaptureOptions) => {
       const r = responses.get(key)
       const held = served.get(key)
       served.delete(key)
+      const stream = streamed.get(key)
+      streamed.delete(key)
       if (!r) return
+      const none = (reason: string) => {
+        hashed.push({ ...r, sha256: null, hashOf: 'none' })
+        limits.push({ where: r.url, reason })
+      }
       const read = async () => {
         let bytes = held ? await held : null
         let hashOf: string | undefined
+        // Streamed whole: every byte Chrome counted came with its data.
+        if (!bytes && stream && (await stream.started)) {
+          const whole = Buffer.concat(stream.chunks)
+          if (whole.length === (received.get(key) ?? 0)) bytes = new Uint8Array(whole)
+        }
         if (!bytes && r.url.startsWith('file:')) {
           try {
             bytes = new Uint8Array(readFileSync(fileURLToPath(r.url)))
@@ -1093,18 +1123,12 @@ export const captureWeb = async (options: CaptureOptions) => {
             bytes = new TextEncoder().encode(got.body)
             hashOf = 'text-as-utf8'
           }
-          if (bytes.length === 0 && (received.get(key) ?? 0) > 0) {
-            limits.push({ where: r.url, reason: 'its body was not kept by Chrome: it has no hash' })
-            return
-          }
+          if (bytes.length === 0 && (received.get(key) ?? 0) > 0)
+            return none('its body was not kept by Chrome: it has no hash')
         }
         hashed.push({ ...r, sha256: await sha256(bytes), ...(hashOf ? { hashOf } : {}) })
       }
-      reading.push(
-        read().catch((e: Error) => {
-          limits.push({ where: r.url, reason: `its body could not be read: ${e.message}` })
-        }),
-      )
+      reading.push(read().catch((e: Error) => none(`its body could not be read: ${e.message}`)))
     })
     c.on<{ requestId: string; errorText: string; canceled?: boolean; blockedReason?: string }>(
       'Network.loadingFailed',
@@ -1115,6 +1139,9 @@ export const captureWeb = async (options: CaptureOptions) => {
         if (!r || p.canceled || p.errorText === 'net::ERR_ABORTED') return
         // A request the proxy refused is listed once, with the proxy's reason.
         if (p.errorText === 'net::ERR_TUNNEL_CONNECTION_FAILED') return
+        // A response whose body broke off is served, but its body cannot be read whole.
+        const got = responses.get(key)
+        if (got) hashed.push({ ...got, sha256: null, hashOf: 'none' })
         limits.push({ where: r.url, reason: `it did not load: ${p.errorText}` })
       },
     )
@@ -1269,13 +1296,14 @@ export const captureWeb = async (options: CaptureOptions) => {
     })
     // A still names the web fonts the page loads, as Chrome reports them: their files are not kept.
     const fontFaces: Record<string, unknown>[] = []
-    if (o.mode === 'still') {
+    if (o.mode === 'still')
       c.on<{ font?: Record<string, unknown> }>('CSS.fontsUpdated', (p, s) => {
         if (s === page && p.font) fontFaces.push(p.font)
       })
-      await c.send('DOM.enable', {}, page)
-      await c.send('CSS.enable', {}, page)
-    }
+    // Both kinds read the fonts text was drawn with. CSS is enabled before the page loads: enabled
+    // later, Chrome loads the page's resources again to read their style sheets.
+    await c.send('DOM.enable', {}, page)
+    await c.send('CSS.enable', {}, page)
     // The top frame's clock is driven by the capture; each frame's and worker's by its parent's.
     await c.send('Page.addScriptToEvaluateOnNewDocument', { source: clockFor(null) }, page)
 
@@ -1408,6 +1436,39 @@ export const captureWeb = async (options: CaptureOptions) => {
       else spans.set(key, { where, reason, from: time, to: time })
     }
     const declared: { element: string; type: string; [key: string]: unknown }[] = []
+    // The fonts each tracked element's text was drawn with, read once at the first frame: a font
+    // this machine lacks falls back to another, which changes the boxes. An element with no text
+    // then, or none matching, has no entry.
+    const fonts: { element: string; fonts: DrawnFont[] }[] = []
+    const readFonts = async () => {
+      const { root } = await c.send<{ root: { nodeId: number } }>(
+        'DOM.getDocument',
+        { depth: 0 },
+        page,
+      )
+      for (const element of o.track) {
+        const { nodeId } = await c.send<{ nodeId: number }>(
+          'DOM.querySelector',
+          { nodeId: root.nodeId, selector: element },
+          page,
+        )
+        if (!nodeId) continue
+        const got = await c.send<{ fonts: DrawnFont[] }>(
+          'CSS.getPlatformFontsForNode',
+          { nodeId },
+          page,
+        )
+        const drawn = got.fonts
+          .map(({ familyName, postScriptName, isCustomFont, glyphCount }) => ({
+            familyName,
+            postScriptName,
+            isCustomFont,
+            glyphCount,
+          }))
+          .sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1))
+        if (drawn.length > 0) fonts.push({ element, fonts: drawn })
+      }
+    }
     const advanceTo = (ms: number) =>
       held(
         `(() => { const c = self.__shadereraClock; c.sync(); return c.advanceTo(${JSON.stringify(ms)}) })()`,
@@ -1519,6 +1580,16 @@ export const captureWeb = async (options: CaptureOptions) => {
         animations: typeof declared
       }>(`(${READ})(${JSON.stringify(o.track)})`, ms)
       declared.push(...read.animations)
+      // An animation not on document.timeline is not on the clock: it is named, once.
+      for (const a of read.animations) {
+        const timeline = a.timeline as { type: string } | undefined
+        if (timeline)
+          limits.push({
+            where: a.element + (typeof a.pseudoElement === 'string' ? a.pseudoElement : ''),
+            reason: `a ${a.type}${a.name ? ` ${JSON.stringify(a.name)}` : ''} on a ${timeline.type} timeline, not document.timeline: the clock does not hold it`,
+          })
+      }
+      if (k === 0) await readFonts()
       WINDOW_CHANNELS.forEach(([channel], i) => {
         sampled(WINDOW, channel).push([time, read.scroll[i] as number])
       })
@@ -1662,7 +1733,15 @@ export const captureWeb = async (options: CaptureOptions) => {
     const json = tracksJson({
       format: 'shaderera.analysis/1',
       kind: 'reference-tracks',
-      source: { url, date, viewport, devicePixelRatio, responses: hashes, ...loadTime },
+      source: {
+        url,
+        date,
+        viewport,
+        devicePixelRatio,
+        responses: hashes,
+        ...loadTime,
+        fonts,
+      },
       tool,
       params: { fps: o.fps, duration: o.duration, track: o.track, ...clockParams },
       frame,

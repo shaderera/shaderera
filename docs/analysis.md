@@ -205,8 +205,14 @@ and the fonts it was drawn with, and a screenshot. Kind `reference-style`; the
   `responses`, each `{ url, status, sha256 }` of a response's body as served (after any
   Content-Encoding is undone). When those bytes were not available, `hashOf` says what was hashed
   instead: `"text-as-utf8"` is the body as the browser decoded it with its charset, encoded as
-  UTF-8, which matches the served file only when it was UTF-8. A second capture that differs is
-  then explained.
+  UTF-8, which matches the served file only when it was UTF-8. A body that could not be read at
+  all is still listed, with `"sha256": null` and `"hashOf": "none"`, and a limit names its URL
+  and why; `sha256` is null only then. A second capture that differs is then explained. A reader
+  from before `"none"` refuses such a file: the fix is a newer reader, not a new capture. A page's motion also records `fonts`: for each tracked element whose text was
+  drawn at the first frame, its `element` and the `fonts` its glyphs were drawn with then, as for
+  a [still](#reference-style)'s texts (`familyName`, `postScriptName`, `isCustomFont`,
+  `glyphCount`), sorted by family. A system font the page fell back to is one of them, so boxes
+  that differ on another machine are explained.
 - `tool`: script, and the name and version string of every program that produced the samples
   (ffmpeg, the browser a page was captured in, a model's name, version and checkpoint sha256);
   `params`: every setting that changes the output.

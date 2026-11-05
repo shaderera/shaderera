@@ -96,7 +96,10 @@ export const sourceJson = (source: TracksDoc['source'], path: string) =>
           viewport: ordered(source.viewport, ['width', 'height'], `${path}.viewport`),
           responses: [...source.responses]
             .sort(
-              (a, b) => byCode(a.url, b.url) || a.status - b.status || byCode(a.sha256, b.sha256),
+              (a, b) =>
+                byCode(a.url, b.url) ||
+                a.status - b.status ||
+                byCode(a.sha256 ?? '', b.sha256 ?? ''),
             )
             .map((r, i) => ordered(r, ['url', 'status', 'sha256'], `${path}.responses[${i}]`)),
         },
