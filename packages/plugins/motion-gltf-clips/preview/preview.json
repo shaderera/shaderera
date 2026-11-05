@@ -1,0 +1,12 @@
+{
+  "caption": "Reads a glTF model's animation clips exactly as the file writes them, and plays each channel by the glTF spec's own interpolation.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 2.2
+}

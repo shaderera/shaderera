@@ -1,0 +1,23 @@
+{
+  "name": "motion-gltf-clips",
+  "type": "component",
+  "title": "glTF animation clips",
+  "description": "A glTF file's animation clips read as written: each channel's target node, path, interpolation, key times and values as the accessors hold them; a channel's value at t by the glTF 2.0 spec (STEP, LINEAR with slerp for rotation, CUBICSPLINE Hermite with the file's tangents); skins and morph targets reported as present",
+  "category": "Animation & Camera",
+  "tags": [
+    "gltf",
+    "glb",
+    "animation",
+    "keyframes",
+    "slerp",
+    "cubic spline",
+    "reference",
+    "import",
+    "motion",
+    "3d"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "render-gltf-read": "^0.2.0" } },
+  "files": ["src/motion/gltf-clips.ts"]
+}

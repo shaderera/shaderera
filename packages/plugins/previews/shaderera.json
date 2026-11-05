@@ -43,6 +43,7 @@
           "look-tonemap",
           "look-vignette",
           "motion-eases",
+          "motion-gltf-clips",
           "motion-keyframes",
           "motion-lottie-read",
           "motion-random",
@@ -486,6 +487,13 @@
       "label": "motion-eases",
       "params": {
         "item": "motion-eases",
+        "state": "default"
+      }
+    },
+    "motion-gltf-clips": {
+      "label": "motion-gltf-clips",
+      "params": {
+        "item": "motion-gltf-clips",
         "state": "default"
       }
     },
