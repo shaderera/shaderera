@@ -9,6 +9,7 @@ const usage = `Usage: shaderera <command> [--root <dir>] [--variant <name>] [--h
 Commands:
   inspect <t> [--path a.b] [--json]          print the source's state at t
   inspect --track a.b [--from s] [--to s] [--json]   a value at every frame, and its speed
+  inspect --compare-tracks file --pairs file.json [--offset s] [--max-shift n] [--floor change] [--json]   the film measured against reference tracks
   check [--samples 50] [--seed 1] [--hdr10] [--no-types]   typecheck, then render each t twice in two orders and compare
   still <t>... [--every s] [--count n [--from s] [--to s]] [--sheet [--columns n]] [--file video] [--diff] [--compare variant] [--compare-file video [--offset s] [--max-shift n] [--floor level] [--heat-map] | --compare-file image] [--regions file] [--fit stretch|contain|cover] [--region x,y,w,h | --object id] [--scale n] [--out dir] [--json]   stills of any moment, and a contact sheet
   render [--job name] [--from s] [--to s] [--out file] [--format mp4|prores-hq|prores-4444] [--master] [--crf 18] [--encoder name] [--bitrate r | --maxrate r] [--no-edit-list] [--stems] [--progress] [--no-audio] [--loudness=LUFS] [--workers n] [--software-gpu] [--hdr10] [--draft [height]] [--retries n] [--chunk i [--plan dir]] [--reuse plan --changed a-b [--fix]] [--force] [--stop]   export an mp4 or a ProRes mov (--draft: 360 px high by default, full fps, out/<name>-draft.mp4) (a png job: frames + audio.wav + delivery.json)
