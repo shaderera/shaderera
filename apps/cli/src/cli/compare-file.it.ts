@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -361,5 +362,164 @@ test('still --compare-file <image> scores the film against a still, whole and pe
   assert.match(offset.stderr, /--offset reads a clip over time/)
   const alone = await cli('still', '0', '--root', root, '--regions', boxes)
   assert.equal(alone.status, 2)
-  assert.match(alone.stderr, /--regions goes with --compare-file <image>/)
+  assert.match(alone.stderr, /--regions goes with --compare-file <video\|image>/)
+})
+
+test('still --compare-file <clip> scores SSIM and edges per frame, whole and per region, with a fit (#677)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('compare-clip-ssim')
+  cpSync(fileURLToPath(new URL('./fixtures/reference/', import.meta.url)), root, {
+    recursive: true,
+  })
+  const same = await reference(root, 'same')
+  // The known change: from 1 s on, a white block in the top-left corner, where the film has none.
+  const changed = join(root, 'changed.mp4')
+  const made = spawnSync('ffmpeg', [
+    '-v',
+    'error',
+    '-i',
+    same,
+    '-vf',
+    "drawbox=x=0:y=0:w=16:h=8:color=white:t=fill:enable='gte(t,1)'",
+    changed,
+  ])
+  assert.equal(made.status, 0, String(made.stderr))
+  // Boxes in the clip's pixels: the corner that changes, and the bottom strip that never does.
+  const boxes = join(root, 'boxes.json')
+  writeFileSync(
+    boxes,
+    JSON.stringify({
+      width: 64,
+      height: 36,
+      boxes: [
+        { name: 'corner', x: 0, y: 0, width: 16, height: 8 },
+        { name: 'bottom', x: 0, y: 30, width: 64, height: 6 },
+      ],
+    }),
+  )
+  const out = join(root, 'stills')
+  const still = (...args: string[]) =>
+    cli('still', '--root', root, '--out', out, '--compare-file', changed, ...args)
+
+  const r = await still('--regions', boxes, '--json')
+  assert.equal(r.status, 0, r.stderr)
+  const report = JSON.parse(r.stdout).result
+  assert.equal(report.method.ssim.size, 11)
+  assert.equal(report.regions.kind, 'boxes')
+  assert.equal(report.frames.length, 20)
+  type Frame = {
+    t: number
+    ssim: number
+    edges: { agreement: number | null; film: number; reference: number }
+    regions: { id: string; ssim: number; edges: { film: number; reference: number } }[]
+  }
+  const region = (f: Frame, id: string) => f.regions.find((q) => q.id === id) as Frame['regions'][0]
+  for (const f of report.frames as Frame[]) {
+    const corner = region(f, 'corner')
+    // The strip never changes: only codec noise between the two.
+    assert.ok(region(f, 'bottom').ssim > 0.9, `bottom SSIM ${region(f, 'bottom').ssim} at ${f.t}`)
+    if (f.t < 1) {
+      assert.ok(corner.ssim > 0.9, `corner SSIM ${corner.ssim} at ${f.t}`)
+      assert.ok(f.ssim > 0.9, `SSIM ${f.ssim} at ${f.t}`)
+    } else {
+      // The block: other structure in the corner, and edges the film does not have.
+      assert.ok(corner.ssim < 0.5, `corner SSIM ${corner.ssim} at ${f.t}`)
+      assert.ok(corner.edges.reference > corner.edges.film + 10, `corner edges at ${f.t}`)
+      assert.ok(f.ssim < (report.frames[0] as Frame).ssim, `SSIM ${f.ssim} at ${f.t}`)
+      assert.ok((f.edges.agreement as number) < 1)
+    }
+  }
+  // The timing measurements are as they were: the change is not motion of the film's.
+  assert.equal(report.offset.found.steps, 0)
+
+  // A regions artifact of the clip (its sha256) scores its mask as the box does.
+  const artifact = join(root, 'regions')
+  mkdirSync(artifact)
+  writeFileSync(join(artifact, 'corner.u8'), new Uint8Array(16 * 8).fill(255))
+  const sha256 = createHash('sha256').update(readFileSync(changed)).digest('hex')
+  writeFileSync(
+    join(artifact, 'regions.json'),
+    JSON.stringify({
+      format: 'shaderera.analysis/1',
+      kind: 'regions',
+      source: { path: 'changed.mp4', sha256, width: 64, height: 36 },
+      regions: [
+        {
+          id: 'corner',
+          mask: {
+            file: 'corner.u8',
+            dtype: 'u8',
+            channels: 1,
+            width: 16,
+            height: 8,
+            rowStride: 16,
+            at: [0, 0],
+          },
+        },
+      ],
+    }),
+  )
+  const a = JSON.parse((await still('1.5', '--regions', artifact, '--json')).stdout).result
+  const fromBoxes = (report.frames as Frame[]).find((f) => f.t === 1.5) as Frame
+  assert.equal(a.regions.kind, 'regions')
+  assert.equal(a.frames[0].regions[0].ssim, region(fromBoxes, 'corner').ssim)
+  // One of other bytes is refused.
+  const other = await cli(
+    'still',
+    '1.5',
+    '--root',
+    root,
+    '--out',
+    out,
+    '--compare-file',
+    same,
+    '--regions',
+    artifact,
+  )
+  assert.equal(other.status, 2)
+  assert.match(other.stderr, /measured from other bytes/)
+
+  // The human output: SSIM and edges on each time's line, then each region's.
+  const text = await still('1.5', '--regions', boxes)
+  assert.equal(text.status, 0, text.stderr)
+  assert.match(
+    text.stdout,
+    /main-vs-changed-1\.500\.png {2}\d+ ms {2}PSNR .*; SSIM 0\.\d{3}, edges 0\.\d{3}; change/,
+  )
+  assert.match(text.stdout, /^ {2}corner: SSIM -?0\.\d{3}, edges 0\.\d{3}, mean ΔE/m)
+  assert.match(text.stdout, /^regions: corner, bottom \(boxes in 64×36\)$/m)
+
+  // --heat-map shows the SSIM heat map in place of the difference; the numbers are the same.
+  const plain = JSON.parse((await still('1.5', '--json')).stdout).result.frames[0]
+  const diffPng = decode(readFileSync(plain.file)).data
+  const heat = JSON.parse((await still('1.5', '--heat-map', '--json')).stdout).result.frames[0]
+  const heatPng = decode(readFileSync(heat.file)).data
+  assert.equal(heat.ssim, plain.ssim)
+  const panel = (px: ArrayLike<number>, k: number) =>
+    Array.from({ length: 36 }, (_, y) =>
+      Array.from(px).slice((y * 192 + k * 64) * 4, (y * 192 + (k + 1) * 64) * 4),
+    ).flat()
+  assert.deepEqual(panel(heatPng, 0), panel(diffPng, 0))
+  assert.notDeepEqual(panel(heatPng, 2), panel(diffPng, 2))
+
+  // A clip of another shape is stretched without a fit, as before; with contain it is placed and
+  // the film's pixels outside it are not scored.
+  const tall = join(root, 'tall.mp4')
+  const padded = spawnSync('ffmpeg', ['-v', 'error', '-i', same, '-vf', 'pad=64:48:0:6', tall])
+  assert.equal(padded.status, 0, String(padded.stderr))
+  const tallStill = (...args: string[]) =>
+    cli('still', '--root', root, '--out', out, '--compare-file', tall, '1', ...args)
+  const stretched = JSON.parse((await tallStill('--json')).stdout).result
+  assert.equal(stretched.scaled.aspect, 'stretched')
+  assert.equal(stretched.scaled.fit, undefined)
+  const contained = await tallStill('--fit', 'contain', '--regions', boxes, '--json')
+  assert.equal(contained.status, 0, contained.stderr)
+  const c = JSON.parse(contained.stdout).result
+  assert.equal(c.scaled.fit, 'contain')
+  assert.deepEqual(c.scaled.placed, { x: 8, y: 0, width: 48, height: 36 })
+  assert.equal(c.scaled.masked, 64 * 36 - 48 * 36)
+  assert.equal(decode(readFileSync(c.frames[0].file)).width, 48 * 3)
+  // Boxes in the film's pixels are cut to the part the clip covers.
+  assert.equal(c.regions.list.find((q: { id: string }) => q.id === 'corner').box.x, 8)
 })

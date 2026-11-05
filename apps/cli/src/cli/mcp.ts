@@ -268,15 +268,19 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       every: say(num, 'Also a frame every this many seconds from 0.'),
       compare_file: say(
         str,
-        "A reference clip, or a PNG or JPEG, inside the project. A clip: the film's final frames are measured against its frames at the same times (PSNR, ΔE, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t; with no times, the clip's frames at its own rate over from to to. A variable-rate clip is read at each frame's own time, held until the next (reference.timing variable, intervals, each frame's read time). An image: the film's final frame at each time (times or every, needed) against it (PSNR, ΔE, SSIM on luma, the Sobel edge score, and per region with regions), and the sheet shows film | image | SSIM heat map. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
+        "A reference clip, or a PNG or JPEG, inside the project. A clip: the film's final frames are measured against its frames at the same times (PSNR, ΔE, SSIM on luma, the Sobel edge score, per region with regions, each side's activity curve and motion window, the offset that aligns the curves) and the sheet shows film | reference | difference per t (with heat_map, the SSIM heat map); with no times, the clip's frames at its own rate over from to to. A variable-rate clip is read at each frame's own time, held until the next (reference.timing variable, intervals, each frame's read time). An image: the film's final frame at each time (times or every, needed) against it (PSNR, ΔE, SSIM on luma, the Sobel edge score, and per region with regions), and the sheet shows film | image | SSIM heat map. At most 600 times are measured, and 64 of them shown. Measures only: no pass or fail. Not with file or variants.",
       ),
       regions: say(
         str,
-        'With compare_file an image: a regions artifact of that image (its folder or regions.json; shaderera.analysis/1 of kind regions, as docs/analysis.md defines it), or a JSON file of boxes { format: "shaderera.boxes/1" (may be left out), width, height, boxes: [{ name, x, y, width, height }] } in the image\'s or the film\'s pixels, inside the project, as are its masks (a symbolic link out of it is refused). Each region is scored apart. Not with region.',
+        'With compare_file: a regions artifact of that image or clip (its folder or regions.json; shaderera.analysis/1 of kind regions, as docs/analysis.md defines it), or a JSON file of boxes { format: "shaderera.boxes/1" (may be left out), width, height, boxes: [{ name, x, y, width, height }] } in the reference\'s or the film\'s pixels, inside the project, as are its masks (a symbolic link out of it is refused). Each region is scored apart, at every time. Not with region.',
       ),
       fit: say(
         { type: 'string', enum: ['stretch', 'contain', 'cover'] },
-        "With compare_file an image of another shape than the film's frame, needed then, no default: stretch scales it to the frame, its regions too; contain fits it whole at one scale, centred, and cover fills the frame at one scale, centred. With contain or cover the film's pixels outside the image are masked out of every score. Recorded in scaled (fit, scale, placed, masked).",
+        "With compare_file a reference of another shape than the film's frame (needed then with an image, no default; a clip without it is stretched): stretch scales it to the frame, its regions too; contain fits it whole at one scale, centred, and cover fills the frame at one scale, centred. With contain or cover the film's pixels outside the reference are masked out of every score. Recorded in scaled (fit, scale, placed, masked).",
+      ),
+      heat_map: say(
+        { type: 'boolean' },
+        "With compare_file a clip: the sheet shows the SSIM heat map (1 − SSIM on inferno, black where the structure is the same) in place of the difference, as an image's does. Measures nothing more.",
       ),
       offset: say(num, 'With compare_file: seconds, the clip is read at t + offset. Default 0.'),
       max_shift: say(
@@ -866,7 +870,9 @@ export const createServer = (
     const region = Array.isArray(a.region) ? parseRegion(a.region.join(',')) : undefined
     const sheet: { t: number; label: string; pixels: Uint8Array }[] = []
     let size = { width: manifest.width, height: manifest.height }
-    const label = `film | ${basename(reference)} | ${isImage(reference) ? 'SSIM heat map' : 'difference'}`
+    if (a.heat_map !== undefined && typeof a.heat_map !== 'boolean')
+      throw new Error(`heat_map is true or false, not ${shown(a.heat_map)}.`)
+    const label = `film | ${basename(reference)} | ${isImage(reference) || a.heat_map ? 'SSIM heat map' : 'difference'}`
     const report = await compareWithFile({
       reference,
       film: { ...manifest, render: (t) => final(c, t) },
@@ -876,6 +882,7 @@ export const createServer = (
       ...(region ? { region } : {}),
       ...(regions ? { regions, within: root } : {}),
       ...(a.fit === undefined ? {} : { fit: a.fit }),
+      ...(a.heat_map ? { heatMap: true } : {}),
       frame: async (f) => {
         size = { width: f.width, height: f.height }
         if (onSheet(f.index, f.count, SHEET)) sheet.push({ t: f.t, label, pixels: f.pixels })
@@ -987,7 +994,17 @@ export const createServer = (
       throw new Error(
         'compare_file measures one variant against the reference: give variant, not variants.',
       )
-    for (const k of ['offset', 'max_shift', 'from', 'to', 'region', 'floor', 'regions', 'fit'])
+    for (const k of [
+      'offset',
+      'max_shift',
+      'from',
+      'to',
+      'region',
+      'floor',
+      'regions',
+      'fit',
+      'heat_map',
+    ])
       if (name === 'still' && a[k] !== undefined && a.compare_file === undefined)
         throw new Error(`${k} goes with compare_file.`)
     if (a.variants !== undefined && ['still', 'check', 'review'].includes(name))

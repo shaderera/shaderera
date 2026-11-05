@@ -1,4 +1,4 @@
-// `still --compare-file <image> --regions <file>`: the parts of a still reference scored apart.
+// `still --compare-file <video|image> --regions <file>`: the parts of a reference scored apart.
 // The file is a regions artifact (shaderera.analysis/1, kind `regions`) or boxes with names
 // (shaderera.boxes/1), both as docs/analysis.md ("Regions (still image)") defines them; a field it
 // does not know is ignored. Every region becomes a mask in the film's frame pixels.
@@ -34,8 +34,8 @@ const FORMAT = 'shaderera.analysis/1'
 /** Boxes with names. A file of boxes may leave `format` out: it is this one. */
 const BOXES = 'shaderera.boxes/1'
 
-/** The reference as the regions are checked against it: its path, size and sha256. */
-type Reference = { file: string; width: number; height: number; sha256: string }
+/** The reference as the regions are checked against it: its path, size and sha256 (read when needed). */
+type Reference = { file: string; width: number; height: number; sha256: () => string }
 
 type Obj = { [k: string]: unknown }
 const isObj = (v: unknown): v is Obj => v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -138,7 +138,7 @@ const artifact = (
       `--regions ${file} is a ${FORMAT} artifact of kind ${JSON.stringify(doc.kind)}, not regions: ${shapes}`,
     )
   const source = isObj(doc.source) ? doc.source : {}
-  if (source.sha256 !== reference.sha256)
+  if (source.sha256 !== reference.sha256())
     throw new Error(
       `--regions ${file} was measured from other bytes than ${reference.file} (${String(source.path)}): its regions are of another image. Measure this one, or give boxes.`,
     )
