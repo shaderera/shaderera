@@ -549,6 +549,10 @@ test('still with compare_file measures the film against a clip and finds its off
     await assert.rejects(call('still', { times: [0], heat_map: true }), /heat_map goes with/)
     await assert.rejects(call('still', { times: [0], offset: 1 }), /offset goes with compare_file/)
     await assert.rejects(
+      call('still', { compare_file: 'out/late.mp4', times: [0.9], fit: 1 }),
+      /fit is stretch, contain or cover, not 1/,
+    )
+    await assert.rejects(
       call('still', { compare_file: 'out/late.mp4', variants: ['main', 'large'] }),
       /give variant, not variants/,
     )

@@ -866,7 +866,7 @@ export const createServer = (
       floor: number('floor'),
     }
     if (a.fit !== undefined && typeof a.fit !== 'string')
-      throw new Error(`fit is stretch, not ${shown(a.fit)}.`)
+      throw new Error(`fit is stretch, contain or cover, not ${shown(a.fit)}.`)
     const region = Array.isArray(a.region) ? parseRegion(a.region.join(',')) : undefined
     const sheet: { t: number; label: string; pixels: Uint8Array }[] = []
     let size = { width: manifest.width, height: manifest.height }
