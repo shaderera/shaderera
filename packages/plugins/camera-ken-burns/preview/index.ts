@@ -8,7 +8,7 @@
 
 import { createHouse, RED, type Word } from '../../previews/src/house.ts'
 import type { Rect } from '../../previews/src/image/fit.ts'
-import { progress } from '../../previews/src/motion/eases.ts'
+import { progress, smooth } from '../../previews/src/motion/eases.ts'
 import { type Framing, moveOf } from '../../previews/src/motion/ken-burns.ts'
 import { FONT, type OpenPreview } from '../../previews/src/preview.ts'
 
@@ -125,7 +125,7 @@ const cameraKenBurns: OpenPreview = async (host, stateId) => {
     MOVES.find((m) => t < m.to) ?? (MOVES[MOVES.length - 1] as (typeof MOVES)[0])
   const viewAt = (t: number) => {
     const m = moveAt(t)
-    return { m, v: moveOf(STILL, m.a, m.b, progress(t, m.from, m.to), ASPECT) }
+    return { m, v: moveOf(STILL, m.a, m.b, progress(t, m.from, m.to, smooth), ASPECT) }
   }
 
   /** A box of the still, in the frame of view v. */
