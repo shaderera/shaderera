@@ -161,9 +161,9 @@ npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions 
   twice the CSS pixels each way. Tracks are in `css-px`; `frame.pixelRatio` and `--dpr` say the
   ratio. Convert to the film's frame in the film.
 - **A GIF's timing is good to about one frame.** GIF stores each frame's delay in hundredths of a
-  second, and Chrome and Firefox play a delay of 0 or 1 hundredth as a tenth. `--compare-file` refuses a
-  clip whose frames are not at a constant rate, naming the frame; `docs/cli.md` gives the
-  ffmpeg line that re-encodes it to one.
+  second, and Chrome and Firefox play a delay of 0 or 1 hundredth as a tenth. `--compare-file` reads
+  each frame at the time the file stores, which is not always the time a browser shows it, and
+  reads a clip whose frames are not at a constant rate at their own times (`reference.timing`).
 - **A font fallback changes every pixel.** A missing font, or one missing a glyph, is replaced by
   another whose shapes and advances differ, so every pixel of the line moves and the scores drop
   for the whole line. Check the fonts first: a page's still names the fonts Chrome drew each
