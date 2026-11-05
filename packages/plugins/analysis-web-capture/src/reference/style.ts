@@ -178,7 +178,7 @@ export const loadStyle = async (host: Host, path: string): Promise<ReferenceStyl
   const wrong = styleProblem(doc, path)
   if (wrong) throw new Error(wrong)
   const style = doc as Omit<ReferenceStyle, 'path'>
-  const beside = `${path.slice(0, path.lastIndexOf('/') + 1)}${style.screenshot.path}`
+  const beside = `${path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)}${style.screenshot.path}`
   if ((await sha256(await host.io.read(beside))) !== style.screenshot.sha256)
     throw new Error(`${beside} is not the screenshot ${path} was captured with; capture it again`)
   if (isFileSource(style.source)) {
