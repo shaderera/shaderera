@@ -47,7 +47,8 @@ and above. When the project is somewhere else (one you just made, say), pass its
 
 1. Read the brief. How the film looks comes from the brief and the person: Shaderera has no
    house style, so do not bring one. If the brief names a real product, logo or asset and its
-   files are missing, ask for them.
+   files are missing, ask for them. When the person hands over a reference to copy (a clip, a
+   web page, a Lottie file, a poster or screenshot), read `guides/reference-motion.md` first.
 2. Write the film's code in `src/`. Report state from `inspect(t)` (ids, text as runs, boxes), so
    checks and review can read it (`AUTHORING.md`, "Make it editable").
 3. Check after every edit: `npx shaderera check`. `render(t)` must stay a function of `t`. On

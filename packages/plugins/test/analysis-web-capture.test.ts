@@ -2,8 +2,11 @@
 // address check refuses loopback, private, link-local and cloud metadata addresses (IPv4, IPv6,
 // IPv4 inside IPv6) and a name that resolves to one; the proxy Chrome goes out through refuses
 // such a request before it connects, and lets it through with allowLocal. Bad options are
-// refused before anything starts, and a transform matrix comes apart into channels that build it
-// back. The captures themselves are in analysis-web-capture.it.ts.
+// refused before anything starts, each trigger takes only its own settings and sends its inputs
+// at their times, and a transform matrix comes apart into channels that build it back. A still
+// takes its own settings and is on an animation frame; its reference-style artifact is written in
+// one order, read back, and refused with a changed screenshot or a malformed field. The captures
+// themselves are in analysis-web-capture.it.ts.
 
 import assert from 'node:assert/strict'
 import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -29,9 +32,23 @@ const from = (p: string) => import(pathToFileURL(join(project, p)).href)
 const { checkHost, localKind, refusedAddress, refusedName, startProxy } = (await from(
   'tools/web-capture-net.ts',
 )) as typeof import('../analysis-web-capture/tools/web-capture-net.ts')
-const { checkOptions, decompose, pageUrl, unwrap } = (await from(
-  'tools/capture-web.ts',
-)) as typeof import('../analysis-web-capture/tools/capture-web.ts')
+const { batchesOf, checkOptions, decompose, frameMs, inputsOf, pageUrl, unwrap, wheelDelta } =
+  (await from(
+    'tools/capture-web.ts',
+  )) as typeof import('../analysis-web-capture/tools/capture-web.ts')
+const { styleJson } = (await from(
+  'tools/reference-style.ts',
+)) as typeof import('../analysis-web-capture/tools/reference-style.ts')
+const { pngSize, STYLES } = (await from(
+  'tools/web-capture-style.ts',
+)) as typeof import('../analysis-web-capture/tools/web-capture-style.ts')
+const { loadStyle, styleOf, textsOf } = (await from(
+  'src/reference/style.ts',
+)) as typeof import('../analysis-web-capture/src/reference/style.ts')
+const { loadTracks } = (await from(
+  'src/reference/tracks.ts',
+)) as typeof import('../analysis-reference-tracks/src/reference/tracks.ts')
+type StyleDoc = import('../analysis-web-capture/tools/reference-style.ts').StyleDoc
 
 test('the address check refuses every address that is not public', () => {
   const refused: [string, string][] = [
@@ -279,6 +296,105 @@ test('options are checked before anything starts', async () => {
   )
 })
 
+test('each trigger takes its own settings and refuses the others', () => {
+  const base = {
+    page: 'https://example.com/',
+    out: 'references/hero',
+    track: ['.hero h1'],
+    fps: 30,
+    rafHz: 30,
+    duration: 2,
+    viewport: { width: 1280, height: 720 },
+  }
+  const o = checkOptions(base)
+  assert.deepEqual(o.trigger, { type: 'load' }, 'the motion starts with the page by default')
+  assert.equal(o.settle, 'load')
+  assert.deepEqual(checkOptions({ ...base, trigger: 'none' }).trigger, { type: 'none' })
+  assert.equal(checkOptions({ ...base, settle: 'loaded' }).settle, 'loaded')
+  assert.deepEqual(checkOptions({ ...base, trigger: 'click', target: '#b', at: 500 }).trigger, {
+    type: 'click',
+    target: '#b',
+    at: 500,
+  })
+  assert.deepEqual(
+    checkOptions({ ...base, trigger: 'scroll', at: 0, scrollTo: 600, scrollMs: 300 }).trigger,
+    { type: 'scroll', at: 0, scrollTo: 600, scrollMs: 300 },
+  )
+  const refuses = (more: Record<string, unknown>, message: RegExp) =>
+    assert.throws(() => checkOptions({ ...base, ...more }), message)
+  refuses({ settle: 'idle' }, /--settle idle is not one of load, loaded/)
+  refuses({ trigger: 'tap' }, /--trigger tap is not one of load, none, click/)
+  refuses({ target: '#b' }, /--target is not for --trigger load: it sends no input/)
+  refuses({ trigger: 'none', at: 10 }, /--at is not for --trigger none/)
+  refuses({ trigger: 'click', at: 500 }, /--trigger click needs --target/)
+  refuses({ trigger: 'hover', target: '#b' }, /--trigger hover needs --at <ms>/)
+  refuses({ trigger: 'click', target: ' ', at: 0 }, /--target is empty/)
+  refuses({ trigger: 'click', target: '#b', at: 2001 }, /--at 2001 is not ms from 0 to .* 2000/)
+  // 0.52 s at 30 fps: the last frame is at 500 ms, so a click at 510 would show on no frame.
+  refuses(
+    { trigger: 'click', target: '#b', at: 510, duration: 0.52 },
+    /--at 510 is not ms from 0 to the last frame, at 500 ms/,
+  )
+  refuses(
+    { trigger: 'scroll', at: 400, scrollTo: 10, scrollMs: 110, duration: 0.52 },
+    /end the scroll at 510 ms, after the last frame, at 500 ms/,
+  )
+  refuses({ trigger: 'click', target: '#b', at: -1 }, /--at -1/)
+  refuses({ trigger: 'leave', target: '#b', at: 0 }, /--at 0 with --trigger leave/)
+  refuses(
+    { trigger: 'click', target: '#b', at: 0, scrollTo: 10 },
+    /--scroll-to is not for --trigger click: it takes --target, --at/,
+  )
+  refuses(
+    { trigger: 'scroll', at: 0, scrollTo: 10 },
+    /--trigger scroll needs --scroll-to.*--scroll-ms/,
+  )
+  refuses({ trigger: 'scroll', at: 0, scrollTo: 10.5, scrollMs: 0 }, /--scroll-to 10.5/)
+  refuses({ trigger: 'scroll', at: 0, scrollTo: 10, scrollMs: -1 }, /--scroll-ms -1/)
+  refuses(
+    { trigger: 'scroll', at: 1900, scrollTo: 10, scrollMs: 200 },
+    /end the scroll at 2100 ms, after the last frame, at 2000 ms/,
+  )
+  refuses({ track: ['window'] }, /--track window: that name holds the window's own scrollX/)
+})
+
+test('a trigger sends its inputs at their times, and a scroll adds up to its distance', () => {
+  assert.deepEqual(inputsOf({ type: 'load' }, 30), [])
+  assert.deepEqual(inputsOf({ type: 'click', target: '#b', at: 500 }, 30), [
+    { ms: 500, kind: 'click' },
+  ])
+  assert.deepEqual(inputsOf({ type: 'leave', target: '#b', at: 800 }, 30), [
+    { ms: 0, kind: 'hover' },
+    { ms: 800, kind: 'leave' },
+  ])
+  assert.deepEqual(inputsOf({ type: 'scroll', at: 100, scrollTo: 50, scrollMs: 0 }, 30), [
+    { ms: 100, kind: 'scroll-start' },
+    { ms: 100, kind: 'wheel', step: 1, of: 1 },
+  ])
+  // 100 ms at rafHz 60: one wheel event each 1/60 s, the last at the end.
+  const wheels = inputsOf({ type: 'scroll', at: 200, scrollTo: 600, scrollMs: 100 }, 60).slice(1)
+  assert.equal(wheels.length, 6)
+  assert.ok(Math.abs((wheels[0]?.ms as number) - (200 + 100 / 6)) < 1e-9)
+  assert.equal(wheels.at(-1)?.ms, 300)
+  for (const [distance, of] of [
+    [600, 9],
+    [-250, 7],
+    [1, 6],
+    [0, 3],
+  ] as const) {
+    const deltas = Array.from({ length: of }, (_, i) => wheelDelta(distance, i + 1, of))
+    assert.equal(
+      deltas.reduce((a, b) => a + b, 0),
+      distance,
+    )
+    assert.ok(deltas.every((d) => Number.isInteger(d)))
+  }
+  assert.deepEqual(
+    Array.from({ length: 9 }, (_, i) => wheelDelta(600, i + 1, 9)),
+    [67, 66, 67, 67, 66, 67, 67, 66, 67],
+  )
+})
+
 test('a transform matrix comes apart into channels that build it back', () => {
   const rad = Math.PI / 180
   const build = (t: ReturnType<typeof decompose>) => {
@@ -329,4 +445,268 @@ test('a transform matrix comes apart into channels that build it back', () => {
   assert.equal(unwrap(170, -175), -190)
   assert.equal(unwrap(10, null), 10)
   assert.equal(unwrap(-350, 0), 10)
+})
+
+test('an input is sent with the first frame not before it, and never after that frame', () => {
+  // At 24 fps a wheel's time rounds a hair past a frame's (208.33333333333334 against
+  // 208.33333333333331): it goes with that frame, sent at the frame's time, so the clock never
+  // goes back.
+  const scroll = inputsOf({ type: 'scroll', at: 0, scrollTo: 240, scrollMs: 500 }, 24)
+  const fps = 24
+  const frames = Math.floor(0.6 * fps + 1e-9) + 1
+  const batches = batchesOf(scroll, frames, fps)
+  assert.equal(batches.flat().length, scroll.length, 'every input has a frame')
+  let clock = 0
+  batches.forEach((batch, k) => {
+    for (const { input, ms } of batch) {
+      assert.ok(ms >= clock && ms <= frameMs(k, fps), `input at ${input.ms} sent by frame ${k}`)
+      assert.ok(Math.abs(ms - input.ms) < 1e-6)
+      clock = ms
+    }
+    clock = frameMs(k, fps)
+  })
+  assert.ok(scroll.some((i) => i.ms > frameMs(Math.round((i.ms * fps) / 1000), fps)))
+  // A click at a whole ms that rounds the same way at 24 fps.
+  const click = inputsOf({ type: 'click', target: '#b', at: 8125 }, 24)
+  const k = Math.round((8125 * fps) / 1000)
+  const sent = batchesOf(click, k + 1, fps)
+  assert.deepEqual(
+    sent[k]?.map((b) => b.ms),
+    [frameMs(k, fps)],
+  )
+  assert.throws(() => batchesOf(click, k, fps), /an input at 8125 ms is after the last frame/)
+})
+
+test('a still takes its own settings, on an animation frame, and refuses motion ones', () => {
+  const base = {
+    page: 'https://example.com/',
+    out: 'references/hero',
+    still: 500,
+    rafHz: 60,
+    viewport: { width: 1280, height: 720 },
+  }
+  const o = checkOptions(base)
+  assert.equal(o.mode, 'still')
+  assert.deepEqual(o.times, [500])
+  assert.equal(o.root, ':root', 'the whole page when no root is given')
+  assert.deepEqual(o.styles, STYLES)
+  assert.deepEqual(checkOptions({ ...base, styles: ['white-space'] }).styles, [
+    ...STYLES,
+    'white-space',
+  ])
+  // The default list holds what draws a box's edges, text's decoration, a clip and an SVG shape.
+  for (const s of ['border-top-width', 'border-left-color', 'outline-style'])
+    assert.ok(STYLES.includes(s), s)
+  for (const s of ['text-decoration-line', 'clip-path', 'mask-image', 'backdrop-filter', 'fill'])
+    assert.ok(STYLES.includes(s), s)
+  assert.equal(checkOptions({ ...base, still: 0, rafHz: 24 }).still, 0)
+  assert.equal(checkOptions({ ...base, still: 125, rafHz: 24 }).still, 125)
+  const refuses = (more: Record<string, unknown>, message: RegExp) =>
+    assert.throws(() => checkOptions({ ...base, ...more }), message)
+  refuses({ rafHz: undefined }, /--still needs --rafHz/)
+  refuses(
+    { still: 510 },
+    /--still 510 is not on an animation frame at --rafHz 60 \(one each 16\.667 ms\).*Give 500 or 516\.6666666666666,/,
+  )
+  // On a frame is as near as the clock runs a tick: a millionth of a ms, not of a tick. The times
+  // the refusal gives are taken.
+  assert.equal(checkOptions({ ...base, still: 1000 / 30, rafHz: 30 }).still, 1000 / 30)
+  refuses({ still: 66.66666, rafHz: 30 }, /Give 33\.333333333333336 or 66\.66666666666667,/)
+  refuses({ still: 33.333, rafHz: 30 }, /Give 0 or 33\.333333333333336,/)
+  for (const still of [33.333333333333336, 66.66666666666667])
+    assert.equal(checkOptions({ ...base, still, rafHz: 30 }).still, still)
+  refuses({ still: -1 }, /--still -1 is not ms of 0 or more/)
+  refuses({ track: ['#a'] }, /--track is for motion/)
+  refuses({ fps: 30 }, /--fps is for motion/)
+  refuses({ duration: 1 }, /--duration is for motion/)
+  refuses({ root: ' ' }, /--root is empty/)
+  refuses({ styles: ['color'] }, /--style color is read already/)
+  refuses({ styles: ['white-space', 'white-space'] }, /--style white-space is given twice/)
+  refuses({ styles: ['--accent'] }, /--style --accent is a custom property/)
+  refuses({ styles: ['Text Align'] }, /is not a CSS property name/)
+  // An input is sent up to the still, and not after it.
+  assert.deepEqual(checkOptions({ ...base, trigger: 'hover', target: '#b', at: 500 }).trigger, {
+    type: 'hover',
+    target: '#b',
+    at: 500,
+  })
+  refuses(
+    { trigger: 'hover', target: '#b', at: 501 },
+    /--at 501 is not ms from 0 to the still, at 500 ms/,
+  )
+  // And a motion capture refuses the still's.
+  const motion = { ...base, still: undefined, track: ['#a'], fps: 30, duration: 1 }
+  assert.throws(() => checkOptions({ ...motion, root: 'main' }), /--root is for --still/)
+  assert.throws(() => checkOptions({ ...motion, styles: ['x'] }), /--style is for --still/)
+  assert.throws(() => checkOptions({ ...motion, track: [] }), /--track <selector>.*or --still <ms>/)
+})
+
+/** A PNG header for a width and a height: what pngSize and the reader look at. */
+const pngOf = (width: number, height: number) => {
+  const b = new Uint8Array(33)
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52])
+  const v = new DataView(b.buffer)
+  v.setUint32(16, width)
+  v.setUint32(20, height)
+  return b
+}
+const sha = async (b: Uint8Array) =>
+  Buffer.from(await crypto.subtle.digest('SHA-256', b)).toString('hex')
+
+const styleDoc = async (png: Uint8Array): Promise<StyleDoc> => ({
+  format: 'shaderera.analysis/1',
+  kind: 'reference-style',
+  source: {
+    url: 'https://example.com/',
+    date: '2026-11-04T00:00:00.000Z',
+    viewport: { width: 800, height: 400 },
+    devicePixelRatio: 1,
+    responses: [
+      { url: 'https://example.com/z.css', status: 200, sha256: 'b'.repeat(64) },
+      { url: 'https://example.com/', status: 200, sha256: 'a'.repeat(64) },
+    ],
+  },
+  tool: { version: '0.3.0', script: 'tools/capture-web.ts' },
+  params: { still: 500, styles: ['font-size', 'color'], rafHz: 60 },
+  frame: { width: 800, height: 400, pixelRatio: 1 },
+  scroll: { x: 0, y: 0 },
+  screenshot: { path: 'style.png', width: 800, height: 400, sha256: await sha(png) },
+  elements: [
+    {
+      styles: { 'font-size': '40px', color: 'rgb(20, 30, 40)' },
+      tag: 'h1',
+      element: '[data-id="card"] > h1',
+      box: [64, 84.0000001, 272, 48],
+      paintOrder: 2,
+    },
+    {
+      element: '[data-id="card"]',
+      pseudoElement: '::after',
+      tag: 'div',
+      dataId: 'card',
+      box: [40, 256, 320, 4],
+      paintOrder: 3,
+      styles: { 'font-size': '16px', color: 'rgb(0, 0, 0)' },
+    },
+  ],
+  texts: [
+    {
+      element: '[data-id="card"] > h1',
+      child: 0,
+      text: 'Hello',
+      boxes: [{ start: 0, length: 5, box: [64, 82, 91.703125, 52] }],
+      fonts: [
+        { familyName: 'Thonburi', postScriptName: 'Thonburi', isCustomFont: false, glyphCount: 4 },
+        {
+          glyphCount: 5,
+          familyName: 'IBM Plex Sans',
+          postScriptName: 'IBMPlexSans',
+          isCustomFont: true,
+        },
+      ],
+    },
+  ],
+  fontFaces: [{ src: 'https://example.com/plex.ttf', fontFamily: 'Plex' }],
+  limits: [],
+})
+
+test('a reference-style artifact is written in one order and read back', async () => {
+  const png = pngOf(800, 400)
+  assert.deepEqual(pngSize(png), { width: 800, height: 400 })
+  assert.throws(() => pngSize(new Uint8Array(40)), /not a PNG/)
+  const json = styleJson(await styleDoc(png))
+  assert.equal(styleJson(JSON.parse(json)), json, 'what it writes it writes again the same')
+  // One element per line, its keys in one order, its styles in params.styles' order.
+  assert.equal(
+    json.split('\n').find((l) => l.includes('"tag":"h1"')),
+    '    {"element":"[data-id=\\"card\\"] > h1","tag":"h1","box":[64,84,272,48],"paintOrder":2,"styles":{"font-size":"40px","color":"rgb(20, 30, 40)"}},',
+  )
+  assert.match(
+    json,
+    /"element":"\[data-id=\\"card\\"\]","dataId":"card","tag":"div","pseudoElement":"::after"/,
+  )
+  // A text's fonts sorted by family; responses by url.
+  const parsed = JSON.parse(json)
+  assert.deepEqual(
+    parsed.texts[0].fonts.map((f: { familyName: string }) => f.familyName),
+    ['IBM Plex Sans', 'Thonburi'],
+  )
+  assert.deepEqual(Object.keys(parsed.texts[0].boxes[0]), ['box', 'start', 'length'])
+  assert.deepEqual(
+    parsed.source.responses.map((r: { url: string }) => r.url),
+    ['https://example.com/', 'https://example.com/z.css'],
+  )
+  assert.deepEqual(Object.keys(parsed), [
+    'format',
+    'kind',
+    'source',
+    'tool',
+    'params',
+    'frame',
+    'scroll',
+    'screenshot',
+    'elements',
+    'texts',
+    'fontFaces',
+    'limits',
+  ])
+
+  const files = new Map([
+    ['references/hero/style.json', new TextEncoder().encode(json)],
+    ['references/hero/style.png', png],
+  ])
+  const host = {
+    io: {
+      read: async (p: string) => {
+        const b = files.get(p)
+        if (!b) throw new Error(`No file ${p}`)
+        return b
+      },
+    },
+  } as unknown as import('@shaderera/core').Host
+  const style = await loadStyle(host, 'references/hero/style.json')
+  assert.equal(styleOf(style, '[data-id="card"]', '::after').box[1], 256)
+  assert.equal(textsOf(style, '[data-id="card"] > h1')[0]?.text, 'Hello')
+  assert.deepEqual(textsOf(style, '[data-id="card"]'), [])
+  assert.throws(
+    () => styleOf(style, '#nothing'),
+    /has no element #nothing: it has \[data-id="card"\] > h1, \[data-id="card"\]::after/,
+  )
+  // A reference-tracks reader refuses it, and names this reader.
+  await assert.rejects(
+    loadTracks(host, 'references/hero/style.json'),
+    /not reference-tracks: read it with loadStyle, from analysis-web-capture/,
+  )
+  // A screenshot that is not the one captured is refused.
+  files.set('references/hero/style.png', pngOf(800, 401))
+  await assert.rejects(
+    loadStyle(host, 'references/hero/style.json'),
+    /references\/hero\/style\.png is not the screenshot/,
+  )
+})
+
+test('the reference-style writer refuses what its reader would', async () => {
+  const doc = await styleDoc(pngOf(800, 400))
+  const refuses = (more: Record<string, unknown>, message: RegExp) =>
+    assert.throws(() => styleJson({ ...doc, ...more } as StyleDoc), message)
+  refuses({ kind: 'reference-tracks' }, /not reference-style: read it with loadTracks/)
+  refuses({ extra: 1 }, /reference-style has no field extra/)
+  refuses({ scroll: { x: 0 } }, /needs scroll \{ x, y \}/)
+  refuses(
+    { screenshot: { ...doc.screenshot, path: '../style.png' } },
+    /screenshot \.\.\/style\.png is not a file beside it/,
+  )
+  refuses(
+    { elements: [{ ...doc.elements[0], box: [0, 0, -1, 4] }] },
+    /element 0 .* needs a box \[x, y, width, height\]/,
+  )
+  refuses(
+    { elements: [{ ...doc.elements[0], styles: { color: 1 } }] },
+    /styles are not names to computed values/,
+  )
+  refuses(
+    { texts: [{ ...doc.texts[0], fonts: [{ familyName: 'A' }] }] },
+    /fonts need a familyName, postScriptName, isCustomFont and glyphCount/,
+  )
+  refuses({ source: { ...doc.source, date: 'today' } }, /not ISO 8601 in UTC/)
 })

@@ -1,0 +1,20 @@
+<!doctype html>
+<!--
+  Rows that light up on :hover, 40 px each in a 400 px viewport: the viewport's centre (y 200)
+  is over #r5 at scrollY 0 and over #r15 at scrollY 400.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .row { height: 40px; background: #fff; opacity: 0.5 }
+  .row:hover { opacity: 1 }
+</style>
+<main id="rows"></main>
+<script>
+  for (let i = 0; i < 100; i++) {
+    const row = document.createElement('div')
+    row.className = 'row'
+    row.id = `r${i}`
+    document.getElementById('rows').append(row)
+  }
+</script>

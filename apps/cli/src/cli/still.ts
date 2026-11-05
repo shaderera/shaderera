@@ -2,7 +2,6 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { frameCount } from '@shaderera/core/host'
 import { encodePng } from '../deliver/png.ts'
-import { videoReader } from '../node/services.ts'
 import { activityImage } from '../project/activity.ts'
 import { safeName } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
@@ -11,9 +10,12 @@ import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, open, parseRendering, timesOf } from './args.ts'
 import { clockWarning } from './clock.ts'
+import { compareWithFile, frameLine, onSheet, summaryLines } from './compare-file.ts'
+import { imageFrameLines, imageSummaryLines, isImage } from './compare-image.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { EXIT } from './findings.ts'
 import { direct, eachVariant, nameOf, type Output } from './variants.ts'
+import { openFile } from './video-file.ts'
 
 /** `--count n [--from s] [--to s]`: n times evenly from `from` (0) up to before `to` (the end). */
 export type Span = { count: number; from?: number; to?: number }
@@ -106,11 +108,35 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       object: { type: 'string' },
       scale: { type: 'string' },
       compare: { type: 'string' },
+      'compare-file': { type: 'string' },
+      offset: { type: 'string' },
+      'max-shift': { type: 'string' },
+      floor: { type: 'string' },
+      regions: { type: 'string' },
+      fit: { type: 'string' },
       json: { type: 'boolean' },
       variants: { type: 'string' },
     },
     { command: 'still', times: true },
   )
+  const against = values['compare-file']
+  if (against === undefined)
+    for (const flag of ['offset', 'max-shift', 'floor', 'regions', 'fit'] as const)
+      if (values[flag] !== undefined)
+        throw new Error(
+          `--${flag} goes with --compare-file <${flag === 'regions' || flag === 'fit' ? 'image' : 'video'}>: give it too.`,
+        )
+  if (against !== undefined) {
+    for (const flag of ['file', 'compare', 'object', 'diff', 'scale'] as const)
+      if (values[flag] !== undefined)
+        throw new Error(
+          `--${flag} is not for --compare-file, which measures the film against a reference.`,
+        )
+    return eachVariant(values, (v, out) => stillCompareFile(against, v, times, out), {
+      json: values.json === true,
+      one: '--compare-file measures one variant against the reference: give one --variant with it.',
+    })
+  }
   if (values.file !== undefined) return stillFile(values.file, values, times)
   // Several variants with --sheet: each one's frames, for one sheet of them side by side.
   const kept: (VariantFrames & { outDir: string })[] = []
@@ -157,22 +183,6 @@ const columnsOf = (v: { columns?: string; sheet?: boolean }): number => {
   if (!(Number.isInteger(n) && n >= 1))
     throw new Error(`--columns is a whole number, 1 or more, not ${v.columns}.`)
   return n
-}
-
-/**
- * A rendered file, read as `io.video` reads a clip: its size and length, and the frame shown at
- * each t (the frame whose time is the last at or before t).
- */
-export const openFile = (file: string) => {
-  const reader = videoReader(file)
-  const { width, height, fps, frames } = reader.info
-  return {
-    width,
-    height,
-    duration: frames / fps,
-    frame: (t: number) => reader.frame(Math.min(frames - 1, Math.floor(t * fps + 1e-6))),
-    close: () => reader.dispose(),
-  }
 }
 
 /** The flags `still --file` refuses: they render the source, which a file is not. */
@@ -236,6 +246,133 @@ const stillFile = async (
     return EXIT.ok
   } finally {
     await video.close()
+  }
+}
+
+/** A number flag, or undefined when not given; throws naming the flag when it is not a number. */
+const numberOf = (flag: string, value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined
+  const n = Number(value)
+  if (value.trim() === '' || !Number.isFinite(n))
+    throw new Error(`--${flag} is a number, not ${value}.`)
+  return n
+}
+
+/**
+ * `still --compare-file <video|image>`: the film's final frames measured against a reference
+ * clip's at the same times, or against one image at each time (compareWithFile), each time's film,
+ * reference and difference (an image's: the SSIM heat map) side by side in
+ * `<variant>-vs-<reference>-<t>.png`, and with --sheet a sheet of them. Exit 0 unless an input is
+ * bad.
+ */
+const stillCompareFile = async (
+  file: string,
+  v: Parameters<typeof open>[0] & {
+    every?: string
+    count?: string
+    from?: string
+    to?: string
+    sheet?: boolean
+    columns?: string
+    out?: string
+    region?: string
+    offset?: string
+    'max-shift'?: string
+    floor?: string
+    regions?: string
+    fit?: string
+    json?: boolean
+  },
+  given: readonly number[],
+  out: Output,
+): Promise<number> => {
+  const columns = v.columns === undefined ? 1 : columnsOf(v)
+  const reference = resolve(file)
+  const { project, child } = await open(v)
+  try {
+    const { width, height, duration } = project.manifest
+    // Times asked for as still takes them; none for the clip's frames over --from–--to.
+    const asked = given.length > 0 || v.every !== undefined || v.count !== undefined
+    const times = asked
+      ? stillTimes(given, v.every === undefined ? undefined : Number(v.every), duration, spanOf(v))
+      : []
+    const variant = typeof v.variant === 'string' ? v.variant : 'main'
+    const outDir = v.out ? resolve(v.out) : join(project.root, 'out', 'stills')
+    mkdirSync(outDir, { recursive: true })
+    const pair = `${safeName(variant)}-vs-${safeName(basename(reference, extname(reference)))}`
+    const pngs = pngWriter()
+    const files: string[] = []
+    const shown: { t: number; label: string; pixels: Uint8Array }[] = []
+    let size = { width, height }
+    const label = `${variant} | ${basename(reference)} | ${isImage(reference) ? 'SSIM heat map' : 'difference'}`
+    const maxShift = numberOf('max-shift', v['max-shift'])
+    const from = asked ? undefined : numberOf('from', v.from)
+    const to = asked ? undefined : numberOf('to', v.to)
+    const offset = numberOf('offset', v.offset)
+    const floor = numberOf('floor', v.floor)
+    const report = await compareWithFile({
+      reference,
+      film: {
+        width,
+        height,
+        duration,
+        render: async (t) => (await child.render(t, 'final')).pixels,
+      },
+      times,
+      ...(from === undefined ? {} : { from }),
+      ...(to === undefined ? {} : { to }),
+      ...(offset === undefined ? {} : { offset }),
+      ...(maxShift === undefined ? {} : { maxShift }),
+      ...(floor === undefined ? {} : { floor }),
+      ...(v.region ? { region: parseRegion(v.region) } : {}),
+      ...(v.regions === undefined ? {} : { regions: resolve(v.regions) }),
+      ...(v.fit === undefined ? {} : { fit: v.fit }),
+      frame: async (f) => {
+        // Times under 0.5 ms apart would share a name at 3 decimals: those get 6.
+        let name = join(outDir, `${pair}-${f.t.toFixed(3)}.png`)
+        if (files.includes(name)) name = join(outDir, `${pair}-${f.t.toFixed(6)}.png`)
+        await pngs.write(name, toPng(f.pixels, f.width, f.height))
+        files.push(name)
+        size = { width: f.width, height: f.height }
+        // Every time has its PNG; the sheet holds at most SHEET_ROWS of them, spread evenly.
+        if (v.sheet && onSheet(f.index, f.count)) shown.push({ t: f.t, label, pixels: f.pixels })
+      },
+    })
+    const sheet = v.sheet ? join(outDir, `${pair}-sheet.png`) : undefined
+    if (sheet) {
+      await pngs.write(sheet, contactSheet(shown, size.width, size.height, columns))
+      activityImage(sheet)
+    }
+    await pngs.done()
+    const warning = clockWarning(await child.clock())
+    if (warning) out.found({ code: 'clock', severity: 'warning', message: warning })
+    if (v.json) {
+      // PSNR of identical frames is Infinity, which JSON writes as null.
+      const frames = (report.frames as object[]).map((f, i) => ({ ...f, file: files[i] }))
+      out.result({ ...report, frames, ...(sheet ? { sheet } : {}) })
+      return EXIT.ok
+    }
+    const at = (i: number) => relative(process.cwd(), files[i] as string)
+    let summary: string[]
+    if ('method' in report) {
+      report.frames.forEach((f, i) => {
+        const [whole, ...regions] = imageFrameLines(f)
+        out.log(`${at(i)}  ${whole}`)
+        for (const line of regions) out.log(line)
+      })
+      summary = imageSummaryLines(report)
+    } else {
+      report.frames.forEach((f, i) => {
+        out.log(`${at(i)}  ${frameLine(f)}`)
+      })
+      summary = summaryLines(report)
+    }
+    if (sheet) out.log(relative(process.cwd(), sheet))
+    for (const line of summary) out.log(line)
+    if (warning) out.log(`! ${warning}`)
+    return EXIT.ok
+  } finally {
+    await child.close()
   }
 }
 

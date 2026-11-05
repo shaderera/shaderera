@@ -1,0 +1,26 @@
+<!doctype html>
+<!--
+  A page whose load waits on a slow script from ?port= (the test's server answers it after
+  300 ms), with timers that run while it loads: a fade of #early at 50 ms and a move of #moved at
+  100 ms. Its load handler starts a move of #late.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #early { top: 20px } #moved { top: 80px } #late { top: 140px }
+</style>
+<div class="box" id="early"></div>
+<div class="box" id="moved"></div>
+<div class="box" id="late"></div>
+<script>
+  const port = new URLSearchParams(location.search).get('port')
+  const slow = document.createElement('script')
+  slow.src = `http://127.0.0.1:${port}/slow.js`
+  document.head.append(slow)
+  setTimeout(() => early.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100, fill: 'both' }), 50)
+  setTimeout(() => (moved.style.translate = '50px 0'), 100)
+  addEventListener('load', () =>
+    late.animate([{ translate: '0px' }, { translate: '100px' }], { duration: 1000, fill: 'both' }),
+  )
+</script>

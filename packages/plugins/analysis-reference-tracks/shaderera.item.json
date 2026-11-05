@@ -16,7 +16,7 @@
     "tracking",
     "analysis"
   ],
-  "version": "0.1.0",
+  "version": "0.1.1",
   "licence": "MIT",
   "requires": { "shaderera": ">=0.1.5" },
   "files": ["src/reference/tracks.ts", "tools/reference-tracks.ts"]

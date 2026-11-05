@@ -55,6 +55,18 @@ What the agent and the CLI did in a project, in order: commands, tool calls, edi
 replies to comments and the agent's own lines. The studio shows it as a feed.
 _Avoid_: log, history, audit
 
+**Reference**:
+What a film copies one to one: a clip, a live page, a Lottie file, a poster. It is measured into
+frozen data and never reduced to a preset; comparing a film with it measures and never passes or
+fails ([0032](docs/adr/0032-reference-copying.md)).
+_Avoid_: inspiration, mood board (those are looser than a copy)
+
+**Activity curve**:
+How much a film or a reference clip changes from each sampled frame to the one before, over time:
+its timing apart from its colour. `still --compare-file` aligns two of them. Not the activity
+feed above.
+_Avoid_: motion graph, energy
+
 **render(t)**:
 The one function every film has: it takes a time in seconds and returns the frame at that time.
 The same `t` always gives the same frame.
@@ -265,6 +277,12 @@ Motion measured from a reference (a web page, a clip) in an analysis artifact: o
 element and channel (x, opacity, rotate…), each a list of values at the source times they were
 taken, beside what the source declared. A film copies the reference by reading them.
 _Avoid_: keyframes (what a source declares, or what a film writes), curves, animation data
+
+**Reference style**:
+The still facts of a reference at one moment in an analysis artifact: each element's box and
+computed styles, each text's line boxes and the fonts it was drawn with, and a screenshot. A film
+copies the reference's look by reading them.
+_Avoid_: design tokens, theme, style guide
 
 **Cut**:
 The first frame on which a new shot shows, in a video an analyser measures.

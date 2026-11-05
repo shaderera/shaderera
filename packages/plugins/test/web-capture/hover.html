@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+  Motion started by the pointer: #card moves and fades in on :hover (a CSS transition of
+  `translate` and `opacity`), and its `mouseenter` and `mouseleave` handlers start a Web Animations
+  turn of #badge and a timer that moves #note 200 ms later. Leaving runs it all back.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  #card {
+    position: absolute; left: 100px; top: 100px; width: 200px; height: 120px; background: #fff;
+    opacity: 0.5; transition: translate 0.4s ease-out, opacity 0.3s linear
+  }
+  #card:hover { translate: 0 -20px; opacity: 1 }
+  .box { position: absolute; left: 400px; width: 40px; height: 40px; background: #fff }
+  #badge { top: 100px } #note { top: 160px; transition: translate 0.2s linear }
+</style>
+<div id="card"></div>
+<div class="box" id="badge"></div>
+<div class="box" id="note"></div>
+<script>
+  const card = document.getElementById('card')
+  const badge = document.getElementById('badge')
+  const note = document.getElementById('note')
+  const turn = (from, to) =>
+    badge.animate([{ rotate: from }, { rotate: to }], {
+      duration: 500,
+      easing: 'ease-in-out',
+      fill: 'forwards',
+    })
+  card.addEventListener('mouseenter', () => {
+    turn('0deg', '90deg')
+    setTimeout(() => (note.style.translate = '100px 0'), 200)
+  })
+  card.addEventListener('mouseleave', () => {
+    turn('90deg', '0deg')
+    setTimeout(() => (note.style.translate = '0px 0'), 200)
+  })
+</script>
