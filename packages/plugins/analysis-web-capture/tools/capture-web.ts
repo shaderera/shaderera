@@ -10,7 +10,7 @@
 //     [--cpu-throttle <n>] [--time-origin <ms>] [--clock-date <ISO 8601>] [--timezone <IANA>]
 //     [--locale <BCP 47>]
 //     [--settle load|loaded] [--trigger load|none|click|hover|leave|scroll --target <selector>
-//     --at <ms> [--scroll-to <px> --scroll-ms <ms>]]
+//     --at <ms> [--scroll-to <px> --scroll-ms <ms>] | --inputs <file.json>]
 //   node tools/capture-web.ts <url|file> --out <dir> --still <ms> --rafHz <n>
 //     --viewport <width>x<height> [--root <selector>] [--style <property>…] [the same others]
 //
@@ -34,7 +34,7 @@ import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.7.0'
+export const VERSION = '0.8.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -106,6 +106,8 @@ export type CaptureOptions = {
   scrollTo?: number
   /** For a scroll: how long the wheel takes, in ms; 0 is one wheel event. */
   scrollMs?: number
+  /** Inputs sent each at its own time, in place of a trigger (`--inputs <file.json>`). */
+  inputs?: InputItem[]
   /** Progress lines. */
   log?: (line: string) => void
 }
@@ -210,13 +212,10 @@ export const checkOptions = (o: CaptureOptions) => {
     throw new Error(`--locale ${o.locale} is not a BCP 47 language tag, like en-US or th-TH`)
   }
   const last = mode.times.at(-1) as number
-  const trigger = checkTrigger(
-    o,
-    last,
-    o.still === undefined
-      ? `the last frame, at ${+last.toFixed(3)} ms`
-      : `the still, at ${last} ms`,
-  )
+  const lastLabel =
+    o.still === undefined ? `the last frame, at ${+last.toFixed(3)} ms` : `the still, at ${last} ms`
+  const inputs = o.inputs === undefined ? undefined : checkInputs(o, last, lastLabel)
+  const trigger = inputs === undefined ? checkTrigger(o, last, lastLabel) : undefined
   return {
     ...o,
     ...mode,
@@ -232,6 +231,7 @@ export const checkOptions = (o: CaptureOptions) => {
     allowLocal: o.allowLocal ?? false,
     settle,
     trigger,
+    inputs,
   }
 }
 
@@ -418,8 +418,157 @@ const checkTrigger = (o: CaptureOptions, lastMs: number, last: string): TriggerP
   return { ...out, scrollTo, scrollMs }
 }
 
+/** The types an item of `--inputs` can be. */
+export const INPUT_TYPES = ['move', 'down', 'up', 'click', 'wheel', 'key'] as const
+export type InputType = (typeof INPUT_TYPES)[number]
+
+/**
+ * One item of `--inputs`, at `at` ms after the freeze. The pointer goes to `target`'s centre or
+ * to `x`, `y` (CSS pixels from the viewport's top left); down, up and wheel without either stay
+ * where the pointer is. A path is its points: one move each.
+ */
+export type InputItem = {
+  at: number
+  type: InputType
+  target?: string
+  x?: number
+  y?: number
+  deltaX?: number
+  deltaY?: number
+  key?: string
+  code?: string
+}
+
+/**
+ * The keys a `key` item can send besides one character, with the Windows key code Chrome needs
+ * for their default actions (Enter submits, an arrow scrolls) and the text Enter types.
+ */
+export const KEYS: Record<string, { keyCode: number; text?: string }> = {
+  Enter: { keyCode: 13, text: '\r' },
+  Tab: { keyCode: 9 },
+  Escape: { keyCode: 27 },
+  Backspace: { keyCode: 8 },
+  Delete: { keyCode: 46 },
+  ArrowLeft: { keyCode: 37 },
+  ArrowUp: { keyCode: 38 },
+  ArrowRight: { keyCode: 39 },
+  ArrowDown: { keyCode: 40 },
+  Home: { keyCode: 36 },
+  End: { keyCode: 35 },
+  PageUp: { keyCode: 33 },
+  PageDown: { keyCode: 34 },
+}
+
+/** What `Input.dispatchKeyEvent` sends for a `key` item: its Windows key code and text. */
+export const keyOf = (key: string) => {
+  const named = KEYS[key]
+  if (named) return named
+  // One character: a letter's or digit's code is its capital's; another's is 0, as for any key
+  // with no fixed place.
+  const upper = key.toUpperCase()
+  return { keyCode: /^[A-Z0-9 ]$/.test(upper) ? upper.charCodeAt(0) : 0, text: key }
+}
+
+/** Each type's own fields; any other is refused, so nothing given is left unsent. */
+const ITEM_FIELDS: Record<InputType, string[]> = {
+  move: ['target', 'x', 'y'],
+  down: ['target', 'x', 'y'],
+  up: ['target', 'x', 'y'],
+  click: ['target', 'x', 'y'],
+  wheel: ['target', 'x', 'y', 'deltaX', 'deltaY'],
+  key: ['key', 'code'],
+}
+
+/** The `--inputs` list checked against itself: each item's fields, its time and the button. */
+const checkInputs = (o: CaptureOptions, lastMs: number, last: string): InputItem[] => {
+  for (const [given, flag] of [
+    [o.trigger, '--trigger'],
+    [o.target, '--target'],
+    [o.at, '--at'],
+    [o.scrollTo, '--scroll-to'],
+    [o.scrollMs, '--scroll-ms'],
+  ] as const)
+    if (given !== undefined)
+      throw new Error(
+        `${flag} is not for --inputs: the list holds every input, each with its own settings`,
+      )
+  const list = o.inputs as unknown
+  if (!Array.isArray(list) || list.length === 0)
+    throw new Error(
+      '--inputs needs a JSON list of at least one input, like [{ "at": 500, "type": "click", "target": "#menu" }]',
+    )
+  let placed = false
+  let pressed = false
+  let before = 0
+  for (const [i, item] of list.entries()) {
+    const name = `--inputs item ${i}`
+    if (item === null || typeof item !== 'object' || Array.isArray(item))
+      throw new Error(`${name} is not an object`)
+    const it = item as Record<string, unknown>
+    const type = it.type as InputType
+    if (!INPUT_TYPES.includes(type))
+      throw new Error(
+        `${name}: type ${JSON.stringify(it.type)} is not one of ${INPUT_TYPES.join(', ')}`,
+      )
+    for (const k of Object.keys(it))
+      if (k !== 'at' && k !== 'type' && !ITEM_FIELDS[type].includes(k))
+        throw new Error(
+          `${name}: ${k} is not for a ${type}: it takes at, ${ITEM_FIELDS[type].join(', ')}`,
+        )
+    const at = it.at
+    if (typeof at !== 'number' || !(Number.isFinite(at) && at >= 0 && at <= lastMs + EPSILON_MS))
+      throw new Error(`${name}: at ${JSON.stringify(at)} is not ms from 0 to ${last}`)
+    if (at < before)
+      throw new Error(
+        `${name}: at ${at} is before the item ahead of it, at ${before}: list them in time order`,
+      )
+    before = at
+    if (type === 'key') {
+      const key = it.key
+      if (typeof key !== 'string' || !([...key].length === 1 || key in KEYS))
+        throw new Error(
+          `${name}: key ${JSON.stringify(key)} is not one character or one of ${Object.keys(KEYS).join(', ')}`,
+        )
+      if (it.code !== undefined && (typeof it.code !== 'string' || it.code === ''))
+        throw new Error(
+          `${name}: code ${JSON.stringify(it.code)} is not a KeyboardEvent code, like KeyM`,
+        )
+      continue
+    }
+    const hasXY = it.x !== undefined || it.y !== undefined
+    if (it.target !== undefined && hasXY)
+      throw new Error(`${name}: give target or x and y, not both`)
+    if (it.target !== undefined && (typeof it.target !== 'string' || it.target.trim() === ''))
+      throw new Error(`${name}: target is not a CSS selector`)
+    if (hasXY && !(Number.isFinite(it.x) && Number.isFinite(it.y)))
+      throw new Error(`${name}: x and y are not both numbers, in CSS pixels`)
+    const point = it.target !== undefined || hasXY
+    if (!point && (type === 'move' || type === 'click'))
+      throw new Error(`${name}: a ${type} needs target, or x and y: where the pointer goes`)
+    if (!point && !placed)
+      throw new Error(
+        `${name}: a ${type} with no target or x and y needs the pointer placed by an item before it`,
+      )
+    placed = true
+    if (type === 'down' && pressed) throw new Error(`${name}: a down while the button is down`)
+    if (type === 'up' && !pressed) throw new Error(`${name}: an up while the button is up`)
+    if (type === 'click' && pressed) throw new Error(`${name}: a click while the button is down`)
+    if (type === 'down') pressed = true
+    if (type === 'up') pressed = false
+    if (type === 'wheel') {
+      if (it.deltaX === undefined && it.deltaY === undefined)
+        throw new Error(`${name}: a wheel needs deltaX or deltaY, in CSS pixels`)
+      for (const k of ['deltaX', 'deltaY'] as const)
+        if (it[k] !== undefined && !Number.isFinite(it[k]))
+          throw new Error(`${name}: ${k} ${JSON.stringify(it[k])} is not a number`)
+    }
+  }
+  return list as InputItem[]
+}
+
 /** One input the capture sends, at `ms` after the freeze. */
 export type Input =
+  | { ms: number; kind: 'item'; index: number }
   | { ms: number; kind: 'hover' }
   | { ms: number; kind: 'click' }
   | { ms: number; kind: 'leave' }
@@ -1354,7 +1503,10 @@ export const captureWeb = async (options: CaptureOptions) => {
     await evaluate('document.fonts.ready.then(() => true)')
     const selectors = [
       ...o.track.map((sel) => ['--track', sel] as const),
-      ...(o.trigger.target ? [['--target', o.trigger.target] as const] : []),
+      ...(o.trigger?.target ? [['--target', o.trigger.target] as const] : []),
+      ...(o.inputs ?? []).flatMap((it, i) =>
+        it.target !== undefined ? [[`--inputs item ${i}: target`, it.target] as const] : [],
+      ),
       ...(o.root !== undefined ? [['--root', o.root] as const] : []),
     ]
     for (const [flag, sel] of selectors) {
@@ -1476,14 +1628,20 @@ export const captureWeb = async (options: CaptureOptions) => {
       )
     const afterInput = (ms: number) => held('self.__shadereraClock.afterInput()', ms)
 
-    // The trigger's inputs, each sent at its own time over CDP, as a person's would arrive.
-    const inputs = inputsOf(o.trigger, o.rafHz)
-    const trigger: Record<string, unknown> = { ...o.trigger }
+    // The trigger's inputs, or the --inputs list's, each sent at its own time over CDP, as a
+    // person's would arrive. With --inputs, params.trigger is the list's first item.
+    const list = o.inputs
+    const tr: TriggerParams = o.trigger ?? { type: 'none' }
+    const inputs: Input[] = list
+      ? list.map((it, index) => ({ ms: it.at, kind: 'item' as const, index }))
+      : inputsOf(tr, o.rafHz)
+    const trigger: Record<string, unknown> = list ? { ...list[0] } : { ...tr }
     const mouse = (type: string, x: number, y: number, more: Record<string, unknown> = {}) =>
       c.send('Input.dispatchMouseEvent', { type, x, y, pointerType: 'mouse', ...more }, page)
     let scrollFrom = 0
-    const pointer = async (ms: number) => {
-      const sel = o.trigger.target ?? null
+    // The centre of sel's box (the viewport's with none), which must be in the viewport; another
+    // element over it gets the input, and a limit says so.
+    const pointAt = async (sel: string | null, ms: number, flag: string) => {
       const p = await held<{
         x: number
         y: number
@@ -1492,7 +1650,6 @@ export const captureWeb = async (options: CaptureOptions) => {
         over: boolean
         hit: string
       } | null>(`(${POINT})(${JSON.stringify(sel)})`, ms)
-      const flag = `--target ${JSON.stringify(sel)}`
       if (!p) throw new Error(`${flag} matches nothing at ${ms} ms, when the input is sent`)
       if (!p.boxed)
         throw new Error(
@@ -1509,17 +1666,73 @@ export const captureWeb = async (options: CaptureOptions) => {
           from: ms / 1000,
           to: ms / 1000,
         })
+      return p
+    }
+    const pointer = async (ms: number) => {
+      const sel = tr.target ?? null
+      const p = await pointAt(sel, ms, `--target ${JSON.stringify(sel)}`)
       trigger.pointer = { x: p.x, y: p.y }
       // Without a target the wheel's point hovers whatever is there: name it, so a hover state in
       // the capture can be read back to it.
       if (sel === null) trigger.over = p.hit
       return p
     }
+    // An --inputs item. The pointer goes to its point first (one mousemove, at the same time)
+    // when it is not there, so a press or a wheel lands where the person put it; a move is always
+    // sent. While the button is down, a move carries it, as a drag does.
+    let where: { x: number; y: number } | undefined
+    let pressed = false
+    const sendItem = async (index: number, ms: number) => {
+      const it = (list as InputItem[])[index] as InputItem
+      lastInput = { kind: it.type, ms }
+      if (it.type === 'key') {
+        const key = it.key as string
+        const { keyCode, text } = keyOf(key)
+        const base = { key, windowsVirtualKeyCode: keyCode, ...(it.code ? { code: it.code } : {}) }
+        await c.send(
+          'Input.dispatchKeyEvent',
+          { type: text ? 'keyDown' : 'rawKeyDown', ...base, ...(text ? { text } : {}) },
+          page,
+        )
+        await c.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }, page)
+      } else {
+        const p =
+          it.target !== undefined
+            ? await pointAt(
+                it.target,
+                ms,
+                `--inputs item ${index}: target ${JSON.stringify(it.target)}`,
+              )
+            : it.x !== undefined
+              ? { x: it.x, y: it.y as number }
+              : (where as { x: number; y: number })
+        const held = pressed ? { button: 'left', buttons: 1 } : {}
+        if (it.type === 'move' || where === undefined || where.x !== p.x || where.y !== p.y)
+          await mouse('mouseMoved', p.x, p.y, held)
+        where = { x: p.x, y: p.y }
+        if (it.type === 'down' || it.type === 'click') {
+          await mouse('mousePressed', p.x, p.y, { button: 'left', buttons: 1, clickCount: 1 })
+          pressed = true
+        }
+        if (it.type === 'up' || it.type === 'click') {
+          await mouse('mouseReleased', p.x, p.y, { button: 'left', buttons: 0, clickCount: 1 })
+          pressed = false
+        }
+        if (it.type === 'wheel')
+          await mouse('mouseWheel', p.x, p.y, {
+            ...held,
+            deltaX: it.deltaX ?? 0,
+            deltaY: it.deltaY ?? 0,
+          })
+      }
+      await afterInput(ms)
+    }
     const send = async (input: Input) => {
+      if (input.kind === 'item') return sendItem(input.index, input.ms)
       const pointed = input.kind === 'hover' || input.kind === 'click' || input.kind === 'leave'
       lastInput = pointed
         ? { kind: input.kind, ms: input.ms }
-        : { kind: 'scroll', ms: o.trigger.at as number }
+        : { kind: 'scroll', ms: tr.at as number }
       if (input.kind === 'hover' || input.kind === 'click') {
         const { x, y } = await pointer(input.ms)
         await mouse('mouseMoved', x, y)
@@ -1539,17 +1752,17 @@ export const captureWeb = async (options: CaptureOptions) => {
         scrollFrom = await held<number>('scrollY', input.ms)
       } else {
         const { x, y } = trigger.pointer as { x: number; y: number }
-        const distance = (o.trigger.scrollTo as number) - scrollFrom
+        const distance = (tr.scrollTo as number) - scrollFrom
         const delta = wheelDelta(distance, input.step, input.of)
         if (delta !== 0) await mouse('mouseWheel', x, y, { deltaX: 0, deltaY: delta })
         if (input.step === input.of) {
           await afterInput(input.ms)
           const reached = await held<number>('scrollY', input.ms)
-          if (reached !== o.trigger.scrollTo)
+          if (reached !== tr.scrollTo)
             limits.push({
               where: WINDOW,
-              reason: `the wheel moved ${distance} px from scrollY ${scrollFrom}, and the window scrolled to ${reached}, not --scroll-to ${o.trigger.scrollTo}`,
-              from: (o.trigger.at as number) / 1000,
+              reason: `the wheel moved ${distance} px from scrollY ${scrollFrom}, and the window scrolled to ${reached}, not --scroll-to ${tr.scrollTo}`,
+              from: (tr.at as number) / 1000,
               to: input.ms / 1000,
             })
           return
@@ -1685,6 +1898,9 @@ export const captureWeb = async (options: CaptureOptions) => {
       locale: o.locale,
       settle: o.settle,
       trigger,
+      // Every input sent: the --inputs list as given, else the trigger as its one item (none for
+      // load and none), so params.trigger is the first input either way.
+      inputs: list ?? (tr.type === 'load' || tr.type === 'none' ? [] : [trigger]),
       media: o.media,
       allowLocal: o.allowLocal,
       mobile: MOBILE,
@@ -1784,6 +2000,7 @@ if (import.meta.main) {
       at: { type: 'string' },
       'scroll-to': { type: 'string' },
       'scroll-ms': { type: 'string' },
+      inputs: { type: 'string' },
       still: { type: 'string' },
       root: { type: 'string' },
       style: { type: 'string', multiple: true },
@@ -1795,6 +2012,20 @@ if (import.meta.main) {
     const n = Number(v)
     if (v.trim() === '' || !Number.isFinite(n)) throw new Error(`--${name} ${v} is not a number`)
     return n
+  }
+  const { readFileSync } = await import('node:fs')
+  const readInputs = (file: string) => {
+    let text: string
+    try {
+      text = readFileSync(file, 'utf8')
+    } catch {
+      throw new Error(`--inputs ${file}: no such file`)
+    }
+    try {
+      return JSON.parse(text) as InputItem[]
+    } catch (e) {
+      throw new Error(`--inputs ${file} is not JSON: ${(e as Error).message}`)
+    }
   }
   try {
     if (positionals.length !== 1)
@@ -1839,6 +2070,7 @@ if (import.meta.main) {
       at: number('at', values.at),
       scrollTo: number('scroll-to', values['scroll-to']),
       scrollMs: number('scroll-ms', values['scroll-ms']),
+      inputs: values.inputs === undefined ? undefined : readInputs(values.inputs),
       locale: values.locale,
       log: (line) => console.error(line),
     })

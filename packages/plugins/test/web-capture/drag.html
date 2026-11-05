@@ -1,0 +1,44 @@
+<!doctype html>
+<!--
+  A drag with a fling: #puck follows the pointer while the button is down, and the velocity of the
+  last pointermove (its distance over the time since the one before, from Event.timeStamp) carries
+  it on after the release, losing a tenth each animation frame.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000; touch-action: none }
+  #puck { position: absolute; left: 100px; top: 150px; width: 60px; height: 60px; background: #fff }
+</style>
+<div id="puck"></div>
+<script>
+  const puck = document.getElementById('puck')
+  let x = 0, v = 0, last = null, dragging = false
+  const place = () => (puck.style.translate = `${x}px 0`)
+  puck.addEventListener('pointerdown', (e) => {
+    dragging = true
+    v = 0
+    last = { x: e.clientX, t: e.timeStamp }
+    puck.setPointerCapture(e.pointerId)
+  })
+  puck.addEventListener('pointermove', (e) => {
+    if (!dragging) return
+    const dx = e.clientX - last.x
+    const dt = e.timeStamp - last.t
+    x += dx
+    if (dt > 0) v = dx / dt
+    last = { x: e.clientX, t: e.timeStamp }
+    place()
+  })
+  puck.addEventListener('pointerup', (e) => {
+    dragging = false
+    let before = e.timeStamp
+    const glide = (now) => {
+      x += v * (now - before)
+      v *= 0.9
+      before = now
+      place()
+      if (Math.abs(v) > 0.001) requestAnimationFrame(glide)
+    }
+    requestAnimationFrame(glide)
+  })
+</script>

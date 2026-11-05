@@ -1,7 +1,8 @@
 Capture a web page's motion once, as reference tracks a film reads and copies one to one: each
 tracked element's box, transform and opacity at every frame, measured in your own Chrome on a
-clock the capture holds, from the load or from a click, hover, leave or scroll sent at a time you
-give. Or capture its look at one moment, as the style facts Chrome drew it with: every element's
+clock the capture holds, from the load, from a click, hover, leave or scroll sent at a time you
+give, or from a list of inputs (pointer paths, drags, presses, wheels, keys), each at its own time.
+Or capture its look at one moment, as the style facts Chrome drew it with: every element's
 box and computed styles, every text node's line boxes and fonts, and a screenshot.
 
 ```sh
@@ -13,6 +14,10 @@ node tools/capture-web.ts https://example.com/ --out references/hero \
 node tools/capture-web.ts https://example.com/ --out references/menu \
   --track '.menu' --fps 60 --rafHz 60 --duration 2 --viewport 1280x720 \
   --trigger click --target '.menu-button' --at 500
+
+# a drag, its points and times in inputs.json (below)
+node tools/capture-web.ts https://example.com/ --out references/drag \
+  --track '.puck' --fps 60 --rafHz 60 --duration 2 --viewport 1280x720 --inputs inputs.json
 
 # the hero's look at 1.5 s
 node tools/capture-web.ts https://example.com/ --out references/hero-look \
@@ -108,6 +113,45 @@ smoothed, no time stretched.
   A scroll that does not end at `--scroll-to` (the page is shorter, an element under the pointer
   scrolled instead, the page took the wheel itself) is what the page did: a limit says where the
   window ended.
+
+  `--trigger` is shorthand for a list of one input (`params.inputs` holds it as its one item).
+- `--inputs <file.json>`: the inputs, in place of `--trigger`, `--target`, `--at`,
+  `--scroll-to` and `--scroll-ms`: a JSON list, in time order, of `{ "at": <ms>, "type": … }`.
+  Each item is sent over the DevTools protocol's `Input` domain at its own time on the page's
+  clock (`at`, from 0 up to the last frame's or the still's), and the clock syncs once the browser
+  has delivered it, as for a trigger; items at the same time are sent in the list's order. The
+  pointer goes to `target`'s centre at the item's time (the first match, with a box in the
+  viewport; another element over that point gets the input and a limit says so) or to `x`, `y`
+  (CSS pixels from the viewport's top left, anywhere, (-1, -1) off it). There are no defaults:
+  the button is always the left one, and a field a type does not take is refused.
+
+  | `type` | Takes | Sends |
+  |---|---|---|
+  | `move` | `target`, or `x` and `y` | one mousemove to that point; while the button is down it carries the button, as a drag does |
+  | `down` | `target`, or `x` and `y`, or neither (where the pointer is) | the left button pressed |
+  | `up` | the same | the left button released |
+  | `click` | `target`, or `x` and `y` | pressed and released at one instant |
+  | `wheel` | the same as `down`, and `deltaX`, `deltaY` (CSS pixels, at least one) | one wheel event |
+  | `key` | `key` (one character, or `Enter`, `Tab`, `Escape`, `Backspace`, `Delete`, `ArrowLeft`, `ArrowUp`, `ArrowRight`, `ArrowDown`, `Home`, `End`, `PageUp`, `PageDown`), `code` (`KeyM`; else the event's `code` is empty) | the key pressed and released at one instant, to what has focus; a character also types itself |
+
+  A `down`, `up`, `click` or `wheel` at a point the pointer is not at moves it there first (one
+  mousemove at the same time); a `down`, `up` or `wheel` with no point needs one placed by an
+  item before it. A path is its points, one `move` each: nothing is sent between them, so
+  the page sees the velocity of the points and times you give, never a smoothed or eased one. A
+  drag is a `down`, its `move`s and an `up`; an `up` at the last point, at the time of the last
+  move, releases while still moving, so a page that flings reads that move's velocity. A `down`
+  while the button is down, an `up` while it is up, a click while it is down and an item out of
+  time order are refused.
+
+  ```json
+  [
+    { "at": 100, "type": "down", "target": "#puck" },
+    { "at": 150, "type": "move", "x": 160, "y": 180 },
+    { "at": 200, "type": "move", "x": 190, "y": 180 },
+    { "at": 200, "type": "up" },
+    { "at": 600, "type": "key", "key": "k", "code": "KeyK" }
+  ]
+  ```
 
 Each default above is a constant, never your OS's setting, so that two runs on two machines
 repeat, and each is recorded (`params.seed`, `params.media`, `params.locale`, the clock's in
@@ -305,9 +349,11 @@ selectors, the media features, `allowLocal`, `mobile` (always `false`), `settle`
 For a `leave` it is where the pointer was from 0 ms until `at`; then it is at `leftTo`
 (`{ x: -1, y: -1 }`), off the viewport. A scroll without `--target` also records `over`, the
 element the wheel's point was over (`div#hero`, `nothing`), so a hover state it shows can be read
-back to it. With `trigger` `load` frame 0 is the page once it has loaded. A capture sends one
-trigger; a later version that sends several would list them in a new field and keep `trigger` as
-the first.
+back to it. With `trigger` `load` frame 0 is the page once it has loaded. `inputs` lists every
+input sent: the `--inputs` list as given, or the trigger as its one item (none for `load` and
+`none`). With `--inputs`, `trigger` is the list's first item, as given: an item with a `target`
+records the selector, not the point it resolved to, so give `x` and `y` where a film needs the
+cursor's place.
 
 **Outside requests.** Chrome's only way out is a proxy in the tool, loopback included. It resolves
 each host once, refuses it when any of its addresses is loopback, private, link-local, cloud
@@ -341,10 +387,12 @@ A page given as a file reads files, as Chrome lets it.
 - More than one element matching a selector: the first is tracked.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.
-- Input goes to the target's centre in the top frame; a frame under that point gets it. There is
-  no pointer path, touch, keyboard or drag yet: a page that reacts to mousemove (a magnetic
-  button, a tilt) gets one move from nowhere. A click's press and release are one instant, so an
-  `:active` look shows on no frame.
+- Input goes to the target's centre (or the given point) in the top frame; a frame under that
+  point gets it. A trigger's input has no pointer path: a page that reacts to mousemove (a
+  magnetic button, a tilt) gets one move from nowhere; give the path's points with `--inputs`.
+  There is no touch, no pen, no modifier key (Shift, Control, Alt, Meta), no button but the left
+  and no key outside the list above. A click's press and release, and a key's, are one instant,
+  so an `:active` look shows on no frame: send a `down` and an `up` at two times for that.
 - A request the proxy refused, a response that did not load, or one whose body could not be read
   (it stays in `source.responses`, without a hash).
 
