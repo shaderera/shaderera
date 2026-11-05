@@ -5,7 +5,15 @@
 import { createHash } from 'node:crypto'
 import { closeSync, openSync, readFileSync, readSync } from 'node:fs'
 import { compareFrames, deltaEs } from '../review/compare.ts'
-import { row, type Scaling, scaleFrame, scaling } from '../review/reference.ts'
+import {
+  fitBox,
+  inFrame,
+  placeFrame,
+  row,
+  type Scaling,
+  scaleFrame,
+  scaling,
+} from '../review/reference.ts'
 import {
   EDGES,
   type Edges,
@@ -72,9 +80,12 @@ export type CompareImageReport = {
   }
   /**
    * How the image was scaled to the film's frame, or `null` when the sizes are the same; `fit` is
-   * the fit the person gave, needed when the shapes differ (`aspect: "stretched"`).
+   * the fit the person gave, needed when the shapes differ (`aspect: "stretched"`). With
+   * `contain` or `cover`: the one `scale` both sides are scaled by, `placed`, the part of the
+   * film's frame the image covers, and `masked`, the film's pixels outside it, which no score
+   * counts.
    */
-  scaled: (Scaling & { fit?: Fit }) | null
+  scaled: (Scaling & { fit?: Fit; scale?: number; placed?: Region; masked?: number }) | null
   region: Region | null
   /** How SSIM and the edge score are measured, so a report says what its numbers are. */
   method: { ssim: typeof SSIM; edges: typeof EDGES; matte: 'black' }
@@ -100,9 +111,12 @@ export type CompareImageReport = {
   }[]
 }
 
-/** How an image of another shape is fitted to the film's frame. Only `stretch` so far. */
-export type Fit = 'stretch'
-const FITS: readonly string[] = ['stretch'] satisfies Fit[]
+/**
+ * How an image of another shape is fitted to the film's frame: `stretch` scales it to the frame,
+ * `contain` fits it whole inside, `cover` fills the frame with it, both centred at one scale.
+ */
+export type Fit = 'stretch' | 'contain' | 'cover'
+const FITS: readonly string[] = ['stretch', 'contain', 'cover'] satisfies Fit[]
 
 /** The clip-only options, by the flag that gives them. */
 const CLIP_ONLY = {
@@ -186,25 +200,39 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
   const sha256 = createHash('sha256').update(bytes).digest('hex')
   const orientation = exifOrientation(bytes)
   if (o.fit !== undefined && !FITS.includes(o.fit))
-    throw new Error(`--fit is ${FITS.join(' or ')}, not ${JSON.stringify(o.fit)}.`)
+    throw new Error(`--fit is stretch, contain or cover, not ${JSON.stringify(o.fit)}.`)
   const scaled = scaling(image, film)
   if (scaled?.aspect === 'stretched' && o.fit === undefined)
     throw new Error(
-      `${o.reference} is ${image.width}×${image.height} and the film is ${width}×${height}, another shape: give --fit stretch to stretch it to the frame.`,
+      `${o.reference} is ${image.width}×${image.height} and the film is ${width}×${height}, another shape: give --fit stretch, contain or cover to fit it to the frame.`,
     )
-  const whole = scaleFrame(eightBits(image.data), image.width, image.height, width, height)
+  // contain and cover place the image at one scale; the film's pixels it does not cover are not
+  // measured: every score is over `seen`, the part it covers.
+  const box =
+    scaled && (o.fit === 'contain' || o.fit === 'cover') ? fitBox(image, film, o.fit) : undefined
+  const seen = box ? inFrame(box, width, height) : { x: 0, y: 0, width, height }
+  const whole = box
+    ? placeFrame(eightBits(image.data), image.width, image.height, width, height, box)
+    : scaleFrame(eightBits(image.data), image.width, image.height, width, height)
   const found = o.regions
     ? loadRegionsFile(
         o.regions,
         { file: o.reference, width: image.width, height: image.height, sha256 },
         film,
         o.within,
+        box && { box, seen },
       )
     : null
 
-  const part = (px: Uint8Array) => (o.region ? crop(px, film, o.region).pixels : px)
-  const region = o.region ? crop(whole, film, o.region).region : null
-  const shown = region ?? { x: 0, y: 0, width, height }
+  const asked = o.region ? crop(whole, film, o.region).region : undefined
+  const shown = asked ? overlap(asked, seen) : seen
+  if (!shown)
+    throw new Error(
+      `--region ${JSON.stringify(asked)} is outside the image, which covers ${seen.width}×${seen.height} at ${seen.x},${seen.y} of the frame (--fit ${o.fit}).`,
+    )
+  const all = shown.width === width && shown.height === height
+  const part = (px: Uint8Array) => (all ? px : crop(px, film, shown).pixels)
+  const region = asked ? shown : null
   if (shown.width < SSIM.size || shown.height < SSIM.size)
     throw new Error(
       `SSIM needs at least ${SSIM.size}×${SSIM.size} pixels, its window: the part measured is ${shown.width}×${shown.height}.`,
@@ -213,7 +241,9 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
   const theirs = part(whole)
   const theirLuma = luma(theirs)
   const theirEdges = sobel(theirLuma, w, h)
-  const all = everywhere(w, h)
+  const everyPixel = everywhere(w, h)
+  // A region's mask in the part measured, which is cut to it.
+  const inPart = (m: ScoredRegion['mask']) => ({ ...m, x: m.x - shown.x, y: m.y - shown.y })
 
   const frames: CompareImageReport['frames'] = []
   for (let i = 0; i < times.length; i++) {
@@ -231,14 +261,17 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
       ms,
       ...compareFrames(ours, theirs),
       ssim: s.mean,
-      edges: edges(ourEdges, theirEdges, w, all),
-      regions: (found?.regions ?? []).map((q) => ({
-        id: q.id,
-        ssim: maskedMean(s.map, w, q.mask) as number,
-        edges: edges(ourEdges, theirEdges, w, q.mask),
-        deltaE: maskedMean(dE as Float64Array, w, q.mask) as number,
-        maxDeltaE: maskedMax(dE as Float64Array, w, q.mask) as number,
-      })),
+      edges: edges(ourEdges, theirEdges, w, everyPixel),
+      regions: (found?.regions ?? []).map((q) => {
+        const m = inPart(q.mask)
+        return {
+          id: q.id,
+          ssim: maskedMean(s.map, w, m) as number,
+          edges: edges(ourEdges, theirEdges, w, m),
+          deltaE: maskedMean(dE as Float64Array, w, m) as number,
+          maxDeltaE: maskedMax(dE as Float64Array, w, m) as number,
+        }
+      }),
     })
     await o.frame?.({
       index: i,
@@ -260,7 +293,13 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
       alpha: hasAlpha(image.data),
       ...(orientation === undefined || orientation === 1 ? {} : { orientation }),
     },
-    scaled: scaled && { ...scaled, ...(o.fit === undefined ? {} : { fit: o.fit as Fit }) },
+    scaled: scaled && {
+      ...scaled,
+      ...(o.fit === undefined ? {} : { fit: o.fit as Fit }),
+      ...(box
+        ? { scale: box.scale, placed: seen, masked: width * height - seen.width * seen.height }
+        : {}),
+    },
     region,
     method: { ssim: SSIM, edges: EDGES, matte: 'black' },
     regions: found && {
@@ -273,8 +312,26 @@ export const compareWithImage = async (o: CompareFileOptions): Promise<CompareIm
   }
 }
 
+/** The part two boxes share, or undefined when none. */
+const overlap = (a: Region, b: Region): Region | undefined => {
+  const x = Math.max(a.x, b.x)
+  const y = Math.max(a.y, b.y)
+  const width = Math.min(a.x + a.width, b.x + b.width) - x
+  const height = Math.min(a.y + a.height, b.y + b.height) - y
+  return width > 0 && height > 0 ? { x, y, width, height } : undefined
+}
+
 const score = (s: number) => s.toFixed(3)
 const edgeText = (e: Edges) => (e.agreement === null ? 'no edges' : `edges ${score(e.agreement)}`)
+
+/** How the image was fitted to the frame, when the shapes differ or a fit was given. */
+const fitText = (s: NonNullable<CompareImageReport['scaled']>): string => {
+  if (s.placed && s.scale !== undefined && s.masked !== undefined)
+    return `, --fit ${s.fit} at ×${Number(s.scale.toFixed(4))}: it covers ${s.placed.width}×${s.placed.height} at ${s.placed.x},${s.placed.y}, and the ${s.masked} pixels outside it are not scored`
+  return s.aspect === 'stretched'
+    ? `, stretched by --fit ${s.fit}: the frames have other shapes`
+    : ''
+}
 
 /** The image report as lines: the reference, and where its regions came from. */
 export const imageSummaryLines = (r: CompareImageReport): string[] => {
@@ -282,7 +339,7 @@ export const imageSummaryLines = (r: CompareImageReport): string[] => {
   const lines = [
     `reference: ${ref.width}×${ref.height} image${ref.bits === 16 ? ' (16 bits, read to 8)' : ''}${
       r.scaled
-        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.aspect === 'stretched' ? `, stretched by --fit ${r.scaled.fit}: the frames have other shapes` : ''})`
+        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${fitText(r.scaled)})`
         : ''
     }${r.region ? `; measured in ${r.region.width}×${r.region.height} at ${r.region.x},${r.region.y}` : ''}`,
   ]

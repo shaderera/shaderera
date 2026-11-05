@@ -382,11 +382,11 @@ test('an image of another shape than the frame is refused unless --fit says how;
   )
   await assert.rejects(
     compare({ reference: file, times: [0] }),
-    /square\.png is 48×48 and the film is 48×36, another shape: give --fit stretch/,
+    /square\.png is 48×48 and the film is 48×36, another shape: give --fit stretch, contain or cover/,
   )
   await assert.rejects(
-    compare({ reference: file, times: [0], fit: 'cover' }),
-    /--fit is stretch, not "cover"/,
+    compare({ reference: file, times: [0], fit: 'fill' }),
+    /--fit is stretch, contain or cover, not "fill"/,
   )
   const r = await compare({ reference: file, times: [0], fit: 'stretch' })
   assert.deepEqual(r.scaled, {
@@ -402,6 +402,160 @@ test('an image of another shape than the frame is refused unless --fit says how;
     compareWithFile({ film, times: [0], reference: join(dir, 'clip.mp4'), fit: 'stretch' }),
     /--fit fits a still reference of another shape, and .*clip\.mp4 is a clip/,
   )
+})
+
+/** Columns `x0` to `x1` of the film's frame at t, as an image `x1 - x0` wide: a still reference. */
+const columns = (t: number, x0: number, x1: number, outside: number[] = [255, 255, 255, 255]) => {
+  const px = frame(t)
+  const w = x1 - x0
+  const out = new Uint8Array(w * H * 4)
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < w; x++) {
+      const at = x0 + x
+      out.set(
+        at >= 0 && at < W ? px.subarray((y * W + at) * 4, (y * W + at) * 4 + 4) : outside,
+        (y * w + x) * 4,
+      )
+    }
+  return { width: w, height: H, data: out }
+}
+
+const png = (
+  dir: string,
+  name: string,
+  image: { width: number; height: number; data: Uint8Array },
+) => {
+  const file = join(dir, name)
+  writeFileSync(file, encode({ ...image, channels: 4, depth: 8 }))
+  return file
+}
+
+test('--fit contain and cover place the image at one scale and score only the pixels it covers (#704)', async () => {
+  const dir = tempDir('compare-image-contain')
+  // The film's own middle half, 24×36: contained, it covers x 12 to 36 at scale 1. Outside it the
+  // film is its dark blue and the frame black: identical scores mean those pixels were not counted.
+  const narrow = png(dir, 'narrow.png', columns(1, 12, 36))
+  const contain = await compare({ reference: narrow, times: [1], fit: 'contain' })
+  assert.deepEqual(contain.scaled, {
+    from: [24, H],
+    to: [W, H],
+    filter: 'triangle',
+    aspect: 'stretched',
+    fit: 'contain',
+    scale: 1,
+    placed: { x: 12, y: 0, width: 24, height: H },
+    masked: 12 * H * 2,
+  })
+  const [c] = contain.frames
+  assert.equal(c?.psnr, Number.POSITIVE_INFINITY)
+  assert.equal(c?.ssim, 1)
+  assert.equal(c?.differing, 0)
+  assert.match(
+    imageSummaryLines(contain)[0] as string,
+    /--fit contain at ×1: it covers 24×36 at 12,0, and the 864 pixels outside it are not scored/,
+  )
+  // Shown side by side: the part it covers only.
+  const shown: number[] = []
+  await compare({
+    reference: narrow,
+    times: [1],
+    fit: 'contain',
+    frame: async (f) => {
+      shown.push(f.width, f.height)
+    },
+  })
+  assert.deepEqual(shown, [24 * 3, H])
+
+  // Scaled up: a 12×18 image of the background, twice as large, covers the same part.
+  const small = png(dir, 'small.png', {
+    width: 12,
+    height: 18,
+    data: Uint8Array.from({ length: 12 * 18 * 4 }, (_, i) => [20, 30, 60, 255][i % 4] as number),
+  })
+  const twice = await compare({ reference: small, times: [1.9], fit: 'contain' })
+  assert.equal(twice.scaled?.scale, 2)
+  assert.deepEqual(twice.scaled?.placed, { x: 12, y: 0, width: 24, height: H })
+  // At 1.9 s the square has left that part: only background, as the image is.
+  assert.equal(twice.frames[0]?.psnr, Number.POSITIVE_INFINITY)
+
+  // Cover: a 96×36 image whose middle is the film's frame and whose sides (white) run off it.
+  const wide = png(dir, 'wide.png', columns(1, -24, 72))
+  const cover = await compare({ reference: wide, times: [1], fit: 'cover' })
+  assert.deepEqual(cover.scaled, {
+    from: [96, H],
+    to: [W, H],
+    filter: 'triangle',
+    aspect: 'stretched',
+    fit: 'cover',
+    scale: 1,
+    placed: { x: 0, y: 0, width: W, height: H },
+    masked: 0,
+  })
+  assert.equal(cover.frames[0]?.psnr, Number.POSITIVE_INFINITY)
+
+  // Stretched instead, the same image is not the film.
+  const stretched = await compare({ reference: narrow, times: [1], fit: 'stretch' })
+  assert.ok((stretched.frames[0]?.ssim as number) < 1)
+
+  // A region is cut to the part the image covers; one outside it is refused.
+  const part = await compare({
+    reference: narrow,
+    times: [1],
+    fit: 'contain',
+    region: { x: 0, y: 0, width: 30, height: H },
+  })
+  assert.deepEqual(part.region, { x: 12, y: 0, width: 18, height: H })
+  assert.equal(part.frames[0]?.ssim, 1)
+  await assert.rejects(
+    compare({
+      reference: narrow,
+      times: [1],
+      fit: 'contain',
+      region: { x: 0, y: 0, width: 12, height: H },
+    }),
+    /--region .* is outside the image, which covers 24×36 at 12,0 of the frame \(--fit contain\)/,
+  )
+
+  // Regions in the image's pixels are placed as it is; boxes in the film's are cut to it.
+  const boxes = join(dir, 'boxes.json')
+  writeFileSync(
+    boxes,
+    JSON.stringify({
+      width: 24,
+      height: H,
+      boxes: [{ name: 'left', x: 0, y: 0, width: 12, height: H }],
+    }),
+  )
+  const regions = await compare({ reference: narrow, times: [1], fit: 'contain', regions: boxes })
+  assert.deepEqual(regions.regions?.list[0]?.box, { x: 12, y: 0, width: 12, height: H })
+  assert.equal(regions.frames[0]?.regions[0]?.ssim, 1)
+  const filmBoxes = join(dir, 'film-boxes.json')
+  writeFileSync(
+    filmBoxes,
+    JSON.stringify({
+      width: W,
+      height: H,
+      boxes: [
+        { name: 'across', x: 0, y: 0, width: 20, height: H },
+        { name: 'bar', x: 0, y: 0, width: 10, height: H },
+      ],
+    }),
+  )
+  await assert.rejects(
+    compare({ reference: narrow, times: [1], fit: 'contain', regions: filmBoxes }),
+    /"bar" covers no pixel of the reference, at 24×36 12,0 in the 48×36 frame/,
+  )
+  writeFileSync(
+    filmBoxes,
+    JSON.stringify({
+      width: W,
+      height: H,
+      boxes: [{ name: 'across', x: 0, y: 0, width: 20, height: H }],
+    }),
+  )
+  const cut = await compare({ reference: narrow, times: [1], fit: 'contain', regions: filmBoxes })
+  assert.deepEqual(cut.regions?.list[0]?.box, { x: 12, y: 0, width: 8, height: H })
+  assert.equal(cut.regions?.list[0]?.area, 8 * H)
 })
 
 test('an image with alpha and a JPEG orientation say so in the report, applied as before (#690)', async () => {

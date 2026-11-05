@@ -63,7 +63,7 @@ export type CompareFileOptions = {
   regions?: string
   /**
    * With an image of another shape than the film's frame: how it is fitted to the frame, which
-   * the person chooses (an image of another shape is refused without it). Only `stretch` so far.
+   * the person chooses (an image of another shape is refused without it): stretch, contain or cover.
    */
   fit?: string
   /** A project's root that every file the regions file names must be in (MCP: inside). */
