@@ -487,6 +487,10 @@ test('--fit contain and cover place the image at one scale and score only the pi
     masked: 0,
   })
   assert.equal(cover.frames[0]?.psnr, Number.POSITIVE_INFINITY)
+  assert.match(
+    imageSummaryLines(cover)[0] as string,
+    /--fit cover at ×1: it covers 48×36 at 0,0\)$/,
+  )
 
   // Stretched instead, the same image is not the film.
   const stretched = await compare({ reference: narrow, times: [1], fit: 'stretch' })
@@ -563,6 +567,14 @@ test('an image with alpha and a JPEG orientation say so in the report, applied a
   assert.equal(r.reference.alpha, true)
   assert.equal(r.reference.orientation, undefined, 'a PNG has none')
   assert.equal(r.method.matte, 'black')
+  assert.equal(
+    imageSummaryLines(r)[0],
+    `reference: ${W}×${H} image, matted over black (it has alpha)`,
+  )
+  assert.equal(
+    imageSummaryLines({ ...r, reference: { ...r.reference, alpha: false, orientation: 6 } })[0],
+    `reference: ${W}×${H} image, EXIF orientation 6 not applied`,
+  )
 
   // A JPEG's APP1 Exif IFD0 with Orientation (0x0112), in either byte order.
   const jpeg = (le: boolean, orientation: number) => {

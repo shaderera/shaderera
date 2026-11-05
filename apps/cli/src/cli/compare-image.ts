@@ -384,7 +384,7 @@ const edgeText = (e: Edges) => (e.agreement === null ? 'no edges' : `edges ${sco
 /** How the image was fitted to the frame, when the shapes differ or a fit was given. */
 export const fitText = (s: NonNullable<CompareImageReport['scaled']>): string => {
   if (s.placed && s.scale !== undefined && s.masked !== undefined)
-    return `, --fit ${s.fit} at ×${Number(s.scale.toFixed(4))}: it covers ${s.placed.width}×${s.placed.height} at ${s.placed.x},${s.placed.y}, and the ${s.masked} pixels outside it are not scored`
+    return `, --fit ${s.fit} at ×${Number(s.scale.toFixed(4))}: it covers ${s.placed.width}×${s.placed.height} at ${s.placed.x},${s.placed.y}${s.masked > 0 ? `, and the ${s.masked} pixels outside it are not scored` : ''}`
   return s.aspect === 'stretched'
     ? `, stretched by --fit ${s.fit}: the frames have other shapes`
     : ''
@@ -394,7 +394,7 @@ export const fitText = (s: NonNullable<CompareImageReport['scaled']>): string =>
 export const imageSummaryLines = (r: CompareImageReport): string[] => {
   const ref = r.reference
   const lines = [
-    `reference: ${ref.width}×${ref.height} image${ref.bits === 16 ? ' (16 bits, read to 8)' : ''}${
+    `reference: ${ref.width}×${ref.height} image${ref.bits === 16 ? ' (16 bits, read to 8)' : ''}${ref.alpha ? ', matted over black (it has alpha)' : ''}${ref.orientation === undefined ? '' : `, EXIF orientation ${ref.orientation} not applied`}${
       r.scaled
         ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${fitText(r.scaled)})`
         : ''
