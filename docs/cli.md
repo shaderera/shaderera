@@ -405,6 +405,9 @@ the packets have none. A clip with a frame without a time is refused.
   clip moves later: `--offset` plus the shift's seconds reads it aligned, and the human output
   prints that as `Aligned: --offset=<s>`. The clip is also read up to `--max-shift` steps beyond
   the first and last times, where it has frames, so each shift is measured over all of them. The times must be evenly spaced for it.
+  A best shift at the edge of the search, ±`--max-shift` steps, is printed with `at the edge of
+  the search, ±N steps: a wider --max-shift may align better` in place of `searched ±N`: the
+  curves may align better further out.
 - **The motion window** of each side: the first and last time that changes more than `--floor`,
   and the peak. A rendered film is still at exactly 0; a decoded clip has codec noise, so its
   window at `--floor 0` can be wider than its motion.
@@ -422,8 +425,8 @@ frames, in seconds),
 `from`, `to`, `filter` and `aspect`, and with `--fit` as an image's), `region` (null or the part
 measured), `method` and `regions` as an image's, `step` (seconds
 between the times; null when not evenly spaced), `floor`, `offset` (`applied` seconds; `found`:
-`steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `scores`, each shift's
-`correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
+`steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `atEdge`, true when the
+shift found is ±`maxShift` (false when `maxShift` is 0: nothing was searched); `scores`, each shift's `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
 its `t` and `change`, on the film's times, or null when still), `frames` (each `t`, `at` (the
 clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `read` (that frame's time on the clip, from its
 first frame), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `ssim`,

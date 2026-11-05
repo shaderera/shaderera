@@ -126,6 +126,11 @@ export type CompareFileReport = {
     found: { steps: number; seconds: number; correlation: number } | null
     why?: string
     maxShift: number
+    /**
+     * The shift found is at the edge of the search, ±maxShift steps: a wider one may align better
+     * (#744). False when none was found.
+     */
+    atEdge: boolean
     scores: Score[]
   }
   window: { film: TimedWindow | null; reference: TimedWindow | null }
@@ -395,6 +400,7 @@ export const compareWithFile = async (
             : null,
         ...(why && !(a && a.shift !== null) ? { why } : {}),
         maxShift,
+        atEdge: !!a && a.shift !== null && maxShift > 0 && Math.abs(a.shift) === maxShift,
         scores: a?.scores ?? [],
       },
       window: {
@@ -462,7 +468,7 @@ export const summaryLines = (r: CompareFileReport): string[] => {
     // `--offset=` so that a negative one reads as a value, not as a flag.
     const total = round6(o.applied + o.found.seconds)
     lines.push(
-      `offset: applied ${n(o.applied)} s; the curves align best at ${o.found.steps > 0 ? '+' : ''}${o.found.steps}${unit} (${n(o.found.seconds)} s, correlation ${o.found.correlation.toFixed(3)}), searched ±${o.maxShift}${
+      `offset: applied ${n(o.applied)} s; the curves align best at ${o.found.steps > 0 ? '+' : ''}${o.found.steps}${unit} (${n(o.found.seconds)} s, correlation ${o.found.correlation.toFixed(3)}), ${o.atEdge ? `at the edge of the search, ±${o.maxShift} steps: a wider --max-shift may align better` : `searched ±${o.maxShift}`}${
         o.found.steps === 0 ? '' : `. Aligned: --offset=${total}`
       }`,
     )

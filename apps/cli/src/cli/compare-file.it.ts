@@ -45,6 +45,7 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   assert.equal(report.offset.found.seconds, 0.3)
   assert.ok(report.offset.found.correlation > 0.9)
   assert.equal(report.offset.scores.length, 11)
+  assert.equal(report.offset.atEdge, false)
   // The film moves from 0.6 s (the first frame after 0.5 s) to 1.2 s; the reference 0.3 s later.
   assert.equal(report.window.film.first, 0.6)
   assert.equal(report.window.film.last, 1.2)
@@ -71,6 +72,15 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
   assert.equal(text.status, 0, text.stderr)
   assert.match(text.stdout, /main-vs-late-0\.800\.png {2}\d+ ms {2}PSNR/)
   assert.match(text.stdout, /align best at \+3 steps of 0\.1 s .*Aligned: --offset=0\.3$/m)
+
+  // 3 steps late searched ±2: the best is at the search's edge, and the output says so (#744).
+  const edge = JSON.parse((await still('--max-shift', '2', '--json')).stdout).result
+  assert.equal(edge.offset.found.steps, 2)
+  assert.equal(edge.offset.atEdge, true)
+  assert.match(
+    (await still('--max-shift', '2')).stdout,
+    /align best at \+2 steps of 0\.1 s \(0\.2 s, correlation \d\.\d{3}\), at the edge of the search, ±2 steps: a wider --max-shift may align better\. Aligned: --offset=0\.2$/m,
+  )
 
   // A reference at another size is scaled to the film's frame, and the report says so.
   const large = await reference(root, 'large', '--variant', 'large', '--param', 'delay=0.3')
