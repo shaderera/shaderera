@@ -262,7 +262,11 @@ export const openChild = async (
 ): Promise<Child> => {
   const execArgv = [
     '--enable-source-maps',
-    ...(o.trusted ? [] : permissionArgs(project.root, packageDirs(project.root))),
+    // The root as written and as its real path: Node checks the real one, and a project under a
+    // link (macOS's /var/folders is /private/var/folders) was refused its own files (#697).
+    ...(o.trusted
+      ? []
+      : permissionArgs(project.root, [realpathSync(project.root), ...packageDirs(project.root)])),
   ]
   const child: ChildProcess = fork(join(here, `host${ext}`), [], {
     execArgv,
