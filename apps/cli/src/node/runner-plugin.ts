@@ -92,7 +92,7 @@ export const runnerPlugin = (
   const token = randomUUID()
   const source = join(pkgDir, 'src/runner/bridge.ts')
   const bridge = existsSync(source) ? source : join(pkgDir, 'dist/runner/bridge.js')
-  const html = `<!doctype html><html><head><meta charset="utf-8">
+  const html = `<!doctype html><html><head><meta charset="utf-8"><link rel="icon" href="data:,">
 <meta name="${PARENTS_META}" content="${ancestors.join(' ')}">${
     base
       ? `
