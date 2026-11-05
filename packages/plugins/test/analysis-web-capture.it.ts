@@ -21,7 +21,9 @@
 // Workers (classic and module) and frames (of this origin, of another site, added later) run on
 // the clock: their timers, animation frames, Date and replies land at the page's times; an
 // OffscreenCanvas a worker draws and a video show the frame at the still's time, pixel for pixel.
-// A frame of another site sees the page's locale. A worker that ends itself is let go. A shared
+// A worker a worker started runs on the clock too. A frame of another site sees the page's
+// locale. A worker that ends itself is let go. A frame sandboxed without scripts is a frame the
+// clock did not reach, the same at any speed. A shared
 // worker, a BroadcastChannel, a MessagePort sent to a worker or a frame, a frame that messages its
 // sibling, a video its server cannot seek and one that cannot play are limits, named in the file
 // and by the CLI. Skipped, with the reason, when there is no Chrome.
@@ -1378,6 +1380,57 @@ test('what the clock cannot hold is a limit, named in the file and on the comman
       assert.ok(cli.stderr.includes(`limit: ${where}: ${reason}`), `and the CLI names ${where}`)
     }
     assert.equal(doc.limits.length, expected.length, JSON.stringify(doc.limits))
+  } finally {
+    server.close()
+  }
+})
+
+test('a worker a worker started runs on the clock, at any speed', { skip }, async () => {
+  const server = await serveContexts()
+  try {
+    const json = await sameEveryTime(server.url('nested.html'), ['#interval', '#frame'], {
+      allowLocal: true,
+    })
+    const doc = JSON.parse(json) as Doc
+    assert.deepEqual(doc.limits, [])
+    // Started with the page at 0 ms: its 50 ms interval and its animation frames, on the page's
+    // ticks, passed on by the worker that started it.
+    for (const [id, expected] of [
+      ['#interval', (t: number) => 50 * Math.floor(t / 50 + 1e-9)],
+      ['#frame', Math.round],
+    ] as const)
+      for (const [t, v] of samplesOf(json, id, 'translateX'))
+        assert.equal(v, expected(ms(t)), `${id} at ${t} s`)
+  } finally {
+    server.close()
+  }
+})
+
+test('a frame sandboxed without scripts is one the clock did not reach, a limit', {
+  skip,
+}, async () => {
+  const server = await serveContexts()
+  try {
+    for (let run = 0; run < 2; run++) {
+      const json = await capture({
+        page: server.url('sandboxed.html'),
+        track: ['#box'],
+        duration: 0.3,
+        allowLocal: true,
+        // Once as it is, once 6x slower: a slow machine does not let the clock in.
+        ...(run === 1 ? { cpuThrottle: 6 } : {}),
+      })
+      assert.deepEqual(
+        (JSON.parse(json) as Doc).limits,
+        [
+          {
+            where: server.url('spin.html'),
+            reason: 'an iframe the clock did not reach: it runs on real time',
+          },
+        ],
+        `run ${run}`,
+      )
+    }
   } finally {
     server.close()
   }

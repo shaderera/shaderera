@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  A worker that starts a worker of its own: nested.js (the inner one, started by outer.js) posts
+  the time on a 50 ms interval and on each of its animation frames, and outer.js passes it on to
+  this page, which moves #interval and #frame by the whole milliseconds it was given.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 20px; height: 20px; background: #fff }
+  #interval { top: 10px } #frame { top: 40px }
+</style>
+<div class="box" id="interval"></div>
+<div class="box" id="frame"></div>
+<script>
+  new Worker('outer.js').onmessage = ({ data }) => {
+    document.getElementById(data.kind).style.transform = `translate(${data.x}px, 0px)`
+  }
+</script>
