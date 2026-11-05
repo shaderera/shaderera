@@ -302,6 +302,16 @@ test('analysis-reference-tracks: a page source needs no file, and its responses 
     { responses: [{ url: 'x', status: 200.5, sha256: h }] },
     /source response 0 needs a url, a status/,
   )
+  // A body that could not be read is listed with no hash, said so; null alone is refused.
+  const unread = { url: 'https://example.com/c.png', status: 200, sha256: null, hashOf: 'none' }
+  const kept = JSON.parse(
+    tracksJson({
+      ...page,
+      source: { ...page.source, responses: [...page.source.responses, unread] },
+    }),
+  )
+  assert.deepEqual(kept.source.responses.at(-1), unread)
+  bad({ responses: [{ ...unread, hashOf: undefined }] }, /source response 0 needs .*hashOf "none"/)
 })
 
 test('analysis-reference-tracks: null before the first sample, the sample at its time, after the last as the film says', async () => {

@@ -281,6 +281,10 @@ export const startProxy = async ({
       (r) => {
         res.writeHead(r.statusCode ?? 502, r.statusMessage, r.rawHeaders)
         r.pipe(res)
+        // A body the server cut off is cut off for Chrome too, not left open.
+        r.on('close', () => {
+          if (!r.complete) res.destroy()
+        })
       },
     )
     up.on('error', () => {

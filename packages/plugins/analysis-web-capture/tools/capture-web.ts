@@ -34,7 +34,7 @@ import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.6.0'
+export const VERSION = '0.7.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -840,13 +840,16 @@ export const CHROME_FLAGS = [
   '--proxy-bypass-list=<-loopback>',
 ]
 
-/** The largest response held to read its bytes as served; a larger one is read at its end. */
+/** The largest response held to read its bytes as served; a larger one is streamed. */
 const HELD_BODY_BYTES = 16 * 1024 * 1024
 /** Every response, paused at its headers. */
 const FETCH_PATTERNS = [{ urlPattern: '*', requestStage: 'Response' }]
 
-/** A response the page loaded. `hashOf` is there only when the hash is not of the bytes served. */
-type Served = { url: string; status: number; sha256: string; hashOf?: string }
+/**
+ * A response the page loaded. `hashOf` is there only when the hash is not of the bytes served:
+ * `none`, with no sha256, when the body could not be read.
+ */
+type Served = { url: string; status: number; sha256: string | null; hashOf?: string }
 
 /** How long a request may stay open before frames stop waiting for it, in real ms. */
 const LONG_REQUEST_MS = 5000
@@ -1006,9 +1009,12 @@ export const captureWeb = async (options: CaptureOptions) => {
     // Requests by id alone: a worker's script is sent on the page's session and finishes on the
     // worker's, under one id (ids are unique across Chrome's processes).
     // A response of a known length is held at its headers and its bytes read as they were served
-    // (Network.getResponseBody gives a text body only as decoded text); one without a length may
-    // be a stream, which holding would stop, so it is let through and read at the end.
+    // (Network.getResponseBody gives a text body only as decoded text). One without a length may
+    // be a stream, which holding would stop: it is let through, and its bytes are sent to the
+    // capture as Chrome receives them (Network.streamResourceContent, asked while it is paused at
+    // its headers). Either is read at the end if that fails, and kept without a hash if that does.
     const served = new Map<string, Promise<Uint8Array | null>>()
+    const streamed = new Map<string, { chunks: Uint8Array[]; started: Promise<boolean> }>()
     const received = new Map<string, number>()
     c.on<{
       requestId: string
@@ -1024,13 +1030,22 @@ export const captureWeb = async (options: CaptureOptions) => {
       const length = Number(
         p.responseHeaders?.find((h) => h.name.toLowerCase() === 'content-length')?.value ?? '',
       )
-      const kept =
-        p.networkId !== undefined &&
-        p.request.method !== 'HEAD' &&
-        (status < 300 || status >= 400) &&
-        Number.isInteger(length) &&
-        length > 0 &&
-        length <= HELD_BODY_BYTES
+      const id = p.networkId
+      const bodied =
+        id !== undefined && p.request.method !== 'HEAD' && (status < 300 || status >= 400)
+      const kept = bodied && Number.isInteger(length) && length > 0 && length <= HELD_BODY_BYTES
+      if (bodied && !kept) {
+        // Asked before the response goes on, so no byte arrives first; Chrome answers once it does.
+        const chunks: Uint8Array[] = []
+        const started = c
+          .send<{ bufferedData: string }>('Network.streamResourceContent', { requestId: id }, s)
+          .then(({ bufferedData }) => {
+            chunks.unshift(new Uint8Array(Buffer.from(bufferedData, 'base64')))
+            return true
+          })
+          .catch(() => false)
+        streamed.set(id, { chunks, started })
+      }
       if (!kept) return void go('Fetch.continueResponse')
       const body = c
         .send<{ body: string; base64Encoded: boolean }>(
@@ -1045,9 +1060,11 @@ export const captureWeb = async (options: CaptureOptions) => {
       served.set(p.networkId as string, body)
       void body.finally(() => go('Fetch.continueResponse'))
     })
-    c.on<{ requestId: string; dataLength: number }>('Network.dataReceived', (p) => {
+    c.on<{ requestId: string; dataLength: number; data?: string }>('Network.dataReceived', (p) => {
       const key = p.requestId
       received.set(key, (received.get(key) ?? 0) + p.dataLength)
+      if (p.data !== undefined)
+        streamed.get(key)?.chunks.push(new Uint8Array(Buffer.from(p.data, 'base64')))
     })
     c.on<{ requestId: string; request: { url: string }; type?: string }>(
       'Network.requestWillBeSent',
@@ -1074,10 +1091,21 @@ export const captureWeb = async (options: CaptureOptions) => {
       const r = responses.get(key)
       const held = served.get(key)
       served.delete(key)
+      const stream = streamed.get(key)
+      streamed.delete(key)
       if (!r) return
+      const none = (reason: string) => {
+        hashed.push({ ...r, sha256: null, hashOf: 'none' })
+        limits.push({ where: r.url, reason })
+      }
       const read = async () => {
         let bytes = held ? await held : null
         let hashOf: string | undefined
+        // Streamed whole: every byte Chrome counted came with its data.
+        if (!bytes && stream && (await stream.started)) {
+          const whole = Buffer.concat(stream.chunks)
+          if (whole.length === (received.get(key) ?? 0)) bytes = new Uint8Array(whole)
+        }
         if (!bytes && r.url.startsWith('file:')) {
           try {
             bytes = new Uint8Array(readFileSync(fileURLToPath(r.url)))
@@ -1095,18 +1123,12 @@ export const captureWeb = async (options: CaptureOptions) => {
             bytes = new TextEncoder().encode(got.body)
             hashOf = 'text-as-utf8'
           }
-          if (bytes.length === 0 && (received.get(key) ?? 0) > 0) {
-            limits.push({ where: r.url, reason: 'its body was not kept by Chrome: it has no hash' })
-            return
-          }
+          if (bytes.length === 0 && (received.get(key) ?? 0) > 0)
+            return none('its body was not kept by Chrome: it has no hash')
         }
         hashed.push({ ...r, sha256: await sha256(bytes), ...(hashOf ? { hashOf } : {}) })
       }
-      reading.push(
-        read().catch((e: Error) => {
-          limits.push({ where: r.url, reason: `its body could not be read: ${e.message}` })
-        }),
-      )
+      reading.push(read().catch((e: Error) => none(`its body could not be read: ${e.message}`)))
     })
     c.on<{ requestId: string; errorText: string; canceled?: boolean; blockedReason?: string }>(
       'Network.loadingFailed',
@@ -1117,6 +1139,9 @@ export const captureWeb = async (options: CaptureOptions) => {
         if (!r || p.canceled || p.errorText === 'net::ERR_ABORTED') return
         // A request the proxy refused is listed once, with the proxy's reason.
         if (p.errorText === 'net::ERR_TUNNEL_CONNECTION_FAILED') return
+        // A response whose body broke off is served, but its body cannot be read whole.
+        const got = responses.get(key)
+        if (got) hashed.push({ ...got, sha256: null, hashOf: 'none' })
         limits.push({ where: r.url, reason: `it did not load: ${p.errorText}` })
       },
     )
