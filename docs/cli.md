@@ -418,7 +418,7 @@ frames, in seconds),
 measured), `method` and `regions` as an image's, `step` (seconds
 between the times; null when not evenly spaced), `floor`, `offset` (`applied` seconds; `found`:
 `steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `atEdge`, true when the
-shift found is ±`maxShift`; `scores`, each shift's `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
+shift found is ±`maxShift` (false when `maxShift` is 0: nothing was searched); `scores`, each shift's `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
 its `t` and `change`, on the film's times, or null when still), `frames` (each `t`, `at` (the
 clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `read` (that frame's time on the clip, from its
 first frame), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `ssim`,
