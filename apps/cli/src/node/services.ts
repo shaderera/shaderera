@@ -94,7 +94,8 @@ export const videoColour = (s: {
 
 /**
  * A video's first stream as `io.video` gives it: width, height, fps, the frames counted from its
- * packets, and its planes' colour (ffprobe). An HLS or DASH playlist is refused.
+ * packets (a packet an edit list discards, as a stream-copied trim keeps before its cut, is not
+ * one: #740), and its planes' colour (ffprobe). An HLS or DASH playlist is refused.
  */
 export const probeVideo = (file: string): VideoInfo => {
   const r = spawnSync(
@@ -104,18 +105,18 @@ export const probeVideo = (file: string): VideoInfo => {
       'error',
       '-select_streams',
       'v:0',
-      '-count_packets',
       '-show_entries',
-      'stream=width,height,r_frame_rate,nb_read_packets,codec_name,pix_fmt,color_space,color_range,chroma_location:format=format_name',
+      'stream=width,height,r_frame_rate,codec_name,pix_fmt,color_space,color_range,chroma_location:packet=flags:format=format_name',
       '-of',
       'json',
       file,
     ],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', maxBuffer: 1 << 28 },
   )
   if (r.error) throw new Error(`ffprobe is needed to read ${file}: ${r.error.message}`)
   if (r.status !== 0) throw new Error(`ffprobe cannot read ${file}: ${r.stderr.trim()}`)
   const probed = JSON.parse(r.stdout) as {
+    packets?: { flags?: string }[]
     streams: { [k: string]: string | number }[]
     format?: { format_name?: string }
   }
@@ -132,7 +133,7 @@ export const probeVideo = (file: string): VideoInfo => {
     width: Number(s.width),
     height: Number(s.height),
     fps: d ? (n as number) / d : (n as number),
-    frames: Number(s.nb_read_packets),
+    frames: (probed.packets ?? []).filter((p) => !p.flags?.includes('D')).length,
     bits: sampleBits(String(s.pix_fmt)),
     colour: videoColour(s as { [k: string]: string }),
     alpha: /^(yuva|gbrap|ya\d|rgba|bgra|argb|abgr)/.test(String(s.pix_fmt)),
