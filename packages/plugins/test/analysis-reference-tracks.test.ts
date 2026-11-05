@@ -21,7 +21,7 @@ for (const f of label.files) {
   cpSync(join(plugins, 'analysis-reference-tracks', f), join(project, f))
 }
 const from = (p: string) => import(pathToFileURL(join(project, p)).href)
-const { at, loadTracks, track } = (await from(
+const { at, loadTracks, readTracks, track } = (await from(
   'src/reference/tracks.ts',
 )) as typeof import('../analysis-reference-tracks/src/reference/tracks.ts')
 const { fileSource, round, tracksJson } = (await from(
@@ -218,6 +218,38 @@ test('analysis-reference-tracks: refuses a changed source, another format or kin
     { source: { ...d.source, bytes: -3.5 } as never },
     /source file needs a path, its bytes \(a whole number\)/,
   )
+})
+
+test('analysis-reference-tracks: readTracks reads text or an object with the same checks, the source file aside (#729)', () => {
+  const parsed = JSON.parse(written)
+  for (const json of [written, parsed]) {
+    const r = readTracks(json, 'references/card.tracks.json')
+    assert.equal(r.path, 'references/card.tracks.json')
+    assert.equal(track(r, 'card', 'x').unit, 'source-px')
+  }
+  // Another source file's bytes are not read: that check stays loadTracks's.
+  assert.equal(
+    readTracks({ ...parsed, source: { ...parsed.source, sha256: '0'.repeat(64) } }, 't.json').kind,
+    'reference-tracks',
+  )
+  assert.throws(
+    () => readTracks({ ...parsed, format: 'shaderera.analysis/0' }, 't.json'),
+    /t\.json is "shaderera\.analysis\/0", not shaderera\.analysis\/1; rebuild it/,
+  )
+  assert.throws(
+    () => readTracks({ ...parsed, kind: 'regions' }, 't.json'),
+    /is a "regions" analysis, not reference-tracks/,
+  )
+  assert.throws(
+    () =>
+      readTracks({ ...parsed, tracks: [{ ...parsed.tracks[0], samples: [[0, 'a']] }] }, 't.json'),
+    /t\.json's track 0 \(card opacity\): sample 0's value is not a finite number/,
+  )
+  assert.throws(
+    () => readTracks({ ...parsed, tracks: [{ element: 'card' }] }, 't.json'),
+    /track 0 needs an element, a channel and a unit/,
+  )
+  assert.throws(() => readTracks('{"format":', 't.json'), /t\.json is not JSON/)
 })
 
 test('analysis-reference-tracks: a field a later analyser adds to a track is kept, after the fixed ones', async () => {
