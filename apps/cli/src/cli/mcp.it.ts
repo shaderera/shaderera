@@ -557,6 +557,15 @@ test('still with compare_file measures the film against a clip and finds its off
       /give variant, not variants/,
     )
     await assert.rejects(call('still', { compare_file: '../x.mp4' }), /outside the project/)
+    // The CLI's refusals in still's parameters (#736).
+    await assert.rejects(
+      call('still', { compare_file: 'out/late.mp4', times: [0.5, 0.7], max_shift: -1 }),
+      { message: 'max_shift is a whole number of steps, 0 or more, not -1.' },
+    )
+    await assert.rejects(
+      call('still', { compare_file: 'out/late.mp4', times: [0.5, 1], from: 0.2 }),
+      /^Error: from and to without count set the span of the reference frames: give no times/,
+    )
   } finally {
     await close()
   }
@@ -592,7 +601,36 @@ test('still with compare_file an image scores the film against it, per region wi
     assert.equal(report.frames[0].regions[0].ssim, 1)
     assert.deepEqual(report.sheet, [0, 1.2])
     assert.equal(r.content[1].mimeType, 'image/png')
-    await assert.rejects(call('still', { compare_file: 'poster.png' }), /give the film's times/)
+    // The CLI's refusals in still's parameters, with the project's paths (#736).
+    await assert.rejects(call('still', { compare_file: 'poster.png' }), {
+      message:
+        "poster.png is a still image: give the film's times to compare it at (times, every or count).",
+    })
+    await assert.rejects(call('still', { compare_file: 'poster.png', times: [0], offset: 0.1 }), {
+      message:
+        'offset reads a clip over time, and poster.png is a still image: it is compared at each time asked for. Give no offset.',
+    })
+    writeFileSync(
+      join(root, 'tall.png'),
+      encode({ width: 64, height: 48, data: new Uint8Array(64 * 48 * 4), channels: 4 }),
+    )
+    await assert.rejects(call('still', { compare_file: 'tall.png', times: [0] }), {
+      message:
+        'tall.png is 64×48 and the film is 64×36, another shape: give fit stretch, contain or cover to fit it to the frame.',
+    })
+    mkdirSync(join(root, 'refs'))
+    writeFileSync(
+      join(root, 'refs', 'dup.json'),
+      JSON.stringify({
+        width: 64,
+        height: 36,
+        boxes: [0, 1].map(() => ({ name: 'a', x: 0, y: 0, width: 4, height: 4 })),
+      }),
+    )
+    await assert.rejects(
+      call('still', { compare_file: 'poster.png', times: [0], regions: 'refs/dup.json' }),
+      { message: 'regions refs/dup.json names "a" twice: give each its own.' },
+    )
     await assert.rejects(
       call('still', { times: [0], regions: 'boxes.json' }),
       /regions goes with compare_file/,
