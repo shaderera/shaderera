@@ -33,5 +33,8 @@ data: URI) with fast-png or jpeg-js. No packages.
   (KHR_draco_mesh_compression, EXT_meshopt_compression, KHR_texture_basisu…), primitives that are
   not TRIANGLES (`LINES`, `TRIANGLE_STRIP`…), glTF 1.0, and buffers or accessors that run short.
 - Not read, and listed in `unread`: skins and morph targets (a mesh comes in its rest pose),
-  animations, and extensions the file uses without requiring them. Cameras, lights, samplers,
-  uv sets past the first and vertex colours are ignored.
+  animations (`motion-gltf-clips` reads them), and extensions the file uses without requiring
+  them. Cameras, lights, samplers, uv sets past the first and vertex colours are ignored.
+- `openGltf(read, path)` opens a file for a reader built on this one, with the same checks:
+  `{ path, json, accessor(index) }`, its JSON as written and any accessor's values as a
+  `Float32Array`, read as above (`motion-gltf-clips` reads animations with it).

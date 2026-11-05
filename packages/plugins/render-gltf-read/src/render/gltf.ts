@@ -3,6 +3,7 @@
 // as the file states it. Nothing is converted, centred, decoded or shaded: units, placement,
 // textures and materials are the film's. What it cannot read it refuses by name (Draco, meshopt,
 // any other required extension, primitives that are not triangles), never with wrong geometry.
+// `openGltf` gives the JSON and the accessor reader to a reader built on this one.
 
 import type { Mat4 } from '@shaderera/core'
 
@@ -82,7 +83,21 @@ const WIDTHS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 }
 
 /** The file's JSON, checked where a value is used. */
 // biome-ignore lint/suspicious/noExplicitAny: glTF's JSON, checked where it is read
-type Json = Record<string, any>
+export type GltfJson = Record<string, any>
+type Json = GltfJson
+
+/** The file opened, for a reader built on this one (`motion-gltf-clips` reads its animations). */
+export type GltfFile = {
+  /** The path it was opened from. */
+  path: string
+  /** Its JSON, as written (a GLB's JSON chunk). */
+  json: GltfJson
+  /**
+   * Accessor `index`'s values as glTF stores them, `count` × its width (1 a SCALAR, 3 a VEC3…)
+   * in one array: interleaved or packed, sparse applied, normalised integers as 0–1 or −1–1.
+   */
+  accessor(index: number): Float32Array
+}
 
 const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength)
 
@@ -168,15 +183,8 @@ const local = (node: Json): Mat4 => {
   ]
 }
 
-/**
- * Reads a glTF 2.0 file into plain data, the scene's primitives in node order. `read` gives a
- * project file's bytes (`host.io.read`, or a map in a test); `path` is the file's, so its `.bin`
- * and images are found beside it. A `.glb` is told by its bytes, not its name.
- */
-export const readGltf = async (
-  read: (path: string) => Promise<Uint8Array>,
-  path: string,
-): Promise<Gltf> => {
+/** The file, its buffers and its accessors, refused by name when they cannot be read. */
+const open = async (read: (path: string) => Promise<Uint8Array>, path: string) => {
   const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
   const file = await read(path)
   const glb = file.length >= 12 && view(file).getUint32(0, true) === 0x46546c67
@@ -190,11 +198,6 @@ export const readGltf = async (
   const refused = ((doc.extensionsRequired ?? []) as string[]).filter((e) => !READS.has(e))
   if (refused.length)
     throw new Error(`${path} requires ${refused.join(', ')}, which this reader does not read`)
-  const unread = ((doc.extensionsUsed ?? []) as string[])
-    .filter((e) => !READS.has(e))
-    .map((e) => `extension ${e}`)
-  if (doc.animations?.length) unread.push('animations')
-
   // Buffers: the GLB's binary chunk, a data: URI, or a file beside this one.
   const buffers = await Promise.all(
     ((doc.buffers ?? []) as Json[]).map(async (b, i) => {
@@ -267,6 +270,36 @@ export const readGltf = async (
     }
     return out
   }
+  return { doc, dir, viewOf, accessor }
+}
+
+/**
+ * Opens a glTF 2.0 file (`.gltf` with its buffers, or `.glb`) for a reader built on this one: its
+ * JSON as written and an accessor reader. The same checks as `readGltf`: glTF 2.0, no required
+ * extension it cannot read, buffers and accessors that do not run short.
+ */
+export const openGltf = async (
+  read: (path: string) => Promise<Uint8Array>,
+  path: string,
+): Promise<GltfFile> => {
+  const { doc, accessor } = await open(read, path)
+  return { path, json: doc, accessor: (i) => accessor(i, Float32Array, `accessor ${i}`) }
+}
+
+/**
+ * Reads a glTF 2.0 file into plain data, the scene's primitives in node order. `read` gives a
+ * project file's bytes (`host.io.read`, or a map in a test); `path` is the file's, so its `.bin`
+ * and images are found beside it. A `.glb` is told by its bytes, not its name.
+ */
+export const readGltf = async (
+  read: (path: string) => Promise<Uint8Array>,
+  path: string,
+): Promise<Gltf> => {
+  const { doc, dir, viewOf, accessor } = await open(read, path)
+  const unread = ((doc.extensionsUsed ?? []) as string[])
+    .filter((e) => !READS.has(e))
+    .map((e) => `extension ${e}`)
+  if (doc.animations?.length) unread.push('animations')
 
   const texture = (info: Json | undefined): GltfTexture | undefined => {
     const image = doc.images?.[doc.textures?.[info?.index]?.source]

@@ -65,6 +65,7 @@ What is on the shelf:
     seeded noise, a peak, NaN and DC check, and core's `Pcm` for `audio()`;
   - `motion-eases`: eases, clamp, lerp, the progress of t through a span, an envelope over hits;
   - `motion-lottie-read`: a Lottie file's keyframes read as written, and a property's value at t with its own curves;
+  - `motion-gltf-clips`: a glTF file's animation clips read as written, and a channel's value at t by the glTF spec;
   - `motion-random`: seeded random numbers, a hash of an integer (the same in WGSL) and a stream;
   - `audio-listen`: the takes of a recording that match a description, heard by CLAP, each
     landed by its peak on a hit point;
