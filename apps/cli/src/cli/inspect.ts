@@ -100,7 +100,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     const floor = numberOf('floor', v.floor)
     const { project, child } = await open(v)
     try {
-      const { width, height, duration, dom } = project.manifest
+      const { width, height, duration, fps, dom } = project.manifest
       const report = await compareTracks({
         reference: resolve(against),
         pairs: resolve(v.pairs),
@@ -109,6 +109,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
           width,
           height,
           duration,
+          fps,
           ...(child.has.inspect ? { inspect: (t: number) => child.inspect(t) } : {}),
           ...(dom === undefined ? {} : { elements: (t: number) => child.elements(t) }),
         },

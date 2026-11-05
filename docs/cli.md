@@ -200,8 +200,14 @@ gate yet: one would be declared in `requirements.json` when it is built.
   ]
   ```
 - **Times:** the film is measured at each sample's source time minus `--offset`, so no fill
-  between samples is chosen. A sample with no film time (before 0, or at or after the film's
-  duration) is refused, naming it.
+  between samples is chosen. A time within 1 µs of a film frame's time k / fps (the film's fps) is
+  read at exactly that frame's time: times are written to 6 decimals, and a jump on frame 40 at
+  30 fps, written 1.333333, is read on frame 40, not just before it. Other times are read as
+  written. A sample with no film time (before 0, or at or after the film's
+  duration) is left out, and each pair says how many and the first and last one's source time: a
+  capture includes its end frame while a film's time stops before its duration, and an offset
+  moves samples past either end, so the printed `Aligned: --offset=…` can be passed back. A pair
+  with no sample in the film's time is refused.
 - **Units:** values are compared in the reference's unit. A `css-px` or `source-px` value of the
   film is multiplied by the reference's `frame.width` over the film's width (`x`, `width`,
   `translateX`, `scrollX`) or its height (`y`, `height`, `translateY`, `scrollY`), since `frame`
@@ -221,10 +227,12 @@ With `--json`: `reference` (`kind`, `file`, `source`, `frame`), `film` (`width`,
 `duration`), `offset`, `floor`, and `pairs`, each with `element`, `channel`, `unit`, `film` (the
 pair's), `scaled` (null, or `factor`, `axis`, `from` (the film's frame), `to` (the reference's)),
 `step` (seconds between samples; null when not evenly spaced), `compared` (samples both have),
-`difference` (`max` and `mean`, or null), `offset` (`found`: `steps`, `seconds` and `correlation`,
-or null with `why`; `maxShift`; `scores`, each shift's `correlation` and `overlap`), `window`
-(`film` and `reference`: `first`, `last`, and `peak` with its `t` and `change`, or null when
-still) and `samples` (each `t` (film), `at` (source), `reference`, `film` and `difference`).
+`left` (the samples with no film time: `count`, and the `first` and `last` one's source time; null
+when none), `difference` (`max` and `mean`, or null), `offset` (`found`: `steps`, `seconds` and
+`correlation`, or null with `why`; `maxShift`; `scores`, each shift's `correlation` and
+`overlap`), `window` (`film` and `reference`: `first`, `last`, and `peak` with its `t` and
+`change`, or null when still) and `samples` (those with film time, each `t` (film), `at`
+(source), `reference`, `film` and `difference`).
 
 ```
 $ shaderera inspect --compare-tracks references/hero.tracks.json --pairs pairs.json --max-shift 4
@@ -420,7 +428,7 @@ frames, in seconds),
 measured), `method` and `regions` as an image's, `step` (seconds
 between the times; null when not evenly spaced), `floor`, `offset` (`applied` seconds; `found`:
 `steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `atEdge`, true when the
-shift found is ±`maxShift`; `scores`, each shift's `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
+shift found is ±`maxShift` (false when `maxShift` is 0: nothing was searched); `scores`, each shift's `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
 its `t` and `change`, on the film's times; `first` and `last` null when nothing changes more
 than `floor`, the peak still given; null with one time), `frames` (each `t`, `at` (the
 clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `read` (that frame's time on the clip, from its

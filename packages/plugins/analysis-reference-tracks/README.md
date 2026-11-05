@@ -33,6 +33,18 @@ film reads every one the same way.
 - `loadTracks(host, path)` refuses another format or kind, a malformed file, and a source file
   whose bytes are not the ones measured. A page has no file to check: its `responses` say what
   was loaded.
+- `readTracks(json, path)` reads one already in memory, the JSON text or the parsed object, with
+  the same checks except the source file's sha256, which needs the file's bytes: only
+  `loadTracks` reads them. `path` names it in messages. A DOM module, which has no `host`,
+  imports the JSON and reads it through it:
+
+  ```ts
+  import data from '../references/hero.tracks.json'
+  import { at, readTracks, track } from './reference/tracks.ts'
+
+  const ref = readTracks(data, 'references/hero.tracks.json')  // format, kind and tracks checked
+  const x = track(ref, '.hero h1', 'x')
+  ```
 - `track(ref, element, channel)` returns one track, or refuses and names what there is.
 - `at(track, sourceTime, { between, after })`: `between: 'hold'` keeps the earlier sample,
   `'linear'` draws a line to the next. Before the first sample it is `null`, and at a sample's time

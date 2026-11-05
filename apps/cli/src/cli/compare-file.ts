@@ -417,7 +417,7 @@ export const compareWithFile = async (
             : null,
         ...(why && !(a && a.shift !== null) ? { why } : {}),
         maxShift,
-        atEdge: !!a && a.shift !== null && Math.abs(a.shift) === maxShift,
+        atEdge: !!a && a.shift !== null && maxShift > 0 && Math.abs(a.shift) === maxShift,
         scores: a?.scores ?? [],
       },
       window: {

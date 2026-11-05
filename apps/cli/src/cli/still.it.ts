@@ -94,6 +94,27 @@ test('still --file reads stills and a sheet from a rendered file: --count, --fro
   )
 })
 
+test('still --file reads a stream-copied trim to its end, not past it (#740)', {
+  skip: !ffmpeg && 'no ffmpeg',
+}, async () => {
+  const root = tempDir('still-trim')
+  const film = join(root, 'film.mp4')
+  const cut = join(root, 'cut.mp4')
+  const src = ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=64x36:rate=30', '-frames:v', '90']
+  assert.equal(spawnSync('ffmpeg', [...src, '-pix_fmt', 'yuv420p', film]).status, 0)
+  assert.equal(
+    spawnSync('ffmpeg', ['-v', 'error', '-ss', '0.5', '-i', film, '-c', 'copy', cut]).status,
+    0,
+  )
+  // 2.5 s: the last of 3 times from 2 is 2.333 s (frame 70), not 2.667 s past its 75 frames.
+  const r = await cli('still', '--file', cut, '--count', '3', '--from', '2', '--json')
+  assert.equal(r.status, 0, r.stderr)
+  assert.deepEqual(
+    JSON.parse(r.stdout).result.stills.map((s: { t: number }) => Number(s.t.toFixed(3))),
+    [2, 2.167, 2.333],
+  )
+})
+
 test('a variant named what a file name cannot hold (16:9, a/b) still writes into out/stills', async () => {
   const root = tempDir('names')
   cpSync(fileURLToPath(new URL('./fixtures/mcp/', import.meta.url)), root, { recursive: true })

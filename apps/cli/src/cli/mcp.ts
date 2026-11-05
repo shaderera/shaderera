@@ -177,6 +177,34 @@ const PROGRESS = 250
 const SHEET = 64
 /** The most times one `still` with compare_file renders and measures: 10 s at 60 fps. */
 const MEASURED = 600
+/**
+ * The CLI flags a compare_file refusal names, as still's parameters name them (#736): the CLI's
+ * messages stay as they are, and stillAgainst says them in MCP's words.
+ */
+const COMPARE_PARAMS: { [flag: string]: string } = {
+  '<t>...': 'times',
+  '--every': 'every',
+  '--count': 'count',
+  '--from': 'from',
+  '--to': 'to',
+  '--fit': 'fit',
+  '--offset': 'offset',
+  '--max-shift': 'max_shift',
+  '--floor': 'floor',
+  '--region': 'region',
+  '--regions': 'regions',
+  '--heat-map': 'heat_map',
+  '--compare-file': 'compare_file',
+}
+
+/** A compare_file refusal in MCP's words: its parameters, and these files relative to the project. */
+const mcpRefusal = (message: string, root: string, files: readonly string[]): string => {
+  let said = message.replace(/<t>\.\.\.|--[a-z][a-z-]*/g, (flag) => COMPARE_PARAMS[flag] ?? flag)
+  for (const file of files) said = said.replaceAll(file, slash(relative(root, file)))
+  // MCP's still has no count: drop it where the CLI offers it.
+  return said.replace('times, every or count', 'times or every').replace(' without count', '')
+}
+
 /** The tools that take `variant` and `params`, and the ones that return content blocks. */
 const LOOKS = new Set(['render_frame', 'still', 'inspect', 'compare'])
 const IMAGES = new Set(['render_frame', 'still', 'review'])
@@ -887,6 +915,14 @@ export const createServer = (
         size = { width: f.width, height: f.height }
         if (onSheet(f.index, f.count, SHEET)) sheet.push({ t: f.t, label, pixels: f.pixels })
       },
+    }).catch((e: unknown) => {
+      if (e instanceof Error)
+        // A regions folder is read as its regions.json.
+        e.message = mcpRefusal(e.message, root, [
+          reference,
+          ...(regions ? [join(regions, 'regions.json'), regions] : []),
+        ])
+      throw e
     })
     const png = await contactSheet(sheet, size.width, size.height, 1)
     const text = {
@@ -1132,6 +1168,7 @@ export const createServer = (
                 width: manifest.width,
                 height: manifest.height,
                 duration: manifest.duration,
+                fps: manifest.fps,
                 ...(c.has.inspect ? { inspect: (t: number) => c.inspect(t) } : {}),
                 ...(manifest.dom === undefined ? {} : { elements: (t: number) => c.elements(t) }),
               },

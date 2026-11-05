@@ -20,6 +20,7 @@ const film = (): FilmTracks => ({
   width: 64,
   height: 36,
   duration: 2,
+  fps: FPS,
   inspect: async (t) => ({
     objects: [
       { id: 'card', x: move(t, 0.6 + late) },
@@ -203,11 +204,94 @@ test('compare-tracks refuses a file or a pair, naming the reason (#687)', async 
     /no element with data-id nope in the DOM/,
   )
   await assert.rejects(run(s, [{ element: '#dot', channel: 'x' }]), /pair 0 needs film/)
-  // A sample with no film time is named.
+  // A pair with no sample in the film's time is refused, naming its samples' span.
   await assert.rejects(
-    run(s, ok, { offset: 0.3 }),
-    /pair 0 \(#dot x\): no film time \(0 to 2 s\) for the samples at 0\.2 s, read at source time − 0\.3 s/,
+    run(s, ok, { offset: -3 }),
+    /pair 0 \(#dot x\): no sample in the film's time \(0 to 2 s\): its samples run 0\.2 to 1\.7 s, read at source time \+ 3 s/,
   )
+})
+
+test('compare-tracks leaves out samples with no film time, and says so, so its Aligned offset reads back (#727)', async () => {
+  // A capture of the film's own length: 0 to 2 s, its end frame included.
+  const times = Array.from({ length: 21 }, (_, i) => Number((i / FPS).toFixed(6)))
+  const { root, reference, pairs } = setup({ times })
+  const list = pairs([{ element: '#card', channel: 'x', film: { path: 'objects[id=card].x' } }])
+  const r = await compareTracks({ reference, root, film: film(), pairs: list, maxShift: 4 })
+  const p = r.pairs[0] as (typeof r.pairs)[number]
+  assert.deepEqual(p.left, { count: 1, first: 2, last: 2 })
+  assert.equal(p.compared, 20)
+  assert.equal(p.samples.length, 20)
+  assert.equal(p.offset.found?.seconds, -0.2)
+  const lines = trackLines(r).join('\n')
+  assert.match(lines, /left out: 1 sample with no film time \(0 to 2 s\), at source 2 s/)
+  assert.match(lines, /Aligned: --offset=-0\.2/)
+
+  // The printed offset, passed back: in step, the last three samples left out.
+  const aligned = await compareTracks({
+    reference,
+    root,
+    film: film(),
+    pairs: list,
+    offset: -0.2,
+    maxShift: 4,
+  })
+  const a = aligned.pairs[0] as (typeof aligned.pairs)[number]
+  assert.deepEqual(a.left, { count: 3, first: 1.8, last: 2 })
+  assert.equal(a.offset.found?.steps, 0)
+  assert.ok((a.difference?.max as number) < 1e-9)
+  const text = trackLines(aligned).join('\n')
+  assert.match(text, /measured at source time \+ 0\.2 s/)
+  assert.match(text, /left out: 3 samples with no film time \(0 to 2 s\), at source 1\.8 to 2 s/)
+})
+
+test('compare-tracks reads a sample time written to 6 decimals on its film frame, so a jump on a frame reads 0 (#728)', async () => {
+  // Holds: 0, 100 from frame 10, 50 from frame 40 (40 / 30 s, written 1.333333), at 30 fps.
+  const opacity = (t: number) => (t >= 40 / 30 ? 50 : t >= 10 / 30 ? 100 : 0)
+  const root = tempDir('compare-tracks')
+  const reference = join(root, 'lottie.tracks.json')
+  const times = Array.from({ length: 60 }, (_, k) => k / 30)
+  writeFileSync(
+    reference,
+    JSON.stringify({
+      format: 'shaderera.analysis/1',
+      kind: 'reference-tracks',
+      source: { url: 'https://example.com/' },
+      frame: { width: 64, height: 36, pixelRatio: 1 },
+      tracks: [
+        {
+          element: 'layers[0]',
+          channel: 'o[0]',
+          unit: 'ratio',
+          samples: times.map((t) => [Number(t.toFixed(6)), opacity(t)]),
+        },
+      ],
+    }),
+  )
+  const pairs = join(root, 'pairs.json')
+  writeFileSync(
+    pairs,
+    JSON.stringify([
+      { element: 'layers[0]', channel: 'o[0]', film: { path: 'objects[id=card].opacity' } },
+    ]),
+  )
+  const r = await compareTracks({
+    reference,
+    pairs,
+    root,
+    film: {
+      width: 64,
+      height: 36,
+      duration: 2,
+      fps: 30,
+      inspect: async (t) => ({ objects: [{ id: 'card', opacity: opacity(t) }] }),
+    },
+  })
+  const p = r.pairs[0] as (typeof r.pairs)[number]
+  assert.equal(p.samples[40]?.at, 1.333333)
+  assert.equal(p.samples[40]?.film, 50)
+  assert.deepEqual(p.difference, { max: 0, mean: 0 })
+  assert.equal(p.offset.found?.steps, 0)
+  assert.equal(p.offset.found?.seconds, 0)
 })
 
 test('apps/cli imports nothing from packages/plugins, and names no plugin it reads (#687)', () => {
