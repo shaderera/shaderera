@@ -315,7 +315,7 @@ instead: the frames as they were encoded.
 | `--columns <n>` | 4 (1 with `--compare-file`): how many frames across the `--sheet` (not the side-by-side one of several variants) |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
 | `--out <dir>` | `out/stills/` |
-| `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png`. With `--compare-file`, the part measured and shown instead (at least 11×11 with an image) |
+| `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png`. With `--compare-file`, the part measured and shown instead (at least 11×11, SSIM's window) |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely, else a text run's `box` |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
