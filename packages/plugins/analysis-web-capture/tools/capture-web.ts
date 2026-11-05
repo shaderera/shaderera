@@ -1139,6 +1139,9 @@ export const captureWeb = async (options: CaptureOptions) => {
         if (!r || p.canceled || p.errorText === 'net::ERR_ABORTED') return
         // A request the proxy refused is listed once, with the proxy's reason.
         if (p.errorText === 'net::ERR_TUNNEL_CONNECTION_FAILED') return
+        // A response whose body broke off is served, but its body cannot be read whole.
+        const got = responses.get(key)
+        if (got) hashed.push({ ...got, sha256: null, hashOf: 'none' })
         limits.push({ where: r.url, reason: `it did not load: ${p.errorText}` })
       },
     )

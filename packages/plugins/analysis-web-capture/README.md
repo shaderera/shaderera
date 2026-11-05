@@ -290,7 +290,7 @@ is not held, since holding would stop a stream: Chrome sends the capture its byt
 is read once it has loaded: Chrome keeps a binary body as bytes, but a text body only as the text
 it decoded with its charset, so such a response carries `"hashOf": "text-as-utf8"` (that text
 encoded as UTF-8, the served file only when it was UTF-8). A body that cannot be read at all (an
-image Chrome could not decode, which it neither streams nor keeps) is listed with `"sha256":
+image Chrome could not decode, when it neither streams nor keeps it, or a body that broke off) is listed with `"sha256":
 null` and `"hashOf": "none"`, and a limit names it and why. A reader older than this refuses
 such a file: add `analysis-reference-tracks` again for the newer reader. `fonts` names, for each tracked
 element with text at the first frame, the fonts Chrome drew that text with then (its children's

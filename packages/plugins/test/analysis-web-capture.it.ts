@@ -734,6 +734,10 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
         res.write(latin1)
         setTimeout(() => res.end(latin1), 100)
       }, 100)
+    } else if (req.url === '/broken') {
+      // Its headers and a first chunk, then the connection cut: the body never ends.
+      res.writeHead(200, text)
+      res.write(latin1, () => setTimeout(() => res.socket?.destroy(), 50))
     } else if (req.url === '/bad.png') {
       res.writeHead(200, { ...png, 'content-length': noise.length })
       res.end(noise)
@@ -765,6 +769,7 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
     assert.deepEqual([...hits].sort(), [
       '/bad-chunked.png',
       '/bad.png',
+      '/broken',
       '/gzip',
       '/latin1',
       '/latin1-chunked',
@@ -796,18 +801,29 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
       assert.equal(response(path)?.sha256, await sha256(bytes), `${path} is hashed as served`)
       assert.equal(response(path)?.hashOf, undefined)
     }
-    // An image Chrome could not decode and did not keep is listed without a hash, and is a limit.
-    assert.deepEqual(response('/bad-chunked.png'), {
-      url: `http://localhost:${port}/bad-chunked.png`,
+    // A body cut off is served but cannot be read whole: listed without a hash, and a limit.
+    assert.deepEqual(response('/broken'), {
+      url: `http://127.0.0.1:${port}/broken`,
       status: 200,
       sha256: null,
       hashOf: 'none',
     })
     assert.ok(
       allowed.limits.some(
-        (l) => l.where.endsWith('/bad-chunked.png') && /not kept by Chrome/.test(l.reason),
+        (l) => l.where.endsWith('/broken') && /did not load: net::ERR_/.test(l.reason),
       ),
     )
+    // An image Chrome could not decode is hashed as streamed; when Chrome neither streamed nor
+    // kept it, it is listed without a hash, and is a limit.
+    const bad = response('/bad-chunked.png')
+    if (bad?.sha256 === null) {
+      assert.equal(bad.hashOf, 'none')
+      assert.ok(
+        allowed.limits.some(
+          (l) => l.where.endsWith('/bad-chunked.png') && /not kept by Chrome/.test(l.reason),
+        ),
+      )
+    } else assert.equal(bad?.sha256, await sha256(noise))
 
     // A page served from this machine is refused before Chrome starts.
     await assert.rejects(
