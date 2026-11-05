@@ -232,11 +232,13 @@ instead: the frames as they were encoded.
 | `--columns <n>` | 4 (1 with `--compare-file`): how many frames across the `--sheet` (not the side-by-side one of several variants) |
 | `--diff` | render each t again after a far-away frame and count the channels that differ; exit 1 if any does |
 | `--out <dir>` | `out/stills/` |
-| `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png`. With `--compare-file`, the part measured and shown instead |
+| `--region x,y,w,h` | none. Also writes that part of each still (frame pixels), `<variant>-<t>-<x>_<y>_<w>x<h>@<scale>.png`. With `--compare-file`, the part measured and shown instead (at least 11×11 with an image) |
 | `--object <id>` | none. The same, for the inspected object with that id: its `bbox` (`[x, y, width, height]` in frame pixels), which a source reports for what it wants looked at closely, else a text run's `box` |
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
-| `--compare-file <video>` | none. Measures the film against a reference clip, [below](#measuring-against-a-reference-clip). With one `--variant` only; not with `--file`, `--compare`, `--object`, `--diff` or `--scale` |
+| `--compare-file <video\|image>` | none. Measures the film against a reference clip, [below](#measuring-against-a-reference-clip), or a PNG or JPEG at each t, [below that](#measuring-against-a-reference-image). With one `--variant` only; not with `--file`, `--compare`, `--object`, `--diff` or `--scale` |
+| `--regions <file>` | none. With `--compare-file <image>`: a regions artifact of the image, or boxes with names ([analysis.md](analysis.md#regions-still-image)); each region is scored apart. Not with `--region` |
+| `--fit stretch` | none. With `--compare-file <image>` of another shape than the film's frame, needed then: how the image (and its regions) is fitted to the frame. Only `stretch` so far |
 | `--offset <s>` | 0. With `--compare-file`: the clip is read at t + offset. A negative one is written `--offset=-0.2`, or it reads as a flag |
 | `--max-shift <n>` | one second of steps. With `--compare-file`: how many steps (the time between two times) either way the alignment searches |
 | `--floor <level>` | 0. With `--compare-file`: the change a motion window counts as still, in levels (0–255), such as a clip's codec noise |
@@ -272,8 +274,9 @@ When a film copies a reference one to one, `--compare-file <video>` measures how
 renders the film's final frames and reads the clip's frames at the same times, as `--file` reads
 a file. It measures and never judges: there is no pass or fail, and it exits 0 unless an input is
 bad (2). It has no gate yet: one would be declared in `requirements.json` when it is built.
-It takes a clip: a reference of one frame, such as an image, is refused, since measuring against
-a still is not built yet. It takes a clip of constant rate: its frame i is read as the frame at
+A PNG or JPEG is measured as a still, [below](#measuring-against-a-reference-image); a clip of
+one frame in another format is refused: save it as a PNG once.
+A clip is read at a constant rate: its frame i is read as the frame at
 i / fps (its `r_frame_rate`), and a clip with a frame more than half a frame from that, such as a
 screen recording that held a frame, is refused, naming the frame; re-encode it with
 `ffmpeg -i in.mp4 -fps_mode cfr out.mp4` first.
@@ -305,7 +308,7 @@ screen recording that held a frame, is refused, naming the frame; re-encode it w
   sheet of them, one a row (`--columns` 1), at most 64 rows spread evenly from the first time to
   the last; every time still has its own PNG.
 
-With `--json`: `reference` (`file`, `width`, `height`, `fps`, `duration`, `bits` and `colour` as
+With `--json`: `reference` (`kind: "clip"`, `file`, `width`, `height`, `fps`, `duration`, `bits` and `colour` as
 the decoder read it, and `timing`: `constant`, frame i at i / fps, checked; another may be added),
 `scaled` (null, or
 `from`, `to`, `filter` and `aspect`), `region` (null or the part measured), `step` (seconds
@@ -332,6 +335,83 @@ The clip moves 0.3 s late here, and its window at `--floor 0` takes in its codec
 aligned, `--offset 0.3 --floor 2`, its window is the film's: 0.600–1.200 s. The 2 is this clip's
 own measurement, the largest `activity.reference` it shows where it holds still, not a value to
 reuse: measure it on each clip.
+
+### Measuring against a reference image
+
+A poster, a screenshot or a website's hero is one image. `--compare-file <png|jpg>` measures the
+film's final frame at each time asked for against it. PSNR and ΔE are not enough for a still: a
+different font fallback changes every pixel of a line, so the structure and each part are
+measured too. It measures and never judges, as with a clip: no pass or fail, exit 0 unless an
+input is bad (2).
+
+- **The times:** those asked for (`<t>...`, `--every`, `--count`), at least one: an image has no
+  times of its own. `--offset`, `--max-shift`, `--floor` and `--from`/`--to` without `--count`
+  read a clip over time and are refused.
+- **The image** is decoded as `io.image` decodes it (a JPEG's EXIF orientation is not applied,
+  and `reference.orientation` records one that is not upright; a 16-bit PNG is read to 8 bits),
+  matted over black (`reference.alpha` says whether that changed any pixel), and scaled to the
+  film's frame once as a clip's frames are (`scaled` says so). The report keeps its `sha256`. An
+  image of another shape than the frame (more than 0.5 % apart) is refused unless `--fit` says how
+  to fit it: `stretch` scales it to the frame, its regions too, and `scaled.fit` records it.
+- **Per time, for the whole frame:** PSNR and ΔE as `--compare` measures them, and:
+  - **SSIM** (Wang et al. 2004) on luma (BT.709 weights on the sRGB values, 0–255): a Gaussian
+    window of 11 with σ 1.5, K1 0.01, K2 0.03 and L 255, reflected at the frame's edge. The
+    frame's score is the SSIM map's mean less a border of 5 pixels, the same number as
+    scikit-image's `structural_similarity(gaussian_weights=True, sigma=1.5,
+    use_sample_covariance=False, data_range=255)`. 1 is the same structure; SSIM sees light and
+    shape, not hue, which ΔE measures.
+  - **The edge score:** the Sobel gradient magnitude of each side's luma, and how much of it both
+    have: Σ 2·min(film, image) / Σ (film + image). 1 when the edges are the same, 0 when no edge
+    of one is where the other has one, and null when neither has an edge there. `film` and
+    `reference` are each side's mean magnitude, in levels: a softer line has less.
+- **`--regions <file>`** scores each part apart. The file is one of the two forms
+  [analysis.md](analysis.md#regions-still-image) defines:
+  - a regions artifact of this image (its folder or its `regions.json`, `shaderera.analysis/1`
+    of kind `regions`): each region's u8 mask. One of another image (its `source.sha256` or
+    size) is refused;
+  - or boxes with names (`shaderera.boxes/1`), in the image's pixels or the film's, which
+    `width` and `height` say: `{ "width": 1080, "height": 1350, "boxes": [{ "name": "title",
+    "x": 80, "y": 120, "width": 900, "height": 200 }] }`.
+
+  Through MCP, `regions.json` and each mask must be in the project: one linked from outside it is
+  refused.
+
+  A mask in the image's pixels is scaled to the film's frame with the image's filter, so a mask's
+  edge can soften by a pixel. Each region's SSIM is the SSIM map's mean weighted by its coverage
+  (every pixel of the mask, near the frame's edge too); its edge score and its mean ΔE are
+  weighted the same way, and its largest ΔE is over the pixels it covers. A window near a
+  region's edge also sees what is outside it. Not with `--region`.
+- **`--region x,y,w,h`** (the film's frame pixels): only that part of both is measured and shown.
+  It must be at least 11×11, the window's size.
+- **Files:** each time's film, image and SSIM heat map side by side,
+  `<variant>-vs-<image>-<t>.png`, and with `--sheet` a sheet of them. The heat map is 1 − SSIM on
+  matplotlib's inferno ramp, a fixed scale: black where the structure is the same, pale yellow at
+  SSIM 0 or below.
+
+With `--json`: `reference` (`kind: "image"`, `file`, `width`, `height`, `bits`, `sha256`,
+`alpha` (whether any pixel is less than opaque, so the matte decided it) and `orientation` (a
+JPEG's EXIF orientation when not 1, not applied)), `scaled` (with `fit` when given), `region`,
+`method` (how SSIM and the edge score were measured, by name and constant, and `matte: "black"`,
+what a pixel less than opaque is matted over), `regions`
+(null, or `file`, `kind` (`regions` or `boxes`), `in` (the pixels the file is written in) and
+`list`, each region's `id`, `label` (an artifact's), `box` and `area` in the film's frame pixels),
+and `frames` (each `t`, `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`,
+`ssim`, `edges` (`agreement`, `film`, `reference`), `regions` (each `id`, `ssim`, `edges`,
+`deltaE`, `maxDeltaE`) and `file`) and `sheet`.
+
+```
+$ shaderera still 0.9 1.2 --compare-file poster.png --regions poster-boxes.json
+out/stills/main-vs-poster-0.900.png  1 ms  PSNR 12.64 dB, mean ΔE 10.684 (max 84.31), 312 pixels differ; SSIM 0.543, edges 0.000
+  box: SSIM 0.026, edges 0.000, mean ΔE 73.172 (max 84.31)
+  top: SSIM 1.000, no edges, mean ΔE 0.000 (max 0.00)
+out/stills/main-vs-poster-1.200.png  0 ms  identical, mean ΔE 0.000 (max 0.00), 0 pixels differ; SSIM 1.000, edges 1.000
+  box: SSIM 1.000, edges 1.000, mean ΔE 0.000 (max 0.00)
+  top: SSIM 1.000, no edges, mean ΔE 0.000 (max 0.00)
+reference: 64×36 image
+regions: box, top (boxes in 64×36)
+```
+
+The poster is the film's frame at 1.2 s: at 0.9 s the box is not yet where the poster has it.
 
 ## `render`
 

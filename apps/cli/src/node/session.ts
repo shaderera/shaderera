@@ -38,12 +38,15 @@ export const createNodeSession = (
     await was?.then(({ child }) => child.close()).catch(() => {})
   }
   // On Windows a read reports `change` too, once it moves the access time (NTFS updates it when
-  // the last one is an hour old), so a change counts only when the file was modified since the
-  // child opened. A file that was added, removed or renamed always counts.
+  // the last one is an hour old), so a change counts only when the file was modified after the
+  // child opened. On macOS a watch just started reports the files written shortly before it, as
+  // added, so an added or renamed file counts only when it changed after the child opened (a move
+  // sets the change time). What was written before is in the child: its build reads it after.
+  // A file that is gone always counts.
   const edited = (event: string, file: string) => {
-    if (event !== 'change') return true
     try {
-      return statSync(join(root, file)).mtimeMs >= since
+      const s = statSync(join(root, file))
+      return Math.floor(event === 'change' ? s.mtimeMs : Math.max(s.mtimeMs, s.ctimeMs)) > since
     } catch {
       return true
     }

@@ -118,6 +118,28 @@ export const compareFrames = (
   }
 }
 
+/** Each pixel's ΔE (CIEDE2000) between two RGBA frames of one size, matted over black as compareFrames. */
+export const deltaEs = (
+  a: Uint8Array | Uint8ClampedArray,
+  b: Uint8Array | Uint8ClampedArray,
+): Float64Array => {
+  if (a.length !== b.length) throw new Error('deltaEs needs two frames of one size.')
+  const x = matte(a)
+  const y = matte(b)
+  const out = new Float64Array(x.length / 4)
+  for (let i = 0; i < x.length; i += 4) {
+    const r1 = x[i] as number
+    const g1 = x[i + 1] as number
+    const b1 = x[i + 2] as number
+    const r2 = y[i] as number
+    const g2 = y[i + 1] as number
+    const b2 = y[i + 2] as number
+    if (r1 !== r2 || g1 !== g2 || b1 !== b2)
+      out[i / 4] = deltaE2000(lab(r1, g1, b1), lab(r2, g2, b2))
+  }
+  return out
+}
+
 /** Two RGBA frames of one size side by side, `a` on the left: one frame twice as wide. */
 export const sideBySide = (
   a: Uint8Array | Uint8ClampedArray,

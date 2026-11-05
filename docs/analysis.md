@@ -67,6 +67,26 @@ format, and the rules that keep a reaction deterministic.
 - Artifacts are project files: saved revisions and jobs freeze them like any asset (their sha256 is
   in `job.inputs.assets`).
 
+### Regions (still image)
+
+Named parts of one image, which `still --compare-file <image> --regions` scores apart
+([cli.md](cli.md#measuring-against-a-reference-image)). Any analyser, or a person's script, may
+write them; a file of boxes is the hand-written form.
+
+- **Regions:** a `regions.json` artifact of `kind: "regions"`. `source` is as above, with the
+  image's `width` and `height` in pixels; a reader refuses another image's sha256 or size.
+  `regions` is a list, each with an `id` (a string, unique in the file), an optional `label`,
+  and a `mask` as [Rasters](#rasters-masks-depth-when-an-analyser-provides-them) defines one
+  (`dtype: "u8"`, `channels: 1`, `width`, `height`, `rowStride`, `at`), in the image's pixels.
+  `mask.file` is the raster's file name, beside `regions.json`: a bare name, never a path.
+- **Boxes:** a JSON file of `format: "shaderera.boxes/1"` (it may be left out: a file without
+  `format` is this one), `width` and `height` (the pixels the boxes are in: the image's or the
+  film's frame's), and `boxes`, a list each with a `name` (unique in the file) and `x`, `y`,
+  `width`, `height` in whole pixels, width and height 1 or more. A box partly outside the frame
+  counts where it is inside. Another `shaderera.boxes/` version is refused.
+- In either, a field a reader does not know is ignored, so a writer may add its own (a score, a
+  box, a parent).
+
 ### Live input
 
 Analysis takes files, or a live web page that an analyser captured, with what the page loaded
