@@ -276,14 +276,17 @@ a file. It measures and never judges: there is no pass or fail, and it exits 0 u
 bad (2). It has no gate yet: one would be declared in `requirements.json` when it is built.
 A PNG or JPEG is measured as a still, [below](#measuring-against-a-reference-image); a clip of
 one frame in another format is refused: save it as a PNG once.
-A clip is read at a constant rate: its frame i is read as the frame at
-i / fps (its `r_frame_rate`), and a clip with a frame more than half a frame from that, such as a
-screen recording that held a frame, is refused, naming the frame; re-encode it with
-`ffmpeg -i in.mp4 -fps_mode cfr out.mp4` first.
+A clip of constant rate has its frame i read as the frame at i / fps (its `r_frame_rate`). A clip
+with a frame more than half a frame from that, such as a screen recording that held a frame, is
+read at a variable rate: each frame at its own time from its packets, from the first frame's, and
+held until the next frame's (sample and hold, as [analysis.md](analysis.md#time) says). It ends
+when its last packet does (the sum of its packets' durations), or at its last frame's time when
+the packets have none. A clip with a frame without a time is refused.
 
 - **The times:** those asked for (`<t>...`, `--every`, `--count`), sorted. With none, the clip's
-  frames at its own rate from `--from` (the first time the clip has, at or after 0) to before
-  `--to` (the end of whichever side ends first). Every time needs a frame of the clip at
+  frames at its own rate (a variable-rate clip's at their own times, so not evenly spaced: give
+  `--every` or `--count` to search the offset) from `--from` (the first time the clip has, at or
+  after 0) to before `--to` (the end of whichever side ends first). Every time needs a frame of the clip at
   t + `--offset`; one without is refused. The clip's frame at a time is the last at or before it,
   where a time up to 10 µs before a frame's is that frame's: times are written to 6 decimals,
   and 1/30 s written 0.033333 is frame 1.
@@ -309,14 +312,17 @@ screen recording that held a frame, is refused, naming the frame; re-encode it w
   the last; every time still has its own PNG.
 
 With `--json`: `reference` (`kind: "clip"`, `file`, `width`, `height`, `fps`, `duration`, `bits` and `colour` as
-the decoder read it, and `timing`: `constant`, frame i at i / fps, checked; another may be added),
+the decoder read it, `timing`: `constant`, frame i at i / fps, checked, or `variable`, each frame
+at its own time, and with `variable` `intervals`: the `smallest` and `largest` time between two
+frames, in seconds),
 `scaled` (null, or
 `from`, `to`, `filter` and `aspect`), `region` (null or the part measured), `step` (seconds
 between the times; null when not evenly spaced), `floor`, `offset` (`applied` seconds; `found`:
 `steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `scores`, each shift's
 `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
 its `t` and `change`, on the film's times, or null when still), `frames` (each `t`, `at` (the
-clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `activity` with `film` and
+clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `read` (that frame's time on the clip, from its
+first frame), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `activity` with `film` and
 `reference`, and `file`) and `sheet`.
 
 ```
