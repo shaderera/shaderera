@@ -33,7 +33,7 @@ const hero = await loadTracks(host, 'references/hero/tracks.json')
 const x = track(hero, '.hero .card', 'translateX')     // css-px, at source time
 
 // in render(t)
-const value = at(x, t, { between: 'linear' })
+const value = at(x, t, { between: 'linear', after: 'hold' })
 ```
 
 ```ts
