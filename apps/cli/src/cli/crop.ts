@@ -76,7 +76,7 @@ export const crop = (
   const y1 = Math.min(frame.height, Math.ceil(region.y + region.height))
   if (x1 <= x0 || y1 <= y0)
     throw new Error(
-      `The region ${JSON.stringify(region)} is outside the ${frame.width}×${frame.height} frame.`,
+      `The region ${region.x},${region.y},${region.width},${region.height} is outside the ${frame.width}×${frame.height} frame.`,
     )
   const scale = Math.min(asked, Math.max(1, Math.floor(longest / Math.max(x1 - x0, y1 - y0))))
   const w = (x1 - x0) * scale
