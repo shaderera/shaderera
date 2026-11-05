@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- A frame that posts the time of each animation frame and of its script to its parent. -->
+<meta charset="utf-8" />
+<style>
+  @keyframes spin { to { transform: rotate(360deg) } }
+  body { margin: 0; background: #000 }
+  div { position: absolute; left: 10px; top: 10px; width: 40px; height: 40px; background: #fff;
+    animation: spin 1s linear infinite }
+</style>
+<div></div>
+<script>
+  const name = new URLSearchParams(location.search).get('name')
+  const born = Math.round(performance.now())
+  const frame = (t) => {
+    parent.postMessage({ name, t: Math.round(t), born }, '*')
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+</script>
