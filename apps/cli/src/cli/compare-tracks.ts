@@ -81,6 +81,9 @@ export type PairReport = {
   step: number | null
   /** Samples where both sides have a value. */
   compared: number
+  /** The samples with no film time (before 0, or at or after its duration), not compared: how
+   * many, and the first and last one's source time; null when none. */
+  left: { count: number; first: number; last: number } | null
   /** |film − reference| over those samples, in the reference's unit; null when none. */
   difference: { max: number; mean: number } | null
   offset: {
@@ -137,6 +140,8 @@ const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
 const isSize = (v: unknown): v is number => isNumber(v) && v > 0
 const round6 = (t: number) => Number(t.toFixed(6))
+/** How film time follows from source time: `source time + 0.1 s` for --offset=-0.1. */
+const readAt = (offset: number) => `source time ${offset < 0 ? `+ ${-offset}` : `− ${offset}`} s`
 
 const readJson = (file: string, flag: string, within?: string): unknown => {
   try {
@@ -259,8 +264,9 @@ const describe = (m: FilmMeasure) => ('path' in m ? m.path : `data-id ${m.id} ${
 
 /**
  * Measures each pair (see CompareTracksOptions): the film at each reference sample's source time
- * minus offset, in the reference's unit. Throws on bad input: a refused file, a pair whose track
- * or film side is not there, a sample with no film time.
+ * minus offset, in the reference's unit; samples with no film time are left out, and counted.
+ * Throws on bad input: a refused file, a pair whose track or film side is not there, a pair with
+ * no sample in the film's time.
  */
 export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTracksReport> => {
   const offset = o.offset ?? 0
@@ -295,13 +301,20 @@ export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTra
       throw new Error(
         `${label}: the film is measured by the DOM element ${p.film.id}, and this project has no DOM (manifest.dom, browser host).`,
       )
-    const outside = track.samples
-      .map(([at]) => at)
-      .filter((at) => at - offset < 0 || at - offset >= film.duration)
-    if (outside.length > 0)
+    const inFilm = ([at]: Track['samples'][number]) =>
+      at - offset >= 0 && at - offset < film.duration
+    const samples = track.samples.filter(inFilm)
+    if (samples.length === 0) {
+      const ats = track.samples.map(([at]) => round6(at))
       throw new Error(
-        `${label}: no film time (0 to ${film.duration} s) for the samples at ${outside.map(round6).join(', ')} s, read at source time − ${offset} s.`,
+        `${label}: no sample in the film's time (0 to ${film.duration} s): its samples run ${ats[0]} to ${ats.at(-1)} s, read at ${readAt(offset)}.`,
       )
+    }
+    const out = track.samples.filter((s) => !inFilm(s)).map(([at]) => at)
+    const left: PairReport['left'] =
+      out.length === 0
+        ? null
+        : { count: out.length, first: out[0] as number, last: out.at(-1) as number }
     let scaled: PairReport['scaled'] = null
     if (PIXELS.has(track.unit)) {
       const axis = p.axis ?? AXIS[track.channel]
@@ -318,7 +331,7 @@ export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTra
           to: [ref.frame.width, ref.frame.height],
         }
     }
-    return { pair: p, label, track, scaled }
+    return { pair: p, label, track: { ...track, samples }, left, scaled }
   })
 
   // Each time is measured once for every pair that needs it.
@@ -359,7 +372,7 @@ export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTra
   }
 
   const reports: PairReport[] = []
-  for (const { pair, label, track, scaled } of planned) {
+  for (const { pair, label, track, left, scaled } of planned) {
     const factor = scaled?.factor ?? 1
     const ats = track.samples.map(([at]) => at)
     const times = ats.map((at) => at - offset)
@@ -429,6 +442,7 @@ export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTra
       scaled,
       step: step === null ? null : round6(step),
       compared: both.length,
+      left,
       difference:
         both.length === 0
           ? null
@@ -475,7 +489,7 @@ export const trackLines = (r: CompareTracksReport): string[] => {
   const n = (x: number) => String(Number(x.toFixed(4)))
   const f = r.reference.frame
   const lines = [
-    `reference: ${r.reference.file}, frame ${f.width}×${f.height} at pixel ratio ${f.pixelRatio}; film ${r.film.width}×${r.film.height}, ${r.film.duration} s; measured at source time − ${r.offset} s`,
+    `reference: ${r.reference.file}, frame ${f.width}×${f.height} at pixel ratio ${f.pixelRatio}; film ${r.film.width}×${r.film.height}, ${r.film.duration} s; measured at ${readAt(r.offset)}`,
   ]
   const win = (w: TimedWindow | null) =>
     w
@@ -492,6 +506,10 @@ export const trackLines = (r: CompareTracksReport): string[] => {
         ? `  difference: max ${n(p.difference.max)}, mean ${n(p.difference.mean)} ${p.unit} over ${p.compared} samples`
         : '  difference: no sample where both have a value',
     )
+    if (p.left)
+      lines.push(
+        `  left out: ${p.left.count} sample${p.left.count === 1 ? '' : 's'} with no film time (0 to ${r.film.duration} s), at source ${p.left.first === p.left.last ? `${p.left.first} s` : `${p.left.first} to ${p.left.last} s`}`,
+      )
     lines.push(
       `  film ${win(p.window.film)}; reference ${win(p.window.reference)}${r.floor > 0 ? ` (above ${r.floor})` : ''}`,
     )
