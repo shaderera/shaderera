@@ -296,10 +296,12 @@ export const placement = (
     ? crop(new Uint8Array(width * height * 4), film, o.region).region
     : undefined
   const shown = asked ? overlap(asked, seen) : seen
-  if (!shown)
+  if (!shown) {
+    const r = o.region as Region
     throw new Error(
-      `--region ${JSON.stringify(asked)} is outside the ${kind}, which covers ${seen.width}×${seen.height} at ${seen.x},${seen.y} of the frame (--fit ${o.fit}).`,
+      `--region ${r.x},${r.y},${r.width},${r.height} is outside the ${kind}, which covers ${seen.width}×${seen.height} at ${seen.x},${seen.y} of the frame (--fit ${o.fit}).`,
     )
+  }
   if (shown.width < SSIM.size || shown.height < SSIM.size)
     throw new Error(
       `SSIM needs at least ${SSIM.size}×${SSIM.size} pixels, its window: the part measured is ${shown.width}×${shown.height}.`,

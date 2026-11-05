@@ -508,7 +508,7 @@ test('--fit contain and cover place the image at one scale and score only the pi
       fit: 'contain',
       region: { x: 0, y: 0, width: 12, height: H },
     }),
-    /--region .* is outside the image, which covers 24×36 at 12,0 of the frame \(--fit contain\)/,
+    /--region 0,0,12,36 is outside the image, which covers 24×36 at 12,0 of the frame \(--fit contain\)/,
   )
 
   // Regions in the image's pixels are placed as it is; boxes in the film's are cut to it.

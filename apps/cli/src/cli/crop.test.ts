@@ -15,7 +15,10 @@ test('a crop is clamped to the frame and enlarged by whole pixels', () => {
     [...c.pixels].filter((_, i) => i % 4 === 0),
     [6, 6, 7, 7, 6, 6, 7, 7],
   )
-  assert.throws(() => crop(px, { width: 4, height: 2 }, parseRegion('10,10,2,2')), /outside/)
+  assert.throws(
+    () => crop(px, { width: 4, height: 2 }, parseRegion('10,10,2,2')),
+    /The region 10,10,2,2 is outside the 4×2 frame/,
+  )
   assert.throws(
     () => crop(px, { width: 4, height: 2 }, parseRegion('0,0,1,1'), 1.5),
     /whole number/,
