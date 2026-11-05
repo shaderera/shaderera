@@ -10,7 +10,7 @@ import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
 import { insideFilm, numberOf, open, parseRendering, timesOf } from './args.ts'
 import { clockWarning } from './clock.ts'
-import { compareWithFile, frameLine, onSheet, summaryLines } from './compare-file.ts'
+import { compareWithFile, frameLines, onSheet, summaryLines } from './compare-file.ts'
 import { imageFrameLines, imageSummaryLines, isImage } from './compare-image.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { EXIT } from './findings.ts'
@@ -114,6 +114,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       floor: { type: 'string' },
       regions: { type: 'string' },
       fit: { type: 'string' },
+      'heat-map': { type: 'boolean' },
       json: { type: 'boolean' },
       variants: { type: 'string' },
     },
@@ -121,10 +122,10 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   )
   const against = values['compare-file']
   if (against === undefined)
-    for (const flag of ['offset', 'max-shift', 'floor', 'regions', 'fit'] as const)
+    for (const flag of ['offset', 'max-shift', 'floor', 'regions', 'fit', 'heat-map'] as const)
       if (values[flag] !== undefined)
         throw new Error(
-          `--${flag} goes with --compare-file <${flag === 'regions' || flag === 'fit' ? 'image' : 'video'}>: give it too.`,
+          `--${flag} goes with --compare-file <${flag === 'regions' || flag === 'fit' ? 'video|image' : 'video'}>: give it too.`,
         )
   if (against !== undefined) {
     for (const flag of ['file', 'compare', 'object', 'diff', 'scale'] as const)
@@ -272,6 +273,7 @@ const stillCompareFile = async (
     floor?: string
     regions?: string
     fit?: string
+    'heat-map'?: boolean
     json?: boolean
   },
   given: readonly number[],
@@ -295,7 +297,7 @@ const stillCompareFile = async (
     const files: string[] = []
     const shown: { t: number; label: string; pixels: Uint8Array }[] = []
     let size = { width, height }
-    const label = `${variant} | ${basename(reference)} | ${isImage(reference) ? 'SSIM heat map' : 'difference'}`
+    const label = `${variant} | ${basename(reference)} | ${isImage(reference) || v['heat-map'] ? 'SSIM heat map' : 'difference'}`
     const maxShift = numberOf('max-shift', v['max-shift'])
     const from = asked ? undefined : numberOf('from', v.from)
     const to = asked ? undefined : numberOf('to', v.to)
@@ -318,6 +320,7 @@ const stillCompareFile = async (
       ...(v.region ? { region: parseRegion(v.region) } : {}),
       ...(v.regions === undefined ? {} : { regions: resolve(v.regions) }),
       ...(v.fit === undefined ? {} : { fit: v.fit }),
+      ...(v['heat-map'] ? { heatMap: true } : {}),
       frame: async (f) => {
         // Times under 0.5 ms apart would share a name at 3 decimals: those get 6.
         let name = join(outDir, `${pair}-${f.t.toFixed(3)}.png`)
@@ -345,7 +348,7 @@ const stillCompareFile = async (
     }
     const at = (i: number) => relative(process.cwd(), files[i] as string)
     let summary: string[]
-    if ('method' in report) {
+    if (!('window' in report)) {
       report.frames.forEach((f, i) => {
         const [whole, ...regions] = imageFrameLines(f)
         out.log(`${at(i)}  ${whole}`)
@@ -354,7 +357,9 @@ const stillCompareFile = async (
       summary = imageSummaryLines(report)
     } else {
       report.frames.forEach((f, i) => {
-        out.log(`${at(i)}  ${frameLine(f)}`)
+        const [whole, ...regions] = frameLines(f)
+        out.log(`${at(i)}  ${whole}`)
+        for (const line of regions) out.log(line)
       })
       summary = summaryLines(report)
     }

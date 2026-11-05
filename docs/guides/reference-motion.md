@@ -44,7 +44,7 @@ number came from.
 | A web page, motion in CSS or the Web Animations API | the page's own keyframes and timing, exact at any time | `analysis-web-capture`: `declared` in `tracks.json`, each animation's `keyframes` and `timing` as Chrome returns them, never fitted |
 | A web page, any motion (JavaScript too) | each tracked element's box, transform and opacity, and the window's scroll, sampled at the capture's fps | `analysis-web-capture`: `tracks` in `tracks.json`, read through `analysis-reference-tracks` (`loadTracks`, `track`, `at`). Exact on the captured frames; between them `at()` reads `hold` or `linear`, and any other reading of the samples is the film's own code |
 | A web page at one moment | every element's box and computed styles, each text node's line boxes and the fonts Chrome drew it with, and a screenshot | `analysis-web-capture` with `--still <ms>`: `style.json` and `style.png`, read with `loadStyle`, `styleOf`, `textsOf` |
-| A clip (a video, a screen recording, a GIF) | its frames: no tool tracks its elements | `--compare-file <video>` measures timing (each side's activity, the offset that aligns them, where each moves) and the difference per frame; positions are read from its frames by eye, at its frame rate |
+| A clip (a video, a screen recording, a GIF) | its frames: no tool tracks its elements | `--compare-file <video>` measures timing (each side's activity, the offset that aligns them, where each moves) and the difference, SSIM and edges per frame, region by region with `--regions`; positions are read from its frames by eye, at its frame rate |
 | An image (a poster, a screenshot) | its pixels | `--compare-file <image>`, region by region with `--regions`. No tool reads text, layout or fonts from an image: which font it is, is the person's to say |
 
 ### A web page
@@ -130,7 +130,8 @@ npx shaderera still --compare-file references/hero.mp4 --offset=<s> --floor <lev
 npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions references/hero-boxes.json
 ```
 
-- **A clip:** per time, PSNR, the mean and largest ΔE and each side's activity (the mean change
+- **A clip:** per time, PSNR, the mean and largest ΔE, SSIM on luma and the edge score (for the
+  whole frame and for each region of `--regions`), and each side's activity (the mean change
   from the time before), the shift that best aligns the two activity curves (printed as
   `Aligned: --offset=<s>`), and each side's motion window. With no times given, the clip's own
   frames are measured.
@@ -138,7 +139,8 @@ npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions 
   each region of `--regions`. An image of another shape than the film's frame is refused unless
   `--fit stretch`, `contain` or `cover` is given; with `contain` the pixels outside the image are
   not scored.
-- Each time writes the film, the reference and their difference (an SSIM heat map for an image)
+- Each time writes the film, the reference and their difference (an SSIM heat map for an image,
+  or for a clip with `--heat-map`)
   side by side, and `--sheet` puts them on one sheet. Through MCP, `still` with `compare_file`.
 - There is no pass or fail, and the exit code is 0 unless an input is bad. Every field is in
   `docs/cli.md`, "Measuring against a reference clip" and "Measuring against a reference image".
@@ -149,8 +151,8 @@ npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions 
   pixels and its tracks are from the viewport's top left; the film's frame is in its own pixels.
   A trigger's time (`params.trigger.at`, in milliseconds) is in source time: the film's input, a click or a
   scroll, happens at that time plus the film's offset. A clip of another size is scaled to the
-  film's frame (`scaled` in the report, `aspect: "stretched"` when the shapes differ), which moves
-  every edge.
+  film's frame (`scaled` in the report), which moves every edge; one of another shape is refused
+  unless `--fit stretch`, `contain` or `cover` says how to fit it.
 - **Crop cursors and browser chrome out of a recording.** The tab bar, the address bar and the
   pointer are pixels the film does not draw, and a moving pointer adds to the clip's activity,
   so the offset found can follow the pointer. Crop the recording to the page once

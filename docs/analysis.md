@@ -222,7 +222,9 @@ and the fonts it was drawn with, and a screenshot. Kind `reference-style`; the
 ### Regions (still image)
 
 Named parts of one image, which `still --compare-file <image> --regions` scores apart
-([cli.md](cli.md#measuring-against-a-reference-image)). Any analyser, or a person's script, may
+([cli.md](cli.md#measuring-against-a-reference-image)), or of a clip's frame, which
+`still --compare-file <video> --regions` scores at every time: then `source` is the clip file's,
+with its frame's `width` and `height`, and "the image" below is that frame. Any analyser, or a person's script, may
 write them; a file of boxes is the hand-written form.
 
 - **Regions:** a `regions.json` artifact of `kind: "regions"`. `source` is as above, with the

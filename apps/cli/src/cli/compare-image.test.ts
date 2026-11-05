@@ -397,11 +397,6 @@ test('an image of another shape than the frame is refused unless --fit says how;
     fit: 'stretch',
   })
   assert.match(imageSummaryLines(r)[0] as string, /stretched by --fit stretch/)
-  // A clip has no fit.
-  await assert.rejects(
-    compareWithFile({ film, times: [0], reference: join(dir, 'clip.mp4'), fit: 'stretch' }),
-    /--fit fits a still reference of another shape, and .*clip\.mp4 is a clip/,
-  )
 })
 
 /** Columns `x0` to `x1` of the film's frame at t, as an image `x1 - x0` wide: a still reference. */

@@ -1,6 +1,8 @@
-// `still --compare-file`: the film measured against a reference clip, frame by frame and over
-// time, or against a still image (compare-image.ts). It measures and never judges (decisions 0011
+// `still --compare-file`: the film measured against a reference clip, frame by frame (PSNR, ΔE,
+// SSIM, the edge score, each region's) and over time, or against a still image (compare-image.ts). It measures and never judges (decisions 0011
 // and 0032): there is no pass or fail.
+import { createHash } from 'node:crypto'
+import { closeSync, openSync, readSync } from 'node:fs'
 import type { VideoColour } from '@shaderera/core'
 import { packetTimes } from '../node/services.ts'
 import { compareFrames } from '../review/compare.ts'
@@ -10,15 +12,23 @@ import {
   meanChange,
   motionWindow,
   row,
-  type Scaling,
   type Score,
-  scaleFrame,
-  scaling,
   stepOf,
 } from '../review/reference.ts'
+import { heatMap } from '../review/structure.ts'
 import { insideFilm } from './args.ts'
-import { type CompareImageReport, compareWithImage, isImage } from './compare-image.ts'
-import { crop, type Region } from './crop.ts'
+import {
+  type CompareImageReport,
+  compareWithImage,
+  fitText,
+  isImage,
+  METHOD,
+  placement,
+  type Structure,
+  structure,
+  structureLines,
+} from './compare-image.ts'
+import type { Region } from './crop.ts'
 import { openFile } from './video-file.ts'
 
 /** The film's side: its frame size and length, and its final frame at t. */
@@ -59,13 +69,16 @@ export type CompareFileOptions = {
   region?: Region
   /** The change (levels) a motion window counts as still; 0 by default. */
   floor?: number
-  /** With an image: a regions file whose regions are scored apart (compare-image.ts). */
+  /** A regions file whose regions are scored apart (compare-image.ts placement). */
   regions?: string
   /**
-   * With an image of another shape than the film's frame: how it is fitted to the frame, which
-   * the person chooses (an image of another shape is refused without it): stretch, contain or cover.
+   * With a reference of another shape than the film's frame: how it is fitted to the frame, which
+   * the person chooses (a reference of another shape is refused without it): stretch, contain or
+   * cover.
    */
   fit?: string
+  /** With a clip: each time shows the SSIM heat map in place of the difference (an image's does). */
+  heatMap?: boolean
   /** A project's root that every file the regions file names must be in (MCP: inside). */
   within?: string
   /** Each time's film, reference and difference side by side, as it is measured. */
@@ -95,9 +108,14 @@ export type CompareFileReport = {
     /** With `variable`: the smallest and largest time between two frames, in seconds. */
     intervals?: { smallest: number; largest: number }
   }
-  /** How the reference was scaled to the film's frame, or `null` when the sizes are the same. */
-  scaled: Scaling | null
+  /**
+   * How the reference was scaled to the film's frame, or `null` when the sizes are the same; with
+   * a fit, as an image's (CompareImageReport).
+   */
+  scaled: CompareImageReport['scaled']
   region: Region | null
+  method: CompareImageReport['method']
+  regions: CompareImageReport['regions']
   /** Seconds between the times, when they are evenly spaced; `null` when not. */
   step: number | null
   floor: number
@@ -111,7 +129,7 @@ export type CompareFileReport = {
     scores: Score[]
   }
   window: { film: TimedWindow | null; reference: TimedWindow | null }
-  frames: {
+  frames: ({
     t: number
     /** The reference's time asked for t: t + offset. */
     at: number
@@ -126,7 +144,7 @@ export type CompareFileReport = {
     differing: number
     /** meanChange from the time before, in levels; `null` at the first. */
     activity: { film: number | null; reference: number | null }
-  }[]
+  } & Structure)[]
 }
 
 const round6 = (t: number) => Number(t.toFixed(6))
@@ -199,14 +217,6 @@ export const compareWithFile = async (
   o: CompareFileOptions,
 ): Promise<CompareFileReport | CompareImageReport> => {
   if (isImage(o.reference)) return compareWithImage(o)
-  if (o.regions !== undefined)
-    throw new Error(
-      `--regions scores parts of a still reference, and ${o.reference} is a clip: give a PNG or JPEG with it.`,
-    )
-  if (o.fit !== undefined)
-    throw new Error(
-      `--fit fits a still reference of another shape, and ${o.reference} is a clip: give no --fit.`,
-    )
   const offset = o.offset ?? 0
   if (!Number.isFinite(offset)) throw new Error(`--offset is seconds, not ${o.offset}.`)
   const floor = o.floor ?? 0
@@ -299,13 +309,8 @@ export const compareWithFile = async (
     const lead = before.length
     const readAt = [...before, ...times, ...after]
 
-    const { width, height } = film
-    const scaled = scaling(ref, film)
-    const part = (px: Uint8Array) => (o.region ? crop(px, film, o.region) : undefined)
-    const region = o.region
-      ? (part(new Uint8Array(width * height * 4)) as { region: Region }).region
-      : null
-    const shown = region ?? { x: 0, y: 0, width, height }
+    const p = placement(o, ref, () => sha256Of(o.reference), 'clip')
+    const { width: w, height: h } = p.shown
 
     const refCurve: (number | null)[] = []
     const filmCurve: (number | null)[] = []
@@ -315,8 +320,7 @@ export const compareWithFile = async (
     for (let j = 0; j < readAt.length; j++) {
       const t = readAt[j] as number
       const read = await ref.index(frameOf(t))
-      const whole = scaleFrame(read, ref.width, ref.height, width, height)
-      const theirs = part(whole)?.pixels ?? whole
+      const theirs = p.part(p.place(read))
       refCurve.push(refPrev ? meanChange(refPrev, theirs) : null)
       refPrev = theirs
       const i = j - lead
@@ -324,9 +328,10 @@ export const compareWithFile = async (
       const started = performance.now()
       const rendered = await film.render(t)
       const ms = performance.now() - started
-      const ours = part(rendered)?.pixels ?? rendered
+      const ours = p.part(rendered)
       filmCurve.push(filmPrev ? meanChange(filmPrev, ours) : null)
       filmPrev = ours
+      const { map, ...measured } = structure(ours, theirs, w, h, p.found, p.shown)
       frames.push({
         t: round6(t),
         at: round6(t + offset),
@@ -334,6 +339,7 @@ export const compareWithFile = async (
         read: round6(timeOf(frameOf(t))),
         ms,
         ...compareFrames(ours, theirs),
+        ...measured,
         activity: {
           film: filmCurve[i] as number | null,
           reference: i === 0 ? null : (refCurve[j] as number),
@@ -343,9 +349,9 @@ export const compareWithFile = async (
         index: i,
         count: times.length,
         t: round6(t),
-        pixels: row([ours, theirs, difference(ours, theirs)], shown.width, shown.height),
-        width: shown.width * 3,
-        height: shown.height,
+        pixels: row([ours, theirs, o.heatMap ? heatMap(map) : difference(ours, theirs)], w, h),
+        width: w * 3,
+        height: h,
       })
     }
 
@@ -371,8 +377,10 @@ export const compareWithFile = async (
         timing: varying ? 'variable' : 'constant',
         ...(varying ? { intervals: intervals(own) } : {}),
       },
-      scaled,
-      region,
+      scaled: p.scaled,
+      region: p.region,
+      method: METHOD,
+      regions: p.regions,
       step: step === null ? null : round6(step),
       floor,
       offset: {
@@ -400,6 +408,20 @@ export const compareWithFile = async (
   }
 }
 
+/** A file's sha256, read in chunks: a clip can be large. */
+const sha256Of = (path: string): string => {
+  const hash = createHash('sha256')
+  const fd = openSync(path, 'r')
+  try {
+    const chunk = Buffer.alloc(1 << 20)
+    for (let n = readSync(fd, chunk); n > 0; n = readSync(fd, chunk))
+      hash.update(chunk.subarray(0, n))
+  } finally {
+    closeSync(fd)
+  }
+  return hash.digest('hex')
+}
+
 /** The smallest and largest time between two frames at `times` (ascending), in seconds. */
 const intervals = (times: readonly number[]) => {
   let smallest = Number.POSITIVE_INFINITY
@@ -419,10 +441,14 @@ export const summaryLines = (r: CompareFileReport): string[] => {
   const lines = [
     `reference: ${ref.width}×${ref.height} at ${ref.intervals ? `a variable rate (frames ${n(ref.intervals.smallest)}–${n(ref.intervals.largest)} s apart)` : `${n(ref.fps)} fps`}, ${n(ref.duration)} s${
       r.scaled
-        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.aspect === 'stretched' ? ', stretched: the frames have other shapes' : ''})`
+        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.fit !== undefined ? fitText(r.scaled) : ''})`
         : ''
     }${r.region ? `; measured in ${r.region.width}×${r.region.height} at ${r.region.x},${r.region.y}` : ''}`,
   ]
+  if (r.regions)
+    lines.push(
+      `regions: ${r.regions.list.map((q) => q.id).join(', ')} (${r.regions.kind} in ${r.regions.in.join('×')})`,
+    )
   const win = (w: TimedWindow | null) =>
     w
       ? `moves ${w.first.toFixed(3)}–${w.last.toFixed(3)} s, peak ${w.peak.t.toFixed(3)} s (${w.peak.change.toFixed(2)})`
@@ -444,9 +470,13 @@ export const summaryLines = (r: CompareFileReport): string[] => {
   return lines
 }
 
-/** One time's line: the measurements between the film and the reference. */
-export const frameLine = (f: CompareFileReport['frames'][number]) => {
+/** One time's lines: the measurements between the film and the reference, then each region's. */
+export const frameLines = (f: CompareFileReport['frames'][number]): string[] => {
   const psnr = Number.isFinite(f.psnr) ? `PSNR ${f.psnr.toFixed(2)} dB` : 'identical'
   const change = (c: number | null) => (c === null ? '–' : c.toFixed(2))
-  return `${f.ms.toFixed(0)} ms  ${psnr}, mean ΔE ${f.deltaE.toFixed(3)} (max ${f.maxDeltaE.toFixed(2)}), ${f.differing} pixels differ; change ${change(f.activity.film)} vs ${change(f.activity.reference)}`
+  const [whole, ...regions] = structureLines(f)
+  return [
+    `${f.ms.toFixed(0)} ms  ${psnr}, mean ΔE ${f.deltaE.toFixed(3)} (max ${f.maxDeltaE.toFixed(2)}), ${f.differing} pixels differ; ${whole}; change ${change(f.activity.film)} vs ${change(f.activity.reference)}`,
+    ...regions,
+  ]
 }

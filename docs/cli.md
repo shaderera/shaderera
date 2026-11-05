@@ -320,8 +320,9 @@ instead: the frames as they were encoded.
 | `--scale <n>` | 1. Enlarges the part by whole pixels (1 to 16), so each source pixel shows as a block |
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
 | `--compare-file <video\|image>` | none. Measures the film against a reference clip, [below](#measuring-against-a-reference-clip), or a PNG or JPEG at each t, [below that](#measuring-against-a-reference-image). With one `--variant` only; not with `--file`, `--compare`, `--object`, `--diff` or `--scale` |
-| `--regions <file>` | none. With `--compare-file <image>`: a regions artifact of the image, or boxes with names ([analysis.md](analysis.md#regions-still-image)); each region is scored apart. Not with `--region` |
-| `--fit stretch\|contain\|cover` | none. With `--compare-file <image>` of another shape than the film's frame, needed then: how the image (and its regions) is fitted to the frame, [below](#measuring-against-a-reference-image) |
+| `--regions <file>` | none. With `--compare-file`: a regions artifact of the image or clip, or boxes with names ([analysis.md](analysis.md#regions-still-image)); each region is scored apart, at every time. Not with `--region` |
+| `--fit stretch\|contain\|cover` | none. With `--compare-file` of another shape than the film's frame (needed then: one of another shape is refused without it): how the reference (and its regions) is fitted to the frame, [below](#measuring-against-a-reference-image) |
+| `--heat-map` | off. With `--compare-file <video>`: each time shows the SSIM heat map in place of the difference, as an image's does. It measures nothing more |
 | `--offset <s>` | 0. With `--compare-file`: the clip is read at t + offset. A negative one is written `--offset=-0.2`, or it reads as a flag |
 | `--max-shift <n>` | one second of steps. With `--compare-file`: how many steps (the time between two times) either way the alignment searches |
 | `--floor <level>` | 0. With `--compare-file`: the change a motion window counts as still, in levels (0–255), such as a clip's codec noise |
@@ -375,12 +376,22 @@ the packets have none. A clip with a frame without a time is refused.
   and 1/30 s written 0.033333 is frame 1.
 - **Frame sizes may differ:** each clip frame is matted over black and scaled to the film's frame
   once, with one triangle filter (bilinear, widened when shrinking), the same for every frame.
-  The report says so in `scaled`, and `aspect: "stretched"` when the two frames have other
-  shapes.
+  The report says so in `scaled`. A clip of another shape than the frame (more than 0.5 %
+  apart, `aspect: "stretched"`) is refused unless `--fit stretch`, `contain` or `cover` says
+  how to fit it, as an image is fitted, [below](#measuring-against-a-reference-image), and
+  recorded the same way in `scaled.fit`; with `contain` or `cover` the film's pixels the clip
+  does not cover are masked out of every score, the activity curves too.
 - **`--region x,y,w,h`** (the film's frame pixels): only that part of both is measured and shown.
-- **Per time:** PSNR and the mean and largest ΔE, as `--compare` measures them, and each side's
-  **activity**: the mean change from the time before (|ΔR|, |ΔG| and |ΔB| in levels, 0–255),
-  which shows timing apart from colour.
+  It must be at least 11×11, SSIM's window.
+- **Per time:** PSNR and the mean and largest ΔE, as `--compare` measures them; SSIM on luma and
+  the edge score, measured as an image's are ([below](#measuring-against-a-reference-image): the
+  same code, window and constants); and each side's **activity**: the mean change from the time
+  before (|ΔR|, |ΔG| and |ΔB| in levels, 0–255), which shows timing apart from colour.
+- **`--regions <file>`** scores each part apart at every time, as an image's parts are scored:
+  boxes with names in the clip's pixels or the film's, or a regions artifact of the clip (its
+  `source.sha256` the clip file's, its `width` and `height` the clip's frame), in the form
+  [analysis.md](analysis.md#regions-still-image) defines. The same regions at every time: a part
+  that moves is not followed.
 - **The offset:** the shift of whole steps that best aligns the two activity curves (Pearson
   correlation, searched within `--max-shift`), beside the one applied. A positive shift means the
   clip moves later: `--offset` plus the shift's seconds reads it aligned, and the human output
@@ -390,7 +401,8 @@ the packets have none. A clip with a frame without a time is refused.
   and the peak. A rendered film is still at exactly 0; a decoded clip has codec noise, so its
   window at `--floor 0` can be wider than its motion.
 - **Files:** each time's film, clip and difference side by side, `<variant>-vs-<clip>-<t>.png`
-  (the difference is |film − clip| per channel, black where they match), and with `--sheet` a
+  (the difference is |film − clip| per channel, black where they match; with `--heat-map` the
+  SSIM heat map in its place, as an image's), and with `--sheet` a
   sheet of them, one a row (`--columns` 1), at most 64 rows spread evenly from the first time to
   the last; every time still has its own PNG.
 
@@ -399,20 +411,22 @@ the decoder read it, `timing`: `constant`, frame i at i / fps, checked, or `vari
 at its own time, and with `variable` `intervals`: the `smallest` and `largest` time between two
 frames, in seconds),
 `scaled` (null, or
-`from`, `to`, `filter` and `aspect`), `region` (null or the part measured), `step` (seconds
+`from`, `to`, `filter` and `aspect`, and with `--fit` as an image's), `region` (null or the part
+measured), `method` and `regions` as an image's, `step` (seconds
 between the times; null when not evenly spaced), `floor`, `offset` (`applied` seconds; `found`:
 `steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `scores`, each shift's
 `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
 its `t` and `change`, on the film's times, or null when still), `frames` (each `t`, `at` (the
 clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `read` (that frame's time on the clip, from its
-first frame), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `activity` with `film` and
-`reference`, and `file`) and `sheet`.
+first frame), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `ssim`,
+`edges` (`agreement`, `film`, `reference`), `regions` (each `id`, `ssim`, `edges`, `deltaE`,
+`maxDeltaE`), `activity` with `film` and `reference`, and `file`) and `sheet`.
 
 ```
 $ shaderera still --compare-file reference/hero.mp4 --sheet
-out/stills/main-vs-hero-0.000.png  14 ms  PSNR 30.73 dB, mean ΔE 1.494 (max 32.48), 2248 pixels differ; change – vs –
+out/stills/main-vs-hero-0.000.png  14 ms  PSNR 30.73 dB, mean ΔE 1.494 (max 32.48), 2248 pixels differ; SSIM 1.000, edges 0.987; change – vs –
 …
-out/stills/main-vs-hero-1.200.png  1 ms  PSNR 12.70 dB, mean ΔE 12.018 (max 85.33), 2269 pixels differ; change 3.44 vs 14.84
+out/stills/main-vs-hero-1.200.png  1 ms  PSNR 12.70 dB, mean ΔE 12.018 (max 85.33), 2269 pixels differ; SSIM 0.542, edges 0.004; change 3.44 vs 14.84
 …
 out/stills/main-vs-hero-sheet.png
 reference: 64×36 at 10 fps, 2 s

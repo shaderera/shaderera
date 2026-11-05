@@ -9,6 +9,7 @@ import {
   summaryLines,
   varyingRate,
 } from './compare-file.ts'
+import { METHOD } from './compare-image.ts'
 
 const round6 = (t: number) => Number(t.toFixed(6))
 
@@ -48,6 +49,8 @@ test('summaryLines writes the aligned offset as --offset=<s>, which a negative o
     },
     scaled: null,
     region: null,
+    method: METHOD,
+    regions: null,
     step: round6(1 / 30),
     floor: 0,
     offset: {

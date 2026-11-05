@@ -541,6 +541,12 @@ test('still with compare_file measures the film against a clip and finds its off
     )
     assert.equal(aligned.offset.found, null)
     assert.equal(aligned.offset.why, 'the times are not evenly spaced')
+    // SSIM and the edge score per frame, and the heat map on the sheet with heat_map (#677).
+    const heat = await call('still', { compare_file: 'out/late.mp4', times: [0.9], heat_map: true })
+    const structure = JSON.parse(heat.content[0].text).frames[0]
+    assert.equal(typeof structure.ssim, 'number')
+    assert.equal(typeof structure.edges.film, 'number')
+    await assert.rejects(call('still', { times: [0], heat_map: true }), /heat_map goes with/)
     await assert.rejects(call('still', { times: [0], offset: 1 }), /offset goes with compare_file/)
     await assert.rejects(
       call('still', { compare_file: 'out/late.mp4', variants: ['main', 'large'] }),
