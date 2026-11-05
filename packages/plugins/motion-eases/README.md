@@ -13,7 +13,7 @@ const kick = envelope(t, hits, { attack: 0.02, decay: 0.25, combine: 'sum', limi
 Eases take u in 0–1: `linear`, `smooth` (smoothstep), `strike` (a hit), `accel`, `glide`, `hold`
 (a cut), `sine`, `expo`, `circ`, `back(overshoot)`, `settle(stiffness)` (a critically damped
 spring as a formula, the damped feel with no state) and `bezier(x1, y1, x2, y2)` (a curve from a
-motion designer's editor).
+motion designer's editor, solved to the last bits even where its tangent stands upright).
 
 `progress(t, start, end, ease = smooth)` is 0 before `start`, 1 after `end` and eased between.
 `clamp(x, a = 0, b = 1)` and `lerp(a, b, u)` are the usual.

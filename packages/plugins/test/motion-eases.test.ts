@@ -71,6 +71,28 @@ test('motion-eases: the eases give the values they gave in motion-keyframes', ()
   assert.equal(E.lerp(10, 20, 0.25), 12.5)
 })
 
+test('motion-eases: bezier is its formula on a curve upright at its middle', () => {
+  // x(s) = u by bisection to the last bit, apart from the plugin.
+  const b = (a: number, c: number, s: number) =>
+    3 * a * s * (1 - s) ** 2 + 3 * c * s * s * (1 - s) + s ** 3
+  const formula = (u: number) => {
+    let lo = 0
+    let hi = 1
+    for (let i = 0; i < 200; i++) {
+      const s = (lo + hi) / 2
+      if (b(1, 0, s) < u) lo = s
+      else hi = s
+    }
+    return b(0, 1, (lo + hi) / 2)
+  }
+  const ease = E.bezier(1, 0, 0, 1)
+  for (let i = 0; i < 2000; i++) {
+    const u = (i + 0.5) / 2000
+    assert.ok(Math.abs(ease(u) - formula(u)) < 1e-9, `bezier(1, 0, 0, 1)(${u}) is ${ease(u)}`)
+  }
+  assert.equal(ease(0.5), 0.5)
+})
+
 // audio-beat-clock 0.1.1's `pulse`, as it was.
 const pulse = (t: number, times: readonly number[], decay = 0.12) => {
   let last = Number.NEGATIVE_INFINITY
