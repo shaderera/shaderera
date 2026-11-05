@@ -939,7 +939,9 @@ export const captureWeb = async (options: CaptureOptions) => {
       try {
         rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
       } catch (e) {
-        process.stderr.write(`Could not remove the capture's Chrome profile ${profile}: ${(e as Error).message}\n`)
+        process.stderr.write(
+          `Could not remove the capture's Chrome profile ${profile}: ${(e as Error).message}\n`,
+        )
       }
     } finally {
       release()
