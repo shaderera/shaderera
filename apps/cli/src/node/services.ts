@@ -143,7 +143,7 @@ export const probeVideo = (file: string): VideoInfo => {
  * The presentation times, in seconds and ascending, of a video's first stream's frames, from its
  * packets (ffprobe, decoding nothing); a packet an edit list discards is left out, and one without
  * a time is `null`. `length` is the sum of those packets' durations, in seconds (the order of
- * the packets does not change it), or `null` when one has none.
+ * the packets does not change it) in the stream's time base, or `null` when one has none.
  */
 export const packetTimes = (file: string): { times: (number | null)[]; length: number | null } => {
   const r = spawnSync(
@@ -154,7 +154,7 @@ export const packetTimes = (file: string): { times: (number | null)[]; length: n
       '-select_streams',
       'v:0',
       '-show_entries',
-      'packet=pts_time,duration_time,flags',
+      'packet=pts_time,duration,flags:stream=time_base',
       '-of',
       'csv=p=0',
       file,
@@ -164,19 +164,28 @@ export const packetTimes = (file: string): { times: (number | null)[]; length: n
   if (r.error) throw new Error(`ffprobe is needed to read ${file}: ${r.error.message}`)
   if (r.status !== 0) throw new Error(`ffprobe cannot read ${file}: ${r.stderr.trim()}`)
   const times: (number | null)[] = []
-  let length: number | null = 0
+  // The durations in the stream's time base, summed whole: their seconds, printed to 6 decimals,
+  // drift when summed (75 × 0.033333 is 2.999975).
+  let ticks: number | null = 0
+  let base: number | undefined
   for (const line of r.stdout.split('\n')) {
-    const [pts, duration, flags] = line.trim().split(',')
+    const fields = line.trim().split(',')
+    const [pts, duration, flags] = fields
+    if (fields.length === 1 && pts?.includes('/')) {
+      const [n, d] = pts.split('/').map(Number)
+      if (n && d) base = n / d
+      continue
+    }
     if (!pts || flags?.includes('D')) continue
     const t = Number(pts)
     times.push(pts === 'N/A' || !Number.isFinite(t) ? null : t)
     const d = Number(duration)
-    length =
-      length === null || !duration || duration === 'N/A' || !Number.isFinite(d) ? null : length + d
+    ticks =
+      ticks === null || !duration || duration === 'N/A' || !Number.isFinite(d) ? null : ticks + d
   }
   return {
     times: times.some((t) => t === null) ? times : (times as number[]).sort((a, b) => a - b),
-    length,
+    length: ticks === null || base === undefined ? null : ticks * base,
   }
 }
 
