@@ -1,0 +1,12 @@
+{
+  "caption": "Reads motion measured from a reference, sample by sample, and fills between samples the way the film says.",
+  "states": [
+    {
+      "id": "default",
+      "label": "Default"
+    }
+  ],
+  "default": "default",
+  "audio": false,
+  "poster": 1.6
+}

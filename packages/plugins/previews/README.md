@@ -63,9 +63,10 @@ what is kept. A maintainer uploads the renders.
 
 To look while working, from this folder (the first two lines once, and again when a plugin's
 files or the list of previews change). A plugin with a `preview/make.ts` needs it run first, or
-its preview fails with ENOENT: asset-provenance, audio-beat-clock, audio-hall-ending,
-audio-listen, audio-pcm-bake, audio-voice-repace, image-to-png, review-av-timeline,
-review-picture-reuse and review-shots (the last two with `PYTHON` naming a Python with scenedetect and opencv).
+its preview fails with ENOENT: analysis-web-capture (with Chrome), asset-provenance,
+audio-beat-clock, audio-hall-ending, audio-listen, audio-pcm-bake, audio-voice-repace,
+image-to-png, review-av-timeline, review-picture-reuse and review-shots (the last two with
+`PYTHON` naming a Python with scenedetect and opencv).
 `node scripts/render.ts <plugin>` runs it itself.
 
 ```sh

@@ -5,3 +5,5 @@ assets/
 delivery/
 # What the plugins' preview/make.ts write: the beat track, its lyrics and analysis, sounds, films
 audio/
+# What analysis-web-capture's preview/make.ts captures
+references/

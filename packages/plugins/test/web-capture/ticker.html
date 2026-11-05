@@ -1,0 +1,42 @@
+<!doctype html>
+<!--
+  A page that moves as GSAP 3 does, with no GSAP: one ticker driven by requestAnimationFrame
+  that reads Date.now, with GSAP's lag smoothing (a step over 500 ms counts as 33 ms). Three
+  tweens: power3.out after a 0.2 s delay, an elastic out, and a linear one.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #a { top: 20px } #b { top: 80px } #lin { top: 140px }
+</style>
+<div class="box" id="a"></div>
+<div class="box" id="b"></div>
+<div class="box" id="lin"></div>
+<script>
+  const LAG = 500
+  const ADJUSTED = 33
+  const power3 = (p) => 1 - (1 - p) ** 3
+  const elastic = (p) =>
+    p === 0 || p === 1 ? p : 2 ** (-10 * p) * Math.sin(((p * 10 - 0.75) * 2 * Math.PI) / 3) + 1
+  const tweens = [
+    { el: a, to: 400, delay: 0.2, duration: 1, ease: power3 },
+    { el: b, to: 400, delay: 0, duration: 1.5, ease: elastic },
+    { el: lin, to: 400, delay: 0, duration: 1, ease: (p) => p },
+  ]
+  let last = Date.now()
+  let time = 0
+  const tick = () => {
+    const now = Date.now()
+    let delta = now - last
+    if (delta > LAG) delta = ADJUSTED
+    last = now
+    time += delta / 1000
+    for (const t of tweens) {
+      const p = Math.min(1, Math.max(0, (time - t.delay) / t.duration))
+      t.el.style.transform = `translate(${t.ease(p) * t.to}px, 0px)`
+    }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+</script>
