@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -212,9 +212,15 @@ test('an ffmpeg still writing its output after the last frame is waited for; an 
       ],
       stall: 0.5,
     })
+  // The stand-in writes its output once it runs: wait for that, so a slow start on a busy machine
+  // is not read as a stall (#725).
+  const started = async (sink: ReturnType<typeof encoder>) => {
+    while (!existsSync(join(dir, 'out.mp4'))) await new Promise((r) => setTimeout(r, 10))
+    return sink
+  }
   try {
     // 1.5 s of rewriting, three times the watchdog.
-    await encoder(15).end()
+    await (await started(encoder(15))).end()
     // Writing nothing and never exiting: still killed.
     await assert.rejects(
       encoder(0).end(),
