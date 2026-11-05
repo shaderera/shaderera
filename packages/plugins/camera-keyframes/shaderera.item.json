@@ -22,11 +22,11 @@
     "35mm",
     "shot"
   ],
-  "version": "0.2.0",
+  "version": "0.2.1",
   "licence": "MIT",
   "requires": {
     "items": {
-      "motion-eases": "^0.1.0",
+      "motion-eases": "^0.2.0",
       "motion-keyframes": "^0.3.0"
     }
   },
