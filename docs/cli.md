@@ -201,7 +201,10 @@ gate yet: one would be declared in `requirements.json` when it is built.
   ```
 - **Times:** the film is measured at each sample's source time minus `--offset`, so no fill
   between samples is chosen. A sample with no film time (before 0, or at or after the film's
-  duration) is refused, naming it.
+  duration) is left out, and each pair says how many and the first and last one's source time: a
+  capture includes its end frame while a film's time stops before its duration, and an offset
+  moves samples past either end, so the printed `Aligned: --offset=…` can be passed back. A pair
+  with no sample in the film's time is refused.
 - **Units:** values are compared in the reference's unit. A `css-px` or `source-px` value of the
   film is multiplied by the reference's `frame.width` over the film's width (`x`, `width`,
   `translateX`, `scrollX`) or its height (`y`, `height`, `translateY`, `scrollY`), since `frame`
@@ -221,10 +224,12 @@ With `--json`: `reference` (`kind`, `file`, `source`, `frame`), `film` (`width`,
 `duration`), `offset`, `floor`, and `pairs`, each with `element`, `channel`, `unit`, `film` (the
 pair's), `scaled` (null, or `factor`, `axis`, `from` (the film's frame), `to` (the reference's)),
 `step` (seconds between samples; null when not evenly spaced), `compared` (samples both have),
-`difference` (`max` and `mean`, or null), `offset` (`found`: `steps`, `seconds` and `correlation`,
-or null with `why`; `maxShift`; `scores`, each shift's `correlation` and `overlap`), `window`
-(`film` and `reference`: `first`, `last`, and `peak` with its `t` and `change`, or null when
-still) and `samples` (each `t` (film), `at` (source), `reference`, `film` and `difference`).
+`left` (the samples with no film time: `count`, and the `first` and `last` one's source time; null
+when none), `difference` (`max` and `mean`, or null), `offset` (`found`: `steps`, `seconds` and
+`correlation`, or null with `why`; `maxShift`; `scores`, each shift's `correlation` and
+`overlap`), `window` (`film` and `reference`: `first`, `last`, and `peak` with its `t` and
+`change`, or null when still) and `samples` (those with film time, each `t` (film), `at`
+(source), `reference`, `film` and `difference`).
 
 ```
 $ shaderera inspect --compare-tracks references/hero.tracks.json --pairs pairs.json --max-shift 4
