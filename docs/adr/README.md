@@ -62,6 +62,6 @@ One file per decision, in the order they were made.
   planes unchanged (amends 0027).
 - [0032](0032-reference-copying.md): reference copying, measured into frozen data and never
   reduced to named easings; web capture is a plugin with an injected clock, comparing is core
-  and measures only (proposed).
+  and measures only.
 
 0001, 0004 and 0005 were withdrawn before 0.1.0: they described things that no longer exist.

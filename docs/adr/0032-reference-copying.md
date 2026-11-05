@@ -1,6 +1,7 @@
 # 0032: Reference copying, measured and never reduced
 
-2026-11-04. Proposed; waits for the owner.
+2026-11-04. Accepted 2026-11-05 as amended in PR #657 (#659, part of #658), by the maintainer
+on the owner's instruction.
 
 **Context.** People ask for a film that matches a reference one to one: a clip, a live web page,
 a Lottie file, a poster from a designer, a website's hero. The tool they use today,
