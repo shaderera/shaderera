@@ -286,6 +286,16 @@ test('--compare-file <image> refuses what does not fit a still, saying what to g
     compare({ reference: file, times: [1], regions: boxes }),
     /is in 100×50 pixels: boxes are in the reference's pixels \(48×36\) or the film's \(48×36\)/,
   )
+  writeFileSync(boxes, JSON.stringify({ boxes: [{ name: 'a', x: 0, y: 0, width: 4, height: 4 }] }))
+  await assert.rejects(
+    compare({ reference: file, times: [1], regions: boxes }),
+    /has boxes without a whole width and height, the pixels they are in: the reference's \(48×36\) or the film's \(48×36\)/,
+  )
+  writeFileSync(boxes, JSON.stringify({ width: W, height: H }))
+  await assert.rejects(
+    compare({ reference: file, times: [1], regions: boxes }),
+    /is neither: give a regions artifact/,
+  )
   writeFileSync(
     boxes,
     JSON.stringify({
