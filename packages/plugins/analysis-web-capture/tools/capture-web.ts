@@ -1271,13 +1271,14 @@ export const captureWeb = async (options: CaptureOptions) => {
     })
     // A still names the web fonts the page loads, as Chrome reports them: their files are not kept.
     const fontFaces: Record<string, unknown>[] = []
-    if (o.mode === 'still') {
+    if (o.mode === 'still')
       c.on<{ font?: Record<string, unknown> }>('CSS.fontsUpdated', (p, s) => {
         if (s === page && p.font) fontFaces.push(p.font)
       })
-      await c.send('DOM.enable', {}, page)
-      await c.send('CSS.enable', {}, page)
-    }
+    // Both kinds read the fonts text was drawn with. CSS is enabled before the page loads: enabled
+    // later, Chrome loads the page's resources again to read their style sheets.
+    await c.send('DOM.enable', {}, page)
+    await c.send('CSS.enable', {}, page)
     // The top frame's clock is driven by the capture; each frame's and worker's by its parent's.
     await c.send('Page.addScriptToEvaluateOnNewDocument', { source: clockFor(null) }, page)
 
@@ -1415,8 +1416,6 @@ export const captureWeb = async (options: CaptureOptions) => {
     // then, or none matching, has no entry.
     const fonts: { element: string; fonts: DrawnFont[] }[] = []
     const readFonts = async () => {
-      await c.send('DOM.enable', {}, page)
-      await c.send('CSS.enable', {}, page)
       const { root } = await c.send<{ root: { nodeId: number } }>(
         'DOM.getDocument',
         { depth: 0 },
@@ -1444,8 +1443,6 @@ export const captureWeb = async (options: CaptureOptions) => {
           .sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1))
         if (drawn.length > 0) fonts.push({ element, fonts: drawn })
       }
-      await c.send('CSS.disable', {}, page)
-      await c.send('DOM.disable', {}, page)
     }
     const advanceTo = (ms: number) =>
       held(
