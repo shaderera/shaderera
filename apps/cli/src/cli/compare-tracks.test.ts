@@ -20,6 +20,7 @@ const film = (): FilmTracks => ({
   width: 64,
   height: 36,
   duration: 2,
+  fps: FPS,
   inspect: async (t) => ({
     objects: [
       { id: 'card', x: move(t, 0.6 + late) },
@@ -241,6 +242,56 @@ test('compare-tracks leaves out samples with no film time, and says so, so its A
   const text = trackLines(aligned).join('\n')
   assert.match(text, /measured at source time \+ 0\.2 s/)
   assert.match(text, /left out: 3 samples with no film time \(0 to 2 s\), at source 1\.8 to 2 s/)
+})
+
+test('compare-tracks reads a sample time written to 6 decimals on its film frame, so a jump on a frame reads 0 (#728)', async () => {
+  // Holds: 0, 100 from frame 10, 50 from frame 40 (40 / 30 s, written 1.333333), at 30 fps.
+  const opacity = (t: number) => (t >= 40 / 30 ? 50 : t >= 10 / 30 ? 100 : 0)
+  const root = tempDir('compare-tracks')
+  const reference = join(root, 'lottie.tracks.json')
+  const times = Array.from({ length: 60 }, (_, k) => k / 30)
+  writeFileSync(
+    reference,
+    JSON.stringify({
+      format: 'shaderera.analysis/1',
+      kind: 'reference-tracks',
+      source: { url: 'https://example.com/' },
+      frame: { width: 64, height: 36, pixelRatio: 1 },
+      tracks: [
+        {
+          element: 'layers[0]',
+          channel: 'o[0]',
+          unit: 'ratio',
+          samples: times.map((t) => [Number(t.toFixed(6)), opacity(t)]),
+        },
+      ],
+    }),
+  )
+  const pairs = join(root, 'pairs.json')
+  writeFileSync(
+    pairs,
+    JSON.stringify([
+      { element: 'layers[0]', channel: 'o[0]', film: { path: 'objects[id=card].opacity' } },
+    ]),
+  )
+  const r = await compareTracks({
+    reference,
+    pairs,
+    root,
+    film: {
+      width: 64,
+      height: 36,
+      duration: 2,
+      fps: 30,
+      inspect: async (t) => ({ objects: [{ id: 'card', opacity: opacity(t) }] }),
+    },
+  })
+  const p = r.pairs[0] as (typeof r.pairs)[number]
+  assert.equal(p.samples[40]?.at, 1.333333)
+  assert.equal(p.samples[40]?.film, 50)
+  assert.deepEqual(p.difference, { max: 0, mean: 0 })
+  assert.equal(p.offset.found?.steps, 0)
+  assert.equal(p.offset.found?.seconds, 0)
 })
 
 test('apps/cli imports nothing from packages/plugins, and names no plugin it reads (#687)', () => {

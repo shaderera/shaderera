@@ -46,6 +46,8 @@ export type FilmTracks = {
   width: number
   height: number
   duration: number
+  /** Frames a second: a sample time within 1 µs of a frame time is read at that frame's time. */
+  fps: number
   /** The source's inspect(t); none when it has none. */
   inspect?: (t: number) => Promise<Json>
   /** The DOM's elements with a data-id at t; none without a DOM (browser host). */
@@ -334,14 +336,18 @@ export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTra
     return { pair: p, label, track: { ...track, samples }, left, scaled }
   })
 
-  // Each time is measured once for every pair that needs it.
+  // Each time is measured once for every pair that needs it. A time within 1 µs of a frame time
+  // k / fps (a writer rounds sample times to 6 decimals) is read at exactly k / fps, so a jump on
+  // a frame is read on that frame; other times are read as written.
   const inspected = new Map<number, Promise<Json>>()
   const drawn = new Map<number, Promise<DomElement[]>>()
   const once = <T>(cache: Map<number, Promise<T>>, t: number, get: (t: number) => Promise<T>) => {
-    const key = round6(t)
+    const k = Math.round(t * film.fps)
+    const at = Math.abs(t - k / film.fps) <= 1e-6 ? k / film.fps : round6(t)
+    const key = round6(at)
     let v = cache.get(key)
     if (!v) {
-      v = get(key)
+      v = get(at)
       cache.set(key, v)
     }
     return v

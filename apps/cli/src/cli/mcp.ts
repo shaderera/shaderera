@@ -1132,6 +1132,7 @@ export const createServer = (
                 width: manifest.width,
                 height: manifest.height,
                 duration: manifest.duration,
+                fps: manifest.fps,
                 ...(c.has.inspect ? { inspect: (t: number) => c.inspect(t) } : {}),
                 ...(manifest.dom === undefined ? {} : { elements: (t: number) => c.elements(t) }),
               },

@@ -200,7 +200,10 @@ gate yet: one would be declared in `requirements.json` when it is built.
   ]
   ```
 - **Times:** the film is measured at each sample's source time minus `--offset`, so no fill
-  between samples is chosen. A sample with no film time (before 0, or at or after the film's
+  between samples is chosen. A time within 1 µs of a film frame's time k / fps (the film's fps) is
+  read at exactly that frame's time: times are written to 6 decimals, and a jump on frame 40 at
+  30 fps, written 1.333333, is read on frame 40, not just before it. Other times are read as
+  written. A sample with no film time (before 0, or at or after the film's
   duration) is left out, and each pair says how many and the first and last one's source time: a
   capture includes its end frame while a film's time stops before its duration, and an offset
   moves samples past either end, so the printed `Aligned: --offset=…` can be passed back. A pair
