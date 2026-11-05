@@ -187,6 +187,34 @@ test('still --compare-file finds a reference rendered 3 frames late, and measure
     lines.stdout,
     /^reference: 64×36 at a variable rate \(frames 0\.1–0\.4 s apart\), 2\.3 s$/m,
   )
+  // Its end is its packets' durations summed in the time base: 1/30 s each, whose seconds are
+  // printed 0.033333, would end it at 1.999982 s, short of a time near its end (#735).
+  const vfr30 = join(root, 'vfr30.mp4')
+  const thirty = spawnSync('ffmpeg', [
+    '-v',
+    'error',
+    '-i',
+    late,
+    '-vf',
+    "fps=30,select='not(between(n,5,9))'",
+    '-fps_mode',
+    'vfr',
+    vfr30,
+  ])
+  assert.equal(thirty.status, 0, String(thirty.stderr))
+  const end = await cli(
+    'still',
+    '1.99999',
+    '--root',
+    root,
+    '--out',
+    out,
+    '--compare-file',
+    vfr30,
+    '--json',
+  )
+  assert.equal(end.status, 0, end.stderr)
+  assert.equal(JSON.parse(end.stdout).result.reference.duration, 2)
 })
 
 test('still --compare-file reports each frame read, the reference as decoded, and a sheet of at most 64 (#674)', {

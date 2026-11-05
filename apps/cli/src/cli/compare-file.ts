@@ -260,7 +260,7 @@ export const compareWithFile = async (
       const to = o.to ?? Math.min(film.duration, duration - offset)
       if (!(to > from))
         throw new Error(
-          `Nothing to compare: from ${from} s to ${to} s, with the reference ${duration} s long read at t + ${offset} s.`,
+          `Nothing to compare: from ${round6(from)} s to ${round6(to)} s, with the reference ${round6(duration)} s long read at t + ${offset} s.`,
         )
       // A variable clip's own frames: each at its time, read at t + offset.
       times = varying
@@ -281,7 +281,7 @@ export const compareWithFile = async (
     const missing = times.filter((t) => !ends(t))
     if (missing.length > 0)
       throw new Error(
-        `The reference (${duration} s) has no frame at t + ${offset} s for: ${missing.map(round6).join(', ')}.`,
+        `The reference (${round6(duration)} s) has no frame at t + ${offset} s for: ${missing.map(round6).join(', ')}.`,
       )
     const step = stepOf(times)
     let maxShift = 0
