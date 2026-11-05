@@ -206,8 +206,11 @@ const boxes = (
   reference: Reference,
   film: { width: number; height: number },
 ): Placed => {
-  if (!whole(doc.width, 1) || !whole(doc.height, 1) || !Array.isArray(doc.boxes))
-    throw new Error(`--regions ${file} is neither: ${shapes}`)
+  if (!Array.isArray(doc.boxes)) throw new Error(`--regions ${file} is neither: ${shapes}`)
+  if (!whole(doc.width, 1) || !whole(doc.height, 1))
+    throw new Error(
+      `--regions ${file} has boxes without a whole width and height, the pixels they are in: the reference's (${reference.width}×${reference.height}) or the film's (${film.width}×${film.height}).`,
+    )
   const [W, H] = [doc.width, doc.height]
   const ofReference = W === reference.width && H === reference.height
   const ofFilm = W === film.width && H === film.height
