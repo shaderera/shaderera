@@ -858,7 +858,7 @@ const SETTLE_MS = 15000
 export const captureWeb = async (options: CaptureOptions) => {
   const o = checkOptions(options)
   const log = o.log ?? (() => {})
-  const { spawn } = await import('node:child_process')
+  const { spawn, spawnSync } = await import('node:child_process')
   const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = await import(
     'node:fs'
   )
@@ -927,13 +927,23 @@ export const captureWeb = async (options: CaptureOptions) => {
     return cleaned
   }
   const end = async () => {
-    client?.close()
-    if (!gone) browser.kill()
-    await Promise.race([exited, sleep(5000, undefined, { ref: false })])
-    if (!gone) browser.kill('SIGKILL')
-    await net.close()
-    rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
-    release()
+    try {
+      client?.close()
+      // On Windows, killing chrome.exe leaves its children, which keep the profile's files open.
+      if (!gone && process.platform === 'win32' && browser.pid) {
+        spawnSync('taskkill', ['/pid', String(browser.pid), '/T', '/F'], { stdio: 'ignore' })
+      } else if (!gone) browser.kill()
+      await Promise.race([exited, sleep(5000, undefined, { ref: false })])
+      if (!gone) browser.kill('SIGKILL')
+      await net.close()
+      try {
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      } catch (e) {
+        process.stderr.write(`Could not remove the capture's Chrome profile ${profile}: ${(e as Error).message}\n`)
+      }
+    } finally {
+      release()
+    }
   }
   const onSignal = (signal: NodeJS.Signals) => {
     void cleanup().finally(() => process.exit(signal === 'SIGINT' ? 130 : 143))
