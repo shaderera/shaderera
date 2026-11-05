@@ -408,7 +408,7 @@ test('motion-lottie-read: what is not read is listed, never dropped', () => {
   const or = lot2.layers[5]?.transform.or as never
   assert.throws(() => L.valueAt(or, 0.5), /layers\[5\]\.ks\.or is an animated 3D orientation/)
   assert.throws(() => L.keysOf(or, 0), /animated 3D orientation/)
-  // Markers, collapse transforms, a transform entry with no `k` and any field not known are listed.
+  // Collapse transforms, a transform entry with no `k` and any field not known are listed.
   const extra = {
     fr: 30,
     ip: 0,
@@ -428,7 +428,6 @@ test('motion-lottie-read: what is not read is listed, never dropped', () => {
     { feature: 'zz', where: 'layers[0].zz' },
     { feature: 'weird', where: 'layers[0].ks.weird' },
     { feature: 'solid', where: 'layers[1].sc' },
-    { feature: 'markers', where: 'markers' },
     { feature: 'future', where: 'future' },
   ])
   assert.deepEqual(Object.keys(lot3.layers[0]?.transform ?? {}), ['r'])
@@ -447,6 +446,34 @@ test('motion-lottie-read: what is not read is listed, never dropped', () => {
       ['__proto__', [5]],
       ['constructor', [1]],
     ],
+  )
+})
+
+test('motion-lottie-read: markers come back as written, and are not listed as unsupported', () => {
+  assert.deepEqual(L.readLottie(fixture()).markers, [])
+  const marked = {
+    ...fixture(),
+    markers: [
+      { tm: 12, cm: 'intro', dr: 18 },
+      { tm: 45.5, cm: '{"name":"beat"}', dr: 0 },
+      { tm: 60 },
+    ],
+  }
+  const lot = L.readLottie(JSON.stringify(marked))
+  assert.deepEqual(lot.markers, [
+    { name: 'intro', frame: 12, t: 12 / FR, frames: 18, duration: 18 / FR },
+    { name: '{"name":"beat"}', frame: 45.5, t: 45.5 / FR, frames: 0, duration: 0 },
+    { frame: 60, t: 60 / FR },
+  ])
+  assert.ok(!lot.unsupported.some((u) => u.feature === 'markers'))
+  assert.throws(() => L.readLottie({ ...fixture(), markers: {} }), /markers is not a list/)
+  assert.throws(
+    () => L.readLottie({ ...fixture(), markers: [{ cm: 'x' }] }),
+    /markers\[0\]\.tm is undefined, not a number/,
+  )
+  assert.throws(
+    () => L.readLottie({ ...fixture(), markers: [{ tm: 1, cm: 3 }] }),
+    /markers\[0\]\.cm is not a name/,
   )
 })
 

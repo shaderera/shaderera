@@ -39,7 +39,7 @@ number came from.
 
 | Source | What it gives | How |
 |---|---|---|
-| A Lottie file | the spec itself: frame rate, in and out points, layers, each transform property's keys, holds and bezier handles, as written | `npx shaderera add motion-lottie-read`; `loadLottie` reads it, `valueAt(property, t)` plays a property with the file's own curves. What it does not read (shapes, masks, expressions, effects, …) is listed in `unsupported`, by where it is |
+| A Lottie file | the spec itself: frame rate, in and out points, layers, markers, each transform property's keys, holds and bezier handles, as written | `npx shaderera add motion-lottie-read`; `loadLottie` reads it, `valueAt(property, t)` plays a property with the file's own curves. What it does not read (shapes, masks, expressions, effects, …) is listed in `unsupported`, by where it is |
 | A glTF file with animation clips | the spec itself: its clips' keyframes | no plugin reads glTF animations yet: `render-gltf-read` reads models, not clips |
 | A web page, motion in CSS or the Web Animations API | the page's own keyframes and timing, exact at any time | `analysis-web-capture`: `declared` in `tracks.json`, each animation's `keyframes` and `timing` as Chrome returns them, never fitted |
 | A web page, any motion (JavaScript too) | each tracked element's box, transform and opacity, and the window's scroll, sampled at the capture's fps | `analysis-web-capture`: `tracks` in `tracks.json`, read through `analysis-reference-tracks` (`loadTracks`, `track`, `at`). Exact on the captured frames; between them `at()` reads `hold` or `linear`, and any other reading of the samples is the film's own code |

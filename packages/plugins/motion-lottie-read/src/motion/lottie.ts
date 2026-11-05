@@ -1,8 +1,8 @@
 // A Lottie file's keyframes, read as written. The frame rate, the in and out points, the size, the
-// layers, and every property of each layer's transform (`ks`) with its keyframes: time, value,
-// hold, and the in and out bezier handles, per dimension when the file has them so. `valueAt`
-// plays a property with the file's own curves and motion-eases' bezier solve. Nothing is fitted,
-// named or smoothed. Shapes, masks, expressions, effects, markers and every field it does not know
+// layers, the markers, and every property of each layer's transform (`ks`) with its keyframes:
+// time, value, hold, and the in and out bezier handles, per dimension when the file has them so.
+// `valueAt` plays a property with the file's own curves and motion-eases' bezier solve. Nothing is
+// fitted, named or smoothed. Shapes, masks, expressions, effects and every field it does not know
 // are listed in `unsupported`, never dropped silently. Pure functions of the file, so any t gives
 // the same value at any time.
 
@@ -77,6 +77,18 @@ export type LottieLayer = {
   transform: Record<string, LottieProperty>
 }
 
+/** A marker as written: a named point or span of the file's time. Nothing is inferred from it. */
+export type LottieMarker = {
+  /** `cm`: its name (comment), as written; absent when the file gives none. */
+  name?: string
+  /** `tm`: the file's frame, as written, and the same time in seconds: `tm / fr`. */
+  frame: number
+  t: number
+  /** `dr`: its length in frames, as written, and in seconds: `dr / fr`; absent when the file gives none. */
+  frames?: number
+  duration?: number
+}
+
 /** Something the file has that this reader does not read, and where. */
 export type LottieUnsupported = {
   /** shapes, masks, expression, effects, time remap, parenting, precomp, track matte… */
@@ -102,6 +114,8 @@ export type Lottie = {
   /** `ddd`: a 3D composition. */
   threeD: boolean
   layers: LottieLayer[]
+  /** `markers`, in the file's order; empty when it has none. */
+  markers: LottieMarker[]
   /** Every feature present and not read. Empty means the transforms are the whole file. */
   unsupported: LottieUnsupported[]
 }
@@ -162,7 +176,9 @@ const LAYER_FIELDS: [field: string, feature: string][] = [
  * Fields that are read, change nothing, or are what layers use (assets, fonts, chars: listed with
  * the layer that uses them). Any other field is listed by its name.
  */
-const READ_TOP = new Set('v nm fr ip op w h ddd layers slots meta assets fonts chars'.split(' '))
+const READ_TOP = new Set(
+  'v nm fr ip op w h ddd layers markers slots meta assets fonts chars'.split(' '),
+)
 const READ_LAYER = new Set([
   ...'ty nm mn cl ln ind ip op st sr ddd hd ks hasMask'.split(' '),
   ...LAYER_FIELDS.map(([field]) => field),
@@ -347,7 +363,22 @@ export const readLottie = (json: string | object): Lottie => {
   })
   if (isObj(doc.slots) || Array.isArray(doc.slots))
     unsupported.push({ feature: 'slots', where: 'slots' })
-  // `markers` (the file's named segments) and any field this reader does not know.
+  if (doc.markers !== undefined && !Array.isArray(doc.markers))
+    fail('markers', 'is not a list of markers')
+  const markers = ((doc.markers ?? []) as unknown[]).map((raw, i): LottieMarker => {
+    const at = `markers[${i}]`
+    if (!isObj(raw)) return fail(at, 'is not a marker')
+    const frame = num(raw.tm, `${at}.tm`)
+    const marker: LottieMarker = { frame, t: frame / fr }
+    if (raw.cm !== undefined)
+      marker.name = typeof raw.cm === 'string' ? raw.cm : fail(`${at}.cm`, 'is not a name')
+    if (raw.dr !== undefined) {
+      marker.frames = num(raw.dr, `${at}.dr`)
+      marker.duration = marker.frames / fr
+    }
+    return marker
+  })
+  // Any field this reader does not know.
   for (const field of Object.keys(doc))
     if (!READ_TOP.has(field)) unsupported.push({ feature: field, where: field })
   const lottie: Lottie = {
@@ -360,6 +391,7 @@ export const readLottie = (json: string | object): Lottie => {
     height: num(doc.h, 'h'),
     threeD: doc.ddd === 1,
     layers,
+    markers,
     unsupported,
   }
   if (typeof doc.v === 'string') lottie.version = doc.v
