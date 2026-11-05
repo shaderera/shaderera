@@ -201,7 +201,8 @@ const COMPARE_PARAMS: { [flag: string]: string } = {
 const mcpRefusal = (message: string, root: string, files: readonly string[]): string => {
   let said = message.replace(/<t>\.\.\.|--[a-z][a-z-]*/g, (flag) => COMPARE_PARAMS[flag] ?? flag)
   for (const file of files) said = said.replaceAll(file, slash(relative(root, file)))
-  return said
+  // MCP's still has no count: drop it where the CLI offers it.
+  return said.replace('times, every or count', 'times or every').replace(' without count', '')
 }
 
 /** The tools that take `variant` and `params`, and the ones that return content blocks. */

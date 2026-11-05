@@ -564,7 +564,7 @@ test('still with compare_file measures the film against a clip and finds its off
     )
     await assert.rejects(
       call('still', { compare_file: 'out/late.mp4', times: [0.5, 1], from: 0.2 }),
-      /^Error: from and to without count set the span of the reference frames: give no times/,
+      /^Error: from and to set the span of the reference frames: give no times/,
     )
   } finally {
     await close()
@@ -604,7 +604,7 @@ test('still with compare_file an image scores the film against it, per region wi
     // The CLI's refusals in still's parameters, with the project's paths (#736).
     await assert.rejects(call('still', { compare_file: 'poster.png' }), {
       message:
-        "poster.png is a still image: give the film's times to compare it at (times, every or count).",
+        "poster.png is a still image: give the film's times to compare it at (times or every).",
     })
     await assert.rejects(call('still', { compare_file: 'poster.png', times: [0], offset: 0.1 }), {
       message:
