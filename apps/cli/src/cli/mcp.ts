@@ -274,8 +274,8 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
         'With compare_file an image: a regions artifact of that image (its folder or regions.json; shaderera.analysis/1 of kind regions, as docs/analysis.md defines it), or a JSON file of boxes { format: "shaderera.boxes/1" (may be left out), width, height, boxes: [{ name, x, y, width, height }] } in the image\'s or the film\'s pixels, inside the project, as are its masks (a symbolic link out of it is refused). Each region is scored apart. Not with region.',
       ),
       fit: say(
-        { type: 'string', enum: ['stretch'] },
-        "With compare_file an image of another shape than the film's frame, needed then: stretch scales it to the frame, its regions too. Recorded in scaled.",
+        { type: 'string', enum: ['stretch', 'contain', 'cover'] },
+        "With compare_file an image of another shape than the film's frame, needed then, no default: stretch scales it to the frame, its regions too; contain fits it whole at one scale, centred, and cover fills the frame at one scale, centred. With contain or cover the film's pixels outside the image are masked out of every score. Recorded in scaled (fit, scale, placed, masked).",
       ),
       offset: say(num, 'With compare_file: seconds, the clip is read at t + offset. Default 0.'),
       max_shift: say(

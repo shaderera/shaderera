@@ -238,7 +238,7 @@ instead: the frames as they were encoded.
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
 | `--compare-file <video\|image>` | none. Measures the film against a reference clip, [below](#measuring-against-a-reference-clip), or a PNG or JPEG at each t, [below that](#measuring-against-a-reference-image). With one `--variant` only; not with `--file`, `--compare`, `--object`, `--diff` or `--scale` |
 | `--regions <file>` | none. With `--compare-file <image>`: a regions artifact of the image, or boxes with names ([analysis.md](analysis.md#regions-still-image)); each region is scored apart. Not with `--region` |
-| `--fit stretch` | none. With `--compare-file <image>` of another shape than the film's frame, needed then: how the image (and its regions) is fitted to the frame. Only `stretch` so far |
+| `--fit stretch\|contain\|cover` | none. With `--compare-file <image>` of another shape than the film's frame, needed then: how the image (and its regions) is fitted to the frame, [below](#measuring-against-a-reference-image) |
 | `--offset <s>` | 0. With `--compare-file`: the clip is read at t + offset. A negative one is written `--offset=-0.2`, or it reads as a flag |
 | `--max-shift <n>` | one second of steps. With `--compare-file`: how many steps (the time between two times) either way the alignment searches |
 | `--floor <level>` | 0. With `--compare-file`: the change a motion window counts as still, in levels (0–255), such as a clip's codec noise |
@@ -358,7 +358,15 @@ input is bad (2).
   matted over black (`reference.alpha` says whether that changed any pixel), and scaled to the
   film's frame once as a clip's frames are (`scaled` says so). The report keeps its `sha256`. An
   image of another shape than the frame (more than 0.5 % apart) is refused unless `--fit` says how
-  to fit it: `stretch` scales it to the frame, its regions too, and `scaled.fit` records it.
+  to fit it, and `scaled.fit` records the fit:
+  - `stretch` scales it to the frame, its regions too.
+  - `contain` scales it by one factor, the largest that fits it whole in the frame, and centres
+    it; `cover` by the smallest that fills the frame, centred, so its sides run off it. The
+    film's pixels the image does not cover are masked out of every score (PSNR, ΔE, SSIM, the
+    edge score and each region's): only the part it covers is measured and shown. `scaled.scale`
+    records the factor, `scaled.placed` the part of the frame it covers and `scaled.masked` the
+    film's pixels outside it (0 with `cover`). Regions in the image's pixels are placed as the
+    image is; every region, and `--region`, is cut to the part it covers.
 - **Per time, for the whole frame:** PSNR and ΔE as `--compare` measures them, and:
   - **SSIM** (Wang et al. 2004) on luma (BT.709 weights on the sRGB values, 0–255): a Gaussian
     window of 11 with σ 1.5, K1 0.01, K2 0.03 and L 255, reflected at the frame's edge. The
@@ -396,7 +404,8 @@ input is bad (2).
 
 With `--json`: `reference` (`kind: "image"`, `file`, `width`, `height`, `bits`, `sha256`,
 `alpha` (whether any pixel is less than opaque, so the matte decided it) and `orientation` (a
-JPEG's EXIF orientation when not 1, not applied)), `scaled` (with `fit` when given), `region`,
+JPEG's EXIF orientation when not 1, not applied)), `scaled` (with `fit` when given, and with
+`contain` or `cover` `scale`, `placed` and `masked`), `region`,
 `method` (how SSIM and the edge score were measured, by name and constant, and `matte: "black"`,
 what a pixel less than opaque is matted over), `regions`
 (null, or `file`, `kind` (`regions` or `boxes`), `in` (the pixels the file is written in) and

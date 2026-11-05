@@ -217,6 +217,69 @@ export const scaleFrame = (
   return out
 }
 
+/** A rectangle in a frame's pixels: left, top, width, height. */
+export type Box = { x: number; y: number; width: number; height: number }
+
+/**
+ * Where `contain` or `cover` puts a reference of one size in the film's frame: scaled by one
+ * factor, `scale`, the largest that fits it whole (contain) or the smallest that fills the frame
+ * (cover), and centred. With cover the box runs off the frame.
+ */
+export const fitBox = (
+  ref: { width: number; height: number },
+  film: { width: number; height: number },
+  fit: 'contain' | 'cover',
+): Box & { scale: number } => {
+  const scale = (fit === 'contain' ? Math.min : Math.max)(
+    film.width / ref.width,
+    film.height / ref.height,
+  )
+  const width = Math.max(1, Math.round(ref.width * scale))
+  const height = Math.max(1, Math.round(ref.height * scale))
+  return {
+    scale,
+    x: Math.floor((film.width - width) / 2),
+    y: Math.floor((film.height - height) / 2),
+    width,
+    height,
+  }
+}
+
+/** The part of a box inside a frame of `width`×`height`. */
+export const inFrame = (b: Box, width: number, height: number): Box => {
+  const x = Math.max(0, b.x)
+  const y = Math.max(0, b.y)
+  return {
+    x,
+    y,
+    width: Math.min(width, b.x + b.width) - x,
+    height: Math.min(height, b.y + b.height) - y,
+  }
+}
+
+/**
+ * An RGBA frame scaled to `box` (scaleFrame) and placed in a `w`×`h` frame: what runs off the
+ * frame is cut, and the frame outside the box is opaque black.
+ */
+export const placeFrame = (
+  px: Uint8Array | Uint8ClampedArray,
+  width: number,
+  height: number,
+  w: number,
+  h: number,
+  box: Box,
+): Uint8Array => {
+  const scaled = scaleFrame(px, width, height, box.width, box.height)
+  const out = new Uint8Array(w * h * 4)
+  for (let i = 3; i < out.length; i += 4) out[i] = 255
+  const seen = inFrame(box, w, h)
+  for (let y = 0; y < seen.height; y++) {
+    const from = ((seen.y - box.y + y) * box.width + seen.x - box.x) * 4
+    out.set(scaled.subarray(from, from + seen.width * 4), ((seen.y + y) * w + seen.x) * 4)
+  }
+  return out
+}
+
 type Taps = { start: number; k: number[] }
 
 /** The triangle filter's taps for each of `to` samples from `from`, each summing to 1. */

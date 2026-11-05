@@ -5,7 +5,7 @@
 import { readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { inside } from '../node/inside.ts'
-import { scaleFrame } from '../review/reference.ts'
+import { type Box, placeFrame, scaleFrame } from '../review/reference.ts'
 import type { Mask } from '../review/structure.ts'
 import type { Region } from './crop.ts'
 
@@ -47,13 +47,17 @@ const whole = (v: unknown, least: number): v is number =>
  * reference's own bytes (its sha256); boxes must be in the reference's pixels or the film's. Either
  * is scaled to the film's frame with the reference's filter when it is in the reference's pixels
  * and the sizes differ. Throws, naming the file, on anything else. With `within` (a project's
- * root, for MCP), every file it reads must be in it, also through a symbolic link (inside).
+ * root, for MCP), every file it reads must be in it, also through a symbolic link (inside). With
+ * `placed` (--fit contain or cover), the reference is in `box` of the film's frame: a mask in its
+ * pixels is placed there as the image is, and every mask is cut to `seen`, the part of the frame
+ * the reference covers.
  */
 export const loadRegionsFile = (
   path: string,
   reference: Reference,
   film: { width: number; height: number },
   within?: string,
+  placed?: { box: Box; seen: Box },
 ): RegionsFile => {
   const file = statSync(path, { throwIfNoEntry: false })?.isDirectory()
     ? join(path, 'regions.json')
@@ -74,21 +78,27 @@ export const loadRegionsFile = (
     throw new Error(
       `--regions ${file} is ${JSON.stringify(doc.format)}: this shaderera reads ${BOXES}. Update shaderera.`,
     )
-  const placed =
+  const parsed =
     doc.format === undefined || doc.format === BOXES
       ? boxes(file, doc, reference, film)
       : artifact(file, doc, reference, read)
-  const [w, h] = placed.in
+  const [w, h] = parsed.in
   const ids = new Set<string>()
-  const regions = placed.masks.map(({ id, label, coverage }) => {
+  const regions = parsed.masks.map(({ id, label, coverage }) => {
     if (ids.has(id)) throw new Error(`--regions ${file} names "${id}" twice: give each its own.`)
     ids.add(id)
-    const scaled =
-      w === film.width && h === film.height ? coverage : scaleMask(coverage, w, h, film)
-    const mask = trimmed(scaled, film.width, film.height)
+    const ofFilm = w === film.width && h === film.height
+    const scaled = ofFilm ? coverage : scaleMask(coverage, w, h, film, placed?.box)
+    const mask = trimmed(
+      placed ? cut(scaled, film.width, placed.seen) : scaled,
+      film.width,
+      film.height,
+    )
     if (!mask)
       throw new Error(
-        `--regions ${file}: "${id}" covers no pixel of the ${film.width}×${film.height} frame.`,
+        placed
+          ? `--regions ${file}: "${id}" covers no pixel of the reference, at ${placed.seen.width}×${placed.seen.height} ${placed.seen.x},${placed.seen.y} in the ${film.width}×${film.height} frame.`
+          : `--regions ${file}: "${id}" covers no pixel of the ${film.width}×${film.height} frame.`,
       )
     let sum = 0
     for (const c of mask.coverage) sum += c
@@ -100,7 +110,7 @@ export const loadRegionsFile = (
       mask,
     }
   })
-  return { file, kind: placed.kind, in: placed.in, regions }
+  return { file, kind: parsed.kind, in: parsed.in, regions }
 }
 
 /** What --regions takes, for the messages. */
@@ -229,12 +239,16 @@ const boxes = (
   return { kind: 'boxes', in: [W, H], masks }
 }
 
-/** A coverage plane of `w`×`h` scaled to the film's frame as scaleFrame scales the reference. */
+/**
+ * A coverage plane of `w`×`h` scaled to the film's frame as the reference is: stretched to it
+ * (scaleFrame), or into `box` of it (placeFrame).
+ */
 const scaleMask = (
   coverage: Uint8Array,
   w: number,
   h: number,
   film: { width: number; height: number },
+  box?: Box,
 ): Uint8Array => {
   const rgba = new Uint8Array(w * h * 4)
   for (let i = 0; i < coverage.length; i++) {
@@ -242,9 +256,19 @@ const scaleMask = (
     rgba[i * 4] = c
     rgba[i * 4 + 3] = 255
   }
-  const scaled = scaleFrame(rgba, w, h, film.width, film.height)
+  const scaled = box
+    ? placeFrame(rgba, w, h, film.width, film.height, box)
+    : scaleFrame(rgba, w, h, film.width, film.height)
   const out = new Uint8Array(film.width * film.height)
   for (let i = 0; i < out.length; i++) out[i] = scaled[i * 4] as number
+  return out
+}
+
+/** A whole-frame coverage plane, `W` wide, with nothing outside `seen`. */
+const cut = (coverage: Uint8Array, W: number, seen: Box): Uint8Array => {
+  const out = new Uint8Array(coverage.length)
+  for (let y = seen.y; y < seen.y + seen.height; y++)
+    out.set(coverage.subarray(y * W + seen.x, y * W + seen.x + seen.width), y * W + seen.x)
   return out
 }
 

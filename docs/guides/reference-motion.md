@@ -132,7 +132,8 @@ npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions 
   frames are measured.
 - **An image:** per time, PSNR, ΔE, SSIM on luma and the edge score, for the whole frame and for
   each region of `--regions`. An image of another shape than the film's frame is refused unless
-  `--fit stretch` is given.
+  `--fit stretch`, `contain` or `cover` is given; with `contain` the pixels outside the image are
+  not scored.
 - Each time writes the film, the reference and their difference (an SSIM heat map for an image)
   side by side, and `--sheet` puts them on one sheet. Through MCP, `still` with `compare_file`.
 - There is no pass or fail, and the exit code is 0 unless an input is bad. Every field is in
