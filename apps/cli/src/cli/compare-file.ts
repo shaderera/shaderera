@@ -73,8 +73,8 @@ export type CompareFileOptions = {
   regions?: string
   /**
    * With a reference of another shape than the film's frame: how it is fitted to the frame, which
-   * the person chooses (an image of another shape is refused without it, a clip is stretched):
-   * stretch, contain or cover.
+   * the person chooses (a reference of another shape is refused without it): stretch, contain or
+   * cover.
    */
   fit?: string
   /** With a clip: each time shows the SSIM heat map in place of the difference (an image's does). */
@@ -441,7 +441,7 @@ export const summaryLines = (r: CompareFileReport): string[] => {
   const lines = [
     `reference: ${ref.width}×${ref.height} at ${ref.intervals ? `a variable rate (frames ${n(ref.intervals.smallest)}–${n(ref.intervals.largest)} s apart)` : `${n(ref.fps)} fps`}, ${n(ref.duration)} s${
       r.scaled
-        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.fit !== undefined ? fitText(r.scaled) : r.scaled.aspect === 'stretched' ? ', stretched: the frames have other shapes' : ''})`
+        ? `, scaled to ${r.scaled.to.join('×')} (${r.scaled.filter}${r.scaled.fit !== undefined ? fitText(r.scaled) : ''})`
         : ''
     }${r.region ? `; measured in ${r.region.width}×${r.region.height} at ${r.region.x},${r.region.y}` : ''}`,
   ]

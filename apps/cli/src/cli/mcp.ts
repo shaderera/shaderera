@@ -276,7 +276,7 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       ),
       fit: say(
         { type: 'string', enum: ['stretch', 'contain', 'cover'] },
-        "With compare_file a reference of another shape than the film's frame (needed then with an image, no default; a clip without it is stretched): stretch scales it to the frame, its regions too; contain fits it whole at one scale, centred, and cover fills the frame at one scale, centred. With contain or cover the film's pixels outside the reference are masked out of every score. Recorded in scaled (fit, scale, placed, masked).",
+        "With compare_file a reference of another shape than the film's frame (needed then, no default: one of another shape is refused without it): stretch scales it to the frame, its regions too; contain fits it whole at one scale, centred, and cover fills the frame at one scale, centred. With contain or cover the film's pixels outside the reference are masked out of every score. Recorded in scaled (fit, scale, placed, masked).",
       ),
       heat_map: say(
         { type: 'boolean' },

@@ -255,8 +255,8 @@ export type Placement = {
 /**
  * How a reference of `ref`'s size is fitted to the film's frame (`o.fit`), the part of the frame
  * measured (`o.region`, cut to what the reference covers) and the regions of `o.regions` in it.
- * An image of another shape needs a fit; a clip of another shape is stretched without one, as it
- * was before fits. `sha256` is the reference's, read only for a regions artifact. Throws on bad
+ * A reference of another shape than the frame needs a fit (decision 0032); one of the same shape
+ * and another size is scaled. `sha256` is the reference's, read only for a regions artifact. Throws on bad
  * input, also when the part is smaller than SSIM's window.
  */
 export const placement = (
@@ -274,7 +274,7 @@ export const placement = (
   const { film } = o
   const { width, height } = film
   const scaled = scaling(ref, film)
-  if (kind === 'image' && scaled?.aspect === 'stretched' && o.fit === undefined)
+  if (scaled?.aspect === 'stretched' && o.fit === undefined)
     throw new Error(
       `${o.reference} is ${ref.width}×${ref.height} and the film is ${width}×${height}, another shape: give --fit stretch, contain or cover to fit it to the frame.`,
     )

@@ -151,8 +151,8 @@ npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions 
   pixels and its tracks are from the viewport's top left; the film's frame is in its own pixels.
   A trigger's time (`params.trigger.at`, in milliseconds) is in source time: the film's input, a click or a
   scroll, happens at that time plus the film's offset. A clip of another size is scaled to the
-  film's frame (`scaled` in the report, `aspect: "stretched"` when the shapes differ), which moves
-  every edge.
+  film's frame (`scaled` in the report), which moves every edge; one of another shape is refused
+  unless `--fit stretch`, `contain` or `cover` says how to fit it.
 - **Crop cursors and browser chrome out of a recording.** The tab bar, the address bar and the
   pointer are pixels the film does not draw, and a moving pointer adds to the clip's activity,
   so the offset found can follow the pointer. Crop the recording to the page once

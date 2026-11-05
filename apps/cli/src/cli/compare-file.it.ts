@@ -503,16 +503,25 @@ test('still --compare-file <clip> scores SSIM and edges per frame, whole and per
   assert.deepEqual(panel(heatPng, 0), panel(diffPng, 0))
   assert.notDeepEqual(panel(heatPng, 2), panel(diffPng, 2))
 
-  // A clip of another shape is stretched without a fit, as before; with contain it is placed and
-  // the film's pixels outside it are not scored.
+  // A clip of another shape is refused without a fit (decision 0032); with stretch it is scaled
+  // to the frame, and with contain placed, the film's pixels outside it not scored.
   const tall = join(root, 'tall.mp4')
   const padded = spawnSync('ffmpeg', ['-v', 'error', '-i', same, '-vf', 'pad=64:48:0:6', tall])
   assert.equal(padded.status, 0, String(padded.stderr))
   const tallStill = (...args: string[]) =>
     cli('still', '--root', root, '--out', out, '--compare-file', tall, '1', ...args)
-  const stretched = JSON.parse((await tallStill('--json')).stdout).result
+  const refused = await tallStill()
+  assert.equal(refused.status, 2)
+  assert.match(
+    refused.stderr,
+    /tall\.mp4 is 64×48 and the film is 64×36, another shape: give --fit stretch, contain or cover/,
+  )
+  const stretchedRun = await tallStill('--fit', 'stretch', '--json')
+  assert.equal(stretchedRun.status, 0, stretchedRun.stderr)
+  const stretched = JSON.parse(stretchedRun.stdout).result
   assert.equal(stretched.scaled.aspect, 'stretched')
-  assert.equal(stretched.scaled.fit, undefined)
+  assert.equal(stretched.scaled.fit, 'stretch')
+  assert.equal(decode(readFileSync(stretched.frames[0].file)).width, 64 * 3)
   const contained = await tallStill('--fit', 'contain', '--regions', boxes, '--json')
   assert.equal(contained.status, 0, contained.stderr)
   const c = JSON.parse(contained.stdout).result
