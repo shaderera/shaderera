@@ -39,7 +39,7 @@ number came from.
 
 | Source | What it gives | How |
 |---|---|---|
-| A Lottie file | the spec itself: frame rate, in and out points, layers, each transform property's keys, holds and bezier handles, as written | `npx shaderera add motion-lottie-read`; `loadLottie` reads it, `valueAt(property, t)` plays a property with the file's own curves. What it does not read (shapes, masks, expressions, effects, …) is listed in `unsupported`, by where it is |
+| A Lottie file | the spec itself: frame rate, in and out points, layers, markers, each transform property's keys, holds and bezier handles, as written | `npx shaderera add motion-lottie-read`; `loadLottie` reads it, `valueAt(property, t)` plays a property with the file's own curves. What it does not read (shapes, masks, expressions, effects, …) is listed in `unsupported`, by where it is |
 | A glTF file with animation clips | the spec itself: its clips' channels, key times, values and interpolation, as written | `npx shaderera add motion-gltf-clips`; `loadClips` reads them, `valueAt(channel, t)` plays a channel by the glTF spec (STEP, LINEAR with slerp, CUBICSPLINE). Skins and morph targets are reported as present, not applied |
 | A web page, motion in CSS or the Web Animations API | the page's own keyframes and timing, exact at any time | `analysis-web-capture`: `declared` in `tracks.json`, each animation's `keyframes` and `timing` as Chrome returns them, never fitted |
 | A web page, any motion (JavaScript too) | each tracked element's box, transform and opacity, and the window's scroll, sampled at the capture's fps | `analysis-web-capture`: `tracks` in `tracks.json`, read through `analysis-reference-tracks` (`loadTracks`, `track`, `at`). Exact on the captured frames; between them `at()` reads `hold` or `linear`, and any other reading of the samples is the film's own code |
@@ -132,7 +132,8 @@ npx shaderera still 1.5 --compare-file references/hero-look/style.png --regions 
   frames are measured.
 - **An image:** per time, PSNR, ΔE, SSIM on luma and the edge score, for the whole frame and for
   each region of `--regions`. An image of another shape than the film's frame is refused unless
-  `--fit stretch` is given.
+  `--fit stretch`, `contain` or `cover` is given; with `contain` the pixels outside the image are
+  not scored.
 - Each time writes the film, the reference and their difference (an SSIM heat map for an image)
   side by side, and `--sheet` puts them on one sheet. Through MCP, `still` with `compare_file`.
 - There is no pass or fail, and the exit code is 0 unless an input is bad. Every field is in

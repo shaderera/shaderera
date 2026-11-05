@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   type CompareFileReport,
+  frameAt,
   onSheet,
   rateTimes,
   referenceFrame,
@@ -78,4 +79,14 @@ test('onSheet keeps every time when they fit, else 64 spread evenly from the fir
   assert.equal(kept.length, 64)
   assert.equal(kept[0], 0)
   assert.equal(kept.at(-1), 299)
+})
+
+test('frameAt: the last frame at or before t, held until the next; -1 before the first (#703)', () => {
+  const times = [0, 0.1, 0.2, 0.6, 0.7]
+  assert.equal(frameAt(0, times), 0)
+  assert.equal(frameAt(0.15, times), 1)
+  assert.equal(frameAt(0.4, times), 2)
+  assert.equal(frameAt(0.599995, times), 3)
+  assert.equal(frameAt(5, times), 4)
+  assert.equal(frameAt(-0.1, times), -1)
 })

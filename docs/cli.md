@@ -238,7 +238,7 @@ instead: the frames as they were encoded.
 | `--compare <variant>` | none. With one `--variant` only. Also renders each t in that variant, with the same `--param`s, and writes the pair side by side, `<variant>-vs-<other>-<t>.png` (the sheet too), with what was measured between them: PSNR over R, G and B (`identical` when the frames are the same) and the mean and largest ΔE (CIEDE2000; about 1 is what an eye can just tell), on frames matted over black as an mp4 shows them. It measures and never judges: no pass or fail. Both variants need one frame size |
 | `--compare-file <video\|image>` | none. Measures the film against a reference clip, [below](#measuring-against-a-reference-clip), or a PNG or JPEG at each t, [below that](#measuring-against-a-reference-image). With one `--variant` only; not with `--file`, `--compare`, `--object`, `--diff` or `--scale` |
 | `--regions <file>` | none. With `--compare-file <image>`: a regions artifact of the image, or boxes with names ([analysis.md](analysis.md#regions-still-image)); each region is scored apart. Not with `--region` |
-| `--fit stretch` | none. With `--compare-file <image>` of another shape than the film's frame, needed then: how the image (and its regions) is fitted to the frame. Only `stretch` so far |
+| `--fit stretch\|contain\|cover` | none. With `--compare-file <image>` of another shape than the film's frame, needed then: how the image (and its regions) is fitted to the frame, [below](#measuring-against-a-reference-image) |
 | `--offset <s>` | 0. With `--compare-file`: the clip is read at t + offset. A negative one is written `--offset=-0.2`, or it reads as a flag |
 | `--max-shift <n>` | one second of steps. With `--compare-file`: how many steps (the time between two times) either way the alignment searches |
 | `--floor <level>` | 0. With `--compare-file`: the change a motion window counts as still, in levels (0–255), such as a clip's codec noise |
@@ -276,14 +276,17 @@ a file. It measures and never judges: there is no pass or fail, and it exits 0 u
 bad (2). It has no gate yet: one would be declared in `requirements.json` when it is built.
 A PNG or JPEG is measured as a still, [below](#measuring-against-a-reference-image); a clip of
 one frame in another format is refused: save it as a PNG once.
-A clip is read at a constant rate: its frame i is read as the frame at
-i / fps (its `r_frame_rate`), and a clip with a frame more than half a frame from that, such as a
-screen recording that held a frame, is refused, naming the frame; re-encode it with
-`ffmpeg -i in.mp4 -fps_mode cfr out.mp4` first.
+A clip of constant rate has its frame i read as the frame at i / fps (its `r_frame_rate`). A clip
+with a frame more than half a frame from that, such as a screen recording that held a frame, is
+read at a variable rate: each frame at its own time from its packets, from the first frame's, and
+held until the next frame's (sample and hold, as [analysis.md](analysis.md#time) says). It ends
+when its last packet does (the sum of its packets' durations), or at its last frame's time when
+the packets have none. A clip with a frame without a time is refused.
 
 - **The times:** those asked for (`<t>...`, `--every`, `--count`), sorted. With none, the clip's
-  frames at its own rate from `--from` (the first time the clip has, at or after 0) to before
-  `--to` (the end of whichever side ends first). Every time needs a frame of the clip at
+  frames at its own rate (a variable-rate clip's at their own times, so not evenly spaced: give
+  `--every` or `--count` to search the offset) from `--from` (the first time the clip has, at or
+  after 0) to before `--to` (the end of whichever side ends first). Every time needs a frame of the clip at
   t + `--offset`; one without is refused. The clip's frame at a time is the last at or before it,
   where a time up to 10 µs before a frame's is that frame's: times are written to 6 decimals,
   and 1/30 s written 0.033333 is frame 1.
@@ -309,14 +312,17 @@ screen recording that held a frame, is refused, naming the frame; re-encode it w
   the last; every time still has its own PNG.
 
 With `--json`: `reference` (`kind: "clip"`, `file`, `width`, `height`, `fps`, `duration`, `bits` and `colour` as
-the decoder read it, and `timing`: `constant`, frame i at i / fps, checked; another may be added),
+the decoder read it, `timing`: `constant`, frame i at i / fps, checked, or `variable`, each frame
+at its own time, and with `variable` `intervals`: the `smallest` and `largest` time between two
+frames, in seconds),
 `scaled` (null, or
 `from`, `to`, `filter` and `aspect`), `region` (null or the part measured), `step` (seconds
 between the times; null when not evenly spaced), `floor`, `offset` (`applied` seconds; `found`:
 `steps`, `seconds` and `correlation`, or null with `why`; `maxShift`; `scores`, each shift's
 `correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last` and `peak` with
 its `t` and `change`, on the film's times, or null when still), `frames` (each `t`, `at` (the
-clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `activity` with `film` and
+clip's time asked for, t + offset), `frame` (the clip's frame read for it, from 0), `read` (that frame's time on the clip, from its
+first frame), `ms`, `psnr` (null when identical), `deltaE`, `maxDeltaE`, `differing`, `activity` with `film` and
 `reference`, and `file`) and `sheet`.
 
 ```
@@ -352,7 +358,15 @@ input is bad (2).
   matted over black (`reference.alpha` says whether that changed any pixel), and scaled to the
   film's frame once as a clip's frames are (`scaled` says so). The report keeps its `sha256`. An
   image of another shape than the frame (more than 0.5 % apart) is refused unless `--fit` says how
-  to fit it: `stretch` scales it to the frame, its regions too, and `scaled.fit` records it.
+  to fit it, and `scaled.fit` records the fit:
+  - `stretch` scales it to the frame, its regions too.
+  - `contain` scales it by one factor, the largest that fits it whole in the frame, and centres
+    it; `cover` by the smallest that fills the frame, centred, so its sides run off it. The
+    film's pixels the image does not cover are masked out of every score (PSNR, ΔE, SSIM, the
+    edge score and each region's): only the part it covers is measured and shown. `scaled.scale`
+    records the factor, `scaled.placed` the part of the frame it covers and `scaled.masked` the
+    film's pixels outside it (0 with `cover`). Regions in the image's pixels are placed as the
+    image is; every region, and `--region`, is cut to the part it covers.
 - **Per time, for the whole frame:** PSNR and ΔE as `--compare` measures them, and:
   - **SSIM** (Wang et al. 2004) on luma (BT.709 weights on the sRGB values, 0–255): a Gaussian
     window of 11 with σ 1.5, K1 0.01, K2 0.03 and L 255, reflected at the frame's edge. The
@@ -390,7 +404,8 @@ input is bad (2).
 
 With `--json`: `reference` (`kind: "image"`, `file`, `width`, `height`, `bits`, `sha256`,
 `alpha` (whether any pixel is less than opaque, so the matte decided it) and `orientation` (a
-JPEG's EXIF orientation when not 1, not applied)), `scaled` (with `fit` when given), `region`,
+JPEG's EXIF orientation when not 1, not applied)), `scaled` (with `fit` when given, and with
+`contain` or `cover` `scale`, `placed` and `masked`), `region`,
 `method` (how SSIM and the edge score were measured, by name and constant, and `matte: "black"`,
 what a pixel less than opaque is matted over), `regions`
 (null, or `file`, `kind` (`regions` or `boxes`), `in` (the pixels the file is written in) and

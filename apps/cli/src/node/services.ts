@@ -142,9 +142,10 @@ export const probeVideo = (file: string): VideoInfo => {
 /**
  * The presentation times, in seconds and ascending, of a video's first stream's frames, from its
  * packets (ffprobe, decoding nothing); a packet an edit list discards is left out, and one without
- * a time is `null`.
+ * a time is `null`. `length` is the sum of those packets' durations, in seconds (the order of
+ * the packets does not change it), or `null` when one has none.
  */
-export const packetTimes = (file: string): (number | null)[] => {
+export const packetTimes = (file: string): { times: (number | null)[]; length: number | null } => {
   const r = spawnSync(
     'ffprobe',
     [
@@ -153,7 +154,7 @@ export const packetTimes = (file: string): (number | null)[] => {
       '-select_streams',
       'v:0',
       '-show_entries',
-      'packet=pts_time,flags',
+      'packet=pts_time,duration_time,flags',
       '-of',
       'csv=p=0',
       file,
@@ -163,13 +164,20 @@ export const packetTimes = (file: string): (number | null)[] => {
   if (r.error) throw new Error(`ffprobe is needed to read ${file}: ${r.error.message}`)
   if (r.status !== 0) throw new Error(`ffprobe cannot read ${file}: ${r.stderr.trim()}`)
   const times: (number | null)[] = []
+  let length: number | null = 0
   for (const line of r.stdout.split('\n')) {
-    const [pts, flags] = line.trim().split(',')
+    const [pts, duration, flags] = line.trim().split(',')
     if (!pts || flags?.includes('D')) continue
     const t = Number(pts)
     times.push(pts === 'N/A' || !Number.isFinite(t) ? null : t)
+    const d = Number(duration)
+    length =
+      length === null || !duration || duration === 'N/A' || !Number.isFinite(d) ? null : length + d
   }
-  return times.some((t) => t === null) ? times : (times as number[]).sort((a, b) => a - b)
+  return {
+    times: times.some((t) => t === null) ? times : (times as number[]).sort((a, b) => a - b),
+    length,
+  }
 }
 
 /**

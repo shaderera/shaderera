@@ -1,5 +1,5 @@
-A Lottie file's keyframes, read as written: its frame rate, in and out points, size and layers,
-and each property of a layer's transform with its keys, holds and bezier handles. `valueAt`
+A Lottie file's keyframes, read as written: its frame rate, in and out points, size, layers and
+markers, and each property of a layer's transform with its keys, holds and bezier handles. `valueAt`
 plays a property with the file's own curves.
 
 ```ts
@@ -9,6 +9,7 @@ import { loadLottie, valueAt } from './motion/lottie.ts'
 const lottie = await loadLottie(host, 'assets/intro.json')   // or readLottie(text or object)
 const card = lottie.layers.find((l) => l.name === 'Card')
 const p = card.transform.p                                   // px and py when position is split
+lottie.markers                                               // [{ name: 'intro', frame: 12, t: 0.4, frames: 18, duration: 0.6 }…]
 lottie.unsupported                                           // [{ feature: 'shapes', where: 'layers[1].shapes' }…]
 
 // in render(t)
@@ -36,6 +37,9 @@ Lottie file through this API, not the shared reference reader; writing its decla
   `py`, `pz` when split), `s`, `r`, `o`, `sk`, `sa`, and a 3D layer's `rx`, `ry`, `rz`, `or`.
   A name this reader does not know is still read, with its name as its label (`__proto__` too).
   A value is always an array, one number a dimension, and every key of a property has as many.
+- **Markers** are the file's `markers` in its order: `cm` as `name`, `tm` as `frame` and `t`
+  (`tm / fr`, seconds), `dr` as `frames` and `duration` (`dr / fr`). A `cm` is kept as the text it
+  is, JSON or not; a field the file leaves out is left out. Nothing is inferred from them.
 - **Keys** keep `s` as `value`, `e` as `end` (older files), `h` as `hold`, `o` and `i` as
   `out` and `in` (one x and y a dimension, or one for all), and `to` and `ti` as `pathOut` and
   `pathIn`.
@@ -61,13 +65,13 @@ Lottie file through this API, not the shared reference reader; writing its decla
   not composed with its parent's), `motion blur`, `blend mode`, an animated `3D orientation`, an `expression` (its keys are
   read, the expression is not run), `slots`, `collapse transforms` (`ct`, 0 is off), a
   transform entry with no `k` (by its name), and any other field of the file or a layer this
-  reader does not read, by its name (`markers`, the file's named segments, among them). Fields
+  reader does not read, by its name. Fields
   that change nothing are not listed: names (`nm`, `mn`, `cl`, `ln`), `hasMask`, `meta`, and
   `assets`, `fonts` and `chars`, which the layers that use them list. Each with where it is in
   the file.
 - **Refused by name:** text that is not JSON (a byte order mark before it is fine), a file with no
   layers, a transform entry that is not a property (`{a, k}`), `fr` not above 0, `op` not after `ip` (the file's or a layer's), keys out of time order,
-  a key with no value, keys of one property with different numbers of values, a move with no
+  a key with no value, a marker with no `tm` or a `cm` that is not text, keys of one property with different numbers of values, a move with no
   handles that does not hold, a handle's x outside 0 to 1, a `t` that is not a number, and a
   dotLottie (`.lottie`) archive: unzip it and read its `animations/<name>.json`.
 

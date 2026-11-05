@@ -142,7 +142,11 @@ what it is. The prefixes: `analysis`, `asset`, `audio`, `camera`, `color`, `font
   programs, so heavy work goes in a `tools/` script run once, whose output the film reads as data:
   `audio-beat-clock` measures a song with `node tools/analyze-music.ts`, and `loadAnalysis(host, …)`
   reads the result at render time.
-- **No film's numbers.** What a film would tune is a parameter, with a default that renders well:
+- **No film's numbers.** What a film would tune is a parameter. In a look or motion plugin, which a
+  person asks for and then owns, it may have a default that renders well. In a plumbing plugin
+  (the group `authoring.md` lists as plumbing, which an agent may add unasked), and in anything a
+  plumbing plugin requires, a parameter that changes a frame has no default: it is required, or
+  measured (decisions 0011 and 0032). Either way a call reads what it tunes:
   `decoded(text, t, { start, end, frame, rise: 0.3, fall: 0.15 })`,
   `hitsOf(analysis, { strength: 200 })`. Pass `t` and `frame` in; never assume a duration, a size
   or an fps.
