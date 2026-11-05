@@ -2,8 +2,9 @@
 <!--
   A page that reaches for this machine: fetches to 127.0.0.1 and images from localhost, on the
   port in its query (?port=…). A capture refuses them all unless it is given --allow-local. With
-  it, /latin1 and /latin1-chunked are text in ISO-8859-1 (with and without a length), /bad.png and
-  /bad-chunked.png bytes no image decoder reads.
+  it, /latin1 and /latin1-chunked are text in ISO-8859-1 (with and without a length), /gzip the
+  same gzipped, /stream it three times over 200 ms, /bad.png and /bad-chunked.png bytes no image
+  decoder reads.
 -->
 <meta charset="utf-8" />
 <style>
@@ -13,7 +14,7 @@
 <div id="box"></div>
 <script>
   const port = new URLSearchParams(location.search).get('port')
-  for (const path of ['/secret', '/latin1', '/latin1-chunked'])
+  for (const path of ['/secret', '/latin1', '/latin1-chunked', '/gzip', '/stream'])
     fetch(`http://127.0.0.1:${port}${path}`)
       .then((r) => r.text())
       .then((t) => { box.dataset[path.slice(1).replace('-', '')] = t })

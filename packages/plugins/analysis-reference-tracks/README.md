@@ -19,7 +19,8 @@ film reads every one the same way.
 **The data** is a `shaderera.analysis/1` artifact of kind `reference-tracks` (see
 `docs/analysis.md` in the `shaderera` package, which lists every field):
 - `source` is a file (path, bytes, sha256) or a live page (url, date, viewport, device pixel
-  ratio, and each response's sha256); `tool` and `params` say how it was measured;
+  ratio, and each response's sha256, `null` with `hashOf: "none"` for a body that could not be
+  read); `tool` and `params` say how it was measured;
 - `frame` is the source's width, height and pixel ratio;
 - `tracks` hold `{ element, channel, unit, samples }`, the samples `[seconds, value]` at the times
   they were taken; a value is `null` where the element was not there;

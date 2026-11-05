@@ -42,6 +42,7 @@ import { basename, dirname, extname, join } from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
+import { gzipSync } from 'node:zlib'
 import { type Host, sha256 } from '@shaderera/core'
 import { build } from 'esbuild'
 import { decode as decodePng } from 'fast-png'
@@ -721,6 +722,18 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
       res.writeHead(200, text)
       res.write(latin1)
       res.end()
+    } else if (req.url === '/gzip') {
+      res.writeHead(200, { ...text, 'content-encoding': 'gzip' })
+      res.write(gzipSync(latin1))
+      res.end()
+    } else if (req.url === '/stream') {
+      // Three writes 100 ms apart, the last after the page has its headers.
+      res.writeHead(200, text)
+      res.write(latin1)
+      setTimeout(() => {
+        res.write(latin1)
+        setTimeout(() => res.end(latin1), 100)
+      }, 100)
     } else if (req.url === '/bad.png') {
       res.writeHead(200, { ...png, 'content-length': noise.length })
       res.end(noise)
@@ -752,10 +765,12 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
     assert.deepEqual([...hits].sort(), [
       '/bad-chunked.png',
       '/bad.png',
+      '/gzip',
       '/latin1',
       '/latin1-chunked',
       '/pixel',
       '/secret',
+      '/stream',
     ])
     assert.ok('responses' in allowed.source)
     const response = (path: string) => {
@@ -772,14 +787,22 @@ test('a page that reaches for this machine is refused unless --allow-local', { s
     assert.equal(response('/latin1')?.sha256, await sha256(latin1))
     assert.equal(response('/latin1')?.hashOf, undefined)
     assert.equal(response('/bad.png')?.sha256, await sha256(noise))
-    // Without a length it is read at its end: text as Chrome decoded it, said so.
-    assert.equal(response('/latin1-chunked')?.hashOf, 'text-as-utf8')
-    assert.equal(
-      response('/latin1-chunked')?.sha256,
-      await sha256(new TextEncoder().encode('café')),
-    )
-    // An image Chrome could not decode and did not keep is a limit, not the hash of nothing.
-    assert.equal(response('/bad-chunked.png'), undefined)
+    // Without a length (chunked, gzip, written over time) too, as Chrome received them.
+    for (const [path, bytes] of [
+      ['/latin1-chunked', latin1],
+      ['/gzip', latin1],
+      ['/stream', new Uint8Array([...latin1, ...latin1, ...latin1])],
+    ] as const) {
+      assert.equal(response(path)?.sha256, await sha256(bytes), `${path} is hashed as served`)
+      assert.equal(response(path)?.hashOf, undefined)
+    }
+    // An image Chrome could not decode and did not keep is listed without a hash, and is a limit.
+    assert.deepEqual(response('/bad-chunked.png'), {
+      url: `http://localhost:${port}/bad-chunked.png`,
+      status: 200,
+      sha256: null,
+      hashOf: 'none',
+    })
     assert.ok(
       allowed.limits.some(
         (l) => l.where.endsWith('/bad-chunked.png') && /not kept by Chrome/.test(l.reason),
