@@ -57,6 +57,7 @@ test('summaryLines writes the aligned offset as --offset=<s>, which a negative o
       applied: 0,
       found: { steps: -6, seconds: round6(-6 / 30), correlation: 0.99 },
       maxShift: 30,
+      atEdge: false,
       scores: [],
     },
     window: { film: null, reference: null },
