@@ -203,7 +203,11 @@ and the fonts it was drawn with, and a screenshot. Kind `reference-style`; the
   Content-Encoding is undone). When those bytes were not available, `hashOf` says what was hashed
   instead: `"text-as-utf8"` is the body as the browser decoded it with its charset, encoded as
   UTF-8, which matches the served file only when it was UTF-8. A second capture that differs is
-  then explained.
+  then explained. A page's motion also records `fonts`: for each tracked element whose text was
+  drawn at the first frame, its `element` and the `fonts` its glyphs were drawn with then, as for
+  a [still](#reference-style)'s texts (`familyName`, `postScriptName`, `isCustomFont`,
+  `glyphCount`), sorted by family. A system font the page fell back to is one of them, so boxes
+  that differ on another machine are explained.
 - `tool`: script, and the name and version string of every program that produced the samples
   (ffmpeg, the browser a page was captured in, a model's name, version and checkpoint sha256);
   `params`: every setting that changes the output.

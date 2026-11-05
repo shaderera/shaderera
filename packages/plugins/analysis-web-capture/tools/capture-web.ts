@@ -18,13 +18,15 @@
 // over CDP at its own time (the clock advanced to it, then synced once the browser delivered it),
 // animations are synced, the clock advances to the frame's time, running timers and animation
 // frames in time order, the capture waits for the network and the page's pending work, then every
-// tracked element's box, transform and opacity, and the window's scroll, are read. The README
-// lists the channels and the limits.
+// tracked element's box, transform and opacity, and the window's scroll, are read. At the first
+// frame, so are the fonts each tracked element's text was drawn with. The README lists the
+// channels and the limits.
 //
 // With --still, the clock runs the same way to that one moment, and <dir>/style.json (kind
 // reference-style, tools/web-capture-style.ts) and <dir>/style.png are written instead.
 
 import { sha256 } from '@shaderera/core'
+import type { DrawnFont } from '../src/reference/style.ts'
 import type { Limit, Sample, Track } from '../src/reference/tracks.ts'
 import { styleJson } from './reference-style.ts'
 import { tracksJson } from './reference-tracks.ts'
@@ -32,7 +34,7 @@ import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.4.0'
+export const VERSION = '0.5.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -1408,6 +1410,43 @@ export const captureWeb = async (options: CaptureOptions) => {
       else spans.set(key, { where, reason, from: time, to: time })
     }
     const declared: { element: string; type: string; [key: string]: unknown }[] = []
+    // The fonts each tracked element's text was drawn with, read once at the first frame: a font
+    // this machine lacks falls back to another, which changes the boxes. An element with no text
+    // then, or none matching, has no entry.
+    const fonts: { element: string; fonts: DrawnFont[] }[] = []
+    const readFonts = async () => {
+      await c.send('DOM.enable', {}, page)
+      await c.send('CSS.enable', {}, page)
+      const { root } = await c.send<{ root: { nodeId: number } }>(
+        'DOM.getDocument',
+        { depth: 0 },
+        page,
+      )
+      for (const element of o.track) {
+        const { nodeId } = await c.send<{ nodeId: number }>(
+          'DOM.querySelector',
+          { nodeId: root.nodeId, selector: element },
+          page,
+        )
+        if (!nodeId) continue
+        const got = await c.send<{ fonts: DrawnFont[] }>(
+          'CSS.getPlatformFontsForNode',
+          { nodeId },
+          page,
+        )
+        const drawn = got.fonts
+          .map(({ familyName, postScriptName, isCustomFont, glyphCount }) => ({
+            familyName,
+            postScriptName,
+            isCustomFont,
+            glyphCount,
+          }))
+          .sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1))
+        if (drawn.length > 0) fonts.push({ element, fonts: drawn })
+      }
+      await c.send('CSS.disable', {}, page)
+      await c.send('DOM.disable', {}, page)
+    }
     const advanceTo = (ms: number) =>
       held(
         `(() => { const c = self.__shadereraClock; c.sync(); return c.advanceTo(${JSON.stringify(ms)}) })()`,
@@ -1519,6 +1558,7 @@ export const captureWeb = async (options: CaptureOptions) => {
         animations: typeof declared
       }>(`(${READ})(${JSON.stringify(o.track)})`, ms)
       declared.push(...read.animations)
+      if (k === 0) await readFonts()
       WINDOW_CHANNELS.forEach(([channel], i) => {
         sampled(WINDOW, channel).push([time, read.scroll[i] as number])
       })
@@ -1662,7 +1702,15 @@ export const captureWeb = async (options: CaptureOptions) => {
     const json = tracksJson({
       format: 'shaderera.analysis/1',
       kind: 'reference-tracks',
-      source: { url, date, viewport, devicePixelRatio, responses: hashes, ...loadTime },
+      source: {
+        url,
+        date,
+        viewport,
+        devicePixelRatio,
+        responses: hashes,
+        ...loadTime,
+        fonts,
+      },
       tool,
       params: { fps: o.fps, duration: o.duration, track: o.track, ...clockParams },
       frame,

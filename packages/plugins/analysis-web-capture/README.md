@@ -288,7 +288,11 @@ and a file is read from disk. A response without a length may be a stream, which
 stop, so it is read once it has loaded: Chrome keeps a binary body as bytes, but a text body only
 as the text it decoded with its charset, so such a response carries `"hashOf": "text-as-utf8"`
 (that text encoded as UTF-8, the served file only when it was UTF-8). A body Chrome did not keep
-(an image it could not decode) has no hash and is a limit. **`tool`** is this script's version, the
+(an image it could not decode) has no hash and is a limit. `fonts` names, for each tracked
+element with text at the first frame, the fonts Chrome drew that text with then (its children's
+text included), from `CSS.getPlatformFontsForNode` as for a still: family, PostScript name,
+whether it is a web font, and how many glyphs it drew, sorted by family. A font the machine lacks
+falls back to one it has, which changes the boxes: the fallback is named here. **`tool`** is this script's version, the
 Chrome version and user agent, its flags, and the clock's version and sha256. **`params`** are the
 fps, `rafHz`, the seed, `timeOrigin`, `clockDate`, `timezone`, `locale`, the duration, the
 selectors, the media features, `allowLocal`, `mobile` (always `false`), `settle` and `trigger`: its
@@ -346,8 +350,9 @@ A page given as a file reads files, as Chrome lets it.
   frame or a still can show an earlier video frame.
 - A response that arrives while a frame's timers run can land on that frame or the next.
 - Fonts installed on the machine: text whose web font is missing, or lacks a glyph, falls back to
-  them, and they are neither held nor recorded (only web fonts' response hashes are; a still
-  names the fonts it drew with, not their files).
+  them, and they are not held. Their names are recorded (`source.fonts` for a tracked element's
+  text at the first frame, a still's texts), never their files; a font a text takes after the
+  first frame of a motion capture is not.
 - The layout box before transforms is not a channel: `x`, `y`, `width`, `height` are the box as
   drawn.
 

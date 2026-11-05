@@ -21,6 +21,19 @@ export type PageSource = {
    * not available: `text-as-utf8` is the body as the browser decoded it, encoded as UTF-8.
    */
   responses: { url: string; status: number; sha256: string; hashOf?: string }[]
+  /**
+   * For a page's motion: the fonts each tracked element's text was drawn with at the first frame,
+   * as the browser reports them, a fallback a font of its own. Absent from other sources.
+   */
+  fonts?: {
+    element: string
+    fonts: {
+      familyName: string
+      postScriptName: string
+      isCustomFont: boolean
+      glyphCount: number
+    }[]
+  }[]
 }
 
 /** One sample: the source time in seconds, and the value then, or null where there was none. */

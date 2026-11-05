@@ -13,7 +13,8 @@
 // and the local server sees nothing; with it, each response is hashed as served. A still of a page
 // with a web font, a Thai line it falls back from and a shadowed card gives the families and glyph
 // counts, boxes within 0.5 px and the computed values, the same bytes and screenshot each time;
-// a still after a scroll has its boxes from the viewport and the scroll recorded.
+// a still after a scroll has its boxes from the viewport and the scroll recorded. A motion capture
+// names the system font a tracked title in a missing family fell back to.
 // Workers (classic and module) and frames (of this origin, of another site, added later) run on
 // the clock: their timers, animation frames, Date and replies land at the page's times; an
 // OffscreenCanvas a worker draws and a video show the frame at the still's time, pixel for pixel.
@@ -988,6 +989,37 @@ test('a still reads the web font, the Thai fallback, the shadowed card, the same
     await assert.rejects(still({ root: '#nothing' }), /--root "#nothing" matches nothing/)
   } finally {
     server.close()
+  }
+})
+
+test('a motion capture records the fonts each tracked text fell back to, at the first frame', {
+  skip,
+}, async () => {
+  const doc = JSON.parse(
+    await capture({
+      page: fixture('fonts.html'),
+      track: ['#title', '#card', '#box', '#none'],
+      duration: 0.2,
+    }),
+  ) as Doc
+  const fonts = 'url' in doc.source ? doc.source.fonts : undefined
+  // A child's text counts for the element; one with no text, or none matching, has no entry.
+  assert.deepEqual(
+    fonts?.map((f) => f.element),
+    ['#title', '#card'],
+  )
+  const [title, card] = fonts ?? []
+  // No machine has the family asked for: what drew it is a system font, named.
+  for (const [entry, glyphs] of [
+    [title, 5],
+    [card, 6],
+  ] as const) {
+    assert.equal(entry?.fonts.length, 1, JSON.stringify(entry))
+    const [font] = entry?.fonts ?? []
+    assert.notEqual(font?.familyName, 'Shaderera Missing Face')
+    assert.ok(font?.familyName && font.postScriptName)
+    assert.equal(font?.isCustomFont, false)
+    assert.equal(font?.glyphCount, glyphs)
   }
 })
 
