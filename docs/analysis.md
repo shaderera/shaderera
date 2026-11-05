@@ -125,6 +125,9 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
   the analyser.
 - A reader keeps fields it does not know. A field that changes what a sample means is an
   incompatible change: a new kind or format number.
+- **Comparing:** `shaderera inspect --compare-tracks <file> --pairs <file.json>` measures a
+  film's elements against the tracks, pair by pair, with its own reader of this shape
+  ([cli.md](cli.md#measuring-against-reference-tracks)).
 
 ### Reference style
 

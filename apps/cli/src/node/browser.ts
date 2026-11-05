@@ -24,7 +24,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type { Json, Range } from '@shaderera/core'
 import { alive } from '../deliver/claim.ts'
-import type { TextRun } from '../review/measure.ts'
+import type { DomElement, TextRun } from '../review/measure.ts'
 import { unpackClips } from '../runner/audio.ts'
 import { type AdapterInfo, adapterLine, softwareAdapter } from './adapter.ts'
 import { CALL_TIMEOUT, type Child, callName, type Rendered, TIMEOUT } from './child.ts'
@@ -555,6 +555,7 @@ export const openBrowserChild = async (
         }
         return runs
       },
+      elements: (t) => call<DomElement[]>('elements', t),
       identity: async () => {
         const { product } = await cdp.send<{ product: string }>('Browser.getVersion')
         const info = await evaluate<AdapterInfo | null>(ADAPTER)

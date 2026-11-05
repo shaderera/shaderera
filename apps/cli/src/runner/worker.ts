@@ -644,6 +644,13 @@ const api = {
     enqueue(false, async () =>
       manifest.dom === undefined ? [] : (await domCall<{ runs: unknown[] }>({ text: t })).runs,
     ),
+  /** Every element with a data-id at t as the page drew it (dom.ts `elements`); [] without a DOM. */
+  elements: (t: number) =>
+    enqueue(false, async () =>
+      manifest.dom === undefined
+        ? []
+        : (await domCall<{ elements: unknown[] }>({ elements: t })).elements,
+    ),
   /**
    * The frame at t through the authored camera, composited `over`, as straight RGBA bytes (for
    * diffs, checks and export).

@@ -176,6 +176,7 @@ export const memoryChild = (o: MemoryChildOptions): Child => {
     ),
     seeks: call(() => null),
     text: call((t: number) => o.text?.(t) ?? []),
+    elements: call(() => []),
     close: async () => {
       closed = true
     },

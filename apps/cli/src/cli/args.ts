@@ -75,6 +75,15 @@ export const timesOf = (given: readonly string[]): number[] => {
   return times
 }
 
+/** A number flag, or undefined when not given; throws naming the flag when it is not a number. */
+export const numberOf = (flag: string, value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined
+  const n = Number(value)
+  if (value.trim() === '' || !Number.isFinite(n))
+    throw new Error(`--${flag} is a number, not ${value}.`)
+  return n
+}
+
 /** Throws naming the times outside the film: from 0 up to but not including its duration. */
 export const insideFilm = (times: readonly number[], duration: number) => {
   const outside = times.filter((t) => t < 0 || t >= duration)

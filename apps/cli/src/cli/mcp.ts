@@ -43,6 +43,7 @@ import { DRAFT_HEIGHT, insideFilm, open, parse } from './args.ts'
 import { checkChild } from './check.ts'
 import { compareWithFile, onSheet } from './compare-file.ts'
 import { isImage } from './compare-image.ts'
+import { compareTracks } from './compare-tracks.ts'
 import { crop, objectRegion, parseRegion, type Region } from './crop.ts'
 import { errorFinding } from './findings.ts'
 import { valueAt } from './inspect.ts'
@@ -303,7 +304,7 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
   ],
   [
     'inspect',
-    "Returns the source's inspect JSON at t, or the value at path. With track instead of t, that value at every frame from from to to: a curve, to read easing, holds and overshoot. Takes t or track.",
+    "Returns the source's inspect JSON at t, or the value at path. With track instead of t, that value at every frame from from to to: a curve, to read easing, holds and overshoot. With compare_tracks and pairs instead, the film measured against reference tracks. Takes t, track or compare_tracks.",
     {
       t: at(),
       path: say(str, 'A diffJson path into inspect (a.b, a[id=x]): only the value there.'),
@@ -313,6 +314,26 @@ const tools: [string, string, { [k: string]: object }, string[], Annotations][] 
       ),
       from: at('With track, from'),
       to: at('With track, to'),
+      compare_tracks: say(
+        str,
+        "Instead of t or track: a reference-tracks file (shaderera.analysis/1, kind reference-tracks, as docs/analysis.md defines it) inside the project, measured against the film pair by pair (pairs, needed). The film is read at each reference sample's source time minus offset; css-px and source-px values are scaled by the ratio of the frames (scaled). Per pair: the largest and mean difference in the reference's unit, the offset that best aligns the two (null with why when the samples are not evenly spaced), and each side's motion window. Measures only: no pass or fail.",
+      ),
+      pairs: say(
+        str,
+        'With compare_tracks: a JSON file inside the project, a list of { element, channel, film: { path } (an inspect path) or { id, channel } (a DOM element by data-id: x, y, width, height or opacity), axis? ("x" or "y", for a px channel whose axis its name does not say) }.',
+      ),
+      offset: say(
+        num,
+        "With compare_tracks: seconds, the film is read at each sample's source time minus offset. Default 0.",
+      ),
+      max_shift: say(
+        { type: 'integer', minimum: 0 },
+        "With compare_tracks: how many steps of the reference's sample interval either way the alignment searches. Default one second of steps.",
+      ),
+      floor: say(
+        num,
+        "With compare_tracks: the change, in the channel's unit, a motion window counts as still. Default 0.",
+      ),
       ...looks,
     },
     [],
@@ -1062,6 +1083,51 @@ export const createServer = (
           ]
         }
         case 'inspect': {
+          for (const k of ['pairs', 'offset', 'max_shift', 'floor'])
+            if (a[k] !== undefined && a.compare_tracks === undefined)
+              throw new Error(`${k} goes with compare_tracks.`)
+          if (a.compare_tracks !== undefined) {
+            if (typeof a.compare_tracks !== 'string' || typeof a.pairs !== 'string')
+              throw new Error(
+                'compare_tracks is a reference-tracks file and pairs a JSON file, both inside the project.',
+              )
+            if (a.t !== undefined || a.track !== undefined || a.path !== undefined)
+              throw new Error(
+                "compare_tracks reads the film at the reference's sample times: give no t, track or path.",
+              )
+            const number = (k: string): number | undefined => {
+              if (a[k] === undefined) return undefined
+              if (typeof a[k] !== 'number' || !Number.isFinite(a[k]))
+                throw new Error(`${k} is a number, not ${shown(a[k])}.`)
+              return a[k]
+            }
+            const options = {
+              offset: number('offset'),
+              maxShift: number('max_shift'),
+              floor: number('floor'),
+            }
+            const report = await compareTracks({
+              reference: inside(root, a.compare_tracks),
+              pairs: inside(root, a.pairs),
+              root,
+              within: root,
+              film: {
+                width: manifest.width,
+                height: manifest.height,
+                duration: manifest.duration,
+                ...(c.has.inspect ? { inspect: (t: number) => c.inspect(t) } : {}),
+                ...(manifest.dom === undefined ? {} : { elements: (t: number) => c.elements(t) }),
+              },
+              ...Object.fromEntries(Object.entries(options).filter(([, v]) => v !== undefined)),
+            })
+            return {
+              ...report,
+              reference: {
+                ...report.reference,
+                file: slash(relative(root, report.reference.file)),
+              },
+            }
+          }
           // track reads a window, not one t: it runs before t is checked.
           if (typeof a.track === 'string') {
             const { from, to } = windowOf(manifest, a.from, a.to)

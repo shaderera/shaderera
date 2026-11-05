@@ -1,0 +1,9 @@
+{
+  "entry": "./src/composition.ts",
+  "dom": "./src/dom.ts",
+  "host": "browser",
+  "fps": 10,
+  "duration": 2,
+  "width": 64,
+  "height": 36
+}

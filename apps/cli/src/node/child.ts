@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import type { Caption, Json, Matrices, Pick, Range, SampledClip } from '@shaderera/core'
 import type { GpuOutput, HdrOutput, LightLevels, SeekStats } from '@shaderera/core/host'
 import { paramDefaults } from '@shaderera/core/host'
-import type { TextRun } from '../review/measure.ts'
+import type { DomElement, TextRun } from '../review/measure.ts'
 import { hostOfBuild } from './build.ts'
 import { BULK_FD, bulkReader, isBulk } from './bulk.ts'
 import type { Fonts, HostProfile, Request } from './host.ts'
@@ -213,6 +213,11 @@ export type Child = {
    * effective opacity, box in frame pixels); [] in the Node host, which has no DOM.
    */
   text(t: number): Promise<TextRun[]>
+  /**
+   * Every element with a `data-id` in the project's DOM at t, as the browser host drew it: its box
+   * after transforms and its effective opacity; [] in the Node host, which has no DOM.
+   */
+  elements(t: number): Promise<DomElement[]>
   close(): Promise<void>
   /**
    * Which optional capabilities the source has. `sequential`: the source is stepped in order, and
@@ -439,6 +444,7 @@ export const openChild = async (
     fonts: () => call({ type: 'fonts' }),
     seeks: () => call({ type: 'seeks' }),
     text: async () => [],
+    elements: async () => [],
     identity: () => call({ type: 'identity' }),
     close: async () => {
       if (child.exitCode !== null || child.killed || !child.connected) return released
