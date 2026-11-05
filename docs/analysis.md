@@ -80,8 +80,12 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
 ```
 
 - `source` is a file or a live page, as [below](#artifact-identity-and-provenance). `params` holds
-  every setting that changed the samples: for a page capture the fps, `rafHz`, the seed and what
-  started the motion (`trigger`).
+  every setting that changed the samples: for a page capture the fps, `rafHz`, the seed, what the
+  page's clocks read when the capture froze them (`timeOrigin`, `clockDate`, `timezone`), the
+  `locale` its `Intl`, language and `Accept-Language` saw, the `media` features it was shown with,
+  whether it was a `mobile` page and what started the motion (`trigger`); its pixel ratio is
+  `frame.pixelRatio`. A setting the analyser gives a default is a constant, recorded like any
+  other, never the machine's.
 - `frame`: the source's `width` and `height`, in the unit of its position tracks (CSS pixels for a
   page's viewport, pixels for a clip), and `pixelRatio`, device pixels per CSS pixel (1 for a
   clip).
@@ -99,7 +103,9 @@ one reader (the `analysis-reference-tracks` plugin, whose writer the analysers s
 - `declared`: what the source itself declared, kept as written, never re-derived from the samples:
   for a page each animation's keyframes, timing and easing string. Each entry names its `element`
   and its `type`, an open set named by the analyser (for a page, `css-transition`,
-  `css-animation`, `web-animation`); the rest is the source's.
+  `css-animation`, `web-animation`); the rest is the source's, but for `start`: for a page, the
+  source second at which the analyser first saw the animation running, as it observed it (absent
+  when it did not), so its keyframes can be placed in source time.
 - `limits`: what the analyser could not make exact, each with `where` (an element, a URL, a part
   of the source), `reason`, and `from` and `to` in source seconds when it covers only part of the
   time. An empty list means the analyser found nothing it missed, not that nothing was.
@@ -129,8 +135,11 @@ the fonts each run of text was drawn with). It shares `source` and `frame` with
 - `source`: path, bytes, sha256. The participant checks the hash at open and refuses a mismatch.
   A live web page cannot be hashed, so its source is what was loaded instead: `url`, `date`
   (ISO 8601, UTC), `viewport` (`width`, `height` in CSS pixels), `devicePixelRatio` and
-  `responses`, each `{ url, status, sha256 }` of a response's body. A second capture that differs
-  is then explained.
+  `responses`, each `{ url, status, sha256 }` of a response's body as served (after any
+  Content-Encoding is undone). When those bytes were not available, `hashOf` says what was hashed
+  instead: `"text-as-utf8"` is the body as the browser decoded it with its charset, encoded as
+  UTF-8, which matches the served file only when it was UTF-8. A second capture that differs is
+  then explained.
 - `tool`: script, and the name and version string of every program that produced the samples
   (ffmpeg, the browser a page was captured in, a model's name, version and checkpoint sha256);
   `params`: every setting that changes the output.

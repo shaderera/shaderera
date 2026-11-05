@@ -1,0 +1,20 @@
+<!doctype html>
+<!--
+  What the capture holds besides time: #lang moves 1 px when navigator.language is th-TH and 2 px
+  when Intl's default locale is, #random moves by the page's first Math.random().
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #lang { top: 20px } #random { top: 80px }
+</style>
+<div class="box" id="lang"></div>
+<div class="box" id="random"></div>
+<script>
+  const flags =
+    (navigator.language === 'th-TH' ? 1 : 0) +
+    (new Intl.NumberFormat().resolvedOptions().locale === 'th-TH' ? 2 : 0)
+  lang.style.transform = `translateX(${flags}px)`
+  random.style.transform = `translateX(${Math.round(Math.random() * 1e6)}px)`
+</script>

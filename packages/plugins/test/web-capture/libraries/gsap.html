@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  GSAP itself (the gsap devDependency, bundled by the test into gsap.bundle.js). #lin and #css are
+  the same linear move, 0 to 600 px in 2 s, on GSAP's ticker and as a CSS animation; #a waits for
+  a 0.2 s delay and eases out; #b is elastic.
+-->
+<meta charset="utf-8" />
+<style>
+  body { margin: 0; background: #000 }
+  .box { position: absolute; left: 20px; width: 40px; height: 40px; background: #fff }
+  #a { top: 20px } #b { top: 80px } #lin { top: 140px }
+  #css { top: 200px; animation: slide 2s linear both }
+  @keyframes slide { from { transform: translateX(0px) } to { transform: translateX(600px) } }
+</style>
+<div class="box" id="a"></div>
+<div class="box" id="b"></div>
+<div class="box" id="lin"></div>
+<div class="box" id="css"></div>
+<script src="gsap.bundle.js"></script>

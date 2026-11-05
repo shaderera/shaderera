@@ -13,6 +13,7 @@
         "type": "string",
         "enum": [
           "analysis-reference-tracks",
+          "analysis-web-capture",
           "asset-provenance",
           "audio-beat-clock",
           "audio-filters",
@@ -78,6 +79,13 @@
       "label": "analysis-reference-tracks",
       "params": {
         "item": "analysis-reference-tracks",
+        "state": "default"
+      }
+    },
+    "analysis-web-capture": {
+      "label": "analysis-web-capture",
+      "params": {
+        "item": "analysis-web-capture",
         "state": "default"
       }
     },
