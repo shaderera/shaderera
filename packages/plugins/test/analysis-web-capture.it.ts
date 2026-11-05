@@ -14,7 +14,8 @@
 // with a web font, a Thai line it falls back from and a shadowed card gives the families and glyph
 // counts, boxes within 0.5 px and the computed values, the same bytes and screenshot each time;
 // a still after a scroll has its boxes from the viewport and the scroll recorded. A motion capture
-// names the system font a tracked title in a missing family fell back to.
+// names the system font a tracked title in a missing family fell back to, and lists an animation
+// on a scroll timeline in its limits.
 // Workers (classic and module) and frames (of this origin, of another site, added later) run on
 // the clock: their timers, animation frames, Date and replies land at the page's times; an
 // OffscreenCanvas a worker draws and a video show the frame at the still's time, pixel for pixel.
@@ -519,7 +520,11 @@ test('a scroll at 24 fps, whose wheel times round past a frame, still captures',
   })
   const y = samplesOf(json, 'window', 'scrollY')
   assert.equal(y.at(-1)?.[1], 240)
-  assert.deepEqual((JSON.parse(json) as Doc).limits, [])
+  // Only the scroll timeline animation, which is no --track, is a limit.
+  assert.deepEqual(
+    (JSON.parse(json) as Doc).limits.map((l) => l.where),
+    ['#css'],
+  )
 })
 
 test('a scroll is recorded against scrollY and captures the same at any speed', {
@@ -566,7 +571,14 @@ test('a scroll is recorded against scrollY and captures the same at any speed', 
   })
   const timeline = doc.declared.find((d) => d.element === '#css')
   assert.deepEqual(timeline?.timeline, { type: 'scroll', source: 'window', axis: 'block' })
-  assert.deepEqual(doc.limits, [])
+  // Not on the clock, so a limit names it with its timeline: it is recorded against scrollY.
+  assert.deepEqual(doc.limits, [
+    {
+      where: '#css',
+      reason:
+        'a css-animation "grow" on a scroll timeline, not document.timeline: the clock does not hold it',
+    },
+  ])
 
   // A scroll past the page's end is what the page did, and says so.
   const far = JSON.parse(

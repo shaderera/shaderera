@@ -34,7 +34,7 @@ import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
 import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
-export const VERSION = '0.5.0'
+export const VERSION = '0.6.0'
 
 /** Chrome from CHROME (docs/determinism.md), else the first of a few usual install paths. */
 export const chromePath = async () => {
@@ -1558,6 +1558,15 @@ export const captureWeb = async (options: CaptureOptions) => {
         animations: typeof declared
       }>(`(${READ})(${JSON.stringify(o.track)})`, ms)
       declared.push(...read.animations)
+      // An animation not on document.timeline is not on the clock: it is named, once.
+      for (const a of read.animations) {
+        const timeline = a.timeline as { type: string } | undefined
+        if (timeline)
+          limits.push({
+            where: a.element + (typeof a.pseudoElement === 'string' ? a.pseudoElement : ''),
+            reason: `a ${a.type}${a.name ? ` ${JSON.stringify(a.name)}` : ''} on a ${timeline.type} timeline, not document.timeline: the clock does not hold it`,
+          })
+      }
       if (k === 0) await readFonts()
       WINDOW_CHANNELS.forEach(([channel], i) => {
         sampled(WINDOW, channel).push([time, read.scroll[i] as number])

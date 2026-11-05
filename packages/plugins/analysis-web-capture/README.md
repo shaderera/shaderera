@@ -329,6 +329,11 @@ A page given as a file reads files, as Chrome lets it.
   An `offset-path`, or a `translate` the capture cannot read (`calc()`, or a percentage on an SVG
   element, whose box depends on `transform-box`), is left out of the transform channels. A
   percentage on an HTML element is of its border box, unrounded.
+- An animation whose timeline is not `document.timeline` (a scroll or view timeline, or none) is
+  not on the clock: it follows its scroll position, which input or the page's own script moves
+  (both on the capture's clock). Each is named once, by its element, with its type, its name and
+  its timeline's type (`a css-animation "grow" on a scroll timeline`); `declared` has the
+  timeline's source or subject and axis. A scroll of the window is in the `window` channels.
 - More than one element matching a selector: the first is tracked.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.
@@ -339,9 +344,6 @@ A page given as a file reads files, as Chrome lets it.
 - A request the proxy refused, a response that did not load, or one whose body has no hash.
 
 **Limits not held and not detected**: a capture that meets them has nothing in `limits` for them.
-- Scroll and view timelines are not on the clock: they follow the scroll position, which input or
-  the page's own script moves (both on the capture's clock), and which the `window` channels
-  record.
 - Canvas and WebGL drawing (no channel reads them), `AudioContext`, `<audio>` (its `currentTime`,
   `timeupdate` and `ended` run on real time), `requestVideoFrameCallback`, `Temporal`,
   `crypto.getRandomValues`, GIF and APNG frames.
