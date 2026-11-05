@@ -16,6 +16,14 @@ export type TextRun = {
    */
   rendered?: { family: string; custom: boolean; glyphs: number }[]
 }
+/** An element with a `data-id` in the DOM as the browser host drew it at t (runner/dom.ts). */
+export type DomElement = {
+  id: string
+  /** Its bounding box after transforms, in frame pixels: x, y, width, height. */
+  box: [number, number, number, number]
+  /** Its effective opacity: its own times its ancestors', 0 when hidden. */
+  opacity: number
+}
 /**
  * A shot from inspect: a moment `{ id, at }` or a span `{ id, start, end }` (on screen from `start`
  * up to `end`). `at` is the time review looks at: for a span, the middle of the part no other shot

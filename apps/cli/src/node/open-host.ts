@@ -203,6 +203,7 @@ export const reopening = (
     profile: async (reset) => (await current()).profile(reset),
     seeks: async () => (await current()).seeks(),
     text: async (t) => (await current()).text(t),
+    elements: async (t) => (await current()).elements(t),
     close: async () => {
       await ready.catch(() => {})
       await host.close()

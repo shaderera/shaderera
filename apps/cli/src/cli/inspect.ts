@@ -1,6 +1,8 @@
+import { resolve } from 'node:path'
 import type { Json } from '@shaderera/core'
 import { track } from '../review/timing.ts'
-import { insideFilm, open, parseRendering } from './args.ts'
+import { insideFilm, numberOf, open, parseRendering } from './args.ts'
+import { compareTracks, trackLines } from './compare-tracks.ts'
 
 const show = (v: Json): string =>
   typeof v === 'number'
@@ -71,9 +73,55 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       track: { type: 'string' },
       from: { type: 'string' },
       to: { type: 'string' },
+      'compare-tracks': { type: 'string' },
+      pairs: { type: 'string' },
+      offset: { type: 'string' },
+      'max-shift': { type: 'string' },
+      floor: { type: 'string' },
     },
     { command: 'inspect', times: true },
   )
+  const against = v['compare-tracks']
+  if (against === undefined) {
+    for (const flag of ['pairs', 'offset', 'max-shift', 'floor'] as const)
+      if (v[flag] !== undefined)
+        throw new Error(`--${flag} goes with --compare-tracks <file>: give it too.`)
+  } else {
+    if (typeof v.pairs !== 'string')
+      throw new Error(
+        '--compare-tracks needs --pairs <file.json>: each pair is named, never guessed.',
+      )
+    if (times.length > 0 || v.track !== undefined || v.path !== undefined)
+      throw new Error(
+        "--compare-tracks reads the film at the reference's sample times: give no times, --track or --path.",
+      )
+    const maxShift = numberOf('max-shift', v['max-shift'])
+    const offset = numberOf('offset', v.offset)
+    const floor = numberOf('floor', v.floor)
+    const { project, child } = await open(v)
+    try {
+      const { width, height, duration, dom } = project.manifest
+      const report = await compareTracks({
+        reference: resolve(against),
+        pairs: resolve(v.pairs),
+        root: project.root,
+        film: {
+          width,
+          height,
+          duration,
+          ...(child.has.inspect ? { inspect: (t: number) => child.inspect(t) } : {}),
+          ...(dom === undefined ? {} : { elements: (t: number) => child.elements(t) }),
+        },
+        ...(offset === undefined ? {} : { offset }),
+        ...(maxShift === undefined ? {} : { maxShift }),
+        ...(floor === undefined ? {} : { floor }),
+      })
+      console.log(v.json ? JSON.stringify(report, null, 2) : trackLines(report).join('\n'))
+      return 0
+    } finally {
+      await child.close()
+    }
+  }
   if (typeof v.track === 'string') {
     if (times.length > 0)
       throw new Error('inspect --track reads every frame: give --from and --to, not times.')

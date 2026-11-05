@@ -150,6 +150,29 @@ const mount = async (
     }
     return createImageBitmap(canvas)
   }
+  /** An element's effective opacity: its own times its ancestors' in the DOM, 0 when hidden. */
+  const seen = (el: Element) => {
+    let opacity = 1
+    for (let e: Element | null = el; e && e !== element.parentElement; e = e.parentElement)
+      opacity *= Number(getComputedStyle(e).opacity)
+    return getComputedStyle(el).visibility === 'hidden' ? 0 : opacity
+  }
+  /**
+   * Every element with a `data-id` at t, measured by the page: its box as drawn (the bounding box
+   * after transforms, in frame pixels from the DOM's top-left) and its effective opacity.
+   */
+  const elements = async (t: number) => {
+    ;(await draw(t)).close()
+    const origin = element.getBoundingClientRect()
+    return [...element.querySelectorAll<HTMLElement>('[data-id]')].map((el) => {
+      const r = el.getBoundingClientRect()
+      return {
+        id: el.dataset.id as string,
+        box: [r.left - origin.left, r.top - origin.top, r.width, r.height],
+        opacity: seen(el),
+      }
+    })
+  }
   /**
    * The DOM's text as laid out at t, measured by the page, not reported by the participant: each
    * element's own text, its font, size and effective opacity, and its box in frame pixels.
@@ -190,11 +213,8 @@ const mount = async (
       const y = Math.min(...rects.map((r) => r.top)) - origin.top
       const right = Math.max(...rects.map((r) => r.right)) - origin.left
       const bottom = Math.max(...rects.map((r) => r.bottom)) - origin.top
-      let opacity = 1
-      for (let e: Element | null = el; e && e !== element.parentElement; e = e.parentElement)
-        opacity *= Number(getComputedStyle(e).opacity)
+      const opacity = seen(el)
       const style = getComputedStyle(el)
-      if (style.visibility === 'hidden') opacity = 0
       el.setAttribute('data-shaderera-run', String(runs.length))
       runs.push({
         id: (el as HTMLElement).dataset.id || el.id || `dom:${el.tagName.toLowerCase()}:${n}`,
@@ -217,7 +237,7 @@ const mount = async (
     canvas.remove()
     style.remove()
   }
-  return { draw, text, dispose }
+  return { draw, text, elements, dispose }
 }
 
 /** Answers the worker: `mount` lays the DOM out, `t` draws it at that time. */
@@ -234,6 +254,7 @@ export const domHost = (port: MessagePort) => {
         module?: string
       }
       text?: number
+      elements?: number
     }
     try {
       if (m.mount) {
@@ -250,6 +271,9 @@ export const domHost = (port: MessagePort) => {
       } else if (m.text !== undefined) {
         if (!current) throw new Error('The DOM is not mounted.')
         port.postMessage({ id: m.id, runs: await current.text(m.text) })
+      } else if (m.elements !== undefined) {
+        if (!current) throw new Error('The DOM is not mounted.')
+        port.postMessage({ id: m.id, elements: await current.elements(m.elements) })
       } else if (m.t !== undefined) {
         if (!current) throw new Error('The DOM is not mounted.')
         const bitmap = await current.draw(m.t)

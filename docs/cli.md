@@ -6,7 +6,7 @@ shaderera <command> [--root <dir>] [--variant <name>] [--host node|browser] [--t
 
 | Command | What it does |
 |---|---|
-| [`inspect`](#inspect) | the source's state at t, or a value at every frame |
+| [`inspect`](#inspect) | the source's state at t, a value at every frame, or element tracks against reference tracks |
 | [`check`](#check) | render each t twice in two orders and compare |
 | [`still`](#still) | stills of any moment, a close look, a contact sheet |
 | [`render`](#render) | export an mp4 or a ProRes mov (a png job: frames, `audio.wav`, `delivery.json`) |
@@ -130,6 +130,7 @@ There is no silent fallback. `npx shaderera doctor` lists the same problem as it
 | `<t>` or `--time <s>` | required | one time, see [the common flags](#common-flags) |
 | `--path <p>` | the whole JSON | `a.b`, `a[2]`, `a[id=k5]`, `a["x y"]` |
 | `--json` | off | pretty JSON instead of lines (ignores `--path`) |
+| `--compare-tracks <file>` | none | instead of a time: the film measured against reference tracks, [below](#measuring-against-reference-tracks) |
 
 One leaf per line, `path value`; arrays of objects with string `id`s are keyed by id. Numbers are
 shown to 4 decimals. A source without `inspect` fails with `This source has no inspect(t).`
@@ -159,6 +160,88 @@ $ shaderera inspect --track camera.fov --from 4 --to 4.2
 4.133  43.9697  speed 0.9091/s
 4.167  43.8939  speed 2.2727/s
 ```
+
+### Measuring against reference tracks
+
+When a film copies a reference's motion one to one, `inspect --compare-tracks <file> --pairs
+<file.json>` measures how far each element is from it. The file is a `reference-tracks` artifact,
+as [analysis.md](analysis.md#reference-tracks) defines it; whatever analyser wrote it. It measures
+and never judges: there is no pass or fail, and it exits 0 unless an input is bad (2). It has no
+gate yet: one would be declared in `requirements.json` when it is built.
+
+| Flag | Default | |
+|---|---|---|
+| `--compare-tracks <file>` | none | the `reference-tracks` file. Not with times, `--track` or `--path` |
+| `--pairs <file.json>` | required with it | what is compared with what, below |
+| `--offset <s>` | 0 | the film is measured at each reference sample's source time minus this. A negative one is written `--offset=-0.2` |
+| `--max-shift <n>` | one second of steps | how many steps of the reference's sample interval either way the alignment searches |
+| `--floor <change>` | 0 | the change, in the channel's unit, a motion window counts as still |
+| `--json` | off | the report below |
+
+- **The file** is refused, naming why, when its `format` or `kind` is another, when a track is
+  malformed, and when its source is a file whose sha256 is not the one recorded (its path is read
+  from the project's root): motion measured from other bytes. A live page's source has no file to
+  check. Fields it does not know are ignored.
+- **Pairs are given, never guessed:** a JSON list, each naming a reference track by its `element`
+  and `channel`, and what of the film it is compared with, `film`:
+  - `{ "path": "objects[id=card].x" }`: the value at an [inspect](#inspect) path, as `--track`
+    reads it;
+  - `{ "id": "card", "channel": "x" }`: the DOM element with that `data-id`, in the browser host:
+    its box as drawn (`x`, `y`, `width`, `height`: the bounding box after transforms, in frame
+    pixels from the top-left) or its `opacity` (its own times its parents', 0 when hidden).
+
+  A pair whose track, inspect path or element is not there is refused, naming it. A value that is
+  `null` (or missing at a time) on either side is not compared.
+
+  ```json
+  [
+    { "element": ".card", "channel": "x", "film": { "id": "card", "channel": "x" } },
+    { "element": ".dot", "channel": "x", "film": { "path": "objects[id=dot].x" } }
+  ]
+  ```
+- **Times:** the film is measured at each sample's source time minus `--offset`, so no fill
+  between samples is chosen. A sample with no film time (before 0, or at or after the film's
+  duration) is refused, naming it.
+- **Units:** values are compared in the reference's unit. A `css-px` or `source-px` value of the
+  film is multiplied by the reference's `frame.width` over the film's width (`x`, `width`,
+  `translateX`, `scrollX`) or its height (`y`, `height`, `translateY`, `scrollY`), since `frame`
+  is in the tracks' unit; any other channel in those units needs `"axis": "x"` or `"y"` in its
+  pair. The report says so in `scaled`. `deg`, `ratio` and any other unit are compared as
+  written.
+- **Per pair:** the largest and mean |film − reference| over the samples both have; the offset
+  that best aligns the two, found as `still --compare-file` finds it, on each side's change from
+  the sample before (Pearson correlation within `--max-shift` steps, with the film measured up to
+  that many steps past the first and last samples where it has time), or `null` with `why` when
+  the samples are not evenly spaced; and each side's motion window (the first and last change
+  above `--floor`, and the peak), on the film's times. As with `--compare-file`, a positive shift
+  means the reference moves later, and `--offset` plus the shift's seconds reads them aligned: a
+  film that moves 2 frames late shows -2.
+
+With `--json`: `reference` (`kind`, `file`, `source`, `frame`), `film` (`width`, `height`,
+`duration`), `offset`, `floor`, and `pairs`, each with `element`, `channel`, `unit`, `film` (the
+pair's), `scaled` (null, or `factor`, `axis`, `from` (the film's frame), `to` (the reference's)),
+`step` (seconds between samples; null when not evenly spaced), `compared` (samples both have),
+`difference` (`max` and `mean`, or null), `offset` (`found`: `steps`, `seconds` and `correlation`,
+or null with `why`; `maxShift`; `scores`, each shift's `correlation` and `overlap`), `window`
+(`film` and `reference`: `first`, `last`, and `peak` with its `t` and `change`, or null when
+still) and `samples` (each `t` (film), `at` (source), `reference`, `film` and `difference`).
+
+```
+$ shaderera inspect --compare-tracks references/hero.tracks.json --pairs pairs.json --max-shift 4
+reference: /work/hero/references/hero.tracks.json, frame 128×72 at pixel ratio 2; film 64×36, 2 s; measured at source time − 0 s
+.card x (css-px) vs data-id card x
+  scaled: the film's value × 2 (x: 64×36 film to 128×72 reference)
+  difference: max 43.52, mean 10.6667 css-px over 15 samples
+  film moves 0.900–1.300 s, peak 1.100 s (23.68); reference moves 0.700–1.100 s, peak 0.900 s (23.68)
+  offset: aligns best at -2 steps of 0.1 s (-0.2 s, the film 2 steps later, correlation 1.000), searched ±4. Aligned: --offset=-0.2
+.dot x (css-px) vs objects[id=dot].x
+  scaled: the film's value × 2 (x: 64×36 film to 128×72 reference)
+  difference: max 0, mean 0 css-px over 15 samples
+  film moves 0.700–1.100 s, peak 0.900 s (23.68); reference moves 0.700–1.100 s, peak 0.900 s (23.68)
+  offset: aligns best at 0 steps of 0.1 s (0 s, in step, correlation 1.000), searched ±4
+```
+
+The card starts 0.2 s after the reference; the dot is in step.
 
 ## `check`
 

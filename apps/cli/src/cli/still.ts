@@ -8,7 +8,7 @@ import { outputRequirements, readRequirements } from '../project/requirements.ts
 import { type Comparison, compareFrames, sideBySide } from '../review/compare.ts'
 import { contactSheet, pngWriter, toPng } from '../review/review.ts'
 import { type VariantFrames, variantSheet } from '../review/variant-sheet.ts'
-import { insideFilm, open, parseRendering, timesOf } from './args.ts'
+import { insideFilm, numberOf, open, parseRendering, timesOf } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { compareWithFile, frameLine, onSheet, summaryLines } from './compare-file.ts'
 import { imageFrameLines, imageSummaryLines, isImage } from './compare-image.ts'
@@ -247,15 +247,6 @@ const stillFile = async (
   } finally {
     await video.close()
   }
-}
-
-/** A number flag, or undefined when not given; throws naming the flag when it is not a number. */
-const numberOf = (flag: string, value: string | undefined): number | undefined => {
-  if (value === undefined) return undefined
-  const n = Number(value)
-  if (value.trim() === '' || !Number.isFinite(n))
-    throw new Error(`--${flag} is a number, not ${value}.`)
-  return n
 }
 
 /**
