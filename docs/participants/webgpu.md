@@ -86,12 +86,13 @@ or a measure needs them, is `readTexture` in `@shaderera/core/gpu`: WebGPU requi
 
 ## Footage and stills
 
-A still or a footage frame is straight RGBA bytes (`io.image`, `io.video`'s `frame(i)`). Write
-them to a texture, a still once in `open` and footage once a frame, and sample the texture in a
-pass. Fit, scale and blur are then a few lines of WGSL, and the frame never leaves the GPU.
-`videoTexture(device, clip)` (`@shaderera/core/gpu`) gives a footage frame as such a texture from
-its Y'CbCr planes, 1.5 bytes a pixel over the pipe instead of 4: sample its `frame(i)` in place of
-writing the RGBA bytes (it has one mip level).
+A still is straight RGBA bytes (`io.image`): write it to a texture once in `open`, and sample
+the texture in a pass. Footage comes through `videoTexture(device, clip)` (`@shaderera/core/gpu`):
+each frame a texture made on the GPU from its Y'CbCr planes, 1.5 bytes a pixel over the pipe
+instead of RGBA's 4. Its `frame(i)` has one mip level: sample it as it is, or copy it into a
+picture with mip levels (below) to scale or blur it. A film that asks for RGBA frames and writes
+them itself gets a `check` note. Fit, scale and blur are then a few lines of WGSL, and the frame
+never leaves the GPU.
 
 This one pass draws a picture's rectangle over the target. A mip level as small as the target's
 pixels scales it down without aliasing; a much smaller level, read with a 3×3 tent, blurs it.
@@ -127,7 +128,7 @@ struct V { @builtin(position) pos: vec4f, @location(0) uv: vec2f }
 ```
 
 In `open`, one pipeline, a `pass` that binds one view and draws into another, and a `picture`
-that keeps a texture and halves it into its mip levels after each write:
+that keeps a texture and halves it into its mip levels after each write or copy:
 
 ```ts
 const { width: W, height: H } = manifest
@@ -184,6 +185,11 @@ const picture = (width: number, height: number) => {
       device.queue.writeTexture({ texture }, data, { bytesPerRow: width * 4 }, [width, height])
       for (const halve of halves) halve(encoder, [0, 0, 1, 1])
     },
+    // A texture of the same size: rgba8unorm copies into rgba8unorm-srgb as it is.
+    copy(encoder: GPUCommandEncoder, from: GPUTexture) {
+      encoder.copyTextureToTexture({ texture: from }, { texture }, [width, height])
+      for (const halve of halves) halve(encoder, [0, 0, 1, 1])
+    },
   }
 }
 ```
@@ -207,6 +213,7 @@ A blurred backdrop of the footage, and a still contained over it:
 const image = await io.image!('assets/still.png')
 if (image.bits !== 8) throw new Error('assets/still.png: an 8-bit PNG or a JPEG')
 const clip = await io.video!('assets/clip.mp4')
+const frames = videoTexture(device, clip) // import { videoTexture } from '@shaderera/core/gpu'
 const still = picture(image.width, image.height)
 const footage = picture(clip.width, clip.height)
 const output = device.createTexture({
@@ -221,9 +228,9 @@ device.queue.submit([first.finish()])
 
 return {
   async render(t) {
-    const data = await clip.frame(Math.min(clip.frames - 1, Math.floor(t * clip.fps)))
+    const frame = await frames.frame(Math.min(clip.frames - 1, Math.floor(t * clip.fps)))
     const encoder = device.createCommandEncoder()
-    footage.write(encoder, data) // footage: once a frame
+    footage.copy(encoder, frame) // footage: once a frame, from its Y'CbCr planes
     const back = fit(footage, 'cover')
     drawFootage(encoder, back.rect, back.lod + 5, 1) // a level 32× smaller: a soft blur
     const front = fit(still, 'contain', 0.6)

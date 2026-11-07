@@ -67,10 +67,11 @@ pass ran at 70 and 48. Type drawn in Canvas2D reaches a WGSL pass as a texture: 
 // in open: a still is written once
 still.write(first, image.data as Uint8Array)
 
-// in render(t): the footage frame, then one pass each into the output texture
-const data = await clip.frame(Math.min(clip.frames - 1, Math.floor(t * clip.fps)))
+// in render(t): the footage frame (frames = videoTexture(device, clip), its Y'CbCr planes
+// converted on the GPU), then one pass each into the output texture
+const frame = await frames.frame(Math.min(clip.frames - 1, Math.floor(t * clip.fps)))
 const encoder = device.createCommandEncoder()
-footage.write(encoder, data) // writeTexture, then its mip levels halved
+footage.copy(encoder, frame) // copied into the picture, then its mip levels halved
 const back = fit(footage, 'cover')
 drawFootage(encoder, back.rect, back.lod + 5, 1) // cover, read 32× smaller: a blurred backdrop
 const front = fit(still, 'contain', 0.6)
@@ -82,14 +83,16 @@ return { color: output, alpha: 'premultiplied' }
 For footage drawn on the GPU, `videoTexture(host.gpu, clip)` from `@shaderera/core/gpu` asks
 for the clip's Y'CbCr planes (1.5 bytes a pixel, not RGBA's 4: footage-heavy films render faster)
 and converts them on the GPU, the same bytes in every host. Its `frame(i)` gives an `rgba8unorm`
-texture to sample in place of `footage.write`; it is valid until the next `frame()`, so a
-dissolve between two frames uses two helpers. Its pixels are close to `clip.frame(i)`'s RGBA,
-not equal: switching a film changes its pixels once. Footage of more than 8 bits (`clip.bits`:
-phone HEVC, camera log) bands when a grade lifts or stretches it at 8: `videoTexture(host.gpu,
-clip, { bits: 10 })` asks for its 10-bit planes (`yuv420p10`, 3 bytes a pixel) and gives an
-`rgba16float` texture of R'G'B' code values, superwhites kept past 1 and no transfer curve, for
-the grade to read. Say what the file is where the film opens it, as camera files often do not
-tag a log curve: `io.video('assets/a7s.mp4', { transfer: 'slog3', gamut: 'sgamut3cine' })`.
+texture of one level, to sample as it is, or to copy into a picture with mip levels as above when
+the film scales or blurs it; it is valid until the next `frame()`, so a dissolve between two
+frames uses two helpers. Never ask for RGBA frames to write a texture yourself: `check` notes
+it. Its pixels are close to `clip.frame(i)`'s RGBA, not equal: switching a film changes its pixels
+once. Footage of more than 8 bits (`clip.bits`: phone HEVC, camera log) bands when a grade lifts
+or stretches it at 8: `videoTexture(host.gpu, clip, { bits: 10 })` asks for its 10-bit planes
+(`yuv420p10`, 3 bytes a pixel) and gives an `rgba16float` texture of R'G'B' code values,
+superwhites kept past 1 and no transfer curve, for the grade to read. Say what the file is where
+the film opens it, as camera files often do not tag a log curve:
+`io.video('assets/a7s.mp4', { transfer: 'slog3', gamut: 'sgamut3cine' })`.
 The clip carries it as `clip.space` for the grade (`color-spaces`); the engine converts nothing.
 Take it from the camera's settings or the file's tags (phone HDR is usually `hlg` or `pq` with
 `rec2020`). `check` warns of a file of more than 8 bits with no `transfer` declared, or read
