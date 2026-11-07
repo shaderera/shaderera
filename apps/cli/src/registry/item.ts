@@ -23,6 +23,7 @@ const WORK = [
   'Typography',
   'Looks',
   'Color',
+  'Compositing',
   'Procedural & Particles',
   'Transitions',
   'Animation & Camera',
