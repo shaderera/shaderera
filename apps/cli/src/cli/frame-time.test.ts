@@ -70,6 +70,7 @@ test('no hint when the encoder, io.video or other hosts set the pace', () => {
   })
   assert.equal(video.drawing, false)
   assert.equal(video.compositor, false)
+  assert.equal(frameTimeHint(video), null)
   // Two hosts: the drawing and the compositor of one are each under half its share of the time.
   const two = frameTime({
     frames: 100,
@@ -144,6 +145,45 @@ test('the hint names the fast way to draw footage when the film has clips or a c
     hosts: [{ renders: 100, renderMs: 3100, videoMs: 900, composeMs: 300 }],
   })
   assert.equal(frameTimeHint(busy, slow), null)
+})
+
+test('with the encoder idle and no one part leading, footage drawn the slow way still gets its fix (#771)', () => {
+  // #434's film: 4 hosts, 31.6 ms a frame; each host draws 36.3 ms, composites 29.3 and waits
+  // 45.4 on io.video a frame, none of them half of a host's share.
+  const t = frameTime({
+    frames: 600,
+    wallMs: 600 * 31.6,
+    writeMs: 600 * 4.9,
+    hosts: Array.from({ length: 4 }, () => ({
+      renders: 150,
+      renderMs: 150 * 81.7,
+      videoMs: 150 * 45.4,
+      composeMs: 150 * 29.3,
+    })),
+  })
+  assert.deepEqual([t.encoderIdle, t.drawing, t.compositor], [true, false, false])
+  const none = { clips: false, rgba: false, canvas: false, gpu: false }
+  const hint = frameTimeHint(t, { clips: true, rgba: true, canvas: true, gpu: false }) ?? ''
+  assert.match(
+    hint,
+    /^The hosts take each frame while the encoder waits\. The film opens io\.video clips/,
+  )
+  assert.match(hint, /'yuv420p'.*videoTexture.*"Footage and stills on the GPU"/)
+  assert.match(
+    frameTimeHint(t, { clips: true, rgba: true, canvas: false, gpu: true }) ?? '',
+    /RGBA frames while it returns GPU layers/,
+  )
+  // yuv420p through videoTexture already, a canvas without clips, or no word from a host: none.
+  for (const d of [
+    { clips: true, rgba: false, canvas: false, gpu: true },
+    { ...none, canvas: true },
+    none,
+    undefined,
+  ])
+    assert.equal(frameTimeHint(t, d), null)
+  // A busy encoder sets the pace: no hint, however the film drew.
+  const busy = frameTime({ frames: 600, wallMs: 600 * 31.6, writeMs: 600 * 20, hosts: [] })
+  assert.equal(frameTimeHint(busy, { clips: true, rgba: true, canvas: true, gpu: false }), null)
 })
 
 test("how the film drew is any host's, and unknown when a host could not say", () => {

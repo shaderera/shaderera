@@ -94,7 +94,10 @@ export const footageFix = (d: Drawn): string | null =>
 
 /**
  * The hint naming the host's part that sets the pace, or null. `drawn`, how the film drew on its
- * hosts: with clips or a canvas layer, the hint names the fast way to draw them (footageFix).
+ * hosts: with clips or a canvas layer, the hint names the fast way to draw them (footageFix). While
+ * the encoder is idle and no one part sets the pace (the io.video waits lead, or the parts are
+ * even), a film that draws its footage the slow way still gets footageFix: it makes all three
+ * smaller (#771).
  */
 export const frameTimeHint = (t: FrameTime, drawn?: Drawn): string | null => {
   const fix =
@@ -109,7 +112,9 @@ export const frameTimeHint = (t: FrameTime, drawn?: Drawn): string | null => {
       : `The film's own drawing takes most of each frame while the encoder waits: footage and stills drawn on the CPU are the usual cause. See ${GPU_FOOTAGE}.`
     : t.compositor
       ? `The compositor and readback take most of each frame while the encoder waits: every frame's layers are composited, read back and handed to the CLI on its host, so more hosts (--workers) on idle cores, fewer layers, and layers as GPU textures rather than canvases make it faster. See ${MORE_HOSTS}.${fix ? ` ${fix}` : ''}`
-      : null
+      : t.encoderIdle && t.frameMs > 0 && drawn && footageFix(drawn)
+        ? `The hosts take each frame while the encoder waits. ${footageFix(drawn)}`
+        : null
 }
 
 /** How the film drew on any of its hosts (Drawn), or undefined when a host could not say. */
