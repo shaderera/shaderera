@@ -1,5 +1,5 @@
 {
-  "caption": "Captures a web page's motion frame by frame on an injected clock, as tracks a film reads and copies, or its look at one moment: boxes, computed styles, drawn fonts and a screenshot.",
+  "caption": "Captures a web page's motion on an injected clock as tracks a film reads, or its look at one moment: boxes, styles, fonts, a screenshot.",
   "states": [
     {
       "id": "default",

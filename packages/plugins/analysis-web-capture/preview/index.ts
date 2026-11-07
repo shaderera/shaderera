@@ -41,7 +41,7 @@ const preview: OpenPreview = async (host, stateId) => {
   const hi = Math.max(...xs)
   const tx = (s: number) => L + (s / duration) * (R - L)
   const ty = (v: number) => GRAPH.bottom - ((v - lo) / (hi - lo || 1)) * (GRAPH.bottom - GRAPH.top)
-  const linear = { between: 'linear' } as const
+  const linear = { between: 'linear', after: 'hold' } as const
 
   const top: Word[] = [{ from: 0, to: 99, text: 'CAPTURE' }]
   const bottom: Word[] = [
