@@ -1073,6 +1073,14 @@ test('a still reads the web font, the Thai fallback, the shadowed card, the same
     ])
     const [thai] = textsOf(style, '[data-id="card"] > p:nth-child(2)')
     assert.equal(thai?.text, 'สวัสดี Plex')
+    // Without a system font for Thai, Chrome draws it as the web font's missing glyphs.
+    const fallback = thai?.fonts.filter((f) => !f.isCustomFont) ?? []
+    assert.equal(
+      fallback.length,
+      1,
+      `one fallback, a system font for Thai (on Debian or Ubuntu, fonts-thai-tlwg): ${JSON.stringify(thai?.fonts)}`,
+    )
+    assert.ok((fallback[0]?.glyphCount ?? 0) > 0)
     const plex = thai?.fonts.filter((f) => f.isCustomFont) ?? []
     assert.deepEqual(
       plex,
@@ -1086,9 +1094,6 @@ test('a still reads the web font, the Thai fallback, the shadowed card, the same
       ],
       'the space and "Plex" are in the web font',
     )
-    const fallback = thai?.fonts.filter((f) => !f.isCustomFont) ?? []
-    assert.equal(fallback.length, 1, `one fallback: ${JSON.stringify(thai?.fonts)}`)
-    assert.ok((fallback[0]?.glyphCount ?? 0) > 0)
     // macOS draws Thai in Thonburi, which shapes the six code points as four glyphs.
     if (fallback[0]?.familyName === 'Thonburi') assert.equal(fallback[0].glyphCount, 4)
     // The web fonts are named, their files not copied; one from a blob: URL is its origin only,

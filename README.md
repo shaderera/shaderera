@@ -307,6 +307,8 @@ The fast tests are the `*.test.ts` files. The slow ones, `*.it.ts` (`pnpm test:s
 `@shaderera/core` and the CLI first), launch Chrome, Dawn, ffmpeg or the CLI as a child. They
 need ffmpeg, a GPU and Chrome: the ffmpeg tests skip without ffmpeg, but the GPU and
 browser-host tests fail without a GPU and Chrome (`CHROME` names another Chrome).
+`analysis-web-capture`'s still test also needs a system font for Thai (on Debian or Ubuntu,
+`fonts-thai-tlwg`).
 `apps/cli/src/node/packed.it.ts` also packs the CLI and core and installs them with npm, so it
 needs npm's registry. A test that needs none of them goes in a `*.test.ts` file.
 
