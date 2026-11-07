@@ -37,6 +37,31 @@ export type FootageAsk = { path: string; index: number }
  */
 export const footageAsked = (): FootageAsk[] => [...state.asked]
 
+/**
+ * How the film drew since the host opened (#508): it opened io.video clips, asked for their frames
+ * as RGBA, returned a canvas layer (uploaded every frame), returned a GPUTexture layer. `check` and
+ * `render`'s frame-time advice name the fast way to draw footage from it.
+ */
+export type Drawn = { clips: boolean; rgba: boolean; canvas: boolean; gpu: boolean }
+const drawn: Drawn = { clips: false, rgba: false, canvas: false, gpu: false }
+
+/** How the film drew so far (Drawn). */
+export const drawnSoFar = (): Drawn => ({ ...drawn })
+/** The film opened an io.video clip. */
+export const noteClip = () => {
+  drawn.clips = true
+}
+/** The film asked for a clip's frame in `format`. */
+export const noteFootage = (format: string) => {
+  if (format === 'rgba') drawn.rgba = true
+}
+/** The layers a render call returned: a canvas, a GPUTexture, or neither (bytes, a bitmap). */
+export const noteLayers = (layers: readonly { readonly color: unknown }[]) => {
+  for (const { color } of layers)
+    if (typeof (color as { getContext?: unknown }).getContext === 'function') drawn.canvas = true
+    else if (typeof GPUTexture !== 'undefined' && color instanceof GPUTexture) drawn.gpu = true
+}
+
 /** Adds the waiting since `since` (a wait inside render that is still running) and stops it. */
 const settle = () => {
   if (state.since !== null && !state.skip) state.videoMs += now() - state.since

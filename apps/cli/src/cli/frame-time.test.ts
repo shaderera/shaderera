@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
+import { drawnOn, footageFix, frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
 
 test('a render whose own drawing takes each frame while the encoder waits gets the GPU footage hint', () => {
   // 100 frames in 4 s on one host: 40 ms a frame, 31 of them the host's render call (9 of those on
@@ -93,4 +93,68 @@ test('no hint when the encoder, io.video or other hosts set the pace', () => {
   assert.equal(none.renderMs, 0)
   assert.equal(none.composeMs, 0)
   assert.equal(frameTimeHint(none), null)
+})
+
+test('the hint names the fast way to draw footage when the film has clips or a canvas layer, and nothing on a film without (#508)', () => {
+  const drawing = frameTime({
+    frames: 100,
+    wallMs: 4000,
+    writeMs: 40,
+    hosts: [{ renders: 100, renderMs: 3100, videoMs: 900, composeMs: 700 }],
+  })
+  const compositor = frameTime({
+    frames: 100,
+    wallMs: 800,
+    writeMs: 50,
+    hosts: [{ renders: 100, renderMs: 100, videoMs: 0, composeMs: 600 }],
+  })
+  const none = { clips: false, rgba: false, canvas: false, gpu: false }
+  // RGBA footage put on a canvas and returned.
+  const slow = { clips: true, rgba: true, canvas: true, gpu: false }
+  // yuv420p through videoTexture, a GPU layer.
+  const fast = { clips: true, rgba: false, canvas: false, gpu: true }
+  const fix =
+    /io\.video clips and returns a canvas layer.*'yuv420p'.*videoTexture.*"Footage and stills on the GPU"/
+  assert.match(footageFix(slow) ?? '', fix)
+  assert.equal(footageFix(fast), null)
+  assert.equal(footageFix(none), null)
+  // RGBA footage uploaded as it is, GPU layers returned.
+  assert.match(
+    footageFix({ clips: true, rgba: true, canvas: false, gpu: true }) ?? '',
+    /RGBA frames while it returns GPU layers: ask for 'yuv420p'/,
+  )
+  // A canvas of type and no footage: check says nothing, a render's pace names the canvas.
+  assert.equal(footageFix({ ...none, canvas: true }), null)
+  assert.match(frameTimeHint(drawing, { ...none, canvas: true }) ?? '', /returns a canvas layer/)
+  assert.match(frameTimeHint(drawing, slow) ?? '', fix)
+  assert.match(
+    frameTimeHint(compositor, slow) ?? '',
+    /fewer layers.*io\.video clips and returns a canvas layer/,
+  )
+  // The fast film, a film without footage, or no word from a host: the hint as before.
+  for (const d of [fast, none, undefined]) {
+    assert.equal(frameTimeHint(drawing, d), frameTimeHint(drawing))
+    assert.equal(frameTimeHint(compositor, d), frameTimeHint(compositor))
+  }
+  // No pace set: no hint, whatever the film drew.
+  const busy = frameTime({
+    frames: 100,
+    wallMs: 4000,
+    writeMs: 3000,
+    hosts: [{ renders: 100, renderMs: 3100, videoMs: 900, composeMs: 300 }],
+  })
+  assert.equal(frameTimeHint(busy, slow), null)
+})
+
+test("how the film drew is any host's, and unknown when a host could not say", () => {
+  const d = (o: object) => ({
+    drawn: { clips: false, rgba: false, canvas: false, gpu: false, ...o },
+  })
+  assert.deepEqual(drawnOn([d({ clips: true }), d({ canvas: true })]), {
+    clips: true,
+    rgba: false,
+    canvas: true,
+    gpu: false,
+  })
+  assert.equal(drawnOn([d({}), {}]), undefined)
 })

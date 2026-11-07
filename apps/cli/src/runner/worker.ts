@@ -43,9 +43,12 @@ import * as Comlink from 'comlink'
 import { type PcmForm, packClips, toPage } from './audio.ts'
 import { type Ask, extraIo, type StillSize, stillOf } from './io.ts'
 import {
+  type Drawn,
+  drawnSoFar,
   type FootageAsk,
   type FrameTimer,
   footageAsked,
+  noteLayers,
   type RenderTime,
   renderTime,
   resetRenderTime,
@@ -633,10 +636,12 @@ const api = {
   /** How often render read the wall clock since the worker started (counted, never blocked). */
   clock: async () => ({ date: clock.date, performance: clock.performance }),
   /** Where render's time went (render-time.ts), `reset` starting it again; no Canvas2D check here. */
-  profile: async (reset = false): Promise<{ time: RenderTime; footage: FootageAsk[] }> => {
+  profile: async (
+    reset = false,
+  ): Promise<{ time: RenderTime; footage: FootageAsk[]; drawn: Drawn }> => {
     const time = renderTime()
     if (reset) resetRenderTime()
-    return { time, footage: footageAsked() }
+    return { time, footage: footageAsked(), drawn: drawnSoFar() }
   },
   /** The source's captions, as it returns them; null without captions(). */
   captions: () =>
@@ -765,6 +770,7 @@ const composite = async (
       timer,
     )
     const layers = lightChecked(finalOnly(flattenFrame(frame), intent, t), range)
+    noteLayers(layers)
     const info = layers.map(layerInfo)
     if (range === 'hdr10') {
       if (format !== 'rgb10' && format !== 'p010')
