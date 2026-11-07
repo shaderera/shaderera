@@ -14,10 +14,14 @@ export type Ask = {
   image(path: string, maxSize?: number): Promise<DecodedImage | null>
   cacheGet(hash: string): Promise<Uint8Array | null>
   cachePut(hash: string, bytes: Uint8Array): Promise<void>
-  /** `declared`: the film said what the file is (`check` notes footage it did not, #575). */
+  /**
+   * `declared`: the film said what the file is (`check` notes footage it did not, #575).
+   * `maxSize`: the frames shrunk to it (#507), by a decoder of their own.
+   */
   videoOpen(
     path: string,
     declared?: boolean,
+    maxSize?: number,
   ): Promise<{
     width: number
     height: number
@@ -31,7 +35,9 @@ export type Ask = {
     path: string,
     index: number,
     format: 'rgba' | 'yuv420p' | 'yuv420p10',
+    maxSize?: number,
   ): Promise<Uint8Array>
+  /** Every size and format of the clip. */
   videoClose(path: string): Promise<void>
   bakeOpen(name: string): Promise<{ frames: number }>
   bakeFrame(name: string, index: number): Promise<Uint8Array>
@@ -43,6 +49,20 @@ export type Ask = {
  * CLI does not decode it, and each host decodes it itself.
  */
 export type StillSize = { width: number; height: number; bits: 8 | 16; key: string; local?: true }
+
+/**
+ * The size `io.video(path, { maxSize })` gives a clip's frames (#507), the rule of `io.image`'s
+ * `maxSize` (ADR 0028, 4): the long side `maxSize`, the short side rounded half up and at least 1.
+ * A clip within it keeps its size.
+ */
+export const fitSize = (width: number, height: number, maxSize?: number) => {
+  const long = Math.max(width, height)
+  if (!maxSize || long <= maxSize) return { width, height }
+  const short = (side: number) => Math.max(1, Math.floor((2 * side * maxSize + long) / (2 * long)))
+  return width >= height
+    ? { width: maxSize, height: short(height) }
+    : { width: short(width), height: maxSize }
+}
 
 const text = new TextEncoder()
 
@@ -107,12 +127,16 @@ export const extraIo = (
       }
       return image
     },
-    video: async (path, space): Promise<Footage> => {
+    video: async (path, options): Promise<Footage> => {
+      const { maxSize, ...space } = options ?? {}
+      // Up to 65536, as io.image's; a clip within it keeps its size.
+      if (maxSize !== undefined && !(Number.isInteger(maxSize) && maxSize >= 1 && maxSize <= 65536))
+        throw new Error(`io.video(${path}): maxSize is a whole number of pixels, not ${maxSize}.`)
       for (const [key, known] of [
         ['transfer', TRANSFERS],
         ['gamut', GAMUTS],
       ] as const) {
-        const value = space?.[key]
+        const value = space[key]
         if (value !== undefined && !Object.hasOwn(known, value))
           throw new Error(
             `io.video(${path}): ${key} is one of ${Object.keys(known)
@@ -121,15 +145,18 @@ export const extraIo = (
           )
       }
       // A gamut alone picks no curve: only a transfer says what the codes are (check, #575).
-      const declared = space?.transfer !== undefined
-      const info = await ask.videoOpen(path, declared)
+      const declared = space.transfer !== undefined
+      const info = await ask.videoOpen(path, declared, maxSize)
       const frame = async (index: number, options?: { format?: string }) => {
         const format = options?.format ?? 'rgba'
         if (format !== 'rgba' && format !== 'yuv420p' && format !== 'yuv420p10')
           throw new Error(
             `io.video(${path}): frame format is 'rgba', 'yuv420p' or 'yuv420p10', not ${format}.`,
           )
-        const bytes = await timeVideo(() => ask.videoFrame(path, index, format), { path, index })
+        const bytes = await timeVideo(() => ask.videoFrame(path, index, format, maxSize), {
+          path,
+          index,
+        })
         if (format !== 'yuv420p10') return bytes
         // 16-bit samples (ADR 0031, 1): a view needs an even offset, so bytes at an odd one (in
         // a larger message) are copied.
@@ -138,7 +165,7 @@ export const extraIo = (
       }
       return {
         ...info,
-        ...((space?.transfer ?? space?.gamut) ? { space } : {}),
+        ...((space.transfer ?? space.gamut) ? { space } : {}),
         frame: frame as Footage['frame'],
         close: () => ask.videoClose(path),
       }

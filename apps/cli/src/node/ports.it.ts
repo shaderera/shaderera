@@ -117,6 +117,8 @@ export default async ({ io, gpu }) => {
   await clip.close()
   frames.push(await clip.frame(3))
   const yuv = [await clip.frame(3, { format: 'yuv420p' }), await clip.frame(1, { format: 'yuv420p' })]
+  const tiny = await io.video('assets/clip.mp4', { maxSize: 8 })
+  const tinyFrames = [await tiny.frame(3), await tiny.frame(3, { format: 'yuv420p' })]
   const texture = videoTexture(gpu, clip)
   const converted = await readTexture(gpu, await texture.frame(3))
   texture.destroy()
@@ -149,6 +151,7 @@ export default async ({ io, gpu }) => {
       small: { w: small.width, h: small.height, bits: small.bits, hash: await hex(new Uint8Array(small.data.buffer)) },
       clip: { w: clip.width, h: clip.height, fps: clip.fps, frames: clip.frames, colour: clip.colour, hashes: await Promise.all(frames.map(hex)) },
       yuv: await Promise.all(yuv.map(hex)),
+      tiny: { w: tiny.width, h: tiny.height, hashes: await Promise.all(tinyFrames.map(hex)) },
       converted: await hex(converted),
       references,
       ten: { bits: deep.bits, colour: deep.colour, space: deep.space, plain: 'space' in clip, samples: ten instanceof Uint16Array, hash: await hex(new Uint8Array(ten.buffer, ten.byteOffset, ten.byteLength)) },
@@ -173,6 +176,7 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
       small: { w: number; h: number; bits: number }
       clip: { w: number; h: number; fps: number; frames: number; hashes: string[] }
       yuv: string[]
+      tiny: { w: number; h: number; hashes: string[] }
       converted: string
       references: string[]
       ten: {
@@ -225,6 +229,33 @@ test('io.image decodes a 16-bit PNG and a JPEG, and shrinks to maxSize; io.video
         { maxBuffer: 1 << 24 },
       ).stdout
     assert.deepEqual(j.yuv, [sha(planes(3)), sha(planes(1))])
+    // maxSize 8 (#507): 8×4, scaled by ffmpeg's area filter in the conversion's pass, both formats.
+    const scaled = (convert: string) =>
+      spawnSync(
+        'ffmpeg',
+        [
+          ...['-v', 'error', '-i', join(root, 'assets', 'clip.mp4'), '-vf'],
+          `select=eq(n\\,3),scale=w=8:h=4:${convert}`,
+          ...['-fps_mode', 'passthrough', '-f', 'rawvideo', '-'],
+        ],
+        { maxBuffer: 1 << 24 },
+      ).stdout
+    assert.deepEqual(j.tiny, {
+      w: 8,
+      h: 4,
+      hashes: [
+        sha(
+          scaled(
+            'flags=area+accurate_rnd+full_chroma_int:in_color_matrix=auto:in_range=auto:out_range=full,format=rgba',
+          ),
+        ),
+        sha(
+          scaled(
+            'flags=area:out_color_matrix=bt601:out_range=tv:out_chroma_loc=left,format=yuv420p',
+          ),
+        ),
+      ],
+    })
     const colour = { matrix: 'bt601', range: 'limited', chroma: 'left' } as const
     assert.deepEqual((j.clip as { colour?: unknown }).colour, colour, 'an untagged H.264')
     assert.equal(j.converted, sha(yuv420pToRgba(planes(3), 32, 16, colour)))

@@ -392,6 +392,75 @@ test("a draft's clips come scaled as its frame is, from a decoder of their own",
   }
 })
 
+test('a clip asked at a maxSize comes at that size from a decoder of its own, as ffmpeg scales it, with a draft on top (#507)', {
+  skip: !ffmpeg && 'no ffmpeg',
+  timeout: 30_000,
+}, async () => {
+  const root = clip()
+  const file = join(root, 'v.mp4')
+  const hosts = [createServices(root), createServices(root)]
+  const draft = createServices(root, {}, { videoScale: 0.5 })
+  const [a, b] = hosts as [ReturnType<typeof createServices>, ReturnType<typeof createServices>]
+  /** Frame 3 of v.mp4 straight from ffmpeg, scaled as the decoder scales (decoder.ts). */
+  const direct = (w: number, h: number, format: 'rgba' | 'yuv420p') =>
+    new Uint8Array(
+      spawnSync(
+        'ffmpeg',
+        [
+          ...['-v', 'error', '-i', file, '-vf'],
+          `select=eq(n\\,3),scale=w=${w}:h=${h}:${
+            format === 'rgba'
+              ? 'flags=area+accurate_rnd+full_chroma_int:in_color_matrix=auto:in_range=auto:out_range=full,format=rgba'
+              : 'flags=area:out_color_matrix=bt601:out_range=tv:out_chroma_loc=left,format=yuv420p'
+          }`,
+          ...['-fps_mode', 'passthrough', '-f', 'rawvideo', '-'],
+        ],
+        { maxBuffer: 1 << 24 },
+      ).stdout,
+    )
+  try {
+    const open = (s: typeof a, maxSize?: number) =>
+      s.handle({ op: 'video-open', path: 'v.mp4', maxSize }) as Promise<{
+        width: number
+        height: number
+      }>
+    const frame = (s: typeof a, maxSize?: number, format?: 'rgba' | 'yuv420p') =>
+      s.handle({
+        op: 'video-frame',
+        path: 'v.mp4',
+        index: 3,
+        maxSize,
+        format,
+      }) as Promise<Uint8Array>
+    // 64×36 at 20: the long side 20, the short 11 (11.25 rounded); within 64, its own size.
+    const small = await open(a, 20)
+    assert.deepEqual([small.width, small.height], [20, 11])
+    const own = await open(a, 64)
+    assert.deepEqual([own.width, own.height], [64, 36])
+    // A draft scales the asked size by its own on top: 10×6 (5.5 rounded up).
+    const drafted = await open(draft, 20)
+    assert.deepEqual([drafted.width, drafted.height], [10, 6])
+    // The bytes ffmpeg's area scale gives, in both formats, the same from two hosts and again.
+    const rgba = await frame(a, 20)
+    assert.equal(rgba.length, 20 * 11 * 4)
+    assert.deepEqual(rgba, direct(20, 11, 'rgba'))
+    assert.deepEqual(await frame(b, 20), rgba, 'another host, the same bytes')
+    const planes = await frame(a, 20, 'yuv420p')
+    assert.equal(planes.length, 20 * 11 + 2 * 10 * 6)
+    assert.deepEqual(planes, direct(20, 11, 'yuv420p'))
+    assert.deepEqual((await frame(draft, 20)).length, 10 * 6 * 4)
+    // Two sizes and two formats of one clip in this process: a decoder each, and the draft's.
+    assert.equal((await frame(a)).length, 64 * 36 * 4)
+    assert.equal(clipDecoders().length, 4)
+    await a.close()
+    await b.close()
+    // Closed and opened again: the same bytes.
+    assert.deepEqual(await frame(b, 20), rgba, 'again after close')
+  } finally {
+    for (const s of [...hosts, draft]) await s.close()
+  }
+})
+
 test('footage of more than 8 bits is noted with whether every open declared its space, and the bits its frames were read at (#575)', {
   skip: !ffmpeg && 'no ffmpeg',
   timeout: 30_000,

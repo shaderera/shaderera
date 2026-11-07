@@ -171,14 +171,23 @@ const ask: Ask = {
     return r ? new Uint8Array(await r.arrayBuffer()) : null
   },
   cachePut: async (hash, bytes) => void (await service('cache-put', { hash }, bytes)),
-  videoOpen: async (path, declared) =>
+  videoOpen: async (path, declared, maxSize) =>
     (await (
-      await service('video-open', { path, ...(declared ? { declared: '1' } : {}) })
+      await service('video-open', {
+        path,
+        ...(declared ? { declared: '1' } : {}),
+        ...(maxSize === undefined ? {} : { maxSize: String(maxSize) }),
+      })
     )?.json()) as never,
-  videoFrame: async (path, index, format) =>
+  videoFrame: async (path, index, format, maxSize) =>
     new Uint8Array(
       await (
-        (await service('video-frame', { path, index: String(index), format })) as Response
+        (await service('video-frame', {
+          path,
+          index: String(index),
+          format,
+          ...(maxSize === undefined ? {} : { maxSize: String(maxSize) }),
+        })) as Response
       ).arrayBuffer(),
     ),
   videoClose: async (path) => void (await service('video-close', { path })),

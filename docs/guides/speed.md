@@ -95,6 +95,17 @@ Take it from the camera's settings or the file's tags (phone HDR is usually `hlg
 `rec2020`). `check` warns of a file of more than 8 bits with no `transfer` declared, or read
 only at 8 bits.
 
+A clip drawn smaller than the frame (a picture in picture, a wall of tiles, a corner insert) is
+asked at that size: `io.video('assets/a.mp4', { maxSize: 480 })` decodes its frames with the
+long side 480 and the aspect kept, in every format (`clip.width` and `clip.height` say the size),
+so the decoder, the hand-over to each host and the upload all pay for 480 px, not 1080p. Pass the
+largest size the film ever draws the clip, in output pixels (a push in needs more); a draft
+scales it on top. ffmpeg scales it with its `area` filter in the conversion's pass, the same
+bytes every time and in both hosts. Each size asked runs a decoder of its own, so ask one size a
+clip. Measured on a 1080p clip drawn at 480×270 on a 1080p Canvas2D frame (one host): 45 ms a
+frame became 25, the wait on `io.video` 21 ms became 6, and the CLI and host used about 190 MB
+less.
+
 `docs/participants/webgpu.md`, "Footage and stills", has the whole film: the WGSL pass, `picture`
 (a texture with mip levels), `fit` (cover and contain as a uv rectangle) and `pass`. Never blur by
 drawing a frame to a tiny canvas and back up: it is slow, and with `'high'` smoothing its pixels

@@ -56,7 +56,7 @@ export type Io = {
   canvas(width: number, height: number): OffscreenCanvas
   font(path: string, family: string): Promise<void>
   image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage>
-  video?(path: string, space?: FootageSpace): Promise<Footage>
+  video?(path: string, options?: FootageSpace & { maxSize?: number }): Promise<Footage>
   cache?(
     key: string,
     inputs: readonly string[],
@@ -83,7 +83,11 @@ export type DecodedImage = {
 read, or with `{ format: 'yuv420p10' }` the same planes at 10 bits, a `Uint16Array`. `bits` is the
 file's sample depth. `space` is what the film said the file is when it opened it
 (`io.video(path, { transfer, gamut })`), absent when it said nothing; the engine converts
-nothing by it, `color-spaces` reads it. `close()` frees the decoder when the clip's shot ends.
+nothing by it, `color-spaces` reads it. `io.video(path, { maxSize })` decodes the frames with the
+long side shrunk to `maxSize` and the aspect kept (`width` and `height` say the size, a clip
+within it keeps its own), as `io.image`'s `maxSize` does: pass the largest size the film draws
+the clip, so a clip drawn small is not decoded, handed over and uploaded at full size. Each size
+asked runs a decoder of its own. `close()` frees the decoder when the clip's shot ends.
 
 ```ts
 export type Footage = {

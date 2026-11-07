@@ -11,7 +11,9 @@
 // close to ffmpeg's, not the same bytes. As yuv420p it is the proxy's own planes (BT.709 limited,
 // the chroma sited left), as I420: close to the CLI's planes of the original, not the same. As
 // yuv420p10 it is those planes shifted up two bits (ADR 0031, 4): the 8-bit proxy's codes, which
-// band where the original's 10 bits would not.
+// band where the original's 10 bits would not. A clip asked smaller (`maxSize`, #507) is decoded at
+// the proxy's size and shrunk here, each plane or the RGBA by area average in integers (`shrink`),
+// the same bytes every time.
 // io.bake reads the frames the build copied to bakes/<name>/, the same bytes as the CLI's.
 // io.cache is kept in memory.
 //
@@ -29,7 +31,7 @@ import {
   VideoSampleSink,
 } from 'mediabunny'
 import { decodeImage } from '../runner/image.ts'
-import type { Ask } from '../runner/io.ts'
+import { type Ask, fitSize } from '../runner/io.ts'
 
 type Info = {
   width: number
@@ -137,6 +139,96 @@ const i420 = async (
   }
   if (!ten || deep) return out
   return new Uint8Array(Uint16Array.from(out, (s) => s << 2).buffer)
+}
+
+/**
+ * For each of `m` samples along a line of `n`, the first source sample under it and the length
+ * each covers, in units of 1/(n × m) of the line: whole numbers that sum to `n`.
+ */
+const spans = (n: number, m: number) =>
+  Array.from({ length: m }, (_, j) => {
+    const from = Math.floor((j * n) / m)
+    const weights: number[] = []
+    for (let i = from; i * m < (j + 1) * n; i++)
+      weights.push(Math.min((j + 1) * n, (i + 1) * m) - Math.max(j * n, i * m))
+    return { from, weights }
+  })
+
+/**
+ * `src`, `w` × `h` pixels of `k` samples each, shrunk to `nw` × `nh` by area average (box), as
+ * `io.image`'s `maxSize` shrinks (ADR 0028, 5): each sample the mean of those under it weighted by
+ * the area each covers, in integers, rows then columns, each pass rounding half up (not weighted by
+ * alpha: a proxy's frames are opaque). The same bytes on every machine.
+ */
+export const shrink = <T extends Uint8Array | Uint16Array>(
+  src: T,
+  w: number,
+  h: number,
+  k: number,
+  nw: number,
+  nh: number,
+): T => {
+  const across = spans(w, nw)
+  const rows = new Uint32Array(nw * h * k)
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < nw; x++) {
+      const { from, weights } = across[x] as { from: number; weights: number[] }
+      for (let c = 0; c < k; c++) {
+        let sum = 0
+        for (let i = 0; i < weights.length; i++)
+          sum += (weights[i] as number) * (src[(y * w + from + i) * k + c] as number)
+        rows[(y * nw + x) * k + c] = Math.floor((2 * sum + w) / (2 * w))
+      }
+    }
+  const out = new (src.constructor as new (n: number) => T)(nw * nh * k)
+  const down = spans(h, nh)
+  for (let y = 0; y < nh; y++) {
+    const { from, weights } = down[y] as { from: number; weights: number[] }
+    for (let x = 0; x < nw * k; x++) {
+      let sum = 0
+      for (let i = 0; i < weights.length; i++)
+        sum += (weights[i] as number) * (rows[(from + i) * nw * k + x] as number)
+      out[y * nw * k + x] = Math.floor((2 * sum + h) / (2 * h))
+    }
+  }
+  return out
+}
+
+/**
+ * A frame's bytes in `format` at `w` × `h` shrunk to `nw` × `nh` (#507): RGBA as one image of 4
+ * samples, I420 plane by plane (Y to `nw` × `nh`, Cb and Cr to half that, rounded up).
+ */
+const shrinkFrame = (
+  bytes: Uint8Array,
+  format: 'rgba' | 'yuv420p' | 'yuv420p10',
+  w: number,
+  h: number,
+  nw: number,
+  nh: number,
+): Uint8Array => {
+  if (format === 'rgba') return shrink(bytes, w, h, 4, nw, nh)
+  const samples =
+    format === 'yuv420p10'
+      ? new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2)
+      : bytes
+  const [cw, ch, ncw, nch] = [w, h, nw, nh].map((n) => Math.ceil(n / 2)) as [
+    number,
+    number,
+    number,
+    number,
+  ]
+  const planes = [
+    shrink(samples.subarray(0, w * h), w, h, 1, nw, nh),
+    shrink(samples.subarray(w * h, w * h + cw * ch), cw, ch, 1, ncw, nch),
+    shrink(samples.subarray(w * h + cw * ch), cw, ch, 1, ncw, nch),
+  ]
+  const out = new (samples.constructor as new (n: number) => Uint8Array | Uint16Array)(
+    nw * nh + 2 * ncw * nch,
+  )
+  out.set(planes[0] as never)
+  out.set(planes[1] as never, nw * nh)
+  out.set(planes[2] as never, nw * nh + ncw * nch)
+  return new Uint8Array(out.buffer)
 }
 
 /** A viewer's own file's sample depth, from its first frame's format (I420P10 is 10 bits). */
@@ -290,11 +382,19 @@ export const playerAsk = (files: string, localFile: (name: string) => Blob | und
       ),
     cacheGet: async (hash) => cache.get(hash) ?? null,
     cachePut: async (hash, bytes) => void cache.set(hash, bytes),
-    videoOpen: async (path) => {
+    videoOpen: async (path, _declared, maxSize) => {
       const { alpha: _, ...info } = (await clipOf(path)).info
-      return info
+      return { ...info, ...fitSize(info.width, info.height, maxSize) }
     },
-    videoFrame: async (path, index, format) => frame(await clipOf(path), path, index, format),
+    videoFrame: async (path, index, format, maxSize) => {
+      const clip = await clipOf(path)
+      const bytes = await frame(clip, path, index, format)
+      const { width: w, height: h } = clip.info
+      const size = fitSize(w, h, maxSize)
+      return size.width === w && size.height === h
+        ? bytes
+        : shrinkFrame(bytes, format, w, h, size.width, size.height)
+    },
     videoClose: async (path) => {
       const clip = clips.get(path)
       clips.delete(path)

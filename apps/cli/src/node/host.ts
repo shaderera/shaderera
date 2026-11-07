@@ -91,8 +91,9 @@ const ask: Ask = {
   },
   cacheGet: (hash) => askParent({ op: 'cache-get', hash }),
   cachePut: (hash, bytes) => askParent({ op: 'cache-put', hash, bytes }),
-  videoOpen: (path, declared) => askParent({ op: 'video-open', path, declared }),
-  videoFrame: (path, index, format) => askParent({ op: 'video-frame', path, index, format }),
+  videoOpen: (path, declared, maxSize) => askParent({ op: 'video-open', path, declared, maxSize }),
+  videoFrame: (path, index, format, maxSize) =>
+    askParent({ op: 'video-frame', path, index, format, maxSize }),
   videoClose: (path) => askParent({ op: 'video-close', path }),
   bakeOpen: (name) => askParent({ op: 'bake-open', name }),
   bakeFrame: (name, index) => askParent({ op: 'bake-frame', name, index }),
