@@ -398,10 +398,15 @@ export const readStyle = async (
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([, face]) => face)
 
+  const png = await screenshot(send)
+  return { elements, texts, fontFaces: faces, scroll: { x: sx, y: sy }, png, limits }
+}
+
+/** The viewport as it is drawn now, a PNG. */
+export const screenshot = async (send: Send) => {
   const { data } = await send<{ data: string }>('Page.captureScreenshot', {
     format: 'png',
     captureBeyondViewport: false,
   })
-  const png = new Uint8Array(Buffer.from(need(data, 'screenshot data'), 'base64'))
-  return { elements, texts, fontFaces: faces, scroll: { x: sx, y: sy }, png, limits }
+  return new Uint8Array(Buffer.from(need(data, 'screenshot data'), 'base64'))
 }
