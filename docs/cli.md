@@ -676,10 +676,12 @@ compositor and readback to [Expensive films](guides/speed.md#expensive-films) (m
 layers). On a host with a GPU, when the film opens `io.video` clips or returns a canvas layer,
 the line names the fix `check`'s `footage-draw` note gives (or, for a canvas layer alone, drawing
 on `host.gpu` and returning a GPU texture) in place of the drawing's general cause, or after the
-compositor's. The figures start at the first frame written: the preroll, what the hosts rendered
-before and the first frame (which compiles the shaders) are left out. The wall time does include
-the determinism re-check at the end and ffmpeg's flush. A host that cannot give its figures leaves
-them out, never the render:
+compositor's; while the encoder is idle and neither leads (the `io.video` waits are the largest, or
+the parts are even), a film that draws its footage that slow way still gets the fix, after "The
+hosts take each frame while the encoder waits." The figures start at the first frame written: the
+preroll, what the hosts rendered before and the first frame (which compiles the shaders) are left
+out. The wall time does include the determinism re-check at the end and ffmpeg's flush. A host
+that cannot give its figures leaves them out, never the render:
 
 ```
 time: 27.1 ms a frame · on the host: drawing 0.9 ms, compositor and readback 22.7 ms, waiting on io.video 0.0 ms · encoder idle (it took each frame in 3.3 ms and waited for the next)

@@ -95,7 +95,7 @@ Take it from the camera's settings or the file's tags (phone HDR is usually `hlg
 `rec2020`). `check` warns of a file of more than 8 bits with no `transfer` declared, or read
 only at 8 bits. On a host with a GPU, `check` notes a film that opens clips and returns a canvas
 layer, or asks for their frames as RGBA while it returns GPU layers, and `render`'s time line
-names the same fix when the drawing or the compositor sets the pace.
+names the same fix when the hosts set the pace (the encoder waits on them).
 
 A clip drawn smaller than the frame (a picture in picture, a wall of tiles, a corner insert) is
 asked at that size: `io.video('assets/a.mp4', { maxSize: 480 })` decodes its frames with the
