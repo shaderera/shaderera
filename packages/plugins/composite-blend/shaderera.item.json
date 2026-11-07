@@ -3,7 +3,7 @@
   "type": "component",
   "title": "Blend modes",
   "description": "A layer over a base by a blend mode, one WebGPU pass: the W3C Compositing and Blending modes to the letter (multiply, screen, overlay, soft light, hue, luminosity…) plus add, with an amount, in display values or linear light; premultiplied out, CPU with the same values",
-  "category": "Rendering",
+  "category": "Compositing",
   "tags": [
     "blend",
     "blend modes",

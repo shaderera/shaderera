@@ -3,7 +3,7 @@
   "type": "component",
   "title": "Displacement map",
   "description": "A displacement map, one WebGPU pass: one picture's red, green, blue, alpha or luma moves another's pixels by up to an amount in px per axis, the edges clamped, wrapped or transparent; bilinear on premultiplied values, premultiplied out",
-  "category": "Rendering",
+  "category": "Compositing",
   "tags": [
     "displace",
     "displacement map",

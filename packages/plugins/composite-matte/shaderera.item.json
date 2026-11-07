@@ -3,7 +3,7 @@
   "type": "component",
   "title": "Track matte",
   "description": "A track matte, one WebGPU pass: one picture's luma or alpha decides where another shows, turned over on request; the source's own alpha kept, premultiplied out",
-  "category": "Rendering",
+  "category": "Compositing",
   "tags": [
     "matte",
     "track matte",

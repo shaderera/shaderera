@@ -124,8 +124,8 @@ version.
 - **Types:** `extension` (a package plugin), `component`, `preset`, `media` (decision 0011
   retired templates).
 - **Categories, for extensions, components and presets:** Audio & Music, Analysis & Tracking,
-  Typography, Looks, Color, Procedural & Particles, Transitions, Animation & Camera, Rendering,
-  Layout & Formats, Assets & Rights.
+  Typography, Looks, Color, Compositing, Procedural & Particles, Transitions, Animation & Camera,
+  Rendering, Layout & Formats, Assets & Rights.
 - **Categories, for media:** Music, Sound Effects, Fonts, 3D Models, Images.
 - **requires:** `shaderera` (a range), `extensions` (npm packages, installed and recorded),
   `items` (components, presets or media copied in with it) and `packages` (npm packages the
