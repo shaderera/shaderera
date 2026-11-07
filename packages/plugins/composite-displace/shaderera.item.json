@@ -1,0 +1,24 @@
+{
+  "name": "composite-displace",
+  "type": "component",
+  "title": "Displacement map",
+  "description": "A displacement map, one WebGPU pass: one picture's red, green, blue, alpha or luma moves another's pixels by up to an amount in px per axis, the edges clamped, wrapped or transparent; bilinear on premultiplied values, premultiplied out",
+  "category": "Rendering",
+  "tags": [
+    "displace",
+    "displacement map",
+    "distortion",
+    "warp",
+    "refraction",
+    "glass",
+    "composite",
+    "compositing",
+    "texture",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "render-canvas-texture": "^0.1.0" } },
+  "files": ["src/composite/displace.ts", "src/composite/displace.wgsl.ts"]
+}
