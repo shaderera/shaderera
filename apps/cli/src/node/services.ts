@@ -11,7 +11,7 @@ import { Worker } from 'node:worker_threads'
 import type { VideoColour } from '@shaderera/core'
 import { imageSize } from '../runner/image.ts'
 import { IMAGE_WASM } from '../runner/image-wasm.ts'
-import type { StillSize } from '../runner/io.ts'
+import { fitSize, type StillSize } from '../runner/io.ts'
 import { frameBytes, type VideoFormat } from './decoder.ts'
 import { insideForRead } from './inside.ts'
 import { lendTurns } from './spawn-turn.ts'
@@ -27,8 +27,8 @@ export type ServiceRequest =
   | { op: 'cache-put'; hash: string; bytes: Uint8Array }
   | { op: 'image-open'; path: string; maxSize?: number }
   | { op: 'image-data'; key: string }
-  | { op: 'video-open'; path: string; declared?: boolean }
-  | { op: 'video-frame'; path: string; index: number; format?: VideoFormat }
+  | { op: 'video-open'; path: string; declared?: boolean; maxSize?: number }
+  | { op: 'video-frame'; path: string; index: number; format?: VideoFormat; maxSize?: number }
   | { op: 'video-close'; path: string }
   | { op: 'bake-open'; name: string }
   | { op: 'bake-frame'; name: string; index: number }
@@ -216,6 +216,12 @@ export const scaledVideo = (info: VideoInfo, scale: number): VideoInfo => ({
   height: Math.max(1, Math.round(info.height * scale)),
 })
 
+/** A clip as `io.video(path, { maxSize })` gives it (#507, fitSize); within it, `info` itself. */
+export const fittedVideo = (info: VideoInfo, maxSize?: number): VideoInfo => {
+  const size = fitSize(info.width, info.height, maxSize)
+  return size.width === info.width && size.height === info.height ? info : { ...info, ...size }
+}
+
 /**
  * How many bytes of frames a clip's decoder runs ahead at most: 128 MiB (one frame if larger),
  * doubled with the window (ADR 0030, step 1).
@@ -237,9 +243,13 @@ export const videoReader = (
   /** A draft render's: the frames scaled by this much each side, by the decoder (scaledVideo). */
   scale = 1,
   format: VideoFormat = 'rgba',
+  /** The film's: the frames shrunk to it first (fittedVideo), a draft's scale on top. */
+  maxSize?: number,
 ) => {
-  const scaled = scale !== 1
-  const info = scaled ? scaledVideo(probeVideo(file), scale) : probeVideo(file)
+  const probed = probeVideo(file)
+  const fitted = fittedVideo(probed, maxSize)
+  const scaled = scale !== 1 || fitted !== probed
+  const info = scale !== 1 ? scaledVideo(fitted, scale) : fitted
   // The planes have no alpha: dropping it would change the look without the author (ADR 0027, 1).
   if (format !== 'rgba' && info.alpha)
     throw new Error(`${file} has alpha, which ${format} cannot carry: ask for its frames as rgba.`)
@@ -413,8 +423,10 @@ export const createServices = (
   const limit = o.cacheLimit ?? cacheLimit()
   // A draft's clips are decoded at another size (scaledVideo): decoders of their own.
   const scale = o.videoScale ?? 1
-  // A decoder serves one format of a clip (ADR 0027, 1): a film asking for both runs two.
-  const keyOf = (file: string, format: VideoFormat) => `${file}\0${scale}\0${format}`
+  // A decoder serves one format and size of a clip (ADR 0027, 1; #507): a film asking for both
+  // formats, or two sizes, runs two.
+  const keyOf = (file: string, format: VideoFormat, maxSize = 0) =>
+    `${file}\0${scale}\0${format}\0${maxSize}`
   const baked = (name: string) => {
     const frames = bakes[name]
     if (!frames)
@@ -511,13 +523,13 @@ export const createServices = (
   // The file each clip path named, checked once while the clip is open: the check reads the real
   // path of every folder above it, which on every frame cost the CLI's process more than the frame.
   const checked = new Map<string, string>()
-  const video = (path: string, format: VideoFormat = 'rgba') => {
+  const video = (path: string, format: VideoFormat = 'rgba', maxSize?: number) => {
     let file = checked.get(path)
     if (file === undefined) {
       file = insideForRead(root, path)
       checked.set(path, file)
     }
-    const key = keyOf(file, format)
+    const key = keyOf(file, format, maxSize)
     let v = shared.get(key)
     // A reader whose thread died is dropped: the next request opens a fresh one.
     if (v?.reader.dead) {
@@ -536,6 +548,7 @@ export const createServices = (
           undefined,
           scale,
           format,
+          maxSize,
         ),
       }
       shared.set(key, v)
@@ -575,7 +588,7 @@ export const createServices = (
         return s.data
       }
       case 'video-open': {
-        const { alpha: _, ...info } = video(r.path).info
+        const { alpha: _, ...info } = video(r.path, 'rgba', r.maxSize).info
         const file = checked.get(r.path) as string
         if (info.bits > 8) {
           const d = deepFootage.get(file)
@@ -585,7 +598,7 @@ export const createServices = (
         return info
       }
       case 'video-frame': {
-        const reader = video(r.path, r.format)
+        const reader = video(r.path, r.format, r.maxSize)
         const d = deepFootage.get(checked.get(r.path) as string)
         if (d) d[r.format === 'yuv420p10' ? 'at10' : 'at8'] = true
         return reader.frame(r.index)

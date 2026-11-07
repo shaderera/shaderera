@@ -127,7 +127,7 @@ type Io = {
   font(path: string, family: string): Promise<void>       // registers a font for the 2D context
   // Both Shaderera hosts provide these (optional for other hosts):
   image?(path: string, options?: { maxSize?: number }): Promise<DecodedImage> // PNG or JPEG, straight RGBA, 8 or 16 bits
-  video?(path: string, space?: FootageSpace): Promise<Footage> // { width, height, fps, frames, bits, colour, space?, frame(i, { format }), close() }
+  video?(path: string, options?: FootageSpace & { maxSize?: number }): Promise<Footage> // { width, height, fps, frames, bits, colour, space?, frame(i, { format }), close() }
   cache?(key: string, inputs: string[], make: () => Promise<Uint8Array>): Promise<Uint8Array>
   bake?(name: string): Promise<Baked>                     // { frames, read(i), image(i) }
 }
@@ -169,9 +169,16 @@ it, before any frame.
   choice (`fps` is the file's). The same frame is the same bytes in both hosts (tested against
   ffmpeg's own decode). In a draft render ([`render --draft`](cli.md#a-draft)), whose frame is
   smaller than the film's, the decoder scales the frames by as much each side, and `width` and
-  `height` say so. A clip's decoder lives until the render ends unless `close()` stops it and
-  frees its buffers, once every host that opened it closed it: a film with many clips closes each
-  when its shot ends. A `frame(i)` after `close()` opens the file again and gives the same bytes.
+  `height` say so. `io.video(path, { maxSize })` (whole pixels, up to 65536) gives the frames with
+  the long side `maxSize` and the short side `max(1, round(short × maxSize / long))`, the rule of
+  `io.image`'s `maxSize`; a clip within it keeps its size. The decoder scales them in the same
+  swscale pass as the conversion, with ffmpeg's `scale` filter and `flags=area` (area average;
+  RGBA also `accurate_rnd+full_chroma_int`), in every format, the filter a draft uses; a draft
+  scales the asked size by its own on top. The scaled bytes are software ffmpeg's, the same every
+  time and in both hosts. Each size asked runs a decoder of its own, as each format does. A
+  clip's decoder lives until the render ends unless `close()` stops it and frees its buffers, once
+  every host that opened it closed it (every size and format of it): a film with many clips
+  closes each when its shot ends. A `frame(i)` after `close()` opens the file again and gives the same bytes.
 - `io.video`'s `frame(i, { format: 'yuv420p' })` ([ADR 0027](adr/0027-video-frames-as-ycbcr.md))
   hands frame i over as the file's Y'CbCr planes, 1.5 bytes a pixel against RGBA's 4: I420, the Y
   plane then Cb then Cr, rows from the top with no padding, Y `width × height` bytes and Cb and Cr

@@ -3,13 +3,15 @@ import type { Open } from '@shaderera/core'
 /**
  * A film for the web player's tests: frame t is the clip's frame floor(t × fps), as io.video gives
  * it (assets/clip.mp4, made by the test: ffmpeg's testsrc2, 320×180, 30 fps, 1 s). inspect says
- * which frame that is, its yuv420p and yuv420p10 planes (base64) and colour, and what io.bake and
- * io.cache answered.
+ * which frame that is, its yuv420p and yuv420p10 planes (base64) and colour, the frame and its planes
+ * asked at maxSize 100 (#507) with the full frame they shrink, and what io.bake and io.cache
+ * answered.
  */
 const open: Open = async ({ io }) => {
   if (!io.video || !io.bake || !io.cache)
     throw new Error('This film needs io.video, io.bake and io.cache.')
   const clip = await io.video('assets/clip.mp4')
+  const small = await io.video('assets/clip.mp4', { maxSize: 100 })
   const level = await io.bake('level')
   let made = 0
   const make = async () => {
@@ -39,6 +41,13 @@ const open: Open = async ({ io }) => {
       frame: at(t),
       colour: clip.colour,
       planes: base64(await clip.frame(at(t), { format: 'yuv420p' })),
+      small: {
+        width: small.width,
+        height: small.height,
+        rgba: base64(await small.frame(at(t))),
+        planes: base64(await small.frame(at(t), { format: 'yuv420p' })),
+        full: base64(await clip.frame(at(t))),
+      },
       planes10: base64(new Uint8Array((await clip.frame(at(t), { format: 'yuv420p10' })).buffer)),
       level: {
         frames: level.frames,

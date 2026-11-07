@@ -233,9 +233,11 @@ export type Io = {
    * (or `'yuv420p10'`, 10 bits) as the file's Y'CbCr planes (`colour` says how to read them;
    * `videoTexture` in `@shaderera/core/gpu` converts them on the GPU), the same bytes every time,
    * read in order fastest. Which frame a t shows is the film's choice (`fps` is the file's).
-   * `space`: what the file is, which the footage carries (`Footage.space`).
+   * `transfer` and `gamut`: what the file is, which the footage carries (`Footage.space`).
+   * `maxSize`: the frames decoded with the long side shrunk to it (area average), the aspect kept;
+   * pass the largest size the film draws the clip.
    */
-  video?(path: string, space?: FootageSpace): Promise<Footage>
+  video?(path: string, options?: FootageSpace & { maxSize?: number }): Promise<Footage>
   /**
    * Bytes derived from inputs, kept across renders, hosts and runs (`.shaderera/cache/`): `make`
    * runs only when nothing is kept for `key` with these project files as they are now. `key`

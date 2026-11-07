@@ -19,6 +19,7 @@ import { shareFiles } from '../cli/share.ts'
 import { chromePath, session } from '../node/browser.ts'
 import { buildPlayer } from './build.ts'
 import { ffmpeg, footageProject } from './fixtures/make.ts'
+import { shrink } from './services.ts'
 
 const chrome = chromePath()
 
@@ -255,6 +256,7 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
       colour: { matrix: string; range: string; chroma: string }
       planes: string
       planes10: string
+      small: { width: number; height: number; rgba: string; planes: string; full: string }
       level: { frames: number; first: number; last: number }
       cache: { bytes: number[]; made: number }
     }
@@ -285,7 +287,7 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
     assert.equal(r.capabilities.deep, true, 'WebGPU in the player worker')
     assert.deepEqual([r.manifest.width, r.manifest.height], [320, 180])
     // The host hook: io.video, io.bake and io.cache answered in the player's worker.
-    const { planes: _, planes10: __, ...half } = r.half.inspect
+    const { planes: _, planes10: __, small: ___, ...half } = r.half.inspect
     assert.deepEqual(half, {
       clip: { width: 320, height: 180, fps: 30, frames: 30, bits: 8 },
       frame: 15,
@@ -342,6 +344,19 @@ test('the web player plays in a sandboxed frame on an allowed origin only, with 
       )
       console.log(`yuv420p frame ${frame}: ${db.toFixed(1)} dB`)
       assert.ok(db > 32, `yuv420p frame ${frame} at ${db} dB`)
+      // maxSize 100 (#507): 100×56, the frame and each plane shrunk by the player's box filter.
+      const small = at.inspect.small
+      const b64 = (s: string) => new Uint8Array(Buffer.from(s, 'base64'))
+      assert.deepEqual([small.width, small.height], [100, 56])
+      assert.deepEqual(b64(small.rgba), shrink(b64(small.full), 320, 180, 4, 100, 56))
+      assert.deepEqual(
+        b64(small.planes),
+        new Uint8Array([
+          ...shrink(planes.subarray(0, 320 * 180), 320, 180, 1, 100, 56),
+          ...shrink(planes.subarray(320 * 180, 320 * 180 * 1.25), 160, 90, 1, 50, 28),
+          ...shrink(planes.subarray(320 * 180 * 1.25), 160, 90, 1, 50, 28),
+        ]),
+      )
       // yuv420p10 (ADR 0031, 4): the same planes shifted up two bits.
       const ten = Buffer.from(at.inspect.planes10, 'base64')
       assert.equal(ten.length, 2 * planes.length)

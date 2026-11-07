@@ -39,7 +39,10 @@ A static player has no CLI process behind it, so its worker answers what the CLI
   the CLI's planes of the original, not the same. `{ format: 'yuv420p10' }` is those 8-bit planes
   shifted up two bits, so a film that asks for 10 bits runs and gives the same shapes, but it
   bands where the original's 10 bits would not: the proxy has no more than 8. `bits` is the
-  original's.
+  original's. A clip asked smaller (`io.video(path, { maxSize })`) is decoded at the proxy's size
+  and shrunk in the worker by area average (box) in integers, rows then columns, each pass
+  rounding half up: the RGBA as it is, the planes each to its own size. The same bytes every
+  time, close to the CLI's (which scales in ffmpeg, before its conversion), not the same.
 - `io.bake`: the bake's frames, the same bytes as the CLI reads. A bake that was never made, is
   stale or has a changed frame fails the build, naming `shaderera bake <name>`.
 - `io.cache`: kept in memory for the page's life.

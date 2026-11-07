@@ -162,7 +162,8 @@ const bytes = (n: number) => new Uint8Array(Buffer.allocUnsafeSlow(n).buffer as 
 export const videoDecoder = (
   file: string,
   /**
-   * `scaled`: the frames at `width` × `height`, not the file's own size (a draft's, scaledVideo).
+   * `scaled`: the frames at `width` × `height`, not the file's own size (a draft's, scaledVideo;
+   * a film's `maxSize`, fittedVideo).
    * `format`: straight RGBA (the default), or the file's planes as `yuv420p` or `yuv420p10` in
    * `info.colour`.
    */
@@ -212,8 +213,9 @@ export const videoDecoder = (
   }
   // Decoded far enough past the latest asked: ffmpeg waits until a host catches up.
   const full = () => next - 1 - asked >= Math.max(1, ahead())
-  // A draft's clip comes at its own size, scaled in the same swscale pass as the conversion. RGBA
-  // rounds accurately and converts chroma at full size, or a limited-range file loses levels.
+  // A draft's clip, or one a film asked smaller (maxSize), comes at its own size, scaled (area) in
+  // the same swscale pass as the conversion. RGBA rounds accurately and converts chroma at full
+  // size, or a limited-range file loses levels.
   const rgba = info.format !== 'yuv420p' && info.format !== 'yuv420p10'
   const flags = [info.scaled && 'area', rgba && 'accurate_rnd+full_chroma_int'].filter(Boolean)
   const resize =
