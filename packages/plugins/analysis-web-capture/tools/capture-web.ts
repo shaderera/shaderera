@@ -1108,11 +1108,14 @@ export const captureWeb = async (options: CaptureOptions) => {
       release()
     }
   }
+  // SIGHUP too: a closed terminal does not reach Chrome's own process group.
   const onSignal = (signal: NodeJS.Signals) => {
-    void cleanup().finally(() => process.exit(signal === 'SIGINT' ? 130 : 143))
+    const code = signal === 'SIGINT' ? 130 : signal === 'SIGHUP' ? 129 : 143
+    void cleanup().finally(() => process.exit(code))
   }
   process.once('SIGINT', onSignal)
   process.once('SIGTERM', onSignal)
+  process.once('SIGHUP', onSignal)
   try {
     // Chrome writes its DevTools port and browser path to the profile once it listens.
     let lines: string[] = []
@@ -1978,6 +1981,7 @@ export const captureWeb = async (options: CaptureOptions) => {
   } finally {
     process.off('SIGINT', onSignal)
     process.off('SIGTERM', onSignal)
+    process.off('SIGHUP', onSignal)
     await cleanup()
   }
 }
