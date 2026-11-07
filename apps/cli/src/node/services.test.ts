@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, readdirSync, utimesSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { alive } from '../deliver/claim.ts'
 import { tempDir } from '../fixtures/temp.ts'
@@ -202,30 +202,15 @@ test('a frame kept when one of two hosts let the clip go is still given, not dec
 test('a decoder that cannot start fails each frame at once, and a gone thread fails the next request', {
   skip: !ffmpeg && 'no ffmpeg',
   timeout: 30_000,
-}, async (t) => {
-  // A PATH with ffprobe and no ffmpeg: the clip is probed, its decoder cannot start.
-  const which = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['ffprobe'], {
-    encoding: 'utf8',
-  })
-  const probe = which.stdout.split(/\r?\n/)[0]?.trim()
-  const bin = tempDir('bin')
-  if (!probe) return t.skip('no ffprobe path')
-  copyFileSync(probe, join(bin, basename(probe)))
-  if (spawnSync(join(bin, basename(probe)), ['-version']).status !== 0)
-    return t.skip('ffprobe needs files beside it')
-  const file = join(clip(), 'v.mp4')
-  const path = process.env.PATH
-  process.env.PATH = bin
-  let v: ReturnType<typeof videoReader>
-  try {
-    v = videoReader(file)
-  } finally {
-    process.env.PATH = path
-  }
+}, async () => {
+  // The clip is probed here; its decoder thread has no ffmpeg on its PATH, so it cannot start. No
+  // copy of ffprobe (227 MB here) and no clock margin, which a busy machine missed (#765).
+  const noFfmpeg = new URL('./fixtures/no-ffmpeg-video-worker.ts', import.meta.url)
+  const v = videoReader(join(clip(), 'v.mp4'), undefined, undefined, noFfmpeg)
+  // Each frame fails with the decoder's failure, not a hang, and the thread lives on.
   await assert.rejects(v.frame(0), /could not decode/)
-  const start = performance.now()
   await assert.rejects(v.frame(1), /could not decode/)
-  assert.ok(performance.now() - start < 2000)
+  assert.equal(v.dead, undefined)
   await v.dispose()
   await assert.rejects(v.frame(2), /has stopped/)
 })
