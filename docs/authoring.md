@@ -80,6 +80,7 @@ What is on the shelf:
   - `render-canvas-texture`: a Canvas2D canvas or RGBA bytes as a GPU texture for a WGSL pass;
   - `composite-blend`: a layer over a base by a W3C blend mode (multiply, screen, overlay, soft light…) or add, with an amount, WGSL and CPU;
   - `composite-matte`: a track matte, one picture's luma or alpha deciding where another shows;
+  - `composite-displace`: a displacement map, one picture's channels moving another's pixels by up to an amount in px;
   - `color-cdl-files`: ASC CDL files (.cc, .ccc, .cdl) read into the numbers `color-primary` takes, and written back;
   - `color-curves`: RGB curves and hue vs saturation and hue vs hue from points, a monotone cubic, WGSL and CPU;
   - `color-lut`: a person's own .cube LUT read, applied (WGSL and CPU) and written back;
