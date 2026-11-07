@@ -1009,7 +1009,7 @@
   }
 
   // What a frame still waits on: video seeks and loads, children starting, and the same in each
-  // child.
+  // child. Each held video that waits on nothing is asked to put its frame on screen.
   const busy = async () => {
     syncVideos(true)
     let n = starting.size
@@ -1032,6 +1032,11 @@
         (!presented(v, rec) || Math.abs(timeDesc.get.call(v) - target(v, rec)) > 1e-6)
       )
         n++
+      // Its frame is presented, but Chrome may not have put it on screen: a paused video's frame
+      // that comes while the one before it is not yet acknowledged is dropped, and stays off
+      // screen until something asks for it again (#782). Asking for a frame callback does (the
+      // compositor submits the frame it holds, if it has not), and is nothing if it is on screen.
+      else if (rec && frameCallback) frameCallback.call(v, () => {})
     }
     for (const k of [...children.keys()]) {
       const a = await ask(k, { op: 'busy' })

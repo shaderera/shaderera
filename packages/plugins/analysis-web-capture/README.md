@@ -389,6 +389,10 @@ A page given as a file reads files, as Chrome lets it.
 - More than one element matching a selector: the first is tracked.
 - A request open for more than 5 s stops holding frames back, and a frame that does not settle in
   15 s is read as it is.
+- A still's screenshot is taken again, after asking Chrome to put each video's frame on screen,
+  until two in a row are the same: Chrome can report a seeked video's frame as presented while it
+  still draws the one before. One that changes 3 times more (that, or something on real time, such
+  as a GIF) is kept as last taken, named by the page's URL.
 - Input goes to the target's centre (or the given point) in the top frame; a frame under that
   point gets it. A trigger's input has no pointer path: a page that reacts to mousemove (a
   magnetic button, a tilt) gets one move from nowhere; give the path's points with `--inputs`.

@@ -31,7 +31,7 @@ import type { Limit, Sample, Track } from '../src/reference/tracks.ts'
 import { styleJson } from './reference-style.ts'
 import { tracksJson } from './reference-tracks.ts'
 import { checkHost, type Refused, startProxy } from './web-capture-net.ts'
-import { pngSize, readStyle, STYLES } from './web-capture-style.ts'
+import { pngSize, readStyle, STYLES, screenshot } from './web-capture-style.ts'
 
 /** This tool's version, recorded in every capture. */
 export const VERSION = '0.8.0'
@@ -1004,6 +1004,8 @@ type Served = { url: string; status: number; sha256: string | null; hashOf?: str
 const LONG_REQUEST_MS = 5000
 /** How long a frame may wait for the page to settle, in real ms. */
 const SETTLE_MS = 15000
+/** How many times a still's screenshot is taken again before one that keeps changing is a limit. */
+const SCREENSHOT_TRIES = 3
 
 /**
  * Captures the page and writes `<out>/tracks.json`. Returns its path and bytes. Refuses bad
@@ -1864,6 +1866,26 @@ export const captureWeb = async (options: CaptureOptions) => {
         fontFaces,
       })
       limits.push(...style.limits)
+      // Chrome can report a seeked video's frame as presented while the screenshot still shows
+      // the one before it (#782). busy() asks it to put each held video's frame on screen, and the
+      // screenshot is taken again until two in a row are the same. One that keeps changing (that,
+      // or something on real time, such as a GIF) is kept as last taken, and is a limit.
+      const at = o.still as number
+      for (let tries = 1; ; tries++) {
+        await held('self.__shadereraClock.busy()', at)
+        const again = await screenshot((method, params) => c.send(method, params, page))
+        if (Buffer.compare(again, style.png) === 0) break
+        style.png = again
+        if (tries === SCREENSHOT_TRIES) {
+          limits.push({
+            where: url,
+            reason: `the screenshot changed each time it was taken again, ${SCREENSHOT_TRIES} times: it is the last one`,
+            from: at / 1000,
+            to: at / 1000,
+          })
+          break
+        }
+      }
     }
     // Bodies are read as their loads finish; reading one can come after the last frame.
     for (let n = 0; n < reading.length; ) {
