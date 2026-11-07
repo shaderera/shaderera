@@ -830,10 +830,14 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     : await open(v, undefined, extraOf)
   const { project } = opened
   // A window outside the film (windowOf), and a software adapter unless accepted, are refused
-  // before anything is saved.
-  await (async () => {
+  // before anything is saved. What the output is traced to: the job's revision, or the working
+  // tree saved now (the same files give the same id, so an unchanged project saves nothing new).
+  // Saved once the source opened: a render refused before it (an unknown param, a stale bake)
+  // saves nothing. A save that throws closes the hosts too, or the process waits on them (#770).
+  const revision = await (async () => {
     if (!job) windowOf(project.manifest, from, to)
     await refuseSoftware(opened.child, v['software-gpu'] === true)
+    return job?.revision ?? save(root, { by: 'cli' }).id
   })().catch(async (error) => {
     await Promise.all([opened.child, ...opened.extra].map((h) => h.close()))
     throw error
@@ -848,10 +852,6 @@ export const run = async (argv: readonly string[]): Promise<number> => {
   const child = retrying(opened.child)
   const extra = opened.extra.map(retrying)
   const hosts = [child, ...extra] as const
-  // What the output is traced to: the job's revision, or the working tree saved now (the same
-  // files give the same id, so an unchanged project saves nothing new). Saved once the source
-  // opened: a render refused before it (an unknown param, a stale bake) saves nothing.
-  const revision = job?.revision ?? save(root, { by: 'cli' }).id
   const interrupt = () => stop.abort(new Error('Interrupted: the output was left as it was.'))
   // `render --stop` in the project stops a video render or a chunk as Ctrl-C does.
   let unlisten: (() => void) | undefined
