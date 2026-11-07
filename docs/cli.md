@@ -221,7 +221,11 @@ gate yet: one would be declared in `requirements.json` when it is built.
   the samples are not evenly spaced; and each side's motion window (the first and last change
   above `--floor`, and the peak), on the film's times. As with `--compare-file`, a positive shift
   means the reference moves later, and `--offset` plus the shift's seconds reads them aligned: a
-  film that moves 2 frames late shows -2.
+  film that moves 2 frames late shows -2. A best shift at the edge of the search, ±`--max-shift`
+  steps, is printed with `at the edge of the search, ±N steps: a wider --max-shift may align
+  better` in place of `searched ±N`, and a side that never changes more than `--floor` still
+  prints its peak and the time of it, `reference still above 30 (peak 23.68 at 0.900 s)`, as
+  `--compare-file` does.
 
 With `--json`: `reference` (`kind`, `file`, `source`, `frame`), `film` (`width`, `height`,
 `duration`), `offset`, `floor`, and `pairs`, each with `element`, `channel`, `unit`, `film` (the
@@ -229,9 +233,11 @@ pair's), `scaled` (null, or `factor`, `axis`, `from` (the film's frame), `to` (t
 `step` (seconds between samples; null when not evenly spaced), `compared` (samples both have),
 `left` (the samples with no film time: `count`, and the `first` and `last` one's source time; null
 when none), `difference` (`max` and `mean`, or null), `offset` (`found`: `steps`, `seconds` and
-`correlation`, or null with `why`; `maxShift`; `scores`, each shift's `correlation` and
-`overlap`), `window` (`film` and `reference`: `first`, `last`, and `peak` with its `t` and
-`change`, or null when still) and `samples` (those with film time, each `t` (film), `at`
+`correlation`, or null with `why`; `maxShift`; `atEdge`, true when the shift found is
+±`maxShift` (false when `maxShift` is 0: nothing was searched); `scores`, each shift's
+`correlation` and `overlap`), `window` (`film` and `reference`: `first`, `last`, and `peak` with
+its `t` and `change`; `first` and `last` null when nothing changes more than `floor`, the peak
+still given; null with no change measured) and `samples` (those with film time, each `t` (film), `at`
 (source), `reference`, `film` and `difference`).
 
 ```
