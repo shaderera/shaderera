@@ -41,6 +41,7 @@ import {
 } from '../project/jobs.ts'
 import { outputRequirements, readRequirements } from '../project/requirements.ts'
 import { releaseFrozen, save } from '../project/revisions.ts'
+import type { Drawn } from '../runner/render-time.ts'
 import { childOptions, draftArgs, open, parseRendering, timesOf } from './args.ts'
 import { clockOf, clockWarning } from './clock.ts'
 import {
@@ -75,7 +76,7 @@ import {
   requireHdr10Ffmpeg,
 } from './ffmpeg.ts'
 import { EXIT, found } from './findings.ts'
-import { type FrameTime, frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
+import { drawnOn, type FrameTime, frameTime, frameTimeHint, frameTimeLine } from './frame-time.ts'
 import { openMix } from './mix.ts'
 import { blackFrame, fileTimecode, prerollOf, prerollTimes, writePreroll } from './preroll.ts'
 import { stoppable, stopRenders } from './render-stop.ts'
@@ -218,6 +219,8 @@ const exportOnce = async (
   clock: ClockReads
   /** Where the frame time went (#454); none for frames rendered before the encode (hdr10, chunks). */
   time?: FrameTime
+  /** How the film drew on its hosts (#508), with `time`: the advice names the fast way from it. */
+  drawn?: Drawn
 }> => {
   checkVideoOptions(o)
   const codec = o.codec ?? 'h264'
@@ -514,6 +517,8 @@ const exportOnce = async (
       probe: probed,
       clock,
       ...(time ? { time } : {}),
+      // Without a GPU compositor a canvas is not uploaded, and there is no videoTexture: no advice.
+      ...(time && profiles && child.has.deep ? { drawn: drawnOn(profiles) } : {}),
       ...(stems ? { stems } : {}),
       ...(sidecars.length ? { captions: sidecars } : {}),
     }
@@ -1004,7 +1009,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     say(`host: ${JSON.stringify(host)}`)
     if (sound.time) {
       const line = frameTimeLine(sound.time)
-      const hint = frameTimeHint(sound.time)
+      const hint = frameTimeHint(sound.time, sound.drawn)
       say(line)
       if (hint) say(hint)
       found({

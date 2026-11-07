@@ -302,6 +302,19 @@ only at 8 bits, so a grade bands. Neither fails the check.
 ! assets/footage/a7s.mp4: 10-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it, from the camera's settings or the file's tags: io.video(path, { transfer, gamut }).
 ```
 
+On a host with a GPU, a film that draws its footage the slow way gets a note (finding
+`footage-draw`, `info`, never a failure) naming the fast way and the speed guide's
+[Footage and stills on the GPU](guides/speed.md#footage-and-stills-on-the-gpu): one that opens
+`io.video` clips and returns a canvas layer (uploaded every frame), or one that asks for their
+frames as RGBA while it returns GPU layers (`yuv420p` with `videoTexture` is 1.5 bytes a pixel,
+not 4). A film without footage, or with footage on textures it converts itself, gets none. With
+several variants, each note is given once, after them. `render`'s frame-time advice names the
+same fix ([Where the time went](#where-the-time-went)).
+
+```
+! The film opens io.video clips and returns a canvas layer, which is uploaded every frame: ask for the clips' frames as 'yuv420p', draw them with videoTexture (@shaderera/core/gpu) on host.gpu, and return GPU textures. See guides/speed.md, "Footage and stills on the GPU".
+```
+
 A shader that does not compile fails `check`, `still`, `render` and every other command that
 renders, with the compiler's own message, line and column, and the project file and line it found
 the code in:
@@ -660,7 +673,10 @@ the encoder is idle and one of the host's parts is its largest and fills at leas
 host's share of the time, a second line names it: the film's own drawing points to the speed
 guide's [Footage and stills on the GPU](guides/speed.md#footage-and-stills-on-the-gpu), the
 compositor and readback to [Expensive films](guides/speed.md#expensive-films) (more hosts, fewer
-layers). The figures start at the first frame written: the preroll, what the hosts rendered
+layers). On a host with a GPU, when the film opens `io.video` clips or returns a canvas layer,
+the line names the fix `check`'s `footage-draw` note gives (or, for a canvas layer alone, drawing
+on `host.gpu` and returning a GPU texture) in place of the drawing's general cause, or after the
+compositor's. The figures start at the first frame written: the preroll, what the hosts rendered
 before and the first frame (which compiles the shaders) are left out. The wall time does include
 the determinism re-check at the end and ffmpeg's flush. A host that cannot give its figures leaves
 them out, never the render:
@@ -1452,8 +1468,8 @@ unchanged. `studio --json` prints one JSON line per event instead ([studio.md](s
 ```
 
 - `findings`: `code` (a review check's id, `determinism`, `history`, `clock`, `keyframes`,
-  `footage-space`, `footage-bits`, `shader`, `build`, `type`, `gpu`, `usage`, `environment`,
-  `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and `info` never do),
+  `footage-space`, `footage-bits`, `footage-draw`, `shader`, `build`, `type`, `gpu`, `usage`,
+  `environment`, `doctor:<item>`, `error`), `severity` (`error` fails; `warning` and `info` never do),
   `message`, and when known `t`, `file` and `line` (a shader, a build error, a type error, a
   throw in the film's code), `bbox` (frame
   pixels: the text run or the overlap), `output` (a batch's job), `measured`.

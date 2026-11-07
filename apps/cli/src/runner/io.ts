@@ -3,7 +3,7 @@
 import type { Baked, DecodedImage, Footage, FootageSpace, Io, VideoColour } from '@shaderera/core'
 import { sha256 } from '@shaderera/core'
 import { decodeImage } from './image.ts'
-import { timeVideo } from './render-time.ts'
+import { noteClip, noteFootage, timeVideo } from './render-time.ts'
 
 /** What a host asks of the CLI's process (node/services.ts). */
 export type Ask = {
@@ -147,12 +147,14 @@ export const extraIo = (
       // A gamut alone picks no curve: only a transfer says what the codes are (check, #575).
       const declared = space.transfer !== undefined
       const info = await ask.videoOpen(path, declared, maxSize)
+      noteClip()
       const frame = async (index: number, options?: { format?: string }) => {
         const format = options?.format ?? 'rgba'
         if (format !== 'rgba' && format !== 'yuv420p' && format !== 'yuv420p10')
           throw new Error(
             `io.video(${path}): frame format is 'rgba', 'yuv420p' or 'yuv420p10', not ${format}.`,
           )
+        noteFootage(format)
         const bytes = await timeVideo(() => ask.videoFrame(path, index, format, maxSize), {
           path,
           index,

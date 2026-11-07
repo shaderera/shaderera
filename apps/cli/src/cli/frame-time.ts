@@ -1,7 +1,7 @@
-import type { RenderTime } from '../runner/render-time.ts'
+import type { Drawn, RenderTime } from '../runner/render-time.ts'
 
 /** Where the speed guide says how to draw footage and stills on the GPU. */
-const GPU_FOOTAGE = 'guides/speed.md, "Footage and stills on the GPU"'
+export const GPU_FOOTAGE = 'guides/speed.md, "Footage and stills on the GPU"'
 /** Where the speed guide says when more hosts render faster. */
 const MORE_HOSTS = 'guides/speed.md, "Expensive films"'
 
@@ -79,10 +79,52 @@ export const frameTimeLine = (t: FrameTime) =>
       : `encoder busy (each frame waited ${ms(t.encoderMs)} for it)`
   }`
 
-/** The hint naming the host's part that sets the pace, or null. */
-export const frameTimeHint = (t: FrameTime): string | null =>
-  t.drawing
-    ? `The film's own drawing takes most of each frame while the encoder waits: footage and stills drawn on the CPU are the usual cause. See ${GPU_FOOTAGE}.`
-    : t.compositor
-      ? `The compositor and readback take most of each frame while the encoder waits: every frame's layers are composited, read back and handed to the CLI on its host, so more hosts (--workers) on idle cores, fewer layers, and layers as GPU textures rather than canvases make it faster. See ${MORE_HOSTS}.`
+/**
+ * The slow way a film draws its footage, and the fast way (#508), or null: it opens io.video clips
+ * and returns a canvas layer, or asks for their frames as RGBA while it returns GPU layers. `check`
+ * notes it, and `render` names it when the drawing or the compositor sets the pace, on a host with
+ * a GPU compositor (`has.deep`).
+ */
+export const footageFix = (d: Drawn): string | null =>
+  d.clips && d.canvas
+    ? `The film opens io.video clips and returns a canvas layer, which is uploaded every frame: ask for the clips' frames as 'yuv420p', draw them with videoTexture (@shaderera/core/gpu) on host.gpu, and return GPU textures. See ${GPU_FOOTAGE}.`
+    : d.clips && d.rgba && d.gpu
+      ? `The film asks io.video for RGBA frames while it returns GPU layers: ask for 'yuv420p' and convert them with videoTexture (@shaderera/core/gpu), 1.5 bytes a pixel, not 4. See ${GPU_FOOTAGE}.`
       : null
+
+/**
+ * The hint naming the host's part that sets the pace, or null. `drawn`, how the film drew on its
+ * hosts: with clips or a canvas layer, the hint names the fast way to draw them (footageFix).
+ */
+export const frameTimeHint = (t: FrameTime, drawn?: Drawn): string | null => {
+  const fix =
+    drawn &&
+    (footageFix(drawn) ??
+      (drawn.canvas
+        ? `The film returns a canvas layer, which is uploaded every frame: draw on host.gpu and return a GPU texture. See ${GPU_FOOTAGE}.`
+        : null))
+  return t.drawing
+    ? fix
+      ? `The film's own drawing takes most of each frame while the encoder waits. ${fix}`
+      : `The film's own drawing takes most of each frame while the encoder waits: footage and stills drawn on the CPU are the usual cause. See ${GPU_FOOTAGE}.`
+    : t.compositor
+      ? `The compositor and readback take most of each frame while the encoder waits: every frame's layers are composited, read back and handed to the CLI on its host, so more hosts (--workers) on idle cores, fewer layers, and layers as GPU textures rather than canvases make it faster. See ${MORE_HOSTS}.${fix ? ` ${fix}` : ''}`
+      : null
+}
+
+/** How the film drew on any of its hosts (Drawn), or undefined when a host could not say. */
+export const drawnOn = (hosts: readonly ({ drawn?: Drawn } | undefined)[]): Drawn | undefined =>
+  hosts.every((h) => h?.drawn)
+    ? hosts.reduce<Drawn>(
+        (all, h) => {
+          const d = h?.drawn as Drawn
+          return {
+            clips: all.clips || d.clips,
+            rgba: all.rgba || d.rgba,
+            canvas: all.canvas || d.canvas,
+            gpu: all.gpu || d.gpu,
+          }
+        },
+        { clips: false, rgba: false, canvas: false, gpu: false },
+      )
+    : undefined

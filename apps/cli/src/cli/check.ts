@@ -12,6 +12,7 @@ import { deepFootage, keyGaps } from '../node/services.ts'
 import { open, parseRendering } from './args.ts'
 import { clockWarning } from './clock.ts'
 import { EXIT, type Finding } from './findings.ts'
+import { footageFix } from './frame-time.ts'
 import { words16 } from './matte64.ts'
 import { direct, eachVariant, type Output } from './variants.ts'
 
@@ -244,6 +245,7 @@ export const run = async (argv: readonly string[]): Promise<number> => {
       }
     }
   }
+  drawnNotes.clear()
   for (const notes of [keyGaps, deepFootage])
     for (const file of notes.keys()) if (ours(root, file)) notes.delete(file)
   const exit = Math.max(typed, await eachVariant(values, checkOne, { json: values.json === true }))
@@ -251,12 +253,22 @@ export const run = async (argv: readonly string[]): Promise<number> => {
     if (!values.json) direct.log(`! ${note}`)
     direct.found({ code: 'keyframes', severity: 'info', message: note })
   }
+  for (const message of drawnNotes) {
+    if (!values.json) direct.log(`! ${message}`)
+    direct.found({ code: 'footage-draw', severity: 'info', message })
+  }
   for (const { code, message } of footageNotes(root)) {
     if (!values.json) direct.log(`! ${message}`)
     direct.found({ code, severity: 'warning', message })
   }
   return exit
 }
+
+/**
+ * How each variant's film drew its footage the slow way (footageFix, #508), noted once after every
+ * variant ran: an info, never a failure.
+ */
+const drawnNotes = new Set<string>()
 
 /**
  * One variant's check. `--json`: its report as MCP `check` gives it, and no lines; the findings
@@ -274,6 +286,12 @@ const checkOne = async (
       seed: Number(v.seed ?? 1),
     })
     if (v.json) out.result(r)
+    // Best effort: a host that cannot say how it drew leaves the note out, never the check. Only
+    // on a host with a GPU compositor: without one a canvas is not uploaded, and there is no
+    // videoTexture to name.
+    const drawn = child.has.deep ? (await child.profile().catch(() => undefined))?.drawn : undefined
+    const fix = drawn && footageFix(drawn)
+    if (fix) drawnNotes.add(fix)
     const { mean, max, at } = r.previewVsFinal
     const compare = `  preview vs final: mean ${mean.toFixed(3)}, max ${max}${r.light ? ' 10-bit codes' : ''} over ${at.length} t`
     const peak = project.manifest.hdr10?.mastering.peak

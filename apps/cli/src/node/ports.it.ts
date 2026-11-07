@@ -335,6 +335,13 @@ test('the browser host decodes, reads and converts on the GPU the same bytes as 
     )
     const [n, b] = await Promise.all(children.map((c) => c.inspect(0)))
     assert.deepEqual(b, n)
+    // How the film drew (#508), the same from both hosts: clips opened, RGBA asked, a canvas.
+    for (const c of children) await c.render(0, 'final')
+    const drawn = await Promise.all(children.map(async (c) => (await c.profile()).drawn))
+    assert.deepEqual(drawn, [
+      { clips: true, rgba: true, canvas: true, gpu: false },
+      { clips: true, rgba: true, canvas: true, gpu: false },
+    ])
   } finally {
     await Promise.all(children.map((c) => c.close()))
   }

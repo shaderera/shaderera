@@ -36,9 +36,12 @@ import {
 } from '@shaderera/core/host'
 import { type Ask, extraIo, type StillSize, stillOf } from '../runner/io.ts'
 import {
+  type Drawn,
+  drawnSoFar,
   type FootageAsk,
   type FrameTimer,
   footageAsked,
+  noteLayers,
   type RenderTime,
   renderTime,
   resetRenderTime,
@@ -185,7 +188,7 @@ const counted = async <T>(run: () => Promise<T>, timer: FrameTimer): Promise<T> 
  * Where the render calls' time went since the last reset (render-time.ts): what `render` prints;
  * and the io.video frames the latest render call asked for (review's `footage-hold`).
  */
-export type HostProfile = { time: RenderTime; footage?: FootageAsk[] }
+export type HostProfile = { time: RenderTime; footage?: FootageAsk[]; drawn?: Drawn }
 
 /**
  * One Dawn per process: a second native Dawn (a library that installs its own `webgpu`, such as a
@@ -487,6 +490,7 @@ const handle = async (m: Request, timer: FrameTimer = timeFrame()): Promise<unkn
         ),
         range,
       )
+      noteLayers(layers)
       if (hdr) {
         if (m.format !== 'rgb10' && m.format !== 'p010')
           throw new Error(
@@ -542,7 +546,11 @@ const handle = async (m: Request, timer: FrameTimer = timeFrame()): Promise<unkn
     case 'clock':
       return { date: clock.date, performance: clock.performance }
     case 'profile': {
-      const profile: HostProfile = { time: renderTime(), footage: footageAsked() }
+      const profile: HostProfile = {
+        time: renderTime(),
+        footage: footageAsked(),
+        drawn: drawnSoFar(),
+      }
       if (m.reset) resetRenderTime()
       return profile
     }
