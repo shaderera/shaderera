@@ -129,6 +129,48 @@ for (const [how, card, dot] of [
     assert.ok((aligned.pairs[0]?.difference?.max as number) < 1e-9)
   })
 
+test('compare-tracks says when the shift found is at the edge of the search, never with --max-shift 0 (#763)', async () => {
+  const { root, reference, pairs } = setup()
+  const list = pairs([{ element: '#card', channel: 'x', film: { path: 'objects[id=card].x' } }])
+  const at = async (maxShift: number) =>
+    compareTracks({ reference, root, film: film(), pairs: list, maxShift })
+  const four = await at(4)
+  assert.equal(four.pairs[0]?.offset.atEdge, false)
+  assert.match(trackLines(four).join('\n'), /, searched ±4\. Aligned: --offset=-0\.2$/m)
+  // 2 steps late searched ±2: the best is at the search's edge, and the output says so.
+  const two = await at(2)
+  assert.equal(two.pairs[0]?.offset.found?.steps, -2)
+  assert.equal(two.pairs[0]?.offset.atEdge, true)
+  assert.match(
+    trackLines(two).join('\n'),
+    /aligns best at -2 steps of 0\.1 s \(-0\.2 s, the film 2 steps later, correlation \d\.\d{3}\), at the edge of the search, ±2 steps: a wider --max-shift may align better\. Aligned: --offset=-0\.2$/m,
+  )
+  // Nothing searched: the shift found, 0, is no edge.
+  const none = await at(0)
+  assert.equal(none.pairs[0]?.offset.found?.steps, 0)
+  assert.equal(none.pairs[0]?.offset.atEdge, false)
+  assert.match(trackLines(none).join('\n'), /, searched ±0$/m)
+})
+
+test('compare-tracks keeps the peak and its time of a side that never changes more than --floor (#763)', async () => {
+  const { root, reference, pairs } = setup()
+  const list = pairs([{ element: '#card', channel: 'x', film: { path: 'objects[id=card].x' } }])
+  const run = (floor: number) =>
+    compareTracks({ reference, root, film: film(), pairs: list, maxShift: 4, floor })
+  const low = (await run(0)).pairs[0]?.window
+  const high = await run(1000)
+  const w = high.pairs[0]?.window
+  assert.deepEqual(w?.film, { first: null, last: null, peak: low?.film?.peak })
+  assert.deepEqual(w?.reference, { first: null, last: null, peak: low?.reference?.peak })
+  const peak = (p: { t: number; change: number }) =>
+    `peak ${Number(p.change.toFixed(4))} at ${p.t.toFixed(3)} s`
+  assert.ok(
+    trackLines(high).includes(
+      `  film still above 1000 (${peak(w?.film?.peak as { t: number; change: number })}); reference still above 1000 (${peak(w?.reference?.peak as { t: number; change: number })})`,
+    ),
+  )
+})
+
 test('compare-tracks scales px units by the frames and says so; others as written (#687)', async () => {
   const { root, reference, pairs } = setup({ frame: { width: 128, height: 72 } })
   const r = await compareTracks({

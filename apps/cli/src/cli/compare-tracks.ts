@@ -8,8 +8,8 @@ import { resolve } from 'node:path'
 import type { Json } from '@shaderera/core'
 import { inside } from '../node/inside.ts'
 import type { DomElement } from '../review/measure.ts'
-import { align, type Curve, motionWindow, type Score, stepOf } from '../review/reference.ts'
-import type { TimedWindow } from './compare-file.ts'
+import { align, type Curve, type Score, stepOf } from '../review/reference.ts'
+import { atEdge, type SideWindow, searchedText, sideWindow, windowsText } from './compare-file.ts'
 import { valueAt } from './inspect.ts'
 
 /** One reference track, as docs/analysis.md defines it: one element's one channel. */
@@ -92,10 +92,12 @@ export type PairReport = {
     found: { steps: number; seconds: number; correlation: number } | null
     why?: string
     maxShift: number
+    /** The shift found is ±maxShift: a wider search may align better (#763). False when none. */
+    atEdge: boolean
     scores: Score[]
   }
-  /** Each side's motion window on the film's times; null when it does not change above floor. */
-  window: { film: TimedWindow | null; reference: TimedWindow | null }
+  /** Each side's motion window on the film's times; null when it has no change measured. */
+  window: { film: SideWindow | null; reference: SideWindow | null }
   samples: {
     /** The film's time: at − offset. */
     t: number
@@ -433,12 +435,6 @@ export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTra
     const a = step === null ? undefined : align(refCurve, filmCurve, maxShift, lead)
     if (a && a.shift === null)
       why = 'a track does not change over enough of its samples to correlate'
-    const timed = (w: ReturnType<typeof motionWindow>): TimedWindow | null =>
-      w && {
-        first: round6(times[w.first] as number),
-        last: round6(times[w.last] as number),
-        peak: { t: round6(times[w.peak.index] as number), change: w.peak.change },
-      }
     const steps = a?.shift ? -a.shift : 0
     reports.push({
       element: track.element,
@@ -464,19 +460,19 @@ export const compareTracks = async (o: CompareTracksOptions): Promise<CompareTra
             : null,
         ...(why && !(a && a.shift !== null) ? { why } : {}),
         maxShift,
+        atEdge: atEdge(a?.shift, maxShift),
         // Each score's shift as --offset counts it.
         scores: (a?.scores ?? [])
           .map((s) => ({ ...s, shift: s.shift === 0 ? 0 : -s.shift }))
           .reverse(),
       },
       window: {
-        film: timed(
-          motionWindow(
-            filmCurve.slice(lead, lead + times.length).map((c, i) => (i === 0 ? null : c)),
-            floor,
-          ),
+        film: sideWindow(
+          filmCurve.slice(lead, lead + times.length).map((c, i) => (i === 0 ? null : c)),
+          times,
+          floor,
         ),
-        reference: timed(motionWindow(refCurve, floor)),
+        reference: sideWindow(refCurve, times, floor),
       },
       samples,
     })
@@ -497,10 +493,6 @@ export const trackLines = (r: CompareTracksReport): string[] => {
   const lines = [
     `reference: ${r.reference.file}, frame ${f.width}×${f.height} at pixel ratio ${f.pixelRatio}; film ${r.film.width}×${r.film.height}, ${r.film.duration} s; measured at ${readAt(r.offset)}`,
   ]
-  const win = (w: TimedWindow | null) =>
-    w
-      ? `moves ${w.first.toFixed(3)}–${w.last.toFixed(3)} s, peak ${w.peak.t.toFixed(3)} s (${n(w.peak.change)})`
-      : 'still'
   for (const p of r.pairs) {
     lines.push(`${p.element} ${p.channel} (${p.unit}) vs ${describe(p.film)}`)
     if (p.scaled)
@@ -516,9 +508,7 @@ export const trackLines = (r: CompareTracksReport): string[] => {
       lines.push(
         `  left out: ${p.left.count} sample${p.left.count === 1 ? '' : 's'} with no film time (0 to ${r.film.duration} s), at source ${p.left.first === p.left.last ? `${p.left.first} s` : `${p.left.first} to ${p.left.last} s`}`,
       )
-    lines.push(
-      `  film ${win(p.window.film)}; reference ${win(p.window.reference)}${r.floor > 0 ? ` (above ${r.floor})` : ''}`,
-    )
+    lines.push(`  ${windowsText(p.window, r.floor, n)}`)
     const o = p.offset
     if (o.found) {
       const total = round6(r.offset + o.found.seconds)
@@ -529,7 +519,7 @@ export const trackLines = (r: CompareTracksReport): string[] => {
             ? `the film ${-o.found.steps} steps later`
             : `the film ${o.found.steps} steps earlier`
       lines.push(
-        `  offset: aligns best at ${o.found.steps > 0 ? '+' : ''}${o.found.steps} steps of ${n(p.step as number)} s (${n(o.found.seconds)} s, ${late}, correlation ${o.found.correlation.toFixed(3)}), searched ±${o.maxShift}${o.found.steps === 0 ? '' : `. Aligned: --offset=${total}`}`,
+        `  offset: aligns best at ${o.found.steps > 0 ? '+' : ''}${o.found.steps} steps of ${n(p.step as number)} s (${n(o.found.seconds)} s, ${late}, correlation ${o.found.correlation.toFixed(3)}), ${searchedText(o.atEdge, o.maxShift)}${o.found.steps === 0 ? '' : `. Aligned: --offset=${total}`}`,
       )
     } else lines.push(`  offset: no alignment: ${o.why}`)
   }

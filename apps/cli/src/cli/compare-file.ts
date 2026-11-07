@@ -85,9 +85,6 @@ export type CompareFileOptions = {
   frame?: (f: ShownFrame) => Promise<void>
 }
 
-/** A motion window on the film's timeline, in seconds. */
-export type TimedWindow = { first: number; last: number; peak: { t: number; change: number } }
-
 /**
  * A side's motion window on the film's timeline: `first` and `last` are `null` when nothing
  * changes more than the floor, and the peak is kept, so a floor above it shows (#743).
@@ -96,6 +93,53 @@ export type SideWindow = {
   first: number | null
   last: number | null
   peak: { t: number; change: number }
+}
+
+/** The SideWindow of a curve of changes at `times` (seconds); null when it has no change. */
+export const sideWindow = (
+  curve: readonly (number | null)[],
+  times: readonly number[],
+  floor: number,
+): SideWindow | null => {
+  const w = motionWindow(curve, floor)
+  // Every change is above -1: the window of all of them, and its peak.
+  const all = motionWindow(curve, -1)
+  return (
+    all && {
+      first: w && round6(times[w.first] as number),
+      last: w && round6(times[w.last] as number),
+      peak: { t: round6(times[all.peak.index] as number), change: all.peak.change },
+    }
+  )
+}
+
+/** The shift found is at the edge of the search, ±maxShift steps (#744); never when none searched. */
+export const atEdge = (shift: number | null | undefined, maxShift: number): boolean =>
+  shift !== null && shift !== undefined && maxShift > 0 && Math.abs(shift) === maxShift
+
+/** How far the alignment searched, as the human output says it. */
+export const searchedText = (edge: boolean, maxShift: number): string =>
+  edge
+    ? `at the edge of the search, ±${maxShift} steps: a wider --max-shift may align better`
+    : `searched ±${maxShift}`
+
+/**
+ * Both sides' motion windows as the human output says them, each change written by `change`. A
+ * side that never changes more than the floor says so with its peak (#743).
+ */
+export const windowsText = (
+  window: { film: SideWindow | null; reference: SideWindow | null },
+  floor: number,
+  change: (x: number) => string,
+): string => {
+  const win = (w: SideWindow | null) =>
+    w === null
+      ? 'still'
+      : w.first === null || w.last === null
+        ? `still above ${floor} (peak ${change(w.peak.change)} at ${w.peak.t.toFixed(3)} s)`
+        : `moves ${w.first.toFixed(3)}–${w.last.toFixed(3)} s, peak ${w.peak.t.toFixed(3)} s (${change(w.peak.change)})`
+  const moving = (w: SideWindow | null) => w !== null && w.first !== null
+  return `film ${win(window.film)}; reference ${win(window.reference)}${floor > 0 && moving(window.film) && moving(window.reference) ? ` (above ${floor})` : ''}`
 }
 
 export type CompareFileReport = {
@@ -372,18 +416,6 @@ export const compareWithFile = async (
     }
 
     const inRange = refCurve.slice(lead, lead + times.length).map((c, i) => (i === 0 ? null : c))
-    const timed = (curve: (number | null)[]): SideWindow | null => {
-      const w = motionWindow(curve, floor)
-      // Every change is above -1: the window of all of them, and its peak.
-      const all = motionWindow(curve, -1)
-      return (
-        all && {
-          first: w && round6(times[w.first] as number),
-          last: w && round6(times[w.last] as number),
-          peak: { t: round6(times[all.peak.index] as number), change: all.peak.change },
-        }
-      )
-    }
     const a = step === null ? undefined : align(filmCurve, refCurve, maxShift, lead)
     if (a && a.shift === null) why = 'a curve does not change over enough of the times to correlate'
     return {
@@ -417,12 +449,12 @@ export const compareWithFile = async (
             : null,
         ...(why && !(a && a.shift !== null) ? { why } : {}),
         maxShift,
-        atEdge: !!a && a.shift !== null && maxShift > 0 && Math.abs(a.shift) === maxShift,
+        atEdge: atEdge(a?.shift, maxShift),
         scores: a?.scores ?? [],
       },
       window: {
-        film: timed(filmCurve),
-        reference: timed(inRange),
+        film: sideWindow(filmCurve, times, floor),
+        reference: sideWindow(inRange, times, floor),
       },
       frames,
     }
@@ -472,24 +504,14 @@ export const summaryLines = (r: CompareFileReport): string[] => {
     lines.push(
       `regions: ${r.regions.list.map((q) => q.id).join(', ')} (${r.regions.kind} in ${r.regions.in.join('×')})`,
     )
-  // A side that never changes more than the floor says so with its peak (#743).
-  const win = (w: SideWindow | null) =>
-    w === null
-      ? 'still'
-      : w.first === null || w.last === null
-        ? `still above ${r.floor} (peak ${w.peak.change.toFixed(2)} at ${w.peak.t.toFixed(3)} s)`
-        : `moves ${w.first.toFixed(3)}–${w.last.toFixed(3)} s, peak ${w.peak.t.toFixed(3)} s (${w.peak.change.toFixed(2)})`
-  const moving = (w: SideWindow | null) => w !== null && w.first !== null
-  lines.push(
-    `film ${win(r.window.film)}; reference ${win(r.window.reference)}${r.floor > 0 && moving(r.window.film) && moving(r.window.reference) ? ` (above ${r.floor})` : ''}`,
-  )
+  lines.push(windowsText(r.window, r.floor, (x) => x.toFixed(2)))
   const o = r.offset
   const unit = r.step === null ? '' : ` steps of ${n(r.step)} s`
   if (o.found) {
     // `--offset=` so that a negative one reads as a value, not as a flag.
     const total = round6(o.applied + o.found.seconds)
     lines.push(
-      `offset: applied ${n(o.applied)} s; the curves align best at ${o.found.steps > 0 ? '+' : ''}${o.found.steps}${unit} (${n(o.found.seconds)} s, correlation ${o.found.correlation.toFixed(3)}), ${o.atEdge ? `at the edge of the search, ±${o.maxShift} steps: a wider --max-shift may align better` : `searched ±${o.maxShift}`}${
+      `offset: applied ${n(o.applied)} s; the curves align best at ${o.found.steps > 0 ? '+' : ''}${o.found.steps}${unit} (${n(o.found.seconds)} s, correlation ${o.found.correlation.toFixed(3)}), ${searchedText(o.atEdge, o.maxShift)}${
         o.found.steps === 0 ? '' : `. Aligned: --offset=${total}`
       }`,
     )
