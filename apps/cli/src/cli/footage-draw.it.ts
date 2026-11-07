@@ -13,8 +13,10 @@ const ffmpeg = spawnSync('ffmpeg', ['-version']).status === 0
  * A film of a clip the size of its frame, drawn three ways (#508): `slow` puts its RGBA frames on a
  * canvas and returns the canvas, `fast` converts its yuv420p planes with videoTexture and returns
  * the texture, `plain` has no footage and returns a canvas. Each frame first spends a while in
- * arithmetic, so the film's own drawing sets a render's pace. The fast variant needs the Node host's
- * GPU (`webgpu`, as ports.it.ts): without one it fails, it does not skip.
+ * arithmetic, so the film's own drawing sets a render's pace. And a large still drawn two ways (#773):
+ * `still` draws it scaled on the canvas every frame, `stillGpu` writes it once to a texture. The
+ * fast and stillGpu variants need the Node host's GPU (`webgpu`, as ports.it.ts): without one they
+ * fail, they do not skip.
  */
 const film = () => {
   const root = tempDir('footage-draw')
@@ -38,7 +40,7 @@ const film = () => {
       duration: 1,
       width: 64,
       height: 36,
-      variants: { slow: {}, fast: {}, plain: {} },
+      variants: { slow: {}, fast: {}, plain: {}, still: {}, stillGpu: {} },
     }),
   )
   writeFileSync(join(root, 'package.json'), '{ "type": "module", "private": true }')
@@ -62,6 +64,44 @@ export default async ({ io, gpu, variant }) => {
         return { color: canvas }
       },
     }
+  if (variant === 'still') {
+    const photo = await io.image('assets/photo.png')
+    const big = io.canvas(photo.width, photo.height)
+    const pixels = big.getContext('2d').createImageData(photo.width, photo.height)
+    pixels.data.set(photo.data)
+    big.getContext('2d').putImageData(pixels, 0, 0)
+    return {
+      render: async () => {
+        busy()
+        ctx.drawImage(big, 0, 0, 64, 36)
+        return { color: canvas }
+      },
+    }
+  }
+  if (variant === 'stillGpu') {
+    if (!gpu) throw new Error('This variant needs host.gpu.')
+    const photo = await io.image('assets/photo.png')
+    const big = gpu.createTexture({
+      size: [photo.width, photo.height],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.COPY_SRC,
+    })
+    gpu.queue.writeTexture({ texture: big }, photo.data, { bytesPerRow: photo.width * 4 }, [photo.width, photo.height])
+    const texture = gpu.createTexture({
+      size: [64, 36],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    })
+    const encoder = gpu.createCommandEncoder()
+    encoder.copyTextureToTexture({ texture: big }, { texture }, [64, 36])
+    gpu.queue.submit([encoder.finish()])
+    return {
+      render: async () => {
+        busy()
+        return { color: texture, alpha: 'opaque' }
+      },
+    }
+  }
   const clip = await io.video('assets/clip.mp4')
   const at = (t) => Math.min(clip.frames - 1, Math.floor(t * clip.fps + 1e-6))
   if (variant === 'fast') {
@@ -90,12 +130,16 @@ export default async ({ io, gpu, variant }) => {
     ...['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=64x36:rate=10', '-frames:v', '10'],
     ...['-pix_fmt', 'yuv420p', join(root, 'assets', 'clip.mp4')],
   ])
+  spawnSync('ffmpeg', [
+    ...['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=3200x1800', '-frames:v', '1'],
+    ...['-pix_fmt', 'rgba', join(root, 'assets', 'photo.png')],
+  ])
   return root
 }
 
 type Found = { code: string; severity: string; message: string; measured?: string }
 
-test('check notes footage put on a canvas, never as a failure, and nothing for footage on the GPU or a film without footage; render advice names the same fix (#508)', {
+test('check notes footage or a large still put on a canvas, never as a failure, and nothing for either on the GPU or a film without them; render advice names the same fix (#508, #773)', {
   skip: !ffmpeg && 'no ffmpeg',
   timeout: 300_000,
 }, () => {
@@ -117,8 +161,21 @@ test('check notes footage put on a canvas, never as a failure, and nothing for f
   assert.equal(slow.length, 1)
   assert.equal(slow[0]?.severity, 'info')
   assert.match(slow[0]?.message ?? '', fix)
+  // A film without stills: no word of them.
+  assert.doesNotMatch(slow[0]?.message ?? '', /io.image|maxSize/)
   assert.deepEqual(check('fast'), [])
   assert.deepEqual(check('plain'), [])
+  // A large still drawn on the canvas every frame, asked without a maxSize (#773): the note names
+  // the stills and maxSize, not clips. The same still written once to a texture: none.
+  const still = check('still')
+  assert.equal(still.length, 1)
+  assert.equal(still[0]?.severity, 'info')
+  assert.match(
+    still[0]?.message ?? '',
+    /^The film opens io.image stills and returns a canvas layer.*upload each still once to a GPU texture.*without a maxSize.*"Footage and stills on the GPU"/,
+  )
+  assert.doesNotMatch(still[0]?.message ?? '', /io.video|yuv420p/)
+  assert.deepEqual(check('stillGpu'), [])
   // Lines too, once, with the exit code a clean check has.
   const lines = spawnSync(
     process.execPath,

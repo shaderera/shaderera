@@ -3,7 +3,7 @@
 import type { Baked, DecodedImage, Footage, FootageSpace, Io, VideoColour } from '@shaderera/core'
 import { sha256 } from '@shaderera/core'
 import { decodeImage } from './image.ts'
-import { noteClip, noteFootage, timeVideo } from './render-time.ts'
+import { noteClip, noteFootage, noteStill, timeVideo } from './render-time.ts'
 
 /** What a host asks of the CLI's process (node/services.ts). */
 export type Ask = {
@@ -107,7 +107,7 @@ export const stillOf = (
 
 /**
  * The ports over a host's `read` and its way to the CLI's process. The waits on `io.video` frames
- * inside render are timed (render-time.ts).
+ * inside render are timed, and the clips and stills opened noted (render-time.ts).
  */
 export const extraIo = (
   read: (path: string) => Promise<Uint8Array>,
@@ -116,6 +116,7 @@ export const extraIo = (
   const images = new Map<string, Promise<DecodedImage>>()
   return {
     image: (path, options) => {
+      noteStill(options?.maxSize)
       const key = `${options?.maxSize ?? 0} ${path}`
       let image = images.get(key)
       if (!image) {

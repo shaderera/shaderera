@@ -109,11 +109,18 @@ test('the hint names the fast way to draw footage when the film has clips or a c
     writeMs: 50,
     hosts: [{ renders: 100, renderMs: 100, videoMs: 0, composeMs: 600 }],
   })
-  const none = { clips: false, rgba: false, canvas: false, gpu: false }
+  const none = {
+    clips: false,
+    rgba: false,
+    canvas: false,
+    gpu: false,
+    stills: false,
+    unsized: false,
+  }
   // RGBA footage put on a canvas and returned.
-  const slow = { clips: true, rgba: true, canvas: true, gpu: false }
+  const slow = { clips: true, rgba: true, canvas: true, gpu: false, stills: false, unsized: false }
   // yuv420p through videoTexture, a GPU layer.
-  const fast = { clips: true, rgba: false, canvas: false, gpu: true }
+  const fast = { clips: true, rgba: false, canvas: false, gpu: true, stills: false, unsized: false }
   const fix =
     /io\.video clips and returns a canvas layer.*'yuv420p'.*videoTexture.*"Footage and stills on the GPU"/
   assert.match(footageFix(slow) ?? '', fix)
@@ -121,7 +128,14 @@ test('the hint names the fast way to draw footage when the film has clips or a c
   assert.equal(footageFix(none), null)
   // RGBA footage uploaded as it is, GPU layers returned.
   assert.match(
-    footageFix({ clips: true, rgba: true, canvas: false, gpu: true }) ?? '',
+    footageFix({
+      clips: true,
+      rgba: true,
+      canvas: false,
+      gpu: true,
+      stills: false,
+      unsized: false,
+    }) ?? '',
     /RGBA frames while it returns GPU layers: ask for 'yuv420p'/,
   )
   // A canvas of type and no footage: check says nothing, a render's pace names the canvas.
@@ -162,20 +176,42 @@ test('with the encoder idle and no one part leading, footage drawn the slow way 
     })),
   })
   assert.deepEqual([t.encoderIdle, t.drawing, t.compositor], [true, false, false])
-  const none = { clips: false, rgba: false, canvas: false, gpu: false }
-  const hint = frameTimeHint(t, { clips: true, rgba: true, canvas: true, gpu: false }) ?? ''
+  const none = {
+    clips: false,
+    rgba: false,
+    canvas: false,
+    gpu: false,
+    stills: false,
+    unsized: false,
+  }
+  const hint =
+    frameTimeHint(t, {
+      clips: true,
+      rgba: true,
+      canvas: true,
+      gpu: false,
+      stills: false,
+      unsized: false,
+    }) ?? ''
   assert.match(
     hint,
     /^The hosts take each frame while the encoder waits\. The film opens io\.video clips/,
   )
   assert.match(hint, /'yuv420p'.*videoTexture.*"Footage and stills on the GPU"/)
   assert.match(
-    frameTimeHint(t, { clips: true, rgba: true, canvas: false, gpu: true }) ?? '',
+    frameTimeHint(t, {
+      clips: true,
+      rgba: true,
+      canvas: false,
+      gpu: true,
+      stills: false,
+      unsized: false,
+    }) ?? '',
     /RGBA frames while it returns GPU layers/,
   )
   // yuv420p through videoTexture already, a canvas without clips, or no word from a host: none.
   for (const d of [
-    { clips: true, rgba: false, canvas: false, gpu: true },
+    { clips: true, rgba: false, canvas: false, gpu: true, stills: false, unsized: false },
     { ...none, canvas: true },
     none,
     undefined,
@@ -183,18 +219,83 @@ test('with the encoder idle and no one part leading, footage drawn the slow way 
     assert.equal(frameTimeHint(t, d), null)
   // A busy encoder sets the pace: no hint, however the film drew.
   const busy = frameTime({ frames: 600, wallMs: 600 * 31.6, writeMs: 600 * 20, hosts: [] })
-  assert.equal(frameTimeHint(busy, { clips: true, rgba: true, canvas: true, gpu: false }), null)
+  assert.equal(
+    frameTimeHint(busy, {
+      clips: true,
+      rgba: true,
+      canvas: true,
+      gpu: false,
+      stills: false,
+      unsized: false,
+    }),
+    null,
+  )
 })
 
 test("how the film drew is any host's, and unknown when a host could not say", () => {
   const d = (o: object) => ({
-    drawn: { clips: false, rgba: false, canvas: false, gpu: false, ...o },
+    drawn: {
+      clips: false,
+      rgba: false,
+      canvas: false,
+      gpu: false,
+      stills: false,
+      unsized: false,
+      ...o,
+    },
   })
   assert.deepEqual(drawnOn([d({ clips: true }), d({ canvas: true })]), {
     clips: true,
     rgba: false,
     canvas: true,
     gpu: false,
+    stills: false,
+    unsized: false,
   })
   assert.equal(drawnOn([d({}), {}]), undefined)
+})
+
+test('the fix names stills drawn on a canvas layer, and maxSize when one was asked without, and nothing for stills on the GPU (#773)', () => {
+  const none = {
+    clips: false,
+    rgba: false,
+    canvas: false,
+    gpu: false,
+    stills: false,
+    unsized: false,
+  }
+  const stills =
+    /io\.image stills and returns a canvas layer.*upload each still once to a GPU texture.*"Footage and stills on the GPU"/
+  const size = /without a maxSize: give it the largest size the film draws the still/
+  const sized = footageFix({ ...none, stills: true, canvas: true }) ?? ''
+  assert.match(sized, /^The film opens io\.image stills/)
+  assert.match(sized, stills)
+  assert.doesNotMatch(sized, /maxSize|io\.video|yuv420p/)
+  assert.match(footageFix({ ...none, stills: true, unsized: true, canvas: true }) ?? '', size)
+  // #434's film: a clip and stills on one canvas layer, both named.
+  const both =
+    footageFix({ ...none, clips: true, rgba: true, stills: true, unsized: true, canvas: true }) ??
+    ''
+  assert.match(both, /opens io\.video clips and io\.image stills and returns a canvas layer/)
+  assert.match(both, /'yuv420p'.*videoTexture.*upload each still once.*maxSize/)
+  // Stills uploaded once to a texture, GPU layers returned: none, with a maxSize or without.
+  assert.equal(footageFix({ ...none, stills: true, unsized: true, gpu: true }), null)
+  const drawing = frameTime({
+    frames: 100,
+    wallMs: 4000,
+    writeMs: 40,
+    hosts: [{ renders: 100, renderMs: 3100, videoMs: 0, composeMs: 700 }],
+  })
+  assert.match(
+    frameTimeHint(drawing, { ...none, stills: true, unsized: true, canvas: true }) ?? '',
+    size,
+  )
+  assert.equal(
+    frameTimeHint(drawing, { ...none, stills: true, unsized: true, gpu: true }),
+    frameTimeHint(drawing),
+  )
+  assert.deepEqual(
+    drawnOn([{ drawn: { ...none, stills: true } }, { drawn: { ...none, unsized: true } }]),
+    { ...none, stills: true, unsized: true },
+  )
 })

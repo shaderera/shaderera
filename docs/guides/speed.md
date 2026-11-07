@@ -96,9 +96,10 @@ the film opens it, as camera files often do not tag a log curve:
 The clip carries it as `clip.space` for the grade (`color-spaces`); the engine converts nothing.
 Take it from the camera's settings or the file's tags (phone HDR is usually `hlg` or `pq` with
 `rec2020`). `check` warns of a file of more than 8 bits with no `transfer` declared, or read
-only at 8 bits. On a host with a GPU, `check` notes a film that opens clips and returns a canvas
-layer, or asks for their frames as RGBA while it returns GPU layers, and `render`'s time line
-names the same fix when the hosts set the pace (the encoder waits on them).
+only at 8 bits. On a host with a GPU, `check` notes a film that opens clips or stills and returns
+a canvas layer (with `io.image`'s `maxSize` when a still was asked without one), or asks for
+clips' frames as RGBA while it returns GPU layers, and `render`'s time line names the same fix
+when the hosts set the pace (the encoder waits on them).
 
 A clip drawn smaller than the frame (a picture in picture, a wall of tiles, a corner insert) is
 asked at that size: `io.video('assets/a.mp4', { maxSize: 480 })` decodes its frames with the

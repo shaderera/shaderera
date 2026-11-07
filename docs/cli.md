@@ -302,12 +302,13 @@ only at 8 bits, so a grade bands. Neither fails the check.
 ! assets/footage/a7s.mp4: 10-bit footage with no colour space declared, so a grade takes its codes for Rec.709 video. Say what it is where the film opens it, from the camera's settings or the file's tags: io.video(path, { transfer, gamut }).
 ```
 
-On a host with a GPU, a film that draws its footage the slow way gets a note (finding
+On a host with a GPU, a film that draws its footage or stills the slow way gets a note (finding
 `footage-draw`, `info`, never a failure) naming the fast way and the speed guide's
 [Footage and stills on the GPU](guides/speed.md#footage-and-stills-on-the-gpu): one that opens
-`io.video` clips and returns a canvas layer (uploaded every frame), or one that asks for their
-frames as RGBA while it returns GPU layers (`yuv420p` with `videoTexture` is 1.5 bytes a pixel,
-not 4). A film without footage, or with footage on textures it converts itself, gets none. With
+`io.video` clips or `io.image` stills and returns a canvas layer (uploaded every frame), or one
+that asks for clips' frames as RGBA while it returns GPU layers (`yuv420p` with `videoTexture`
+is 1.5 bytes a pixel, not 4). When it asked `io.image` for a still without a `maxSize`, the note
+names `maxSize` too. A film without footage or stills, or with them on textures, gets none. With
 several variants, each note is given once, after them. `render`'s frame-time advice names the
 same fix ([Where the time went](#where-the-time-went)).
 
@@ -673,10 +674,10 @@ the encoder is idle and one of the host's parts is its largest and fills at leas
 host's share of the time, a second line names it: the film's own drawing points to the speed
 guide's [Footage and stills on the GPU](guides/speed.md#footage-and-stills-on-the-gpu), the
 compositor and readback to [Expensive films](guides/speed.md#expensive-films) (more hosts, fewer
-layers). On a host with a GPU, when the film opens `io.video` clips or returns a canvas layer,
-the line names the fix `check`'s `footage-draw` note gives (or, for a canvas layer alone, drawing
-on `host.gpu` and returning a GPU texture) in place of the drawing's general cause, or after the
-compositor's; while the encoder is idle and neither leads (the `io.video` waits are the largest, or
+layers). On a host with a GPU, when the film opens `io.video` clips or `io.image` stills, or
+returns a canvas layer, the line names the fix `check`'s `footage-draw` note gives (or, for a
+canvas layer alone, drawing on `host.gpu` and returning a GPU texture) in place of the drawing's
+general cause, or after the compositor's; while the encoder is idle and neither leads (the `io.video` waits are the largest, or
 the parts are even), a film that draws its footage that slow way still gets the fix, after "The
 hosts take each frame while the encoder waits." The figures start at the first frame written: the
 preroll, what the hosts rendered before and the first frame (which compiles the shaders) are left
