@@ -1055,7 +1055,8 @@ export const captureWeb = async (options: CaptureOptions) => {
         '--do-not-de-elevate',
         'about:blank',
       ],
-      { stdio: 'ignore' },
+      // Elsewhere than Windows, Chrome leads a process group of its own, which end() kills whole.
+      { stdio: 'ignore', detached: process.platform !== 'win32' },
     )
   } catch (e) {
     await proxy?.close()
@@ -1084,8 +1085,14 @@ export const captureWeb = async (options: CaptureOptions) => {
     try {
       client?.close()
       // On Windows, killing chrome.exe leaves its children, which keep the profile's files open.
+      // Elsewhere, killing chrome alone leaves its network service, which writes the profile again
+      // after it is removed.
       if (!gone && process.platform === 'win32' && browser.pid) {
         spawnSync('taskkill', ['/pid', String(browser.pid), '/T', '/F'], { stdio: 'ignore' })
+      } else if (process.platform !== 'win32' && browser.pid) {
+        try {
+          process.kill(-browser.pid, 'SIGKILL')
+        } catch {}
       } else if (!gone) browser.kill()
       await Promise.race([exited, sleep(5000, undefined, { ref: false })])
       if (!gone) browser.kill('SIGKILL')
