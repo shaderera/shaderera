@@ -1,0 +1,23 @@
+{
+  "name": "composite-matte",
+  "type": "component",
+  "title": "Track matte",
+  "description": "A track matte, one WebGPU pass: one picture's luma or alpha decides where another shows, turned over on request; the source's own alpha kept, premultiplied out",
+  "category": "Rendering",
+  "tags": [
+    "matte",
+    "track matte",
+    "mask",
+    "luma matte",
+    "alpha matte",
+    "composite",
+    "compositing",
+    "texture",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "render-canvas-texture": "^0.1.0" } },
+  "files": ["src/composite/matte.ts", "src/composite/matte.wgsl.ts"]
+}
