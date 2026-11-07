@@ -80,22 +80,35 @@ export const frameTimeLine = (t: FrameTime) =>
   }`
 
 /**
- * The slow way a film draws its footage, and the fast way (#508), or null: it opens io.video clips
- * and returns a canvas layer, or asks for their frames as RGBA while it returns GPU layers. `check`
- * notes it, and `render` names it when the drawing or the compositor sets the pace, on a host with
- * a GPU compositor (`has.deep`).
+ * The slow way a film draws its footage and stills, and the fast way (#508, #773), or null: it opens
+ * io.video clips or io.image stills and returns a canvas layer (with io.image's `maxSize` when it
+ * asked for a still without one), or asks for clips' frames as RGBA while it returns GPU layers.
+ * `check` notes it, and `render` names it when the drawing or the compositor sets the pace, on a
+ * host with a GPU compositor (`has.deep`).
  */
-export const footageFix = (d: Drawn): string | null =>
-  d.clips && d.canvas
-    ? `The film opens io.video clips and returns a canvas layer, which is uploaded every frame: ask for the clips' frames as 'yuv420p', draw them with videoTexture (@shaderera/core/gpu) on host.gpu, and return GPU textures. See ${GPU_FOOTAGE}.`
-    : d.clips && d.rgba && d.gpu
-      ? `The film asks io.video for RGBA frames while it returns GPU layers: ask for 'yuv420p' and convert them with videoTexture (@shaderera/core/gpu), 1.5 bytes a pixel, not 4. See ${GPU_FOOTAGE}.`
-      : null
+export const footageFix = (d: Drawn): string | null => {
+  if (d.canvas && (d.clips || d.stills)) {
+    const opens = [d.clips && 'io.video clips', d.stills && 'io.image stills']
+    const fixes = [
+      d.clips &&
+        `ask for the clips' frames as 'yuv420p', draw them with videoTexture (@shaderera/core/gpu) on host.gpu`,
+      d.stills && 'upload each still once to a GPU texture',
+    ]
+    const size =
+      d.stills && d.unsized
+        ? ' io.image was asked for a still without a maxSize: give it the largest size the film draws the still, so a large still is not decoded at full size.'
+        : ''
+    return `The film opens ${opens.filter(Boolean).join(' and ')} and returns a canvas layer, which is uploaded every frame: ${fixes.filter(Boolean).join(', ')}, and return GPU textures.${size} See ${GPU_FOOTAGE}.`
+  }
+  return d.clips && d.rgba && d.gpu
+    ? `The film asks io.video for RGBA frames while it returns GPU layers: ask for 'yuv420p' and convert them with videoTexture (@shaderera/core/gpu), 1.5 bytes a pixel, not 4. See ${GPU_FOOTAGE}.`
+    : null
+}
 
 /**
  * The hint naming the host's part that sets the pace, or null. `drawn`, how the film drew on its
- * hosts: with clips or a canvas layer, the hint names the fast way to draw them (footageFix). While
- * the encoder is idle and no one part sets the pace (the io.video waits lead, or the parts are
+ * hosts: with clips, stills or a canvas layer, the hint names the fast way to draw them (footageFix).
+ * While the encoder is idle and no one part sets the pace (the io.video waits lead, or the parts are
  * even), a film that draws its footage the slow way still gets footageFix: it makes all three
  * smaller (#771).
  */
@@ -128,8 +141,10 @@ export const drawnOn = (hosts: readonly ({ drawn?: Drawn } | undefined)[]): Draw
             rgba: all.rgba || d.rgba,
             canvas: all.canvas || d.canvas,
             gpu: all.gpu || d.gpu,
+            stills: all.stills || d.stills,
+            unsized: all.unsized || d.unsized,
           }
         },
-        { clips: false, rgba: false, canvas: false, gpu: false },
+        { clips: false, rgba: false, canvas: false, gpu: false, stills: false, unsized: false },
       )
     : undefined

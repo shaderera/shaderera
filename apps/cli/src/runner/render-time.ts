@@ -39,17 +39,37 @@ export const footageAsked = (): FootageAsk[] => [...state.asked]
 
 /**
  * How the film drew since the host opened (#508): it opened io.video clips, asked for their frames
- * as RGBA, returned a canvas layer (uploaded every frame), returned a GPUTexture layer. `check` and
- * `render`'s frame-time advice name the fast way to draw footage from it.
+ * as RGBA, returned a canvas layer (uploaded every frame), returned a GPUTexture layer, opened
+ * io.image stills, asked for a still without a maxSize (#773). `check` and `render`'s frame-time
+ * advice name the fast way to draw footage and stills from it.
  */
-export type Drawn = { clips: boolean; rgba: boolean; canvas: boolean; gpu: boolean }
-const drawn: Drawn = { clips: false, rgba: false, canvas: false, gpu: false }
+export type Drawn = {
+  clips: boolean
+  rgba: boolean
+  canvas: boolean
+  gpu: boolean
+  stills: boolean
+  unsized: boolean
+}
+const drawn: Drawn = {
+  clips: false,
+  rgba: false,
+  canvas: false,
+  gpu: false,
+  stills: false,
+  unsized: false,
+}
 
 /** How the film drew so far (Drawn). */
 export const drawnSoFar = (): Drawn => ({ ...drawn })
 /** The film opened an io.video clip. */
 export const noteClip = () => {
   drawn.clips = true
+}
+/** The film opened an io.image still, with or without a `maxSize`. */
+export const noteStill = (maxSize: number | undefined) => {
+  drawn.stills = true
+  if (maxSize === undefined) drawn.unsized = true
 }
 /** The film asked for a clip's frame in `format`. */
 export const noteFootage = (format: string) => {
