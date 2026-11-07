@@ -324,6 +324,23 @@ test('render saves the revision it renders and tags the file; render --job saves
   assert.ok(existsSync(join(frozenCopy, 'shaderera.json')))
 })
 
+test('a render whose save fails closes its hosts and exits with the error (#770)', () => {
+  const bin = fileURLToPath(new URL('../../bin/shaderera.js', import.meta.url))
+  const root = copy('./fixtures/mcp/')
+  // A file where the revisions' objects folder goes: the save throws after the hosts opened.
+  mkdirSync(join(root, 'versions'))
+  writeFileSync(join(root, 'versions', 'objects'), '')
+  const r = spawnSync(
+    process.execPath,
+    [bin, 'render', '--root', root, '--out', join(root, 'out', 'film.mp4')],
+    { encoding: 'utf8', timeout: 60_000 },
+  )
+  assert.equal(r.error, undefined, 'the render did not exit')
+  assert.equal(r.status, 2, r.stderr)
+  assert.match(r.stderr, /EEXIST.*versions[\\/]objects/)
+  assert.equal(existsSync(join(root, 'out', 'film.mp4')), false)
+})
+
 test('after prune --keep 0, render --job and restore still work, and diff says the pruned one was', {
   skip: !ffmpeg && 'no ffmpeg',
 }, async () => {
