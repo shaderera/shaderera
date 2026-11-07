@@ -1,0 +1,25 @@
+{
+  "name": "composite-blend",
+  "type": "component",
+  "title": "Blend modes",
+  "description": "A layer over a base by a blend mode, one WebGPU pass: the W3C Compositing and Blending modes to the letter (multiply, screen, overlay, soft light, hue, luminosity…) plus add, with an amount, in display values or linear light; premultiplied out, CPU with the same values",
+  "category": "Rendering",
+  "tags": [
+    "blend",
+    "blend modes",
+    "composite",
+    "compositing",
+    "multiply",
+    "screen",
+    "overlay",
+    "soft light",
+    "linear dodge",
+    "texture",
+    "shader",
+    "wgsl"
+  ],
+  "version": "0.1.0",
+  "licence": "MIT",
+  "requires": { "items": { "render-canvas-texture": "^0.1.0", "render-srgb": "^0.1.0" } },
+  "files": ["src/composite/blend.ts", "src/composite/blend.wgsl.ts"]
+}
